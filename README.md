@@ -1,16 +1,17 @@
-# DocxEditor
+# OfficeEditor
 
-A modern .NET 9 library and CLI tool for creating and editing DOCX files via instruction sets (JSON/YAML) or a fluent C# API. Features markdown-to-docx conversion, variable detection, publipostage (mail merge), and rich content blocks.
+A modern .NET 9 suite for creating and editing Office documents (DOCX, PPTX, XLSX) via instruction sets (JSON/YAML) or fluent C# APIs. Features markdown conversion, variable detection, publipostage (mail merge), and rich content blocks across all formats.
 
 ## Features
 
-- **Create & Edit DOCX** - From scratch or existing documents
+- **Multi-Format Support** - Word (DOCX), PowerPoint (PPTX), Excel (XLSX)
+- **Create & Edit** - From scratch or existing documents
 - **Fluent C# API** - Chain methods for intuitive document building
 - **JSON/YAML Instructions** - Declarative document manipulation
-- **Markdown Support** - Convert markdown to styled Word documents
+- **Markdown Support** - Convert markdown to styled documents
 - **Variable Detection** - Find `{{variables}}` in templates
 - **Publipostage** - Batch generate documents from templates
-- **Rich Content** - Tables, lists, headings, blockquotes, code blocks
+- **Rich Content** - Tables, lists, headings, images, charts
 - **Style Preservation** - Maintains existing document styles
 - **Template Logic** - Conditionals and loops in templates
 
@@ -19,29 +20,35 @@ A modern .NET 9 library and CLI tool for creating and editing DOCX files via ins
 ### CLI
 
 ```bash
-# Create from markdown
-docxeditor markdown input.md output.docx --style-map styles.json
+# Create documents (auto-detects format from extension)
+officeeditor create output.docx --text "Hello World"
+officeeditor create output.pptx --title "My Presentation"
+officeeditor create output.xlsx --sheet "Sales"
 
-# Detect variables in template
-docxeditor detect template.docx
+# Detect variables in templates
+officeeditor detect template.docx
+officeeditor detect template.pptx
+officeeditor detect template.xlsx
 
 # Merge template with data
-docxeditor merge template.docx data.json output.docx
+officeeditor merge template.docx data.json output.docx
+officeeditor merge template.pptx data.json output.pptx
+officeeditor merge template.xlsx data.json output.xlsx
 
 # Edit with instructions
-docxeditor edit document.docx --instructions instructions.json
+officeeditor edit document.docx --instructions instructions.json
 ```
 
-### C# API
+### C# API - Word (DOCX)
 
 ```csharp
 using DocxEditor.Core.Builders;
-using DocxEditor.Core.Models;
 
-// Create document from markdown
+// Create document
 using var builder = DocumentBuilder.Create("output.docx");
+builder.AddParagraph("Hello World", "Heading1");
 builder.AddMarkdown("""
-    # Hello World
+    # Title
     
     This is **bold** and *italic* text.
     
@@ -53,182 +60,175 @@ builder.Save();
 // Edit existing document
 using var builder = DocumentBuilder.Open("template.docx");
 builder.ReplaceText("{{name}}", "John Doe");
-builder.AddParagraph("New paragraph", "Heading1");
-builder.Save();
-
-// Variable detection
-var variables = builder.DetectVariables();
-// Returns: [{ Name: "name", DefaultValue: null, Location: "body" }]
-
-// Mail merge
 builder.MergeVariables(new Dictionary<string, string>
 {
     ["clientName"] = "Acme Corp",
     ["date"] = "2024-01-01"
+});
+builder.Save();
+```
+
+### C# API - PowerPoint (PPTX)
+
+```csharp
+using PptxEditor.Core.Builders;
+
+// Create presentation
+using var builder = PresentationBuilder.Create("output.pptx");
+
+// Title slide
+builder.AddSlide();
+builder.CurrentSlide
+    .AddTitle("My Presentation")
+    .AddSubtitle("By John Doe");
+
+// Content slide
+builder.AddSlide();
+builder.CurrentSlide
+    .AddTitle("Agenda")
+    .AddBulletList(new[] { "Item 1", "Item 2", "Item 3" });
+
+// Slide with table
+builder.AddSlide();
+builder.CurrentSlide
+    .AddTitle("Sales Data")
+    .AddTable(new List<List<string>>
+    {
+        new() { "Product", "Q1", "Q2", "Q3" },
+        new() { "Widget", "100", "200", "150" }
+    });
+
+builder.Save();
+
+// Variable detection
+var variables = builder.DetectVariables();
+
+// Mail merge
+builder.MergeVariables(new Dictionary<string, string>
+{
+    ["company"] = "Acme Corp"
+});
+```
+
+### C# API - Excel (XLSX)
+
+```csharp
+using XlsxEditor.Core.Builders;
+
+// Create workbook
+using var builder = WorkbookBuilder.Create("output.xlsx");
+
+// Add worksheet with data
+var worksheet = builder.AddWorksheet("Sales");
+worksheet
+    .AddHeaderRow(new List<string> { "Product", "Q1", "Q2", "Q3", "Total" })
+    .AddDataRow(new List<string> { "Widget", "100", "200", "150" }, 2)
+    .AddDataRow(new List<string> { "Gadget", "50", "75", "100" }, 3)
+    .AddFormulaRow(new List<string> { "", "=SUM(B2:B3)", "=SUM(C2:C3)", "=SUM(D2:D3)" }, 4);
+
+// Add another worksheet
+var summary = builder.AddWorksheet("Summary");
+summary
+    .AddCell("A1", "Total Sales")
+    .AddCell("B1", "=SUM(Sales!B2:D10)", true);
+
+builder.Save();
+
+// Variable detection
+var variables = builder.DetectVariables();
+
+// Mail merge
+builder.MergeVariables(new Dictionary<string, string>
+{
+    ["reportDate"] = "2024-01-01"
 });
 ```
 
 ## Installation
 
 ```bash
+# Core libraries (pick what you need)
+dotnet add package OfficeEditor.Core
 dotnet add package DocxEditor.Core
+dotnet add package PptxEditor.Core
+dotnet add package XlsxEditor.Core
+
+# CLI tools
+dotnet tool install OfficeEditor.Cli
+dotnet tool install DocxEditor.Cli
 ```
 
 ## Project Structure
 
 ```
-DocxEditor/
-├── DocxEditor.Core/           # Core library
-│   ├── Builders/              # DocumentBuilder fluent API
-│   ├── Content/               # Content block rendering
-│   ├── Markdown/              # Markdown parser
-│   ├── Models/                # Data models
-│   ├── Serialization/         # JSON/YAML parsers
-│   ├── Variables/             # Variable detection & replacement
-│   └── Instructions/          # Instruction engine
-├── DocxEditor.Cli/            # CLI application
-└── DocxEditor.Tests/          # Unit tests
+OfficeEditor/
+├── OfficeEditor.Core/          # Shared abstractions
+│   ├── Models/                 # VariableInfo, StyleMapping
+│   ├── Variables/              # VariableDetector, VariableReplacer, TemplateEngine
+│   └── Exceptions/             # OfficeEditorException
+├── DocxEditor.Core/            # Word (DOCX)
+│   ├── Builders/               # DocumentBuilder fluent API
+│   ├── Content/                # Content block rendering
+│   ├── Markdown/               # Markdown parser
+│   ├── Models/                 # ContentBlocks, Instructions
+│   ├── Variables/              # DocxVariableDetector, DocxVariableReplacer
+│   └── Instructions/           # Instruction engine
+├── PptxEditor.Core/            # PowerPoint (PPTX)
+│   ├── Builders/               # PresentationBuilder, SlideBuilder
+│   └── Variables/              # PptxVariableDetector, PptxVariableReplacer
+├── XlsxEditor.Core/            # Excel (XLSX)
+│   ├── Builders/               # WorkbookBuilder, WorksheetBuilder
+│   └── Variables/              # XlsxVariableDetector, XlsxVariableReplacer
+├── OfficeEditor.Cli/           # Unified CLI (all formats)
+├── DocxEditor.Cli/             # Word-specific CLI
+└── DocxEditor.Tests/           # Unit tests (all formats)
 ```
 
 ## Core Concepts
 
-### Document Builder
-
-The `DocumentBuilder` is the main entry point for document manipulation:
-
-```csharp
-public interface IDocumentBuilder : IDisposable
-{
-    // Basic operations
-    IDocumentBuilder AddParagraph(string text, string? style = null);
-    IDocumentBuilder InsertAfter(string targetText, string text, string? style = null);
-    IDocumentBuilder InsertBefore(string targetText, string text, string? style = null);
-    IDocumentBuilder ReplaceText(string find, string replace);
-    IDocumentBuilder ReplaceParagraph(string targetText, string newText, string? style = null);
-    IDocumentBuilder DeleteParagraph(string targetText);
-    IDocumentBuilder ApplyStyle(string styleId);
-    
-    // Rich content
-    IDocumentBuilder AddRichContent(List<ContentBlock> blocks);
-    IDocumentBuilder ReplaceWithRichContent(string targetText, List<ContentBlock> blocks);
-    
-    // Markdown
-    IDocumentBuilder AddMarkdown(string markdown, StyleMapping? styleMap = null);
-    IDocumentBuilder ReplaceWithMarkdown(string targetText, string markdown, StyleMapping? styleMap = null);
-    
-    // Variables
-    List<VariableInfo> DetectVariables();
-    IDocumentBuilder MergeVariables(Dictionary<string, string> data);
-    
-    // Publipostage
-    void MergeBatch(List<Dictionary<string, string>> records, string outputPattern, string? templatePath = null);
-    
-    void Save(string? path = null);
-}
-```
-
-### Content Blocks
-
-Build structured content programmatically:
-
-```csharp
-var blocks = new ContentBlockBuilder()
-    .AddHeading(1, "Document Title", "CustomTitle")
-    .AddParagraph("Introduction paragraph")
-    .AddList(false, new[] { "Bullet 1", "Bullet 2" })
-    .AddTable(new[] {
-        new[] { "Header 1", "Header 2" },
-        new[] { "Cell 1", "Cell 2" }
-    })
-    .AddCode("var x = 1;", "csharp")
-    .AddBlockquote("Important quote")
-    .Build();
-
-builder.AddRichContent(blocks);
-```
-
-### Markdown Conversion
-
-Convert markdown with custom style mapping:
-
-```markdown
-# Title (Heading 1)
-## Subtitle (Heading 2)
-
-Normal paragraph with **bold** and *italic* text.
-
-- Bullet item
-- Another item
-
-1. Numbered item
-2. Another item
-
-> Blockquote
-
-| Column 1 | Column 2 |
-|----------|----------|
-| Cell 1   | Cell 2   |
-
-:::tip
-This maps to "Tip" style
-:::
-
-:::warning
-This maps to "Warning" style
-:::
-```
-
-```csharp
-var styleMap = new StyleMapping
-{
-    StyleMap = new Dictionary<string, string>
-    {
-        ["heading1"] = "CustomTitle",
-        ["heading2"] = "CustomSubtitle",
-        ["paragraph"] = "Normal",
-        ["tip"] = "Tip",
-        ["warning"] = "Warning"
-    }
-};
-
-builder.AddMarkdown(markdown, styleMap);
-```
-
 ### Variable Detection
 
-Detect variables in templates:
+Detect variables in templates across all formats:
 
 ```csharp
-// Template contains: "Hello {{name}} and {{company|Unknown}}"
-var variables = builder.DetectVariables();
-// Returns:
-// [
-//   { Name: "name", FullMatch: "{{name}}", Location: "body" },
-//   { Name: "company", FullMatch: "{{company|Unknown}}", Location: "body", DefaultValue: "Unknown" }
-// ]
+// Word
+using var docx = DocumentBuilder.Open("template.docx");
+var variables = docx.DetectVariables();
+
+// PowerPoint
+using var pptx = PresentationBuilder.Open("template.pptx");
+var variables = pptx.DetectVariables();
+
+// Excel
+using var xlsx = WorkbookBuilder.Open("template.xlsx");
+var variables = xlsx.DetectVariables();
+```
+
+All return `List<VariableInfo>`:
+```csharp
+public record VariableInfo
+{
+    public required string Name { get; init; }
+    public required string FullMatch { get; init; }
+    public required string Location { get; init; }
+    public string? DefaultValue { get; init; }
+}
 ```
 
 ### Publipostage (Mail Merge)
 
-Replace variables with data:
+Replace variables with data across all formats:
 
 ```csharp
-// Single document
-builder.MergeVariables(new Dictionary<string, string>
+var data = new Dictionary<string, string>
 {
     ["name"] = "John Doe",
-    ["company"] = "Acme Corp"
-});
-
-// Batch generation
-var records = new List<Dictionary<string, string>>
-{
-    new() { ["name"] = "Alice", ["company"] = "Corp A" },
-    new() { ["name"] = "Bob", ["company"] = "Corp B" }
+    ["company"] = "Acme Corp",
+    ["date"] = "2024-01-01"
 };
 
-builder.MergeBatch(records, "output_{name}.docx", "template.docx");
-// Creates: output_Alice.docx, output_Bob.docx
+// Works for DOCX, PPTX, XLSX
+builder.MergeVariables(data);
 ```
 
 ### Template Logic
@@ -261,74 +261,85 @@ var data = new Dictionary<string, object>
     }
 };
 
-var engine = new TemplateEngine();
+// Format-specific template engines
+var engine = new DocxTemplateEngine();  // or PptxTemplateEngine, XlsxTemplateEngine
 engine.Process(document, data);
-```
-
-### Instruction Sets
-
-Execute batch operations via JSON/YAML:
-
-```json
-{
-  "operations": [
-    { "type": "addParagraph", "text": "Hello World", "style": "Heading1" },
-    { "type": "replaceText", "find": "{{NAME}}", "replace": "John" },
-    { "type": "insertAfter", "target": "Introduction", "content": { "text": "New section" } }
-  ]
-}
-```
-
-```csharp
-var parser = new JsonInstructionParser();
-var instructions = parser.Parse(json);
-
-var engine = new InstructionEngine();
-engine.Execute(builder, instructions);
 ```
 
 ## CLI Commands
 
+### Unified CLI (`officeeditor`)
+
 | Command | Description |
 |---------|-------------|
-| `create` | Create new document |
+| `create` | Create new document (auto-detects format) |
 | `edit` | Edit with instructions |
-| `template` | Create from template |
-| `validate` | Validate instruction file |
 | `detect` | List variables in template |
 | `merge` | Merge template with data |
-| `markdown` | Convert markdown to docx |
 
 ```bash
-# Examples
-docxeditor create output.docx --text "Hello" --style Heading1
-docxeditor edit doc.docx --instructions ops.json
-docxeditor template tpl.docx out.docx --instructions ops.yaml
-docxeditor detect template.docx
-docxeditor merge template.docx data.json "output_{client}.docx"
-docxeditor markdown input.md output.docx --style-map styles.json
+# Create documents
+officeeditor create report.docx --text "Annual Report" --style Heading1
+officeeditor create slides.pptx --title "Q4 Review"
+officeeditor create data.xlsx --sheet "Sales"
+
+# Detect variables
+officeeditor detect template.docx
+officeeditor detect template.pptx
+officeeditor detect template.xlsx
+
+# Merge with data
+officeeditor merge template.docx data.json output.docx
+officeeditor merge template.pptx data.json output.pptx
+officeeditor merge template.xlsx data.json output.xlsx
+```
+
+### Format-Specific CLIs
+
+```bash
+# Word
+docxeditor create output.docx --text "Hello"
+docxeditor edit input.docx --instructions ops.json
+docxeditor markdown input.md output.docx
+
+# PowerPoint (via unified CLI)
+officeeditor create output.pptx --title "My Presentation"
+
+# Excel (via unified CLI)
+officeeditor create output.xlsx --sheet "Sheet1"
 ```
 
 ## Architecture
 
-### Instruction Pattern
-All document operations are modeled as immutable instruction objects executed by the `InstructionEngine`.
+### Shared Components (OfficeEditor.Core)
 
-### Builder Pattern
-Fluent API for composing operations with method chaining.
+- **VariableInfo** - Immutable record for variable metadata
+- **StyleMapping** - Maps markdown elements to document styles
+- **VariableDetector** - Generic regex-based variable scanning
+- **VariableReplacer** - Generic text replacement engine
+- **TemplateEngine** - Format-agnostic conditionals and loops
+- **OfficeEditorException** - Base exception type
 
-### Style Preservation
-When editing existing documents:
-- Loads and caches all existing styles
-- Never mutates original style definitions
-- References styles by ID when adding content
-- Preserves document defaults
+### Format-Specific Implementations
+
+Each format has its own Core project that references OfficeEditor.Core:
+
+- **DocxEditor.Core** - WordprocessingDocument, Body, Paragraph, Run
+- **PptxEditor.Core** - PresentationDocument, Slide, ShapeTree
+- **XlsxEditor.Core** - SpreadsheetDocument, Worksheet, SheetData
+
+### Design Patterns
+
+- **Instruction Pattern** - All operations modeled as immutable instruction objects
+- **Builder Pattern** - Fluent API with method chaining
+- **Strategy Pattern** - Format-specific variable detection/replacement
+- **Repository Pattern** - Abstract document storage
 
 ## Dependencies
 
 - **.NET 9**
 - **DocumentFormat.OpenXml** - Microsoft OpenXML SDK
-- **Markdig** - Markdown parser
+- **Markdig** - Markdown parser (DOCX only)
 - **YamlDotNet** - YAML parser
 - **Spectre.Console** - CLI output (optional)
 
@@ -338,16 +349,18 @@ When editing existing documents:
 dotnet test
 ```
 
-25+ unit tests covering:
-- Document creation and manipulation
+41+ unit tests covering:
+- Document creation and manipulation (DOCX, PPTX, XLSX)
 - Content block rendering
 - Markdown conversion
 - Variable detection and replacement
 - Serialization
+- Slide management (PPTX)
+- Worksheet operations (XLSX)
 
 ## License
 
-MIT
+MIT - Copyright 2026 Maxime Le Besnerais
 
 ## Contributing
 
@@ -359,4 +372,4 @@ MIT
 
 ## Author
 
-**Maxime** - maxime.le-besnerais@epitech.eu
+**Maxime Le Besnerais**
