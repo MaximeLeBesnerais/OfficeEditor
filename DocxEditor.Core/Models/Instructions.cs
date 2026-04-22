@@ -24,6 +24,27 @@ public record AddParagraphInstruction : Instruction
     public string? Style { get; init; }
 }
 
+public record AddRichContentInstruction : Instruction
+{
+    public AddRichContentInstruction()
+    {
+        Type = "addRichContent";
+    }
+
+    public required List<ContentBlock> Blocks { get; init; }
+}
+
+public record ReplaceWithRichContentInstruction : Instruction
+{
+    public ReplaceWithRichContentInstruction()
+    {
+        Type = "replaceWithRichContent";
+    }
+
+    public required string Target { get; init; }
+    public required List<ContentBlock> Blocks { get; init; }
+}
+
 public record ReplaceTextInstruction : Instruction
 {
     public ReplaceTextInstruction()

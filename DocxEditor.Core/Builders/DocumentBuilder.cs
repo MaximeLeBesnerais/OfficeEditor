@@ -1,5 +1,7 @@
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
+using DocxEditor.Core.Content;
+using DocxEditor.Core.Models;
 
 namespace DocxEditor.Core.Builders;
 
@@ -12,6 +14,22 @@ public interface IDocumentBuilder : IDisposable
     IDocumentBuilder ReplaceParagraph(string targetText, string newText, string? style = null);
     IDocumentBuilder DeleteParagraph(string targetText);
     IDocumentBuilder ApplyStyle(string styleId);
+    
+    // Rich content
+    IDocumentBuilder AddRichContent(List<ContentBlock> blocks);
+    IDocumentBuilder ReplaceWithRichContent(string targetText, List<ContentBlock> blocks);
+    
+    // Markdown
+    IDocumentBuilder AddMarkdown(string markdown, StyleMapping? styleMap = null);
+    IDocumentBuilder ReplaceWithMarkdown(string targetText, string markdown, StyleMapping? styleMap = null);
+    
+    // Variables
+    List<VariableInfo> DetectVariables();
+    IDocumentBuilder MergeVariables(Dictionary<string, string> data);
+    
+    // Publipostage
+    void MergeBatch(List<Dictionary<string, string>> records, string outputPattern, string? templatePath = null);
+    
     void Save(string? path = null);
 }
 
@@ -215,6 +233,119 @@ public class DocumentBuilder : IDocumentBuilder
         }
 
         return styles;
+    }
+
+    public IDocumentBuilder AddRichContent(List<ContentBlock> blocks)
+    {
+        var renderer = new ContentBlockRenderer(StyleMapping.Default, _cachedStyles);
+        renderer.Render(_body, blocks);
+        return this;
+    }
+
+    public IDocumentBuilder ReplaceWithRichContent(string targetText, List<ContentBlock> blocks)
+    {
+        var targetParagraph = FindParagraphByText(targetText);
+        if (targetParagraph == null)
+        {
+            throw new InvalidOperationException($"Paragraph containing '{targetText}' not found.");
+        }
+
+        var renderer = new ContentBlockRenderer(StyleMapping.Default, _cachedStyles);
+        
+        // Remove target paragraph and insert rich content before its position
+        var parent = targetParagraph.Parent;
+        if (parent != null)
+        {
+            // Create a temporary body to render blocks
+            var tempBody = new Body();
+            renderer.Render(tempBody, blocks);
+            
+            // Insert all rendered elements after target paragraph
+            foreach (var element in tempBody.Elements().ToList())
+            {
+                parent.InsertAfter(element.CloneNode(true), targetParagraph);
+            }
+            
+            targetParagraph.Remove();
+        }
+
+        return this;
+    }
+
+    public IDocumentBuilder AddMarkdown(string markdown, StyleMapping? styleMap = null)
+    {
+        var parser = new Markdown.MarkdownParser();
+        var blocks = parser.Parse(markdown, styleMap);
+        return AddRichContent(blocks);
+    }
+
+    public IDocumentBuilder ReplaceWithMarkdown(string targetText, string markdown, StyleMapping? styleMap = null)
+    {
+        var parser = new Markdown.MarkdownParser();
+        var blocks = parser.Parse(markdown, styleMap);
+        return ReplaceWithRichContent(targetText, blocks);
+    }
+
+    public List<VariableInfo> DetectVariables()
+    {
+        var detector = new Variables.VariableDetector();
+        return detector.Scan(_document);
+    }
+
+    public IDocumentBuilder MergeVariables(Dictionary<string, string> data)
+    {
+        var replacer = new Variables.VariableReplacer();
+        replacer.Replace(_document, data);
+        return this;
+    }
+
+    public void MergeBatch(List<Dictionary<string, string>> records, string outputPattern, string? templatePath = null)
+    {
+        // Use provided template path or try to get from document
+        var originalPath = templatePath ?? GetDocumentPath();
+        
+        if (string.IsNullOrEmpty(originalPath))
+        {
+            throw new InvalidOperationException("Document path not available. Please provide templatePath parameter.");
+        }
+        
+        for (int i = 0; i < records.Count; i++)
+        {
+            // Create a copy of the original document
+            var outputPath = outputPattern.Replace("{index}", i.ToString());
+            foreach (var kvp in records[i])
+            {
+                outputPath = outputPath.Replace($"{{{kvp.Key}}}", kvp.Value);
+            }
+            
+            File.Copy(originalPath, outputPath, true);
+            
+            using var doc = WordprocessingDocument.Open(outputPath, true);
+            var replacer = new Variables.VariableReplacer();
+            replacer.Replace(doc, records[i]);
+            doc.Save();
+        }
+    }
+
+    private string? GetDocumentPath()
+    {
+        // Try to get the file path from the document
+        if (_document.MainDocumentPart != null)
+        {
+            // Access the package path through reflection or other means
+            var packageType = _document.GetType();
+            var packageProperty = packageType.GetProperty("Package");
+            if (packageProperty != null)
+            {
+                var package = packageProperty.GetValue(_document);
+                if (package != null)
+                {
+                    var fileNameProperty = package.GetType().GetProperty("FileName");
+                    return fileNameProperty?.GetValue(package)?.ToString();
+                }
+            }
+        }
+        return null;
     }
 
     public void Dispose()
