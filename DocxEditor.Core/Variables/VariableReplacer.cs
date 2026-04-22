@@ -76,7 +76,13 @@ public class VariableReplacer
                 return value;
             }
             
-            return defaultValue ?? match.Value; // Keep original if no data and no default
+            // If no data provided, use default value if available
+            if (!string.IsNullOrEmpty(defaultValue))
+            {
+                return defaultValue;
+            }
+            
+            return match.Value; // Keep original if no data and no default
         });
     }
 }
