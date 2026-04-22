@@ -1,5 +1,5 @@
 using DocxEditor.Core.Builders;
-using DocxEditor.Core.Models;
+using OfficeEditor.Core.Models;
 using DocumentFormat.OpenXml.Packaging;
 
 namespace DocxEditor.Tests.Unit;

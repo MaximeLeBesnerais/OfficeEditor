@@ -2,6 +2,7 @@ using Markdig;
 using Markdig.Syntax;
 using Markdig.Syntax.Inlines;
 using DocxEditor.Core.Models;
+using OfficeEditor.Core.Models;
 
 namespace DocxEditor.Core.Markdown;
 

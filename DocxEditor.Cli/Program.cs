@@ -3,6 +3,7 @@ using DocxEditor.Core.Builders;
 using DocxEditor.Core.Instructions;
 using DocxEditor.Core.Models;
 using DocxEditor.Core.Serialization;
+using OfficeEditor.Core.Models;
 using Spectre.Console;
 
 namespace DocxEditor.Cli;
@@ -274,12 +275,12 @@ class Program
         var styleMapPath = GetArgumentValue(args, "--style-map");
 
         var markdown = File.ReadAllText(inputPath);
-        StyleMapping? styleMap = null;
+        OfficeEditor.Core.Models.StyleMapping? styleMap = null;
 
         if (!string.IsNullOrEmpty(styleMapPath))
         {
             var styleJson = File.ReadAllText(styleMapPath);
-            styleMap = JsonSerializer.Deserialize<StyleMapping>(styleJson);
+            styleMap = JsonSerializer.Deserialize<OfficeEditor.Core.Models.StyleMapping>(styleJson);
         }
 
         AnsiConsole.Status()
@@ -300,12 +301,12 @@ class Program
         if (path.EndsWith(".yaml", StringComparison.OrdinalIgnoreCase) || 
             path.EndsWith(".yml", StringComparison.OrdinalIgnoreCase))
         {
-            var parser = new YamlInstructionParser();
+            var parser = new DocxYamlInstructionParser();
             return parser.Parse(content);
         }
         else
         {
-            var parser = new JsonInstructionParser();
+            var parser = new DocxJsonInstructionParser();
             return parser.Parse(content);
         }
     }

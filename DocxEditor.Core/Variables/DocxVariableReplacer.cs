@@ -5,7 +5,7 @@ using DocumentFormat.OpenXml.Wordprocessing;
 
 namespace DocxEditor.Core.Variables;
 
-public class VariableReplacer
+public class DocxVariableReplacer
 {
     private static readonly Regex VariablePattern = new(
         @"\{\{([^}|]+)(?:\|([^}]*))?\}\}",

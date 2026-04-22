@@ -24,7 +24,7 @@ public class SerializationTests
             ]
         }";
 
-        var parser = new JsonInstructionParser();
+        var parser = new DocxJsonInstructionParser();
 
         // Act
         var instructions = parser.Parse(json);
@@ -57,7 +57,7 @@ operations:
     replace: John
 ";
 
-        var parser = new YamlInstructionParser();
+        var parser = new DocxYamlInstructionParser();
 
         // Act
         var instructions = parser.Parse(yaml);
@@ -73,7 +73,7 @@ operations:
     {
         // Arrange
         var json = "invalid json";
-        var parser = new JsonInstructionParser();
+        var parser = new DocxJsonInstructionParser();
 
         // Act & Assert
         Assert.ThrowsAny<Exception>(() => parser.Parse(json));
@@ -91,7 +91,7 @@ operations:
             ]
         }";
 
-        var parser = new JsonInstructionParser();
+        var parser = new DocxJsonInstructionParser();
 
         // Act & Assert
         Assert.Throws<NotSupportedException>(() => parser.Parse(json));

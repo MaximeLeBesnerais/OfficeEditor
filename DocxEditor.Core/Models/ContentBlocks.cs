@@ -1,3 +1,5 @@
+using OfficeEditor.Core.Models;
+
 namespace DocxEditor.Core.Models;
 
 public abstract record ContentBlock

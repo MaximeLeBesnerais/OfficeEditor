@@ -1,28 +1,26 @@
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using DocxEditor.Core.Models;
+using YamlDotNet.Serialization;
+using YamlDotNet.Serialization.NamingConventions;
 
 namespace DocxEditor.Core.Serialization;
 
-public class JsonInstructionParser
+public class DocxYamlInstructionParser
 {
-    private readonly JsonSerializerOptions _options;
+    private readonly IDeserializer _deserializer;
 
-    public JsonInstructionParser()
+    public DocxYamlInstructionParser()
     {
-        _options = new JsonSerializerOptions
-        {
-            PropertyNameCaseInsensitive = true,
-            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
-        };
+        _deserializer = new DeserializerBuilder()
+            .WithNamingConvention(CamelCaseNamingConvention.Instance)
+            .Build();
     }
 
-    public DocumentInstructions Parse(string json)
+    public DocumentInstructions Parse(string yaml)
     {
-        var wrapper = JsonSerializer.Deserialize<JsonInstructionWrapper>(json, _options);
+        var wrapper = _deserializer.Deserialize<YamlInstructionWrapper>(yaml);
         if (wrapper?.Operations == null)
         {
-            throw new ArgumentException("Invalid JSON instruction file.");
+            throw new ArgumentException("Invalid YAML instruction file.");
         }
 
         var instructions = new List<Instruction>();
@@ -34,7 +32,7 @@ public class JsonInstructionParser
         return new DocumentInstructions { Operations = instructions };
     }
 
-    private Instruction ParseInstruction(JsonInstructionDto dto)
+    private Instruction ParseInstruction(YamlInstructionDto dto)
     {
         return dto.Type?.ToLowerInvariant() switch
         {
@@ -58,12 +56,12 @@ public class JsonInstructionParser
         };
     }
 
-    private class JsonInstructionWrapper
+    private class YamlInstructionWrapper
     {
-        public List<JsonInstructionDto>? Operations { get; set; }
+        public List<YamlInstructionDto>? Operations { get; set; }
     }
 
-    private class JsonInstructionDto
+    private class YamlInstructionDto
     {
         public string? Type { get; set; }
         public string? Text { get; set; }
