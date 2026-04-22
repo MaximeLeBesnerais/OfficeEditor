@@ -2,11 +2,11 @@ using System.Text.RegularExpressions;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
-using DocxEditor.Core.Models;
+using OfficeEditor.Core.Models;
 
 namespace DocxEditor.Core.Variables;
 
-public class VariableDetector
+public class DocxVariableDetector
 {
     private static readonly Regex VariablePattern = new(
         @"\{\{([^}|]+)(?:\|([^}]*))?\}\}",

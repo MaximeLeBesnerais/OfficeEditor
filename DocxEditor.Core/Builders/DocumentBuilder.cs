@@ -2,6 +2,7 @@ using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using DocxEditor.Core.Content;
 using DocxEditor.Core.Models;
+using OfficeEditor.Core.Models;
 
 namespace DocxEditor.Core.Builders;
 
@@ -288,13 +289,13 @@ public class DocumentBuilder : IDocumentBuilder
 
     public List<VariableInfo> DetectVariables()
     {
-        var detector = new Variables.VariableDetector();
+        var detector = new Variables.DocxVariableDetector();
         return detector.Scan(_document);
     }
 
     public IDocumentBuilder MergeVariables(Dictionary<string, string> data)
     {
-        var replacer = new Variables.VariableReplacer();
+        var replacer = new Variables.DocxVariableReplacer();
         replacer.Replace(_document, data);
         return this;
     }
@@ -321,7 +322,7 @@ public class DocumentBuilder : IDocumentBuilder
             File.Copy(originalPath, outputPath, true);
             
             using var doc = WordprocessingDocument.Open(outputPath, true);
-            var replacer = new Variables.VariableReplacer();
+            var replacer = new Variables.DocxVariableReplacer();
             replacer.Replace(doc, records[i]);
             doc.Save();
         }

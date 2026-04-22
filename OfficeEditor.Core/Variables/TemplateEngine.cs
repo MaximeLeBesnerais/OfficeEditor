@@ -1,9 +1,6 @@
 using System.Text.RegularExpressions;
-using DocumentFormat.OpenXml;
-using DocumentFormat.OpenXml.Packaging;
-using DocumentFormat.OpenXml.Wordprocessing;
 
-namespace DocxEditor.Core.Variables;
+namespace OfficeEditor.Core.Variables;
 
 public class TemplateEngine
 {
@@ -23,41 +20,15 @@ public class TemplateEngine
         @"^(\w+)\s*([\u003e\u003c=!]+)\s*(.+)$",
         RegexOptions.Compiled);
 
-    public void Process(WordprocessingDocument document, Dictionary<string, object> data)
+    public string Process(string text, Dictionary<string, object> data)
     {
-        var body = document.MainDocumentPart?.Document.Body;
-        if (body != null)
-        {
-            ProcessElement(body, data);
-        }
-    }
-
-    private void ProcessElement(OpenXmlElement element, Dictionary<string, object> data)
-    {
-        var paragraphs = element.Descendants<Paragraph>().ToList();
-        
-        foreach (var paragraph in paragraphs)
-        {
-            var text = paragraph.InnerText;
-            
-            // Process conditionals
-            text = ProcessConditionals(text, data);
-            
-            // Process loops
-            text = ProcessLoops(text, data);
-            
-            // Update paragraph text
-            if (text != paragraph.InnerText)
-            {
-                paragraph.RemoveAllChildren<Run>();
-                paragraph.Append(new Run(new Text(text)));
-            }
-        }
+        text = ProcessConditionals(text, data);
+        text = ProcessLoops(text, data);
+        return text;
     }
 
     private string ProcessConditionals(string text, Dictionary<string, object> data)
     {
-        // Process {{#if}} blocks
         text = IfPattern.Replace(text, match =>
         {
             var condition = match.Groups[1].Value.Trim();
@@ -66,7 +37,6 @@ public class TemplateEngine
             return EvaluateCondition(condition, data) ? content : string.Empty;
         });
 
-        // Process {{#ifnot}} blocks
         text = IfNotPattern.Replace(text, match =>
         {
             var condition = match.Groups[1].Value.Trim();
@@ -106,7 +76,6 @@ public class TemplateEngine
 
     private bool EvaluateCondition(string condition, Dictionary<string, object> data)
     {
-        // Check for comparison operators
         var comparisonMatch = ComparisonPattern.Match(condition);
         if (comparisonMatch.Success)
         {
@@ -133,7 +102,6 @@ public class TemplateEngine
             return false;
         }
 
-        // Simple boolean check
         if (data.TryGetValue(condition, out var value))
         {
             if (value is bool boolValue)
@@ -150,13 +118,11 @@ public class TemplateEngine
 
     private int CompareValues(string left, string right)
     {
-        // Try numeric comparison first
         if (double.TryParse(left, out var leftNum) && double.TryParse(right, out var rightNum))
         {
             return leftNum.CompareTo(rightNum);
         }
         
-        // Fall back to string comparison
         return string.Compare(left, right, StringComparison.Ordinal);
     }
 }

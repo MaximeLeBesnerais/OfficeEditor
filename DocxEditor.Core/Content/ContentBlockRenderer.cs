@@ -1,6 +1,7 @@
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using DocxEditor.Core.Models;
+using OfficeEditor.Core.Models;
 
 namespace DocxEditor.Core.Content;
 
