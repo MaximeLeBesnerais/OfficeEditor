@@ -1,4 +1,4 @@
-namespace DocxEditor.Core.Models;
+namespace OfficeEditor.Core.Models;
 
 public class StyleMapping
 {

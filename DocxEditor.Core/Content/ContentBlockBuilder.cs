@@ -1,4 +1,3 @@
-using DocumentFormat.OpenXml.Wordprocessing;
 using DocxEditor.Core.Models;
 
 namespace DocxEditor.Core.Content;
