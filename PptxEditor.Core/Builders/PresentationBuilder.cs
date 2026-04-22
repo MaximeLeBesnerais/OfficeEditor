@@ -23,6 +23,7 @@ public interface IPresentationBuilder : IDisposable
     // Variables
     List<VariableInfo> DetectVariables();
     IPresentationBuilder MergeVariables(Dictionary<string, string> data);
+    IPresentationBuilder ProcessTemplate(Dictionary<string, object> data);
     
     // Anatomizer
     List<SlideAnatomy> Analyze();
@@ -239,6 +240,13 @@ public class PresentationBuilder : IPresentationBuilder
     {
         var replacer = new Variables.PptxVariableReplacer();
         replacer.Replace(_document, data);
+        return this;
+    }
+
+    public IPresentationBuilder ProcessTemplate(Dictionary<string, object> data)
+    {
+        var engine = new Variables.PptxTemplateEngine();
+        engine.Process(_document, data);
         return this;
     }
 
