@@ -3,7 +3,7 @@ using DocumentFormat.OpenXml.Wordprocessing;
 
 namespace DocxEditor.Core.Builders;
 
-public interface IDocumentBuilder
+public interface IDocumentBuilder : IDisposable
 {
     IDocumentBuilder AddParagraph(string text, string? style = null);
     IDocumentBuilder InsertAfter(string targetText, string text, string? style = null);
@@ -33,6 +33,7 @@ public class DocumentBuilder : IDocumentBuilder
         mainPart.Document = new Document();
         var body = new Body();
         mainPart.Document.Append(body);
+        mainPart.Document.Save();
         
         return new DocumentBuilder(document, true);
     }
