@@ -1,0 +1,12 @@
+/home/ubuntu/perso/open-worder/DocxEditor.Core/obj/Debug/net9.0/DocxEditor.Core.csproj.AssemblyReference.cache
+/home/ubuntu/perso/open-worder/DocxEditor.Core/obj/Debug/net9.0/DocxEditor.Core.GeneratedMSBuildEditorConfig.editorconfig
+/home/ubuntu/perso/open-worder/DocxEditor.Core/obj/Debug/net9.0/DocxEditor.Core.AssemblyInfoInputs.cache
+/home/ubuntu/perso/open-worder/DocxEditor.Core/obj/Debug/net9.0/DocxEditor.Core.AssemblyInfo.cs
+/home/ubuntu/perso/open-worder/DocxEditor.Core/obj/Debug/net9.0/DocxEditor.Core.csproj.CoreCompileInputs.cache
+/home/ubuntu/perso/open-worder/DocxEditor.Core/bin/Debug/net9.0/DocxEditor.Core.deps.json
+/home/ubuntu/perso/open-worder/DocxEditor.Core/bin/Debug/net9.0/DocxEditor.Core.dll
+/home/ubuntu/perso/open-worder/DocxEditor.Core/bin/Debug/net9.0/DocxEditor.Core.pdb
+/home/ubuntu/perso/open-worder/DocxEditor.Core/obj/Debug/net9.0/DocxEditor.Core.dll
+/home/ubuntu/perso/open-worder/DocxEditor.Core/obj/Debug/net9.0/refint/DocxEditor.Core.dll
+/home/ubuntu/perso/open-worder/DocxEditor.Core/obj/Debug/net9.0/DocxEditor.Core.pdb
+/home/ubuntu/perso/open-worder/DocxEditor.Core/obj/Debug/net9.0/ref/DocxEditor.Core.dll
