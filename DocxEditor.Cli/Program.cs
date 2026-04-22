@@ -1,5 +1,7 @@
+using System.Text.Json;
 using DocxEditor.Core.Builders;
 using DocxEditor.Core.Instructions;
+using DocxEditor.Core.Models;
 using DocxEditor.Core.Serialization;
 using Spectre.Console;
 
@@ -33,6 +35,15 @@ class Program
                 case "validate":
                     HandleValidate(args);
                     break;
+                case "detect":
+                    HandleDetect(args);
+                    break;
+                case "merge":
+                    HandleMerge(args);
+                    break;
+                case "markdown":
+                    HandleMarkdown(args);
+                    break;
                 default:
                     AnsiConsole.MarkupLine("[red]Unknown command.[/]");
                     ShowHelp();
@@ -55,6 +66,9 @@ class Program
         AnsiConsole.WriteLine("  docxeditor edit <input.docx> --instructions <file.json|file.yaml>");
         AnsiConsole.WriteLine("  docxeditor template <template.docx> <output.docx> --instructions <file.json|file.yaml>");
         AnsiConsole.WriteLine("  docxeditor validate <instructions.json|instructions.yaml>");
+        AnsiConsole.WriteLine("  docxeditor detect <template.docx>");
+        AnsiConsole.WriteLine("  docxeditor merge <template.docx> <data.json> <output.docx>");
+        AnsiConsole.WriteLine("  docxeditor markdown <input.md> <output.docx> [--style-map styles.json]");
     }
 
     static void HandleCreate(string[] args)
@@ -163,6 +177,120 @@ class Program
         {
             AnsiConsole.MarkupLine($"[red]Invalid instructions file: {ex.Message}[/]");
         }
+    }
+
+    static void HandleDetect(string[] args)
+    {
+        if (args.Length < 2)
+        {
+            AnsiConsole.MarkupLine("[red]Document path is required.[/]");
+            return;
+        }
+
+        var documentPath = args[1];
+
+        AnsiConsole.Status()
+            .Start("Scanning for variables...", ctx =>
+            {
+                using var builder = DocumentBuilder.Open(documentPath);
+                var variables = builder.DetectVariables();
+                
+                if (variables.Count == 0)
+                {
+                    AnsiConsole.MarkupLine("[yellow]No variables found in document.[/]");
+                    return;
+                }
+
+                AnsiConsole.MarkupLine($"[green]Found {variables.Count} variables:[/]");
+                
+                var table = new Table();
+                table.AddColumn("Variable");
+                table.AddColumn("Default Value");
+                table.AddColumn("Location");
+
+                foreach (var variable in variables)
+                {
+                    table.AddRow(
+                        variable.Name,
+                        variable.DefaultValue ?? "(none)",
+                        variable.Location
+                    );
+                }
+
+                AnsiConsole.Write(table);
+            });
+    }
+
+    static void HandleMerge(string[] args)
+    {
+        if (args.Length < 4)
+        {
+            AnsiConsole.MarkupLine("[red]Template file, data file, and output pattern are required.[/]");
+            return;
+        }
+
+        var templatePath = args[1];
+        var dataPath = args[2];
+        var outputPattern = args[3];
+
+        var json = File.ReadAllText(dataPath);
+        var data = JsonSerializer.Deserialize<Dictionary<string, string>>(json);
+
+        if (data == null)
+        {
+            AnsiConsole.MarkupLine("[red]Invalid data file.[/]");
+            return;
+        }
+
+        AnsiConsole.Status()
+            .Start("Merging variables...", ctx =>
+            {
+                var outputPath = outputPattern;
+                foreach (var kvp in data)
+                {
+                    outputPath = outputPath.Replace($"{{{kvp.Key}}}", kvp.Value);
+                }
+
+                File.Copy(templatePath, outputPath, true);
+                
+                using var builder = DocumentBuilder.Open(outputPath);
+                builder.MergeVariables(data);
+                builder.Save();
+
+                AnsiConsole.MarkupLine($"[green]Document merged: {outputPath}[/]");
+            });
+    }
+
+    static void HandleMarkdown(string[] args)
+    {
+        if (args.Length < 3)
+        {
+            AnsiConsole.MarkupLine("[red]Input markdown file and output docx file are required.[/]");
+            return;
+        }
+
+        var inputPath = args[1];
+        var outputPath = args[2];
+        var styleMapPath = GetArgumentValue(args, "--style-map");
+
+        var markdown = File.ReadAllText(inputPath);
+        StyleMapping? styleMap = null;
+
+        if (!string.IsNullOrEmpty(styleMapPath))
+        {
+            var styleJson = File.ReadAllText(styleMapPath);
+            styleMap = JsonSerializer.Deserialize<StyleMapping>(styleJson);
+        }
+
+        AnsiConsole.Status()
+            .Start("Converting markdown...", ctx =>
+            {
+                using var builder = DocumentBuilder.Create(outputPath);
+                builder.AddMarkdown(markdown, styleMap);
+                builder.Save();
+            });
+
+        AnsiConsole.MarkupLine($"[green]Document created from markdown: {outputPath}[/]");
     }
 
     static DocxEditor.Core.Models.DocumentInstructions LoadInstructions(string path)

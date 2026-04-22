@@ -127,7 +127,30 @@ public class MarkdownParser
     private string GetInlineText(ContainerInline? inline)
     {
         if (inline == null) return string.Empty;
-        return inline.ToString() ?? string.Empty;
+        
+        var text = new System.Text.StringBuilder();
+        foreach (var child in inline)
+        {
+            switch (child)
+            {
+                case LiteralInline literal:
+                    text.Append(literal.Content.ToString());
+                    break;
+                case EmphasisInline emphasis:
+                    text.Append(emphasis.ToString());
+                    break;
+                case CodeInline code:
+                    text.Append(code.Content.ToString());
+                    break;
+                case LinkInline link:
+                    text.Append(link.ToString());
+                    break;
+                default:
+                    text.Append(child.ToString());
+                    break;
+            }
+        }
+        return text.ToString();
     }
 
     private List<InlineFormat> ExtractInlineFormats(ContainerInline? inline)
