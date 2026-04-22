@@ -2,7 +2,7 @@ namespace DocxEditor.Core.Models;
 
 public abstract record Instruction
 {
-    public required string Type { get; init; }
+    public string Type { get; init; } = string.Empty;
 }
 
 public record CreateDocumentInstruction : Instruction

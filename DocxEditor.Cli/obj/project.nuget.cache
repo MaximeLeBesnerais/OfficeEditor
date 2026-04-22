@@ -1,11 +1,15 @@
 {
   "version": 2,
-  "dgSpecHash": "4s1V0g2Y3Ok=",
+  "dgSpecHash": "36IdWR1SOOk=",
   "success": true,
   "projectFilePath": "/home/ubuntu/perso/open-worder/DocxEditor.Cli/DocxEditor.Cli.csproj",
   "expectedPackageFiles": [
+    "/home/ubuntu/.nuget/packages/documentformat.openxml/3.5.1/documentformat.openxml.3.5.1.nupkg.sha512",
+    "/home/ubuntu/.nuget/packages/documentformat.openxml.framework/3.5.1/documentformat.openxml.framework.3.5.1.nupkg.sha512",
     "/home/ubuntu/.nuget/packages/spectre.console/0.55.2/spectre.console.0.55.2.nupkg.sha512",
-    "/home/ubuntu/.nuget/packages/spectre.console.ansi/0.55.2/spectre.console.ansi.0.55.2.nupkg.sha512"
+    "/home/ubuntu/.nuget/packages/spectre.console.ansi/0.55.2/spectre.console.ansi.0.55.2.nupkg.sha512",
+    "/home/ubuntu/.nuget/packages/system.io.packaging/8.0.1/system.io.packaging.8.0.1.nupkg.sha512",
+    "/home/ubuntu/.nuget/packages/yamldotnet/17.0.1/yamldotnet.17.0.1.nupkg.sha512"
   ],
   "logs": []
 }
