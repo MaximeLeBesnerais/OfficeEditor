@@ -34,6 +34,7 @@ class Program
                     break;
                 case "merge":
                     HandleMerge(args);
+                    break;
                 case "help":
                 case "--help":
                 case "-h":

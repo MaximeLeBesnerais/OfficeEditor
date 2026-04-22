@@ -5,6 +5,7 @@ using DocumentFormat.OpenXml.Presentation;
 using Drawing = DocumentFormat.OpenXml.Drawing;
 using P = DocumentFormat.OpenXml.Presentation;
 using OfficeEditor.Core.Models;
+using PptxEditor.Core.Models;
 
 namespace PptxEditor.Core.Builders;
 
@@ -22,6 +23,12 @@ public interface IPresentationBuilder : IDisposable
     // Variables
     List<VariableInfo> DetectVariables();
     IPresentationBuilder MergeVariables(Dictionary<string, string> data);
+    
+    // Anatomizer
+    List<SlideAnatomy> Analyze();
+    IPresentationBuilder ReplaceElement(uint elementId, string newText);
+    IPresentationBuilder ReplaceTable(uint elementId, List<List<string>> newData);
+    IPresentationBuilder ReplaceImage(uint elementId, string newImagePath);
     
     void Save(string? path = null);
 }
@@ -232,6 +239,45 @@ public class PresentationBuilder : IPresentationBuilder
     {
         var replacer = new Variables.PptxVariableReplacer();
         replacer.Replace(_document, data);
+        return this;
+    }
+
+    public List<SlideAnatomy> Analyze()
+    {
+        var anatomizer = new Services.PptxAnatomizer();
+        return anatomizer.Analyze(_document);
+    }
+
+    public IPresentationBuilder ReplaceElement(uint elementId, string newText)
+    {
+        if (_currentSlideIndex >= 0 && _currentSlideIndex < _slides.Count)
+        {
+            var slidePart = _slides[_currentSlideIndex].SlidePart;
+            var replacer = new Services.PptxElementReplacer();
+            replacer.ReplaceText(slidePart, elementId, newText);
+        }
+        return this;
+    }
+
+    public IPresentationBuilder ReplaceTable(uint elementId, List<List<string>> newData)
+    {
+        if (_currentSlideIndex >= 0 && _currentSlideIndex < _slides.Count)
+        {
+            var slidePart = _slides[_currentSlideIndex].SlidePart;
+            var replacer = new Services.PptxElementReplacer();
+            replacer.ReplaceTableData(slidePart, elementId, newData);
+        }
+        return this;
+    }
+
+    public IPresentationBuilder ReplaceImage(uint elementId, string newImagePath)
+    {
+        if (_currentSlideIndex >= 0 && _currentSlideIndex < _slides.Count)
+        {
+            var slidePart = _slides[_currentSlideIndex].SlidePart;
+            var replacer = new Services.PptxElementReplacer();
+            replacer.ReplaceImage(slidePart, elementId, newImagePath);
+        }
         return this;
     }
 

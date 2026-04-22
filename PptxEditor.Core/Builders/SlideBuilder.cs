@@ -70,9 +70,10 @@ public class SlideBuilder : ISlideBuilder
             imagePart.FeedData(stream);
         }
 
+        var imageId = GetNextShapeId();
         var picture = new P.Picture(
             new P.NonVisualPictureProperties(
-                new A.NonVisualDrawingProperties { Id = GetNextShapeId(), Name = $"Image {GetNextShapeId()}" },
+                new A.NonVisualDrawingProperties { Id = imageId, Name = $"Image {imageId}" },
                 new A.NonVisualPictureDrawingProperties(),
                 new P.ApplicationNonVisualDrawingProperties()
             ),
