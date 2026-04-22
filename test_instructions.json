@@ -1,0 +1,13 @@
+{
+  "operations": [
+    {
+      "type": "addParagraph",
+      "text": "This is a new paragraph from JSON instructions"
+    },
+    {
+      "type": "replaceText",
+      "find": "Hello",
+      "replace": "Hi"
+    }
+  ]
+}
