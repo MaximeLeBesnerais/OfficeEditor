@@ -1,0 +1,39 @@
+{
+  "version": "1.0",
+  "description": "Instructions for creating a budget workbook",
+  "worksheets": [
+    {
+      "name": "Revenue",
+      "headers": ["Month", "Product A", "Product B", "Product C", "Total"],
+      "rows": [
+        ["January", "{{janA}}", "{{janB}}", "{{janC}}", "=SUM(B2:D2)"],
+        ["February", "{{febA}}", "{{febB}}", "{{febC}}", "=SUM(B3:D3)"],
+        ["March", "{{marA}}", "{{marB}}", "{{marC}}", "=SUM(B4:D4)"]
+      ]
+    },
+    {
+      "name": "Summary",
+      "cells": [
+        {
+          "address": "A1",
+          "value": "Total Revenue Q1"
+        },
+        {
+          "address": "B1",
+          "formula": "=SUM(Revenue!E2:E4)"
+        }
+      ]
+    }
+  ],
+  "variables": {
+    "janA": "10000",
+    "janB": "8000",
+    "janC": "6000",
+    "febA": "12000",
+    "febB": "9500",
+    "febC": "7000",
+    "marA": "11000",
+    "marB": "9000",
+    "marC": "7500"
+  }
+}

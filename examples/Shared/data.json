@@ -1,0 +1,38 @@
+{
+  "companyName": "Acme Corporation",
+  "address": "123 Business Avenue, Suite 100",
+  "city": "New York",
+  "state": "NY",
+  "zipCode": "10001",
+  "contactName": "John Smith",
+  "contactEmail": "john.smith@acme.com",
+  "contactPhone": "+1 (555) 123-4567",
+  "invoiceNumber": "INV-2024-001",
+  "invoiceDate": "2024-01-15",
+  "dueDate": "2024-02-15",
+  "items": [
+    {
+      "description": "Consulting Services",
+      "quantity": 10,
+      "unitPrice": 150.00,
+      "total": 1500.00
+    },
+    {
+      "description": "Software License",
+      "quantity": 1,
+      "unitPrice": 500.00,
+      "total": 500.00
+    },
+    {
+      "description": "Training Session",
+      "quantity": 5,
+      "unitPrice": 100.00,
+      "total": 500.00
+    }
+  ],
+  "subtotal": 2500.00,
+  "taxRate": 0.08,
+  "taxAmount": 200.00,
+  "total": 2700.00,
+  "notes": "Payment due within 30 days. Thank you for your business!"
+}
