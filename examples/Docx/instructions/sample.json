@@ -1,0 +1,43 @@
+{
+  "version": "1.0",
+  "description": "Example instructions for DOCX manipulation",
+  "operations": [
+    {
+      "type": "AddParagraph",
+      "content": "This paragraph was added via JSON instructions.",
+      "style": "Normal"
+    },
+    {
+      "type": "AddHeading",
+      "content": "Section Added by Instructions",
+      "level": 2
+    },
+    {
+      "type": "AddBulletList",
+      "items": [
+        "First bullet point",
+        "Second bullet point",
+        "Third bullet point"
+      ]
+    },
+    {
+      "type": "Replace",
+      "target": "{{companyName}}",
+      "content": "Acme Corporation"
+    },
+    {
+      "type": "Replace",
+      "target": "{{date}}",
+      "content": "2024-01-15"
+    },
+    {
+      "type": "AddTable",
+      "headers": ["Item", "Quantity", "Price"],
+      "rows": [
+        ["Widget", "10", "$25.00"],
+        ["Gadget", "5", "$50.00"],
+        ["Tool", "3", "$75.00"]
+      ]
+    }
+  ]
+}
