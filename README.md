@@ -14,6 +14,7 @@ A modern .NET 9 suite for creating and editing Office documents (DOCX, PPTX, XLS
 - **Rich Content** - Tables, lists, headings, images, charts
 - **Style Preservation** - Maintains existing document styles
 - **Template Logic** - Conditionals and loops in templates
+- **Typst Integration** - Export PPTX to PDF via Typst (PPTX only)
 
 ## Quick Start
 
@@ -108,6 +109,21 @@ builder.MergeVariables(new Dictionary<string, string>
 {
     ["company"] = "Acme Corp"
 });
+
+// Export to PDF via Typst
+var pdfBytes = builder.ExportToPdf();
+await File.WriteAllBytesAsync("output.pdf", pdfBytes);
+
+// Export slide thumbnails as PNG
+var thumbnails = builder.ExportThumbnails(new ThumbnailOptions { Ppi = 150 });
+for (int i = 0; i < thumbnails.Length; i++)
+{
+    await File.WriteAllBytesAsync($"slide_{i + 1}.png", thumbnails[i]);
+}
+
+// Export to Typst source
+var typstSource = builder.ExportToTypst();
+await File.WriteAllTextAsync("presentation.typ", typstSource);
 ```
 
 ### C# API - Excel (XLSX)
@@ -164,6 +180,7 @@ dotnet tool install DocxEditor.Cli
 OfficeEditor/
 ├── OfficeEditor.Core/          # Shared abstractions
 │   ├── Models/                 # VariableInfo, StyleMapping
+│   ├── Services/               # TypstCompilerService
 │   ├── Variables/              # VariableDetector, VariableReplacer, TemplateEngine
 │   └── Exceptions/             # OfficeEditorException
 ├── DocxEditor.Core/            # Word (DOCX)
@@ -175,6 +192,8 @@ OfficeEditor/
 │   └── Instructions/           # Instruction engine
 ├── PptxEditor.Core/            # PowerPoint (PPTX)
 │   ├── Builders/               # PresentationBuilder, SlideBuilder
+│   ├── Converters/             # PptxToTypstConverter
+│   ├── Models/                 # TypstModels, SlideAnatomy
 │   └── Variables/              # PptxVariableDetector, PptxVariableReplacer
 ├── XlsxEditor.Core/            # Excel (XLSX)
 │   ├── Builders/               # WorkbookBuilder, WorksheetBuilder
@@ -230,6 +249,45 @@ var data = new Dictionary<string, string>
 // Works for DOCX, PPTX, XLSX
 builder.MergeVariables(data);
 ```
+
+### Typst Integration (PPTX → PDF)
+
+Export PowerPoint presentations to PDF with high fidelity using Typst:
+
+```csharp
+using PptxEditor.Core.Builders;
+
+// Open or create presentation
+using var builder = PresentationBuilder.Open("presentation.pptx");
+
+// Export to PDF
+byte[] pdfBytes = builder.ExportToPdf();
+await File.WriteAllBytesAsync("output.pdf", pdfBytes);
+
+// Export slide thumbnails (PNG per slide)
+var thumbnails = builder.ExportThumbnails(new ThumbnailOptions 
+{ 
+    Ppi = 150  // Resolution in pixels per inch
+});
+
+for (int i = 0; i < thumbnails.Length; i++)
+{
+    await File.WriteAllBytesAsync($"slide_{i + 1}.png", thumbnails[i]);
+}
+
+// Export to Typst source code
+string typstSource = builder.ExportToTypst();
+await File.WriteAllTextAsync("presentation.typ", typstSource);
+```
+
+**Features:**
+- Converts PPTX slides to Typst pages
+- Preserves text formatting (bold, italic, color, font size)
+- Extracts and embeds images
+- Handles tables with borders and cell formatting
+- Extracts embedded fonts from PPTX for accurate rendering
+- Automatic font fallback if fonts are missing
+- Positioning via Typst's `#place` function
 
 ### Template Logic
 
@@ -342,6 +400,7 @@ Each format has its own Core project that references OfficeEditor.Core:
 - **Markdig** - Markdown parser (DOCX only)
 - **YamlDotNet** - YAML parser
 - **Spectre.Console** - CLI output (optional)
+- **typstsharp** - Typst compiler for PDF export (PPTX only)
 
 ## Testing
 
@@ -349,7 +408,7 @@ Each format has its own Core project that references OfficeEditor.Core:
 dotnet test
 ```
 
-41+ unit tests covering:
+80+ unit tests covering:
 - Document creation and manipulation (DOCX, PPTX, XLSX)
 - Content block rendering
 - Markdown conversion
@@ -357,6 +416,11 @@ dotnet test
 - Serialization
 - Slide management (PPTX)
 - Worksheet operations (XLSX)
+- **Typst integration (PPTX)**
+  - PDF export
+  - Thumbnail generation
+  - Typst source generation
+  - Font extraction and fallback
 
 ## License
 
