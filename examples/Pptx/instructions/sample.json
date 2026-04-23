@@ -1,0 +1,38 @@
+{
+  "version": "1.0",
+  "description": "Instructions for creating a presentation",
+  "slides": [
+    {
+      "type": "TitleSlide",
+      "title": "{{presentationTitle}}",
+      "subtitle": "{{subtitle}}"
+    },
+    {
+      "type": "ContentSlide",
+      "title": "Agenda",
+      "content": [
+        "Introduction",
+        "Market Analysis",
+        "Product Demo",
+        "Q&A"
+      ]
+    },
+    {
+      "type": "TableSlide",
+      "title": "Sales Data",
+      "table": {
+        "headers": ["Quarter", "Revenue", "Growth"],
+        "rows": [
+          ["Q1", "$100K", "10%"],
+          ["Q2", "$120K", "20%"],
+          ["Q3", "$110K", "-8%"],
+          ["Q4", "$150K", "36%"]
+        ]
+      }
+    }
+  ],
+  "variables": {
+    "presentationTitle": "Q4 Review",
+    "subtitle": "Annual Performance Report"
+  }
+}
