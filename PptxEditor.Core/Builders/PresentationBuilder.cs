@@ -31,7 +31,23 @@ public interface IPresentationBuilder : IDisposable
     IPresentationBuilder ReplaceTable(uint elementId, List<List<string>> newData);
     IPresentationBuilder ReplaceImage(uint elementId, string newImagePath);
     
+    // Export to Typst/PDF/Thumbnails
+    string ExportToTypst();
+    byte[] ExportToPdf(PdfOptions? options = null);
+    byte[][] ExportThumbnails(ThumbnailOptions? options = null);
+    
     void Save(string? path = null);
+}
+
+public sealed record PdfOptions
+{
+    public bool SingleFile { get; init; } = true;
+}
+
+public sealed record ThumbnailOptions
+{
+    public float Ppi { get; init; } = 150;
+    public string Format { get; init; } = "png";
 }
 
 public interface ISlideBuilder
@@ -289,6 +305,62 @@ public class PresentationBuilder : IPresentationBuilder
         return this;
     }
 
+    public string ExportToTypst()
+    {
+        using var converter = new Converters.PptxToTypstConverter(_document);
+        var presentation = converter.Convert();
+        return converter.GenerateTypstSource(presentation);
+    }
+
+    public byte[] ExportToPdf(PdfOptions? options = null)
+    {
+        options ??= new PdfOptions();
+        
+        using var converter = new Converters.PptxToTypstConverter(_document);
+        var presentation = converter.Convert();
+        var typstSource = converter.GenerateTypstSource(presentation);
+        
+        // Write Typst source to temp file
+        var typstFile = Path.Combine(presentation.TempDirectory, "presentation.typ");
+        File.WriteAllText(typstFile, typstSource);
+        
+        using var compiler = new OfficeEditor.Core.Services.TypstCompilerService();
+        var compileOptions = new OfficeEditor.Core.Services.CompileOptions
+        {
+            Format = OfficeEditor.Core.Services.OutputFormat.Pdf,
+            FontDirectory = presentation.FontFiles.Count > 0 ? Path.Combine(presentation.TempDirectory, "fonts") : null
+        };
+        
+        var result = compiler.Compile(typstSource, compileOptions);
+        
+        if (result.Pages.Length == 0)
+        {
+            throw new InvalidOperationException("PDF compilation produced no output.");
+        }
+        
+        return result.Pages[0];
+    }
+
+    public byte[][] ExportThumbnails(ThumbnailOptions? options = null)
+    {
+        options ??= new ThumbnailOptions();
+        
+        using var converter = new Converters.PptxToTypstConverter(_document);
+        var presentation = converter.Convert();
+        var typstSource = converter.GenerateTypstSource(presentation);
+        
+        using var compiler = new OfficeEditor.Core.Services.TypstCompilerService();
+        var compileOptions = new OfficeEditor.Core.Services.CompileOptions
+        {
+            Format = OfficeEditor.Core.Services.OutputFormat.Png,
+            Ppi = options.Ppi,
+            FontDirectory = presentation.FontFiles.Count > 0 ? Path.Combine(presentation.TempDirectory, "fonts") : null
+        };
+        
+        var result = compiler.Compile(typstSource, compileOptions);
+        return result.Pages;
+    }
+
     public void Save(string? path = null)
     {
         _document.Save();
@@ -344,7 +416,7 @@ public class PresentationBuilder : IPresentationBuilder
 
         // Create default slide layout
         var slideLayoutPart = slideMasterPart.AddNewPart<SlideLayoutPart>();
-        var slideLayout = new SlideLayout(
+        var slideLayout = new DocumentFormat.OpenXml.Presentation.SlideLayout(
             new CommonSlideData(
                 new ShapeTree()
             )
