@@ -77,6 +77,7 @@ public class DocumentBuilder : IDocumentBuilder
 
         if (!string.IsNullOrEmpty(style))
         {
+            EnsureStyle(style);
             paragraph.ParagraphProperties = new ParagraphProperties(
                 new ParagraphStyleId { Val = style }
             );
@@ -150,6 +151,7 @@ public class DocumentBuilder : IDocumentBuilder
 
         if (!string.IsNullOrEmpty(style))
         {
+            EnsureStyle(style);
             targetParagraph.ParagraphProperties ??= new ParagraphProperties();
             targetParagraph.ParagraphProperties.ParagraphStyleId = new ParagraphStyleId { Val = style };
         }
@@ -175,11 +177,7 @@ public class DocumentBuilder : IDocumentBuilder
 
     public IDocumentBuilder ApplyStyle(string styleId)
     {
-        // Verify style exists in document
-        if (!_cachedStyles.ContainsKey(styleId))
-        {
-            throw new InvalidOperationException($"Style '{styleId}' not found in document.");
-        }
+        EnsureStyle(styleId);
 
         // Apply to last paragraph if no specific target
         var lastParagraph = _body.Elements<Paragraph>().LastOrDefault();
@@ -210,6 +208,7 @@ public class DocumentBuilder : IDocumentBuilder
 
         if (!string.IsNullOrEmpty(style))
         {
+            EnsureStyle(style);
             paragraph.ParagraphProperties = new ParagraphProperties(
                 new ParagraphStyleId { Val = style }
             );
@@ -243,9 +242,82 @@ public class DocumentBuilder : IDocumentBuilder
         return styles;
     }
 
+    private void EnsureStyle(string styleId)
+    {
+        if (_cachedStyles.ContainsKey(styleId))
+            return;
+
+        var stylesPart = _document.MainDocumentPart!.StyleDefinitionsPart;
+        if (stylesPart == null)
+        {
+            stylesPart = _document.MainDocumentPart.AddNewPart<StyleDefinitionsPart>();
+            stylesPart.Styles = new Styles();
+        }
+
+        var style = CreateDefaultStyle(styleId);
+        stylesPart.Styles.Append(style);
+        _cachedStyles[styleId] = style;
+    }
+
+    private static Style CreateDefaultStyle(string styleId)
+    {
+        return styleId switch
+        {
+            "Heading1" => CreateHeadingStyle(1, "heading 1", "32", 0),
+            "Heading2" => CreateHeadingStyle(2, "heading 2", "26", 1),
+            "Heading3" => CreateHeadingStyle(3, "heading 3", "24", 2),
+            "Heading4" => CreateHeadingStyle(4, "heading 4", "22", 3),
+            "Heading5" => CreateHeadingStyle(5, "heading 5", "20", 4),
+            "Heading6" => CreateHeadingStyle(6, "heading 6", "20", 5),
+            "Normal" => new Style(
+                new StyleName { Val = "Normal" }
+            ) { Type = StyleValues.Paragraph, StyleId = styleId, Default = true },
+            "Quote" => new Style(
+                new StyleName { Val = "Quote" },
+                new BasedOn { Val = "Normal" },
+                new StyleParagraphProperties(
+                    new Indentation { Left = "720" }
+                ),
+                new StyleRunProperties(
+                    new Italic()
+                )
+            ) { Type = StyleValues.Paragraph, StyleId = styleId },
+            "Code" => new Style(
+                new StyleName { Val = "Code" },
+                new BasedOn { Val = "Normal" },
+                new StyleRunProperties(
+                    new RunFonts { Ascii = "Consolas", HighAnsi = "Consolas" }
+                )
+            ) { Type = StyleValues.Paragraph, StyleId = styleId },
+            _ => new Style(
+                new StyleName { Val = styleId }
+            ) { Type = StyleValues.Paragraph, StyleId = styleId }
+        };
+    }
+
+    private static Style CreateHeadingStyle(int level, string name, string fontSize, int outlineLevel)
+    {
+        var before = (240 - (level - 1) * 30).ToString();
+        return new Style(
+            new StyleName { Val = name },
+            new BasedOn { Val = "Normal" },
+            new StyleParagraphProperties(
+                new KeepNext(),
+                new SpacingBetweenLines { Before = before, After = "60" },
+                new OutlineLevel { Val = outlineLevel }
+            ),
+            new StyleRunProperties(
+                new Bold(),
+                new BoldComplexScript(),
+                new FontSize { Val = fontSize },
+                new FontSizeComplexScript { Val = fontSize }
+            )
+        ) { Type = StyleValues.Paragraph, StyleId = $"Heading{level}" };
+    }
+
     public IDocumentBuilder AddRichContent(List<ContentBlock> blocks)
     {
-        var renderer = new ContentBlockRenderer(StyleMapping.Default, _cachedStyles);
+        var renderer = new ContentBlockRenderer(StyleMapping.Default, _cachedStyles, EnsureStyle);
         renderer.Render(_body, blocks);
         return this;
     }
@@ -258,7 +330,7 @@ public class DocumentBuilder : IDocumentBuilder
             throw new InvalidOperationException($"Paragraph containing '{targetText}' not found.");
         }
 
-        var renderer = new ContentBlockRenderer(StyleMapping.Default, _cachedStyles);
+        var renderer = new ContentBlockRenderer(StyleMapping.Default, _cachedStyles, EnsureStyle);
         
         // Remove target paragraph and insert rich content before its position
         var parent = targetParagraph.Parent;

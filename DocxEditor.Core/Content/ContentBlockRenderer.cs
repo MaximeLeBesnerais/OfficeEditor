@@ -9,11 +9,13 @@ public class ContentBlockRenderer
 {
     private readonly StyleMapping _styleMapping;
     private readonly Dictionary<string, Style> _cachedStyles;
+    private readonly Action<string>? _ensureStyle;
 
-    public ContentBlockRenderer(StyleMapping? styleMapping = null, Dictionary<string, Style>? cachedStyles = null)
+    public ContentBlockRenderer(StyleMapping? styleMapping = null, Dictionary<string, Style>? cachedStyles = null, Action<string>? ensureStyle = null)
     {
         _styleMapping = styleMapping ?? StyleMapping.Default;
         _cachedStyles = cachedStyles ?? new Dictionary<string, Style>();
+        _ensureStyle = ensureStyle;
     }
 
     public void Render(Body body, List<ContentBlock> blocks)
@@ -76,6 +78,7 @@ public class ContentBlockRenderer
         var style = block.Style ?? _styleMapping.GetStyle("paragraph");
         if (!string.IsNullOrEmpty(style))
         {
+            _ensureStyle?.Invoke(style);
             paragraph.ParagraphProperties = new ParagraphProperties(
                 new ParagraphStyleId { Val = style }
             );
@@ -93,6 +96,7 @@ public class ContentBlockRenderer
         var style = block.Style ?? _styleMapping.GetStyle($"heading{block.Level}");
         if (!string.IsNullOrEmpty(style))
         {
+            _ensureStyle?.Invoke(style);
             paragraph.ParagraphProperties = new ParagraphProperties(
                 new ParagraphStyleId { Val = style }
             );
@@ -120,6 +124,7 @@ public class ContentBlockRenderer
             var style = block.Style ?? _styleMapping.GetStyle("paragraph");
             if (!string.IsNullOrEmpty(style))
             {
+                _ensureStyle?.Invoke(style);
                 paragraph.ParagraphProperties.ParagraphStyleId = new ParagraphStyleId { Val = style };
             }
 
@@ -169,6 +174,7 @@ public class ContentBlockRenderer
         var style = block.Style ?? _styleMapping.GetStyle("blockquote");
         if (!string.IsNullOrEmpty(style))
         {
+            _ensureStyle?.Invoke(style);
             paragraph.ParagraphProperties = new ParagraphProperties(
                 new ParagraphStyleId { Val = style }
             );
@@ -186,6 +192,7 @@ public class ContentBlockRenderer
         var style = block.Style ?? _styleMapping.GetStyle("code");
         if (!string.IsNullOrEmpty(style))
         {
+            _ensureStyle?.Invoke(style);
             paragraph.ParagraphProperties = new ParagraphProperties(
                 new ParagraphStyleId { Val = style }
             );
@@ -220,6 +227,7 @@ public class ContentBlockRenderer
         var style = block.Style ?? _styleMapping.GetStyle(block.CustomType);
         if (!string.IsNullOrEmpty(style))
         {
+            _ensureStyle?.Invoke(style);
             paragraph.ParagraphProperties = new ParagraphProperties(
                 new ParagraphStyleId { Val = style }
             );
