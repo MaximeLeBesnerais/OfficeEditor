@@ -40,11 +40,13 @@ public class DocumentBuilder : IDocumentBuilder
     private readonly Body _body;
     private readonly bool _isNewDocument;
     private readonly Dictionary<string, Style> _cachedStyles;
+    private readonly string _filePath;
 
-    private DocumentBuilder(WordprocessingDocument document, bool isNew)
+    private DocumentBuilder(WordprocessingDocument document, bool isNew, string filePath)
     {
         _document = document;
         _isNewDocument = isNew;
+        _filePath = filePath;
         _body = document.MainDocumentPart!.Document.Body!;
         _cachedStyles = LoadStyles();
     }
@@ -58,13 +60,13 @@ public class DocumentBuilder : IDocumentBuilder
         mainPart.Document.Append(body);
         mainPart.Document.Save();
         
-        return new DocumentBuilder(document, true);
+        return new DocumentBuilder(document, true, path);
     }
 
     public static IDocumentBuilder Open(string path)
     {
         var document = WordprocessingDocument.Open(path, true);
-        return new DocumentBuilder(document, false);
+        return new DocumentBuilder(document, false, path);
     }
 
     public IDocumentBuilder AddParagraph(string text, string? style = null)
@@ -193,6 +195,11 @@ public class DocumentBuilder : IDocumentBuilder
     public void Save(string? path = null)
     {
         _document.Save();
+
+        if (!string.IsNullOrEmpty(path) && !string.Equals(_filePath, path, StringComparison.OrdinalIgnoreCase))
+        {
+            using var clone = _document.Clone(path);
+        }
     }
 
     private Paragraph CreateParagraph(string text, string? style)
@@ -328,26 +335,7 @@ public class DocumentBuilder : IDocumentBuilder
         }
     }
 
-    private string? GetDocumentPath()
-    {
-        // Try to get the file path from the document
-        if (_document.MainDocumentPart != null)
-        {
-            // Access the package path through reflection or other means
-            var packageType = _document.GetType();
-            var packageProperty = packageType.GetProperty("Package");
-            if (packageProperty != null)
-            {
-                var package = packageProperty.GetValue(_document);
-                if (package != null)
-                {
-                    var fileNameProperty = package.GetType().GetProperty("FileName");
-                    return fileNameProperty?.GetValue(package)?.ToString();
-                }
-            }
-        }
-        return null;
-    }
+    private string? GetDocumentPath() => _filePath;
 
     public void Dispose()
     {
