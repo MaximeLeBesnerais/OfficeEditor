@@ -1,84 +1,78 @@
 # OfficeEditor Examples
 
-This folder contains practical examples demonstrating how to use the OfficeEditor libraries for creating and manipulating DOCX, PPTX, and XLSX files.
-
-## Structure
-
-```
-examples/
-├── Docx/               # Word document examples
-│   ├── README.md       # This file
-│   ├── Program.cs      # DOCX examples runner
-│   ├── sample.md       # Sample markdown file
-│   └── instructions/   # JSON instruction examples
-├── Pptx/               # PowerPoint examples
-│   ├── README.md
-│   ├── Program.cs
-│   └── instructions/
-├── Xlsx/               # Excel examples
-│   ├── README.md
-│   ├── Program.cs
-│   └── instructions/
-├── Shared/             # Shared resources
-│   ├── data.json       # Sample data for templates
-│   └── images/         # Sample images
-└── Program.cs          # Main entry point (runs all examples)
-```
+Each example shows the **input → transformation → output** so you know exactly what goes in and what comes out.
 
 ## Quick Start
-
-### Run All Examples
 
 ```bash
 cd examples
 dotnet run
 ```
 
-### Run Specific Examples
+All outputs are written to `examples/output/`.
 
-```bash
-# DOCX only
-dotnet run --project Docx
+---
 
-# PPTX only
-dotnet run --project Pptx
+## Example Index
 
-# XLSX only
-dotnet run --project Xlsx
+| Format | Examples | Output Folder |
+|--------|----------|---------------|
+| [DOCX](Docx/README.md) | Basic creation, Markdown → DOCX, JSON instructions, Variable detection, Mail merge | `output/docx/` |
+| [PPTX](Pptx/README.md) | Slides, Tables, Variable merge, **→ PDF**, **→ Typst source**, **→ PNG thumbnails** | `output/pptx/` |
+| [XLSX](Xlsx/README.md) | Worksheets, Formulas, Cross-sheet references, Variable detection, Mail merge | `output/xlsx/` |
+
+## Project Structure
+
+```
+examples/
+├── Program.cs              # Runs all examples
+├── Docx/
+│   ├── README.md           # DOCX input/output docs
+│   ├── sample.md           # Markdown source for conversion example
+│   └── instructions/
+│       └── sample.json     # JSON instruction set example
+├── Pptx/
+│   ├── README.md           # PPTX input/output docs
+│   └── instructions/
+│       └── sample.json     # JSON instruction set example
+├── Xlsx/
+│   ├── README.md           # XLSX input/output docs
+│   └── instructions/
+│       └── sample.json     # JSON instruction set example
+├── Shared/
+│   └── data.json           # Sample merge data
+└── output/                 # Generated files (created on run)
+    ├── docx/
+    ├── pptx/
+    └── xlsx/
 ```
 
-## What You'll Learn
+## Shared Data
 
-### DOCX Examples
-- Creating documents from scratch
-- Converting Markdown to DOCX
-- Using JSON instructions for document manipulation
-- Variable detection and replacement
-- Template processing with conditionals and loops
+`Shared/data.json` — sample data used by mail-merge examples:
 
-### PPTX Examples
-- Creating presentations with multiple slides
-- Adding various content types (text, tables, images, charts)
-- **Typst Integration**: Export to PDF
-- **Typst Integration**: Generate slide thumbnails
-- **Typst Integration**: Export to Typst source code
-- Variable detection in presentations
-
-### XLSX Examples
-- Creating workbooks with multiple worksheets
-- Adding data, formulas, and formatting
-- Variable detection in spreadsheets
-- Template processing
-
-## Prerequisites
-
-- .NET 9 SDK
-- OfficeEditor packages (referenced in example projects)
-
-## Output
-
-All generated files are saved to `examples/output/` directory.
-
-## License
-
-Same as main project - MIT License
+```json
+{
+  "companyName": "Acme Corporation",
+  "address": "123 Business Avenue, Suite 100",
+  "city": "New York",
+  "state": "NY",
+  "zipCode": "10001",
+  "contactName": "John Smith",
+  "contactEmail": "john.smith@acme.com",
+  "contactPhone": "+1 (555) 123-4567",
+  "invoiceNumber": "INV-2024-001",
+  "invoiceDate": "2024-01-15",
+  "dueDate": "2024-02-15",
+  "items": [
+    { "description": "Consulting Services", "quantity": 10, "unitPrice": 150.00, "total": 1500.00 },
+    { "description": "Software License", "quantity": 1, "unitPrice": 500.00, "total": 500.00 },
+    { "description": "Training Session", "quantity": 5, "unitPrice": 100.00, "total": 500.00 }
+  ],
+  "subtotal": 2500.00,
+  "taxRate": 0.08,
+  "taxAmount": 200.00,
+  "total": 2700.00,
+  "notes": "Payment due within 30 days. Thank you for your business!"
+}
+```

@@ -1,46 +1,300 @@
 # PPTX Examples
 
-This folder contains examples for creating and editing PowerPoint presentations (.pptx), including the new Typst integration features.
+Every example shows **what you start with → the code you run → what you get**.
 
-## Examples
+---
 
-### 1. Basic Presentation Creation
-Create a presentation with multiple slides and content types.
+## 1. Basic Presentation
 
-### 2. Advanced Slide Content
-Add tables, images, charts, and formatted text.
+**Input:** None (created from scratch)
 
-### 3. Variable Detection & Mail Merge
-Find and replace variables in presentations.
+**Code:**
+```csharp
+using var builder = PresentationBuilder.Create("01-basic.pptx");
 
-### 4. **Typst Export to PDF**
-Export presentations to high-fidelity PDF using Typst.
+// Slide 1: Title
+builder.AddSlide();
+builder.CurrentSlide
+    .AddTitle("OfficeEditor Presentation")
+    .AddSubtitle("Created with Fluent C# API");
 
-### 5. **Typst Slide Thumbnails**
-Generate PNG thumbnails of each slide.
+// Slide 2: Bullet list
+builder.AddSlide();
+builder.CurrentSlide
+    .AddTitle("Key Features")
+    .AddBulletList(new[] {
+        "Easy slide creation",
+        "Multiple content types",
+        "Variable detection",
+        "Typst export"
+    });
 
-### 6. **Typst Source Export**
-Export presentation to Typst source code.
+// Slide 3: Text blocks
+builder.AddSlide();
+builder.CurrentSlide
+    .AddTitle("Getting Started")
+    .AddText("1. Install the NuGet package")
+    .AddText("2. Create a PresentationBuilder")
+    .AddText("3. Add slides and content")
+    .AddText("4. Save or export");
+
+builder.Save();
+```
+
+**Output:** `output/pptx/01-basic.pptx` (3 slides)
+
+| Slide | Content |
+|-------|---------|
+| 1 | **OfficeEditor Presentation** / Created with Fluent C# API |
+| 2 | **Key Features** / • Easy slide creation • Multiple content types ... |
+| 3 | **Getting Started** / 1. Install... 2. Create... |
+
+---
+
+## 2. Advanced Content (Tables & Lists)
+
+**Input:** None (created from scratch)
+
+**Code:**
+```csharp
+using var builder = PresentationBuilder.Create("02-advanced.pptx");
+
+builder.AddSlide();
+builder.CurrentSlide
+    .AddTitle("Q4 Sales Report")
+    .AddSubtitle("2024 Performance Review");
+
+builder.AddSlide();
+builder.CurrentSlide
+    .AddTitle("Sales by Region")
+    .AddTable(new List<List<string>>
+    {
+        new() { "Region", "Q1", "Q2", "Q3", "Q4", "Total" },
+        new() { "North", "$100K", "$120K", "$110K", "$140K", "$470K" },
+        new() { "South", "$80K", "$95K", "$105K", "$130K", "$410K" },
+        new() { "East", "$90K", "$100K", "$120K", "$150K", "$460K" },
+        new() { "West", "$110K", "$125K", "$135K", "$160K", "$530K" }
+    });
+
+builder.AddSlide();
+builder.CurrentSlide
+    .AddTitle("Top Priorities")
+    .AddNumberedList(new[] {
+        "Expand to new markets",
+        "Improve customer retention",
+        "Launch new product line",
+        "Optimize operations"
+    });
+
+builder.Save();
+```
+
+**Output:** `output/pptx/02-advanced.pptx` (3 slides)
+
+| Slide | Content |
+|-------|---------|
+| 1 | **Q4 Sales Report** / 2024 Performance Review |
+| 2 | **Sales by Region** / 5×6 table with revenue data |
+| 3 | **Top Priorities** / 1. Expand... 2. Improve... |
+
+---
+
+## 3. Variable Detection & Mail Merge
+
+**Input:** Template with variables
+
+```csharp
+using var builder = PresentationBuilder.Create("03-template.pptx");
+
+builder.AddSlide();
+builder.CurrentSlide
+    .AddTitle("Welcome {{companyName}}")
+    .AddSubtitle("Presented by {{presenterName}}");
+
+builder.AddSlide();
+builder.CurrentSlide
+    .AddTitle("Project: {{projectName}}")
+    .AddText("Budget: ${{budget}}")
+    .AddText("Timeline: {{timeline}}")
+    .AddText("Status: {{status}}");
+
+builder.Save();
+```
+
+**Operation 1:** Detect variables
+```csharp
+using var detector = PresentationBuilder.Open("03-template.pptx");
+var variables = detector.DetectVariables();
+// Returns: companyName, presenterName, projectName, budget, timeline, status
+```
+
+**Operation 2:** Merge
+```csharp
+using var builder = PresentationBuilder.Open("03-template.pptx");
+builder.MergeVariables(new Dictionary<string, string>
+{
+    ["companyName"] = "TechCorp Inc.",
+    ["presenterName"] = "Jane Smith",
+    ["projectName"] = "Cloud Migration",
+    ["budget"] = "500,000",
+    ["timeline"] = "6 months",
+    ["status"] = "On Track"
+});
+builder.Save("03-merged.pptx");
+```
+
+**Output:** `output/pptx/03-merged.pptx`
+
+| Slide | Content |
+|-------|---------|
+| 1 | **Welcome TechCorp Inc.** / Presented by Jane Smith |
+| 2 | **Project: Cloud Migration** / Budget: $500,000 / Timeline: 6 months / Status: On Track |
+
+---
+
+## 4. PPTX → PDF (Typst Integration)
+
+**Input:** PowerPoint file
+
+```csharp
+// First create the PPTX
+using (var builder = PresentationBuilder.Create("04-export.pptx"))
+{
+    builder.AddSlide();
+    builder.CurrentSlide
+        .AddTitle("PDF Export Demo")
+        .AddSubtitle("Using Typst Integration");
+
+    builder.AddSlide();
+    builder.CurrentSlide
+        .AddTitle("Features")
+        .AddBulletList(new[] {
+            "High-fidelity PDF output",
+            "Preserves formatting",
+            "Embeds fonts and images",
+            "Fast compilation"
+        });
+
+    builder.Save();
+}
+```
+
+**Operation:** Export to PDF
+```csharp
+using var builder = PresentationBuilder.Open("04-export.pptx");
+byte[] pdfBytes = builder.ExportToPdf();
+await File.WriteAllBytesAsync("04-export.pdf", pdfBytes);
+```
+
+**Output:** `output/pptx/04-export.pdf` (2-page PDF)
+
+> Converts PPTX slides → Typst source → compiles to PDF via `typstsharp`
+
+---
+
+## 5. PPTX → Typst Source
+
+**Input:** Same PowerPoint as above
+
+**Operation:** Export Typst code
+```csharp
+using var builder = PresentationBuilder.Open("05-typst-source.pptx");
+string typstSource = builder.ExportToTypst();
+await File.WriteAllTextAsync("05-source.typ", typstSource);
+```
+
+**Output:** `output/pptx/05-source.typ`
+
+```typst
+// Generated by OfficeEditor from PPTX
+
+#set text(font: ("Arial", "Helvetica", "Liberation Sans"))
+
+#set page(width: 720.00pt, height: 405.00pt, margin: 0pt)
+
+#place(top + left, dx: 0.00pt, dy: 0.00pt)[#text(size: 18.00pt)[Typst Source Export]]
+#place(top + left, dx: 0.00pt, dy: 56.69pt)[#text(size: 18.00pt)[View the generated code]]
+
+#set page(width: 720.00pt, height: 405.00pt, margin: 0pt)
+
+#pagebreak(to: "odd")
+
+#place(top + left, dx: 0.00pt, dy: 0.00pt)[#text(size: 18.00pt)[How it works]]
+#place(top + left, dx: 0.00pt, dy: 113.39pt)[#text(size: 18.00pt)[1. Extract PPTX content]]
+...
+```
+
+---
+
+## 6. Slide Thumbnails (PNG)
+
+**Input:** PowerPoint file
+
+**Operation:** Export each slide as PNG
+```csharp
+using var builder = PresentationBuilder.Open("presentation.pptx");
+var thumbnails = builder.ExportThumbnails(new ThumbnailOptions { Ppi = 150 });
+
+for (int i = 0; i < thumbnails.Length; i++)
+{
+    await File.WriteAllBytesAsync($"slide_{i + 1}.png", thumbnails[i]);
+}
+```
+
+**Output:** `slide_1.png`, `slide_2.png`, ... (one PNG per slide at 150 PPI)
+
+---
+
+## JSON Instructions
+
+**Input:** `instructions/sample.json`
+
+```json
+{
+  "version": "1.0",
+  "slides": [
+    {
+      "type": "TitleSlide",
+      "title": "{{presentationTitle}}",
+      "subtitle": "{{subtitle}}"
+    },
+    {
+      "type": "ContentSlide",
+      "title": "Agenda",
+      "content": ["Introduction", "Market Analysis", "Product Demo", "Q&A"]
+    },
+    {
+      "type": "TableSlide",
+      "title": "Sales Data",
+      "table": {
+        "headers": ["Quarter", "Revenue", "Growth"],
+        "rows": [
+          ["Q1", "$100K", "10%"],
+          ["Q2", "$120K", "20%"],
+          ["Q3", "$110K", "-8%"],
+          ["Q4", "$150K", "36%"]
+        ]
+      }
+    }
+  ],
+  "variables": {
+    "presentationTitle": "Q4 Review",
+    "subtitle": "Annual Performance Report"
+  }
+}
+```
+
+**Output:** Presentation generated from the instruction set.
+
+---
 
 ## Running Examples
 
 ```bash
-cd examples/Pptx
+cd examples
 dotnet run
 ```
 
-Output files are saved to `examples/output/pptx/`.
-
-## Typst Integration Notes
-
-The Typst integration requires:
+**Prerequisites for Typst features:**
 - `typstsharp` NuGet package (included)
-- Native `libtypst_core.so` binary (auto-copied on Linux)
-
-**Features:**
-- Converts PPTX slides to Typst pages
-- Preserves text formatting (bold, italic, color, font size)
-- Extracts and embeds images
-- Handles tables with borders and cell formatting
-- Extracts embedded fonts for accurate rendering
-- Automatic font fallback
+- Native `libtypst_core.so` (Linux) or `typst_core.dll` (Windows) — auto-copied on build
