@@ -138,13 +138,13 @@ public class MarkdownParser
                     text.Append(literal.Content.ToString());
                     break;
                 case EmphasisInline emphasis:
-                    text.Append(emphasis.ToString());
+                    text.Append(GetInlineText(emphasis));
                     break;
                 case CodeInline code:
                     text.Append(code.Content.ToString());
                     break;
                 case LinkInline link:
-                    text.Append(link.ToString());
+                    text.Append(GetInlineText(link));
                     break;
                 default:
                     text.Append(child.ToString());
@@ -167,14 +167,15 @@ public class MarkdownParser
                     formats.Add(new InlineFormat { Type = "text", Text = literal.Content.ToString() });
                     break;
                 case EmphasisInline emphasis:
-                    var type = emphasis.DelimiterCount == 2 ? "bold" : "italic";
-                    formats.Add(new InlineFormat { Type = type, Text = emphasis.ToString() });
+                    var emphasisType = emphasis.DelimiterCount == 2 ? "bold" : "italic";
+                    var emphasisText = GetInlineText(emphasis);
+                    formats.Add(new InlineFormat { Type = emphasisType, Text = emphasisText });
                     break;
                 case CodeInline code:
                     formats.Add(new InlineFormat { Type = "code", Text = code.Content.ToString() });
                     break;
                 case LinkInline link:
-                    formats.Add(new InlineFormat { Type = "text", Text = link.ToString() });
+                    formats.Add(new InlineFormat { Type = "text", Text = GetInlineText(link) });
                     break;
                 default:
                     formats.Add(new InlineFormat { Type = "text", Text = child.ToString() ?? "" });
