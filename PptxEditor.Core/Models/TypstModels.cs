@@ -33,12 +33,19 @@ public sealed class TypstElement
     public TypstTextElement? Text { get; init; }
     public TypstImageElement? Image { get; init; }
     public TypstTableElement? Table { get; init; }
+    public TypstShapeElement? Shape { get; init; }
 }
 
 public sealed class TypstTextElement
 {
     public string Content { get; init; } = string.Empty;
     public TypstTextFormatting Formatting { get; init; } = new();
+    public bool AutoFit { get; init; }
+    public double PaddingLeft { get; init; }
+    public double PaddingTop { get; init; }
+    public double PaddingRight { get; init; }
+    public double PaddingBottom { get; init; }
+    public string VerticalAlign { get; init; } = "top";
 }
 
 public sealed record TypstTextFormatting
@@ -76,4 +83,14 @@ public sealed class TypstTableCell
     public string? BackgroundColor { get; init; }
     public int RowSpan { get; init; } = 1;
     public int ColSpan { get; init; } = 1;
+}
+
+public sealed class TypstShapeElement
+{
+    public string ShapeType { get; init; } = "rect";
+    public string FillColor { get; init; } = string.Empty;
+    public string StrokeColor { get; init; } = string.Empty;
+    public double StrokeWidth { get; init; }
+    public double CornerRadius { get; init; }
+    public List<(double X, double Y)> Points { get; init; } = new();
 }

@@ -343,14 +343,15 @@ public class PresentationBuilder : IPresentationBuilder
         var compileOptions = new OfficeEditor.Core.Services.CompileOptions
         {
             Format = OfficeEditor.Core.Services.OutputFormat.Pdf,
-            FontDirectory = presentation.FontFiles.Count > 0 ? Path.Combine(presentation.TempDirectory, "fonts") : null
+            FontDirectory = presentation.FontFiles.Count > 0 ? Path.Combine(presentation.TempDirectory, "fonts") : null,
+            WorkingDirectory = presentation.TempDirectory
         };
         
         var result = compiler.Compile(typstSource, compileOptions);
         
         if (result.Pages.Length == 0)
         {
-            throw new InvalidOperationException("PDF compilation produced no output.");
+            throw new InvalidOperationException($"PDF compilation produced no output. Error: {result.ErrorMessage}");
         }
         
         return result.Pages[0];
@@ -369,7 +370,8 @@ public class PresentationBuilder : IPresentationBuilder
         {
             Format = OfficeEditor.Core.Services.OutputFormat.Png,
             Ppi = options.Ppi,
-            FontDirectory = presentation.FontFiles.Count > 0 ? Path.Combine(presentation.TempDirectory, "fonts") : null
+            FontDirectory = presentation.FontFiles.Count > 0 ? Path.Combine(presentation.TempDirectory, "fonts") : null,
+            WorkingDirectory = presentation.TempDirectory
         };
         
         var result = compiler.Compile(typstSource, compileOptions);

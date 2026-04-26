@@ -15,6 +15,7 @@ public sealed record CompileOptions
     public OutputFormat Format { get; init; } = OutputFormat.Pdf;
     public float Ppi { get; init; } = 150;
     public string? FontDirectory { get; init; }
+    public string? WorkingDirectory { get; init; }
 }
 
 public sealed record CompileResult
@@ -105,8 +106,15 @@ public sealed class TypstCompilerService : IDisposable
 
     private static CompileResult CompileCli(string source, CompileOptions options)
     {
-        var tempDir = Path.Combine(Path.GetTempPath(), $"typst_compile_{Guid.NewGuid():N}");
-        Directory.CreateDirectory(tempDir);
+        var useProvidedDir = !string.IsNullOrEmpty(options.WorkingDirectory) && Directory.Exists(options.WorkingDirectory);
+        var tempDir = useProvidedDir
+            ? options.WorkingDirectory!
+            : Path.Combine(Path.GetTempPath(), $"typst_compile_{Guid.NewGuid():N}");
+        
+        if (!useProvidedDir)
+        {
+            Directory.CreateDirectory(tempDir);
+        }
 
         try
         {
@@ -150,7 +158,8 @@ public sealed class TypstCompilerService : IDisposable
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
-                CreateNoWindow = true
+                CreateNoWindow = true,
+                WorkingDirectory = tempDir
             };
 
             using var process = Process.Start(psi);
@@ -229,13 +238,16 @@ public sealed class TypstCompilerService : IDisposable
         }
         finally
         {
-            try
+            if (!useProvidedDir)
             {
-                Directory.Delete(tempDir, true);
-            }
-            catch
-            {
-                // Best effort cleanup
+                try
+                {
+                    Directory.Delete(tempDir, true);
+                }
+                catch
+                {
+                    // Best effort cleanup
+                }
             }
         }
     }
