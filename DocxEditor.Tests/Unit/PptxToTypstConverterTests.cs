@@ -60,32 +60,82 @@ public class PptxToTypstConverterTests : IDisposable
         {
             var presentationPart = document.AddPresentationPart();
             presentationPart.Presentation = new Presentation();
-            
+            presentationPart.Presentation.SlideMasterIdList = new SlideMasterIdList();
+
             var slideMasterPart = presentationPart.AddNewPart<SlideMasterPart>();
             var slideMaster = new SlideMaster(
-                new CommonSlideData(new ShapeTree()),
-                new ColorMap(),
+                new CommonSlideData(
+                    new ShapeTree(
+                        new NonVisualGroupShapeProperties(
+                            new NonVisualDrawingProperties { Id = 0, Name = "" },
+                            new NonVisualGroupShapeDrawingProperties(),
+                            new ApplicationNonVisualDrawingProperties()
+                        ),
+                        new GroupShapeProperties(
+                            new Drawing.TransformGroup(
+                                new Drawing.Offset { X = 0, Y = 0 },
+                                new Drawing.Extents { Cx = 0, Cy = 0 },
+                                new Drawing.ChildOffset { X = 0, Y = 0 },
+                                new Drawing.ChildExtents { Cx = 0, Cy = 0 }
+                            )
+                        )
+                    )
+                ),
+                new ColorMap
+                {
+                    Background1 = Drawing.ColorSchemeIndexValues.Light1,
+                    Text1 = Drawing.ColorSchemeIndexValues.Dark1,
+                    Background2 = Drawing.ColorSchemeIndexValues.Light2,
+                    Text2 = Drawing.ColorSchemeIndexValues.Dark2,
+                    Accent1 = Drawing.ColorSchemeIndexValues.Accent1,
+                    Accent2 = Drawing.ColorSchemeIndexValues.Accent2,
+                    Accent3 = Drawing.ColorSchemeIndexValues.Accent3,
+                    Accent4 = Drawing.ColorSchemeIndexValues.Accent4,
+                    Accent5 = Drawing.ColorSchemeIndexValues.Accent5,
+                    Accent6 = Drawing.ColorSchemeIndexValues.Accent6,
+                    Hyperlink = Drawing.ColorSchemeIndexValues.Hyperlink,
+                    FollowedHyperlink = Drawing.ColorSchemeIndexValues.FollowedHyperlink
+                },
                 new SlideLayoutIdList()
             );
             slideMasterPart.SlideMaster = slideMaster;
             
             var slideLayoutPart = slideMasterPart.AddNewPart<SlideLayoutPart>();
             slideLayoutPart.SlideLayout = new DocumentFormat.OpenXml.Presentation.SlideLayout(new CommonSlideData(new ShapeTree()));
+            slideLayoutPart.AddPart(slideMasterPart);
             
             var layoutId = new SlideLayoutId
             {
-                Id = 1,
+                Id = 2147483649,
                 RelationshipId = slideMasterPart.GetIdOfPart(slideLayoutPart)
             };
             slideMaster.SlideLayoutIdList!.Append(layoutId);
             
             presentationPart.Presentation.SlideIdList = new SlideIdList();
-            
+            presentationPart.Presentation.SlideMasterIdList.Append(new SlideMasterId
+            {
+                Id = 2147483648,
+                RelationshipId = presentationPart.GetIdOfPart(slideMasterPart)
+            });
+
             // Create slide with formatted text
             var slidePart = presentationPart.AddNewPart<SlidePart>();
             var slide = new Slide(
                 new CommonSlideData(
                     new ShapeTree(
+                        new NonVisualGroupShapeProperties(
+                            new NonVisualDrawingProperties { Id = 0, Name = "" },
+                            new NonVisualGroupShapeDrawingProperties(),
+                            new ApplicationNonVisualDrawingProperties()
+                        ),
+                        new GroupShapeProperties(
+                            new Drawing.TransformGroup(
+                                new Drawing.Offset { X = 0, Y = 0 },
+                                new Drawing.Extents { Cx = 0, Cy = 0 },
+                                new Drawing.ChildOffset { X = 0, Y = 0 },
+                                new Drawing.ChildExtents { Cx = 0, Cy = 0 }
+                            )
+                        ),
                         new P.Shape(
                             new NonVisualShapeProperties(
                                 new NonVisualDrawingProperties { Id = 2, Name = "Title" },
