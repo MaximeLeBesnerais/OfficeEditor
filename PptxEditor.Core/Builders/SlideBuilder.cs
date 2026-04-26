@@ -64,7 +64,17 @@ public class SlideBuilder : ISlideBuilder
             throw new FileNotFoundException($"Image not found: {imagePath}");
         }
 
-        var imagePart = _slidePart.AddImagePart(ImagePartType.Jpeg);
+        var ext = Path.GetExtension(imagePath).ToLowerInvariant();
+        var imagePartType = ext switch
+        {
+            ".png" => ImagePartType.Png,
+            ".gif" => ImagePartType.Gif,
+            ".bmp" => ImagePartType.Bmp,
+            ".tiff" or ".tif" => ImagePartType.Tiff,
+            ".svg" => ImagePartType.Svg,
+            _ => ImagePartType.Jpeg
+        };
+        var imagePart = _slidePart.AddImagePart(imagePartType);
         using (var stream = new FileStream(imagePath, FileMode.Open))
         {
             imagePart.FeedData(stream);
@@ -73,8 +83,8 @@ public class SlideBuilder : ISlideBuilder
         var imageId = GetNextShapeId();
         var picture = new P.Picture(
             new P.NonVisualPictureProperties(
-                new A.NonVisualDrawingProperties { Id = imageId, Name = $"Image {imageId}" },
-                new A.NonVisualPictureDrawingProperties(),
+                new P.NonVisualDrawingProperties { Id = imageId, Name = $"Image {imageId}" },
+                new P.NonVisualPictureDrawingProperties(),
                 new P.ApplicationNonVisualDrawingProperties()
             ),
             new P.BlipFill(
@@ -129,8 +139,8 @@ public class SlideBuilder : ISlideBuilder
 
         var graphicFrame = new P.GraphicFrame(
             new P.NonVisualGraphicFrameProperties(
-                new A.NonVisualDrawingProperties { Id = GetNextShapeId(), Name = "Table" },
-                new A.NonVisualGraphicFrameDrawingProperties(),
+                new P.NonVisualDrawingProperties { Id = GetNextShapeId(), Name = "Table" },
+                new P.NonVisualGraphicFrameDrawingProperties(),
                 new P.ApplicationNonVisualDrawingProperties()
             ),
             new P.Transform(
@@ -160,8 +170,8 @@ public class SlideBuilder : ISlideBuilder
     {
         return new P.Shape(
             new P.NonVisualShapeProperties(
-                new A.NonVisualDrawingProperties { Id = GetNextShapeId(), Name = name },
-                new A.NonVisualShapeDrawingProperties(new A.ShapeLocks { NoGrouping = true }),
+                new P.NonVisualDrawingProperties { Id = GetNextShapeId(), Name = name },
+                new P.NonVisualShapeDrawingProperties(new A.ShapeLocks { NoGrouping = true }),
                 new P.ApplicationNonVisualDrawingProperties()
             ),
             new P.ShapeProperties(
@@ -212,8 +222,8 @@ public class SlideBuilder : ISlideBuilder
 
         return new P.Shape(
             new P.NonVisualShapeProperties(
-                new A.NonVisualDrawingProperties { Id = GetNextShapeId(), Name = name },
-                new A.NonVisualShapeDrawingProperties(new A.ShapeLocks { NoGrouping = true }),
+                new P.NonVisualDrawingProperties { Id = GetNextShapeId(), Name = name },
+                new P.NonVisualShapeDrawingProperties(new A.ShapeLocks { NoGrouping = true }),
                 new P.ApplicationNonVisualDrawingProperties()
             ),
             new P.ShapeProperties(
