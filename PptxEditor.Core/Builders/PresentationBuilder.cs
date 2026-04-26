@@ -135,7 +135,21 @@ public class PresentationBuilder : IPresentationBuilder
         var slidePart = _document.PresentationPart.AddNewPart<SlidePart>();
         var slide = new Slide(
             new CommonSlideData(
-                new ShapeTree()
+                new ShapeTree(
+                    new NonVisualGroupShapeProperties(
+                        new NonVisualDrawingProperties { Id = 0, Name = "" },
+                        new NonVisualGroupShapeDrawingProperties(),
+                        new ApplicationNonVisualDrawingProperties()
+                    ),
+                    new GroupShapeProperties(
+                        new Drawing.TransformGroup(
+                            new Drawing.Offset { X = 0, Y = 0 },
+                            new Drawing.Extents { Cx = 0, Cy = 0 },
+                            new Drawing.ChildOffset { X = 0, Y = 0 },
+                            new Drawing.ChildExtents { Cx = 0, Cy = 0 }
+                        )
+                    )
+                )
             )
         );
         slidePart.Slide = slide;
@@ -217,13 +231,14 @@ public class PresentationBuilder : IPresentationBuilder
         slideId.Remove();
         
         // Insert at the correct position
-        if (toIndex >= slideIdList.ChildElements.Count)
+        var targetIndex = fromIndex < toIndex ? toIndex - 1 : toIndex;
+        if (targetIndex >= slideIdList.ChildElements.Count)
         {
             slideIdList.Append(slideId);
         }
         else
         {
-            var targetSlideId = slideIdList.ChildElements.OfType<SlideId>().ElementAt(toIndex);
+            var targetSlideId = slideIdList.ChildElements.OfType<SlideId>().ElementAt(targetIndex);
             slideIdList.InsertAfter(targetSlideId, slideId);
         }
 
@@ -363,7 +378,16 @@ public class PresentationBuilder : IPresentationBuilder
 
     public void Save(string? path = null)
     {
-        _document.Save();
+        if (path != null)
+        {
+            // Clone to new path
+            var newDoc = _document.Clone(path);
+            newDoc.Dispose();
+        }
+        else
+        {
+            _document.Save();
+        }
     }
 
     public void Dispose()
@@ -375,12 +399,26 @@ public class PresentationBuilder : IPresentationBuilder
     {
         var presentationPart = _document.AddPresentationPart();
         presentationPart.Presentation = new Presentation();
+        presentationPart.Presentation.SlideMasterIdList = new SlideMasterIdList();
 
         // Create slide master
         var slideMasterPart = presentationPart.AddNewPart<SlideMasterPart>();
         var slideMaster = new SlideMaster(
             new CommonSlideData(
                 new ShapeTree(
+                    new NonVisualGroupShapeProperties(
+                        new NonVisualDrawingProperties { Id = 0, Name = "" },
+                        new NonVisualGroupShapeDrawingProperties(),
+                        new ApplicationNonVisualDrawingProperties()
+                    ),
+                    new GroupShapeProperties(
+                        new Drawing.TransformGroup(
+                            new Drawing.Offset { X = 0, Y = 0 },
+                            new Drawing.Extents { Cx = 0, Cy = 0 },
+                            new Drawing.ChildOffset { X = 0, Y = 0 },
+                            new Drawing.ChildExtents { Cx = 0, Cy = 0 }
+                        )
+                    ),
                     new P.Shape(
                         new NonVisualShapeProperties(
                             new NonVisualDrawingProperties { Id = 1, Name = "Title Placeholder" },
@@ -409,30 +447,75 @@ public class PresentationBuilder : IPresentationBuilder
                     )
                 )
             ),
-            new ColorMap(),
+            new ColorMap
+            {
+                Background1 = Drawing.ColorSchemeIndexValues.Light1,
+                Text1 = Drawing.ColorSchemeIndexValues.Dark1,
+                Background2 = Drawing.ColorSchemeIndexValues.Light2,
+                Text2 = Drawing.ColorSchemeIndexValues.Dark2,
+                Accent1 = Drawing.ColorSchemeIndexValues.Accent1,
+                Accent2 = Drawing.ColorSchemeIndexValues.Accent2,
+                Accent3 = Drawing.ColorSchemeIndexValues.Accent3,
+                Accent4 = Drawing.ColorSchemeIndexValues.Accent4,
+                Accent5 = Drawing.ColorSchemeIndexValues.Accent5,
+                Accent6 = Drawing.ColorSchemeIndexValues.Accent6,
+                Hyperlink = Drawing.ColorSchemeIndexValues.Hyperlink,
+                FollowedHyperlink = Drawing.ColorSchemeIndexValues.FollowedHyperlink
+            },
             new SlideLayoutIdList()
         );
         slideMasterPart.SlideMaster = slideMaster;
+        presentationPart.Presentation.SlideMasterIdList.Append(new SlideMasterId
+        {
+            Id = 2147483648,
+            RelationshipId = presentationPart.GetIdOfPart(slideMasterPart)
+        });
 
         // Create default slide layout
         var slideLayoutPart = slideMasterPart.AddNewPart<SlideLayoutPart>();
         var slideLayout = new DocumentFormat.OpenXml.Presentation.SlideLayout(
             new CommonSlideData(
-                new ShapeTree()
+                new ShapeTree(
+                    new NonVisualGroupShapeProperties(
+                        new NonVisualDrawingProperties { Id = 0, Name = "" },
+                        new NonVisualGroupShapeDrawingProperties(),
+                        new ApplicationNonVisualDrawingProperties()
+                    ),
+                    new GroupShapeProperties(
+                        new Drawing.TransformGroup(
+                            new Drawing.Offset { X = 0, Y = 0 },
+                            new Drawing.Extents { Cx = 0, Cy = 0 },
+                            new Drawing.ChildOffset { X = 0, Y = 0 },
+                            new Drawing.ChildExtents { Cx = 0, Cy = 0 }
+                        )
+                    )
+                )
             )
         );
         slideLayoutPart.SlideLayout = slideLayout;
+        slideLayoutPart.AddPart(slideMasterPart);
 
         // Link layout to master
         var layoutId = new SlideLayoutId
         {
-            Id = 1,
+            Id = 2147483649,
             RelationshipId = slideMasterPart.GetIdOfPart(slideLayoutPart)
         };
         slideMaster.SlideLayoutIdList!.Append(layoutId);
 
         // Initialize slide ID list
         presentationPart.Presentation.SlideIdList = new SlideIdList();
+        presentationPart.Presentation.SlideSize = new SlideSize
+        {
+            Cx = 9144000,
+            Cy = 6858000,
+            Type = SlideSizeValues.Screen4x3
+        };
+        presentationPart.Presentation.NotesSize = new NotesSize
+        {
+            Cx = 6858000,
+            Cy = 9144000
+        };
         
         // Add theme
         var themePart = slideMasterPart.AddNewPart<ThemePart>();
@@ -453,8 +536,16 @@ public class PresentationBuilder : IPresentationBuilder
                     new Drawing.FollowedHyperlinkColor(new Drawing.RgbColorModelHex { Val = "800080" })
                 ) { Name = "Office" },
                 new Drawing.FontScheme(
-                    new Drawing.MajorFont(new Drawing.LatinFont { Typeface = "Calibri" }),
-                    new Drawing.MinorFont(new Drawing.LatinFont { Typeface = "Calibri" })
+                    new Drawing.MajorFont(
+                        new Drawing.LatinFont { Typeface = "Calibri" },
+                        new Drawing.EastAsianFont { Typeface = "" },
+                        new Drawing.ComplexScriptFont { Typeface = "" }
+                    ),
+                    new Drawing.MinorFont(
+                        new Drawing.LatinFont { Typeface = "Calibri" },
+                        new Drawing.EastAsianFont { Typeface = "" },
+                        new Drawing.ComplexScriptFont { Typeface = "" }
+                    )
                 ) { Name = "Office" },
                 new Drawing.FormatScheme(
                     new Drawing.FillStyleList(
@@ -466,15 +557,36 @@ public class PresentationBuilder : IPresentationBuilder
                         new Drawing.Outline(
                             new Drawing.SolidFill(new Drawing.SchemeColor { Val = Drawing.SchemeColorValues.PhColor }),
                             new Drawing.PresetDash { Val = Drawing.PresetLineDashValues.Solid }
-                        ) { Width = 6350, CapType = Drawing.LineCapValues.Flat, CompoundLineType = Drawing.CompoundLineValues.Single }
+                        ) { Width = 6350, CapType = Drawing.LineCapValues.Flat, CompoundLineType = Drawing.CompoundLineValues.Single },
+                        new Drawing.Outline(
+                            new Drawing.SolidFill(new Drawing.SchemeColor { Val = Drawing.SchemeColorValues.PhColor }),
+                            new Drawing.PresetDash { Val = Drawing.PresetLineDashValues.Solid }
+                        ) { Width = 12700, CapType = Drawing.LineCapValues.Flat, CompoundLineType = Drawing.CompoundLineValues.Single },
+                        new Drawing.Outline(
+                            new Drawing.SolidFill(new Drawing.SchemeColor { Val = Drawing.SchemeColorValues.PhColor }),
+                            new Drawing.PresetDash { Val = Drawing.PresetLineDashValues.Solid }
+                        ) { Width = 19050, CapType = Drawing.LineCapValues.Flat, CompoundLineType = Drawing.CompoundLineValues.Single }
                     ),
-                    new Drawing.EffectStyleList(new Drawing.EffectStyle()),
-                    new Drawing.BackgroundFillStyleList(new Drawing.SolidFill(new Drawing.SchemeColor { Val = Drawing.SchemeColorValues.PhColor }))
+                    new Drawing.EffectStyleList(
+                        new Drawing.EffectStyle(new Drawing.EffectList()),
+                        new Drawing.EffectStyle(new Drawing.EffectList()),
+                        new Drawing.EffectStyle(new Drawing.EffectList())
+                    ),
+                    new Drawing.BackgroundFillStyleList(
+                        new Drawing.SolidFill(new Drawing.SchemeColor { Val = Drawing.SchemeColorValues.PhColor }),
+                        new Drawing.SolidFill(new Drawing.SchemeColor { Val = Drawing.SchemeColorValues.PhColor }),
+                        new Drawing.GradientFill()
+                    )
                 ) { Name = "Office" }
             ),
             new Drawing.ObjectDefaults(),
             new Drawing.ExtraColorSchemeList()
         ) { Name = "Office Theme" };
+
+        // Add package properties
+        _document.PackageProperties.Creator = "OfficeEditor";
+        _document.PackageProperties.Created = DateTime.Now;
+        _document.PackageProperties.Modified = DateTime.Now;
     }
 
     private void LoadExistingSlides()
