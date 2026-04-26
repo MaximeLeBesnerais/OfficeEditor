@@ -66,19 +66,8 @@ public sealed class PptxToTypstConverter : IDisposable
         sb.AppendLine();
 
         // Font setup with fallback chain
+        // Extracted fonts will be loaded from the font-path directory
         var fontFamilies = new List<string> { "Arial", "Helvetica", "Liberation Sans" };
-        if (presentation.FontFiles.Count > 0)
-        {
-            // Add extracted font families at the beginning
-            foreach (var fontFile in presentation.FontFiles)
-            {
-                var fontName = Path.GetFileNameWithoutExtension(fontFile);
-                if (!fontFamilies.Contains(fontName))
-                {
-                    fontFamilies.Insert(0, fontName);
-                }
-            }
-        }
         
         var fontList = string.Join(", ", fontFamilies.Select(f => $"\"{f}\""));
         sb.AppendLine($"#set text(font: ({fontList}))");
@@ -112,7 +101,7 @@ public sealed class PptxToTypstConverter : IDisposable
         // Page break before (except first)
         if (!isFirst)
         {
-            sb.AppendLine("#pagebreak(to: \"odd\")");
+            sb.AppendLine("#pagebreak()");
             sb.AppendLine();
         }
 
@@ -129,8 +118,8 @@ public sealed class PptxToTypstConverter : IDisposable
     {
         var x = FormatPt(element.X);
         var y = FormatPt(element.Y);
-        var width = FormatPt(element.Width);
-        var height = FormatPt(element.Height);
+        var widthStr = FormatPt(element.Width);
+        var heightStr = FormatPt(element.Height);
 
         sb.Append($"#place(top + left, dx: {x}, dy: {y})");
         sb.Append("[");
@@ -138,13 +127,16 @@ public sealed class PptxToTypstConverter : IDisposable
         switch (element.Type)
         {
             case "Text":
-                GenerateTextSource(sb, element.Text!, width);
+                GenerateTextSource(sb, element.Text!, widthStr);
                 break;
             case "Image":
-                GenerateImageSource(sb, element.Image!, width, height);
+                GenerateImageSource(sb, element.Image!, widthStr, heightStr);
                 break;
             case "Table":
-                GenerateTableSource(sb, element.Table!, width, height);
+                GenerateTableSource(sb, element.Table!, widthStr, heightStr);
+                break;
+            case "Shape":
+                GenerateShapeSource(sb, element.Shape!, widthStr, heightStr, element.Width, element.Height);
                 break;
         }
 
@@ -166,6 +158,21 @@ public sealed class PptxToTypstConverter : IDisposable
         
         if (!string.IsNullOrEmpty(fmt.Color) && fmt.Color != "#000000")
             parameters.Add($"fill: rgb(\"{fmt.Color}\")");
+        
+        // Add font family if specified and not default
+        if (!string.IsNullOrEmpty(fmt.FontFamily) && fmt.FontFamily != "Arial")
+        {
+            parameters.Add($"font: \"{fmt.FontFamily}\"");
+        }
+
+        // Constrain text to original text box width
+        sb.Append($"#block(width: {width})[");
+
+        // Apply horizontal alignment if not left
+        if (fmt.Align != "left" && !string.IsNullOrEmpty(fmt.Align))
+        {
+            sb.Append($"#align({fmt.Align})[");
+        }
 
         var paramStr = parameters.Count > 0 ? $"#text({string.Join(", ", parameters)})" : "";
         
@@ -180,12 +187,58 @@ public sealed class PptxToTypstConverter : IDisposable
         {
             sb.Append(EscapeTypstText(text.Content));
         }
+
+        // Close alignment wrapper if opened
+        if (fmt.Align != "left" && !string.IsNullOrEmpty(fmt.Align))
+        {
+            sb.Append("]");
+        }
+
+        // Close block
+        sb.Append("]");
     }
 
     private void GenerateImageSource(StringBuilder sb, TypstImageElement image, string width, string height)
     {
         var relativePath = $"assets/{image.FileName}";
         sb.Append($"#image(\"{relativePath}\", width: {width}, height: {height})");
+    }
+
+    private void GenerateShapeSource(StringBuilder sb, TypstShapeElement shape, string widthStr, string heightStr, double width, double height)
+    {
+        var fill = !string.IsNullOrEmpty(shape.FillColor) ? $"fill: rgb(\"{shape.FillColor}\")" : "";
+
+        switch (shape.ShapeType)
+        {
+            case "rect":
+                sb.Append($"#rect(width: {widthStr}, height: {heightStr}");
+                if (!string.IsNullOrEmpty(fill)) sb.Append($", {fill}");
+                if (shape.CornerRadius > 0) sb.Append($", radius: {FormatPt(shape.CornerRadius)}");
+                sb.Append(")");
+                break;
+            case "ellipse":
+                sb.Append($"#ellipse(width: {widthStr}, height: {heightStr}");
+                if (!string.IsNullOrEmpty(fill)) sb.Append($", {fill}");
+                sb.Append(")");
+                break;
+            case "polygon":
+                if (!string.IsNullOrEmpty(fill))
+                {
+                    sb.Append($"#polygon({fill}");
+                }
+                else
+                {
+                    sb.Append("#polygon(");
+                }
+                foreach (var (x, y) in shape.Points)
+                {
+                    var px = FormatPt(x * width);  // Scale to element width
+                    var py = FormatPt(y * height); // Scale to element height
+                    sb.Append($", ({px}, {py})");
+                }
+                sb.Append(")");
+                break;
+        }
     }
 
     private void GenerateTableSource(StringBuilder sb, TypstTableElement table, string width, string height)
@@ -267,8 +320,7 @@ public sealed class PptxToTypstConverter : IDisposable
 
         foreach (var element in shapeTree.ChildElements)
         {
-            var typstElement = ConvertElement(slidePart, element);
-            if (typstElement != null)
+            foreach (var typstElement in ConvertElement(slidePart, element))
             {
                 typstSlide.Elements.Add(typstElement);
             }
@@ -313,84 +365,347 @@ public sealed class PptxToTypstConverter : IDisposable
         };
     }
 
-    private TypstElement? ConvertElement(SlidePart slidePart, OpenXmlElement element)
+    private IEnumerable<TypstElement> ConvertElement(SlidePart slidePart, OpenXmlElement element, double offX = 0, double offY = 0, double scaleX = 1, double scaleY = 1)
     {
         return element switch
         {
-            P.Shape shape => ConvertShape(shape),
-            P.Picture picture => ConvertPicture(slidePart, picture),
-            P.GraphicFrame graphicFrame => ConvertGraphicFrame(graphicFrame),
-            _ => null
+            P.Shape shape => ConvertShape(slidePart, shape, offX, offY, scaleX, scaleY),
+            P.Picture picture => ConvertPicture(slidePart, picture, offX, offY, scaleX, scaleY),
+            P.GraphicFrame graphicFrame => ConvertGraphicFrame(graphicFrame, offX, offY, scaleX, scaleY),
+            P.GroupShape groupShape => ConvertGroupShape(slidePart, groupShape, offX, offY, scaleX, scaleY),
+            _ => Array.Empty<TypstElement>()
         };
     }
 
-    private TypstElement ConvertShape(P.Shape shape)
+    private IEnumerable<TypstElement> ConvertShape(SlidePart slidePart, P.Shape shape, double offX, double offY, double scaleX, double scaleY)
     {
         var (id, name) = GetElementIdAndName(shape.NonVisualShapeProperties);
         var position = GetElementPosition(shape.ShapeProperties);
         var text = ExtractTextFromShape(shape);
 
-        return new TypstElement
+        // Apply group transform
+        var finalX = offX + position.X * scaleX;
+        var finalY = offY + position.Y * scaleY;
+        var finalW = position.Width * scaleX;
+        var finalH = position.Height * scaleY;
+
+        // Check for image fill
+        var blipFill = shape.ShapeProperties?.Elements<Drawing.BlipFill>().FirstOrDefault();
+        if (blipFill != null)
         {
-            Type = "Text",
-            Id = id,
-            Name = name,
-            X = position.X,
-            Y = position.Y,
-            Width = position.Width,
-            Height = position.Height,
-            Text = text
-        };
+            var imageElement = ExtractImageFromBlipFill(slidePart, blipFill);
+            if (imageElement != null)
+            {
+                // If shape also has text, we should ideally overlay it
+                // For now, return image if no text, or prioritize text if present
+                if (string.IsNullOrWhiteSpace(text.Content))
+                {
+                    yield return new TypstElement
+                    {
+                        Type = "Image",
+                        Id = id,
+                        Name = name,
+                        X = finalX,
+                        Y = finalY,
+                        Width = finalW,
+                        Height = finalH,
+                        Image = imageElement
+                    };
+                    yield break;
+                }
+            }
+        }
+
+        // Check for shape geometry with fill
+        var shapeElement = ExtractShapeGeometry(shape.ShapeProperties);
+        if (shapeElement != null && !string.IsNullOrEmpty(shapeElement.FillColor))
+        {
+            // Return shape element
+            yield return new TypstElement
+            {
+                Type = "Shape",
+                Id = id,
+                Name = name,
+                X = finalX,
+                Y = finalY,
+                Width = finalW,
+                Height = finalH,
+                Shape = shapeElement
+            };
+        }
+
+        // Return text if present
+        if (!string.IsNullOrWhiteSpace(text.Content))
+        {
+            yield return new TypstElement
+            {
+                Type = "Text",
+                Id = id,
+                Name = name,
+                X = finalX,
+                Y = finalY,
+                Width = finalW,
+                Height = finalH,
+                Text = text
+            };
+        }
     }
 
-    private TypstElement? ConvertPicture(SlidePart slidePart, P.Picture picture)
+    private TypstShapeElement? ExtractShapeGeometry(ShapeProperties? shapeProperties)
+    {
+        if (shapeProperties == null) return null;
+
+        // Extract fill color
+        var fillColor = ExtractShapeFillColor(shapeProperties);
+
+        // Check for preset geometry
+        var prstGeom = shapeProperties.Elements<Drawing.PresetGeometry>().FirstOrDefault();
+        if (prstGeom != null)
+        {
+            var prst = prstGeom.Preset?.Value;
+            if (prst == Drawing.ShapeTypeValues.Rectangle || prst == Drawing.ShapeTypeValues.RoundRectangle)
+            {
+                return new TypstShapeElement
+                {
+                    ShapeType = "rect",
+                    FillColor = fillColor,
+                    CornerRadius = prst == Drawing.ShapeTypeValues.RoundRectangle ? 5.0 : 0
+                };
+            }
+            if (prst == Drawing.ShapeTypeValues.Ellipse)
+            {
+                return new TypstShapeElement
+                {
+                    ShapeType = "ellipse",
+                    FillColor = fillColor
+                };
+            }
+        }
+
+        // Check for custom geometry (path-based shapes)
+        var custGeom = shapeProperties.Elements<Drawing.CustomGeometry>().FirstOrDefault();
+        if (custGeom != null)
+        {
+            var pathList = custGeom.Elements<Drawing.PathList>().FirstOrDefault();
+            if (pathList != null)
+            {
+                var path = pathList.Elements<Drawing.Path>().FirstOrDefault();
+                if (path != null)
+                {
+                    var points = ExtractPathPoints(path);
+                    if (points.Count > 2)
+                    {
+                        // Check if it's a simple rectangle (4 points + close)
+                        if (IsRectanglePath(points))
+                        {
+                            return new TypstShapeElement
+                            {
+                                ShapeType = "rect",
+                                FillColor = fillColor
+                            };
+                        }
+
+                        // Otherwise treat as polygon
+                        return new TypstShapeElement
+                        {
+                            ShapeType = "polygon",
+                            FillColor = fillColor,
+                            Points = points
+                        };
+                    }
+                }
+            }
+        }
+
+        // No recognizable geometry
+        if (!string.IsNullOrEmpty(fillColor))
+        {
+            // Fallback: treat as rectangle with fill
+            return new TypstShapeElement
+            {
+                ShapeType = "rect",
+                FillColor = fillColor
+            };
+        }
+
+        return null;
+    }
+
+    private string ExtractShapeFillColor(ShapeProperties shapeProperties)
+    {
+        var solidFill = shapeProperties.Elements<Drawing.SolidFill>().FirstOrDefault();
+        if (solidFill != null)
+        {
+            var color = ExtractColor(solidFill);
+            if (!string.IsNullOrEmpty(color))
+            {
+                return color;
+            }
+        }
+        return string.Empty;
+    }
+
+    private List<(double X, double Y)> ExtractPathPoints(Drawing.Path path)
+    {
+        var points = new List<(double X, double Y)>();
+        var width = (double)(path.Width?.Value ?? 1);
+        var height = (double)(path.Height?.Value ?? 1);
+        var currentX = 0.0;
+        var currentY = 0.0;
+
+        foreach (var cmd in path.ChildElements)
+        {
+            switch (cmd)
+            {
+                case Drawing.MoveTo moveTo:
+                    (currentX, currentY) = GetPoint(moveTo.Point, width, height);
+                    points.Add((currentX, currentY));
+                    break;
+
+                case Drawing.LineTo lineTo:
+                    (currentX, currentY) = GetPoint(lineTo.Point, width, height);
+                    points.Add((currentX, currentY));
+                    break;
+
+                case Drawing.CubicBezierCurveTo cubicBez:
+                    // cubicBezTo contains 3 points: control1, control2, end
+                    var bezPoints = cubicBez.Elements<Drawing.Point>().ToList();
+                    if (bezPoints.Count >= 3)
+                    {
+                        var (c1x, c1y) = GetPoint(bezPoints[0], width, height);
+                        var (c2x, c2y) = GetPoint(bezPoints[1], width, height);
+                        var (ex, ey) = GetPoint(bezPoints[2], width, height);
+
+                        // Sample 8 points along the bezier curve
+                        for (int i = 1; i <= 8; i++)
+                        {
+                            double t = i / 9.0;
+                            double mt = 1 - t;
+                            double mt2 = mt * mt;
+                            double mt3 = mt2 * mt;
+                            double t2 = t * t;
+                            double t3 = t2 * t;
+
+                            double bx = mt3 * currentX + 3 * mt2 * t * c1x + 3 * mt * t2 * c2x + t3 * ex;
+                            double by = mt3 * currentY + 3 * mt2 * t * c1y + 3 * mt * t2 * c2y + t3 * ey;
+                            points.Add((bx, by));
+                        }
+
+                        currentX = ex;
+                        currentY = ey;
+                    }
+                    break;
+
+                case Drawing.CloseShapePath:
+                    // Don't add duplicate close point
+                    break;
+            }
+        }
+
+        return points;
+    }
+
+    private (double X, double Y) GetPoint(Drawing.Point? point, double width, double height)
+    {
+        if (point == null) return (0, 0);
+        var xStr = point.X?.Value ?? "0";
+        var yStr = point.Y?.Value ?? "0";
+        var x = double.TryParse(xStr, NumberStyles.Any, CultureInfo.InvariantCulture, out var xp) ? xp : 0;
+        var y = double.TryParse(yStr, NumberStyles.Any, CultureInfo.InvariantCulture, out var yp) ? yp : 0;
+        // Normalize to 0-1 range
+        return (x / width, y / height);
+    }
+
+    private bool IsRectanglePath(List<(double X, double Y)> points)
+    {
+        if (points.Count < 4) return false;
+        // Check if points form axis-aligned rectangle (with some tolerance)
+        var distinctXs = points.Select(p => Math.Round(p.X, 3)).Distinct().ToList();
+        var distinctYs = points.Select(p => Math.Round(p.Y, 3)).Distinct().ToList();
+        return distinctXs.Count == 2 && distinctYs.Count == 2;
+    }
+
+    private IEnumerable<TypstElement> ConvertPicture(SlidePart slidePart, P.Picture picture, double offX, double offY, double scaleX, double scaleY)
     {
         var (id, name) = GetElementIdAndName(picture.NonVisualPictureProperties);
         var position = GetElementPosition(picture.ShapeProperties);
-        
-        // Extract image
-        var imageElement = ExtractImage(slidePart, picture);
-        if (imageElement == null) return null;
 
-        return new TypstElement
+        var imageElement = ExtractImage(slidePart, picture);
+        if (imageElement == null) yield break;
+
+        yield return new TypstElement
         {
             Type = "Image",
             Id = id,
             Name = name,
-            X = position.X,
-            Y = position.Y,
-            Width = position.Width,
-            Height = position.Height,
+            X = offX + position.X * scaleX,
+            Y = offY + position.Y * scaleY,
+            Width = position.Width * scaleX,
+            Height = position.Height * scaleY,
             Image = imageElement
         };
     }
 
-    private TypstElement? ConvertGraphicFrame(P.GraphicFrame graphicFrame)
+    private IEnumerable<TypstElement> ConvertGraphicFrame(P.GraphicFrame graphicFrame, double offX, double offY, double scaleX, double scaleY)
     {
         var (id, name) = GetElementIdAndName(graphicFrame.NonVisualGraphicFrameProperties);
         var position = GetGraphicFramePosition(graphicFrame);
-        
+
         var graphicData = graphicFrame.Graphic?.GraphicData;
-        if (graphicData == null) return null;
+        if (graphicData == null) yield break;
 
         var table = graphicData.Elements<Drawing.Table>().FirstOrDefault();
         if (table != null)
         {
             var tableElement = ExtractTable(table);
-            return new TypstElement
+            yield return new TypstElement
             {
                 Type = "Table",
                 Id = id,
                 Name = name,
-                X = position.X,
-                Y = position.Y,
-                Width = position.Width,
-                Height = position.Height,
+                X = offX + position.X * scaleX,
+                Y = offY + position.Y * scaleY,
+                Width = position.Width * scaleX,
+                Height = position.Height * scaleY,
                 Table = tableElement
             };
         }
+    }
 
-        return null;
+    private IEnumerable<TypstElement> ConvertGroupShape(SlidePart slidePart, P.GroupShape groupShape, double parentOffX, double parentOffY, double parentScaleX, double parentScaleY)
+    {
+        var grpXfrm = groupShape.GroupShapeProperties?.TransformGroup;
+
+        double newOffX = parentOffX;
+        double newOffY = parentOffY;
+        double newScaleX = parentScaleX;
+        double newScaleY = parentScaleY;
+
+        if (grpXfrm != null)
+        {
+            var grpOffX = EmuToPt((long)(grpXfrm.Offset?.X?.Value ?? 0));
+            var grpOffY = EmuToPt((long)(grpXfrm.Offset?.Y?.Value ?? 0));
+            var grpExtX = (double)(grpXfrm.Extents?.Cx?.Value ?? 1);
+            var grpExtY = (double)(grpXfrm.Extents?.Cy?.Value ?? 1);
+            var chOffX = EmuToPt((long)(grpXfrm.ChildOffset?.X?.Value ?? 0));
+            var chOffY = EmuToPt((long)(grpXfrm.ChildOffset?.Y?.Value ?? 0));
+            var chExtX = (double)(grpXfrm.ChildExtents?.Cx?.Value ?? 1);
+            var chExtY = (double)(grpXfrm.ChildExtents?.Cy?.Value ?? 1);
+
+            var localScaleX = grpExtX / chExtX;
+            var localScaleY = grpExtY / chExtY;
+
+            newOffX = parentOffX + (grpOffX - chOffX) * parentScaleX;
+            newOffY = parentOffY + (grpOffY - chOffY) * parentScaleY;
+            newScaleX = parentScaleX * localScaleX;
+            newScaleY = parentScaleY * localScaleY;
+        }
+
+        foreach (var child in groupShape.ChildElements)
+        {
+            foreach (var element in ConvertElement(slidePart, child, newOffX, newOffY, newScaleX, newScaleY))
+                yield return element;
+        }
     }
 
     private TypstTextElement ExtractTextFromShape(P.Shape shape)
@@ -403,9 +718,33 @@ public sealed class PptxToTypstConverter : IDisposable
 
         var sb = new StringBuilder();
         TypstTextFormatting? formatting = null;
+        string? align = null;
+
+        // Extract body properties (padding, auto-fit, anchor)
+        var bodyPr = textBody.Elements<Drawing.BodyProperties>().FirstOrDefault();
+        var autoFit = bodyPr?.Elements<Drawing.ShapeAutoFit>().FirstOrDefault() != null;
+        var vertAlign = "top";
+        var anchorVal = bodyPr?.Anchor?.Value.ToString();
+        if (anchorVal != null)
+        {
+            if (anchorVal.Contains("Center"))
+                vertAlign = "center";
+            else if (anchorVal.Contains("Bottom"))
+                vertAlign = "bottom";
+        }
+        var padLeft = EmuToPt(bodyPr?.LeftInset?.Value ?? 0);
+        var padTop = EmuToPt(bodyPr?.TopInset?.Value ?? 0);
+        var padRight = EmuToPt(bodyPr?.RightInset?.Value ?? 0);
+        var padBottom = EmuToPt(bodyPr?.BottomInset?.Value ?? 0);
 
         foreach (var paragraph in textBody.Elements<Drawing.Paragraph>())
         {
+            // Extract alignment from first paragraph
+            if (align == null)
+            {
+                align = ExtractParagraphAlignment(paragraph);
+            }
+
             foreach (var run in paragraph.Elements<Drawing.Run>())
             {
                 if (run.Text?.Text != null)
@@ -422,11 +761,46 @@ public sealed class PptxToTypstConverter : IDisposable
             sb.Append(" ");
         }
 
+        var fmt = formatting ?? new TypstTextFormatting();
+        if (align != null)
+        {
+            fmt = fmt with { Align = align };
+        }
+
         return new TypstTextElement
         {
             Content = sb.ToString().Trim(),
-            Formatting = formatting ?? new TypstTextFormatting()
+            Formatting = fmt,
+            AutoFit = autoFit,
+            VerticalAlign = vertAlign,
+            PaddingLeft = padLeft,
+            PaddingTop = padTop,
+            PaddingRight = padRight,
+            PaddingBottom = padBottom
         };
+    }
+
+    private string? ExtractParagraphAlignment(Drawing.Paragraph paragraph)
+    {
+        // ParagraphProperties is an element, not a property, in Drawing namespace
+        var pPr = paragraph.Elements<Drawing.ParagraphProperties>().FirstOrDefault();
+        if (pPr == null) return null;
+
+        // The OpenXML SDK doesn't always parse the algn attribute into Alignment property
+        // Read the raw XML attribute directly
+        var algnAttr = pPr.GetAttribute("algn", "");
+        if (!string.IsNullOrEmpty(algnAttr.Value))
+        {
+            return algnAttr.Value switch
+            {
+                "ctr" => "center",
+                "r" => "right",
+                "just" => "left",  // Typst doesn't have 'justify', use left as fallback
+                _ => "left"
+            };
+        }
+
+        return null;
     }
 
     private TypstTextFormatting ExtractTextFormatting(Drawing.Run run)
@@ -467,11 +841,18 @@ public sealed class PptxToTypstConverter : IDisposable
             fmt = fmt with { Color = color };
         }
 
-        // Font family
+        // Font family - map common "Bold" suffix fonts to base family
         var latinFont = runProps.Elements<Drawing.LatinFont>().FirstOrDefault();
         if (latinFont?.Typeface != null)
         {
-            fmt = fmt with { FontFamily = latinFont.Typeface.Value };
+            var fontName = latinFont.Typeface.Value;
+            // If font name ends with " Bold" and bold isn't set, set it
+            if (fontName.EndsWith(" Bold", StringComparison.OrdinalIgnoreCase))
+            {
+                fontName = fontName.Substring(0, fontName.Length - 5);
+                fmt = fmt with { Bold = true };
+            }
+            fmt = fmt with { FontFamily = fontName };
         }
 
         return fmt;
@@ -549,6 +930,50 @@ public sealed class PptxToTypstConverter : IDisposable
             FileName = fileName,
             FullPath = fullPath,
             Width = 0, // Will be set from shape position
+            Height = 0
+        };
+    }
+
+    private TypstImageElement? ExtractImageFromBlipFill(SlidePart slidePart, Drawing.BlipFill blipFill)
+    {
+        var blip = blipFill.Blip;
+        if (blip == null) return null;
+
+        var embed = blip.Embed?.Value;
+        if (string.IsNullOrEmpty(embed)) return null;
+
+        var imagePart = slidePart.GetPartById(embed) as ImagePart;
+        if (imagePart == null) return null;
+
+        // Determine file extension
+        var extension = imagePart.ContentType switch
+        {
+            "image/png" => "png",
+            "image/jpeg" => "jpg",
+            "image/gif" => "gif",
+            "image/bmp" => "bmp",
+            "image/tiff" => "tiff",
+            "image/x-icon" => "ico",
+            "image/svg+xml" => "svg",
+            _ => "bin"
+        };
+
+        _imageCounter++;
+        var fileName = $"image_{_imageCounter}.{extension}";
+        var fullPath = Path.Combine(_assetsDirectory, fileName);
+
+        // Save image data
+        using (var stream = imagePart.GetStream())
+        using (var fileStream = File.Create(fullPath))
+        {
+            stream.CopyTo(fileStream);
+        }
+
+        return new TypstImageElement
+        {
+            FileName = fileName,
+            FullPath = fullPath,
+            Width = 0,
             Height = 0
         };
     }
@@ -713,46 +1138,60 @@ public sealed class PptxToTypstConverter : IDisposable
 
     private void ExtractFonts()
     {
-        // Check if PPTX has embedded fonts
-        var presentation = _document.PresentationPart!.Presentation;
+        var fontPartIndex = 0;
         
-        // Look for font parts in the presentation
-        foreach (var part in _document.PresentationPart.Parts)
+        // Extract fonts from all parts
+        var allParts = new List<OpenXmlPart>();
+        allParts.Add(_document.PresentationPart!);
+        allParts.AddRange(_document.PresentationPart!.SlideParts);
+        
+        foreach (var part in allParts)
         {
-            if (part.OpenXmlPart is FontPart fontPart)
+            foreach (var p in part.Parts)
             {
-                var fileName = Path.GetFileName(fontPart.Uri.OriginalString);
-                var outputPath = Path.Combine(_fontsDirectory, fileName);
-                
-                using (var stream = fontPart.GetStream())
-                using (var fileStream = File.Create(outputPath))
+                if (p.OpenXmlPart is FontPart fontPart)
                 {
-                    stream.CopyTo(fileStream);
+                    ExtractFontFile(fontPart, fontPartIndex);
+                    fontPartIndex++;
                 }
             }
         }
+    }
 
-        // Also check slide parts for font references
-        foreach (var slidePart in _document.PresentationPart.SlideParts)
+    private void ExtractFontFile(FontPart fontPart, int index)
+    {
+        using var stream = fontPart.GetStream();
+        using var ms = new MemoryStream();
+        stream.CopyTo(ms);
+        var data = ms.ToArray();
+        
+        // Try to extract actual font from EOT wrapper
+        var otfPos = data.AsSpan().IndexOf(System.Text.Encoding.ASCII.GetBytes("OTTO"));
+        var ttfPos = data.AsSpan().IndexOf(new byte[] { 0x00, 0x01, 0x00, 0x00 });
+        
+        int pos;
+        string ext;
+        if (otfPos >= 0)
         {
-            foreach (var part in slidePart.Parts)
-            {
-                if (part.OpenXmlPart is FontPart fontPart)
-                {
-                    var fileName = Path.GetFileName(fontPart.Uri.OriginalString);
-                    var outputPath = Path.Combine(_fontsDirectory, fileName);
-                    
-                    if (!File.Exists(outputPath))
-                    {
-                        using (var stream = fontPart.GetStream())
-                        using (var fileStream = File.Create(outputPath))
-                        {
-                            stream.CopyTo(fileStream);
-                        }
-                    }
-                }
-            }
+            pos = otfPos;
+            ext = ".otf";
         }
+        else if (ttfPos >= 0)
+        {
+            pos = ttfPos;
+            ext = ".ttf";
+        }
+        else
+        {
+            // Can't extract, save as-is
+            var fileName = $"font{index}.fntdata";
+            File.WriteAllBytes(Path.Combine(_fontsDirectory, fileName), data);
+            return;
+        }
+        
+        var fontData = data[pos..];
+        var fontName = $"font{index}{ext}";
+        File.WriteAllBytes(Path.Combine(_fontsDirectory, fontName), fontData);
     }
 
     private static double EmuToPt(long emu)
