@@ -422,6 +422,26 @@ dotnet test
   - Typst source generation
   - Font extraction and fallback
 
+## TODO
+
+### Build Native Typst Wrapper from Source
+
+**Status:** Currently using CLI fallback (`typst` binary in PATH). Native library loading works on Windows and some Linux distros, but fails on hardened kernels (e.g., Artix/Arch) due to the bundled `libtypst_core.so` missing the `-z noexecstack` linker flag.
+
+**Plan:** Build our own .NET-native wrapper around Typst's C API (`libtypst`) compiled from source with proper flags:
+```bash
+# Rust build with correct stack flags
+RUSTFLAGS="-C link-arg=-z -C link-arg=noexecstack" cargo build --release
+```
+
+**Why this matters:**
+- CLI fallback adds ~500ms-2s per compilation (process spawn overhead)
+- Native wrapper would be near-instant (in-process)
+- Removes the external `typst` dependency for end users
+- Works on all Linux distros regardless of kernel hardening
+
+**Current workaround:** `TypstCompilerService` automatically falls back to the `typst` CLI when the native library fails to load. Install `typst` via your package manager and everything works.
+
 ## License
 
 MIT - Copyright 2026 Maxime Le Besnerais
