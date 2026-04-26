@@ -1,5 +1,5 @@
+using System.Diagnostics;
 using System.Globalization;
-using typstsharp;
 
 namespace OfficeEditor.Core.Services;
 
@@ -26,37 +26,68 @@ public sealed record CompileResult
 
 public sealed class TypstCompilerService : IDisposable
 {
-    private TypstCompiler? _compiler;
     private bool _disposed;
+    private static readonly bool _nativeAvailable;
+    private dynamic? _compiler; // typstsharp compiler when native is available
 
-    public TypstCompilerService()
+    static TypstCompilerService()
     {
+        // Probe whether the native typstsharp library can be loaded
+        try
+        {
+            var compilerType = Type.GetType("typstsharp.TypstCompiler, typstsharp");
+            if (compilerType != null)
+            {
+                var method = compilerType.GetMethod("FromSource", new[] { typeof(string) });
+                if (method != null)
+                {
+                    using var probe = (IDisposable?)method.Invoke(null, new object[] { "#text[probe]" });
+                    _nativeAvailable = probe != null;
+                }
+            }
+        }
+        catch
+        {
+            _nativeAvailable = false;
+        }
     }
 
     public CompileResult Compile(string source, CompileOptions? options = null)
     {
         options ??= new CompileOptions();
-        
+
+        if (_nativeAvailable)
+        {
+            return CompileNative(source, options);
+        }
+
+        return CompileCli(source, options);
+    }
+
+    private CompileResult CompileNative(string source, CompileOptions options)
+    {
         try
         {
-            // Create compiler from source
-            _compiler = TypstCompiler.FromSource(source);
-            
-            // Set font paths if provided
-            if (!string.IsNullOrEmpty(options.FontDirectory) && Directory.Exists(options.FontDirectory))
-            {
-                // Use the font_paths field directly since FontPaths property doesn't exist
-                // We'll use reflection or just skip font configuration for now
-            }
+            var compilerType = Type.GetType("typstsharp.TypstCompiler, typstsharp")
+                ?? throw new InvalidOperationException("typstsharp type not found");
 
-            // Compile
-            var result = _compiler.Compile();
-            
-            // Convert buffers to byte arrays
-            var pages = new byte[result.Buffers.Count][];
-            for (int i = 0; i < result.Buffers.Count; i++)
+            var fromSource = compilerType.GetMethod("FromSource", new[] { typeof(string) })
+                ?? throw new InvalidOperationException("FromSource method not found");
+
+            _compiler = fromSource.Invoke(null, new object[] { source });
+
+            var compileMethod = compilerType.GetMethod("Compile")
+                ?? throw new InvalidOperationException("Compile method not found");
+
+            var result = compileMethod.Invoke(_compiler, null)!;
+            var buffersProperty = result.GetType().GetProperty("Buffers")
+                ?? throw new InvalidOperationException("Buffers property not found");
+
+            var buffers = (System.Collections.IList)buffersProperty.GetValue(result)!;
+            var pages = new byte[buffers.Count][];
+            for (int i = 0; i < buffers.Count; i++)
             {
-                pages[i] = result.Buffers[i];
+                pages[i] = (byte[])buffers[i]!;
             }
 
             return new CompileResult
@@ -67,12 +98,145 @@ public sealed class TypstCompilerService : IDisposable
         }
         catch (Exception ex)
         {
+            // Fall back to CLI on any native error
+            return CompileCli(source, options);
+        }
+    }
+
+    private static CompileResult CompileCli(string source, CompileOptions options)
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"typst_compile_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var typstFile = Path.Combine(tempDir, "input.typ");
+            File.WriteAllText(typstFile, source);
+
+            string outputPattern;
+            switch (options.Format)
+            {
+                case OutputFormat.Png:
+                    outputPattern = Path.Combine(tempDir, "page_{p}.png");
+                    break;
+                case OutputFormat.Svg:
+                    outputPattern = Path.Combine(tempDir, "page_{p}.svg");
+                    break;
+                case OutputFormat.Pdf:
+                default:
+                    outputPattern = Path.Combine(tempDir, "output.pdf");
+                    break;
+            }
+
+            var args = new List<string>
+            {
+                "compile",
+                $"\"{typstFile}\"",
+                $"\"{outputPattern}\""
+            };
+
+            if (options.Format == OutputFormat.Png)
+            {
+                args.Add($"--ppi {options.Ppi.ToString(CultureInfo.InvariantCulture)}");
+            }
+
+            if (!string.IsNullOrEmpty(options.FontDirectory) && Directory.Exists(options.FontDirectory))
+            {
+                args.Add($"--font-path \"{options.FontDirectory}\"");
+            }
+
+            var psi = new ProcessStartInfo("typst", string.Join(" ", args))
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using var process = Process.Start(psi);
+            if (process == null)
+            {
+                return new CompileResult
+                {
+                    Pages = Array.Empty<byte[]>(),
+                    Success = false,
+                    ErrorMessage = "Failed to start typst process. Is 'typst' installed and in PATH?"
+                };
+            }
+
+            process.WaitForExit();
+            var stderr = process.StandardError.ReadToEnd();
+            var stdout = process.StandardOutput.ReadToEnd();
+
+            if (process.ExitCode != 0)
+            {
+                return new CompileResult
+                {
+                    Pages = Array.Empty<byte[]>(),
+                    Success = false,
+                    ErrorMessage = $"Typst CLI exited with code {process.ExitCode}. stderr: {stderr}"
+                };
+            }
+
+            // Collect output files
+            var pages = new List<byte[]>();
+
+            if (options.Format == OutputFormat.Pdf)
+            {
+                var pdfPath = Path.Combine(tempDir, "output.pdf");
+                if (File.Exists(pdfPath))
+                {
+                    pages.Add(File.ReadAllBytes(pdfPath));
+                }
+            }
+            else
+            {
+                // PNG or SVG: collect page files
+                var ext = options.Format == OutputFormat.Png ? "png" : "svg";
+                var pageFiles = Directory.GetFiles(tempDir, $"page_*.{ext}")
+                    .OrderBy(f => f, StringComparer.Ordinal);
+
+                foreach (var pageFile in pageFiles)
+                {
+                    pages.Add(File.ReadAllBytes(pageFile));
+                }
+            }
+
+            if (pages.Count == 0)
+            {
+                return new CompileResult
+                {
+                    Pages = Array.Empty<byte[]>(),
+                    Success = false,
+                    ErrorMessage = $"Typst CLI produced no output. stdout: {stdout} stderr: {stderr}"
+                };
+            }
+
+            return new CompileResult
+            {
+                Pages = pages.ToArray(),
+                Success = true
+            };
+        }
+        catch (Exception ex)
+        {
             return new CompileResult
             {
                 Pages = Array.Empty<byte[]>(),
                 Success = false,
-                ErrorMessage = ex.Message
+                ErrorMessage = $"CLI compilation failed: {ex.Message}"
             };
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(tempDir, true);
+            }
+            catch
+            {
+                // Best effort cleanup
+            }
         }
     }
 
@@ -80,7 +244,10 @@ public sealed class TypstCompilerService : IDisposable
     {
         if (!_disposed)
         {
-            _compiler?.Dispose();
+            if (_compiler is IDisposable d)
+            {
+                d.Dispose();
+            }
             _disposed = true;
         }
     }
