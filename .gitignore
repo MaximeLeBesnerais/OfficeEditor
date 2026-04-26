@@ -13,3 +13,6 @@ TestResults/
 
 # NuGet
 *.nupkg
+
+# Example outputs
+examples/output/
