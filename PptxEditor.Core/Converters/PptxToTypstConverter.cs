@@ -111,13 +111,13 @@ public sealed class PptxToTypstConverter : IDisposable
         // Elements
         foreach (var element in slide.Elements)
         {
-            GenerateElementSource(sb, element);
+            GenerateElementSource(sb, element, slide.Layout.Width);
         }
 
         sb.AppendLine();
     }
 
-    private void GenerateElementSource(StringBuilder sb, TypstElement element)
+    private void GenerateElementSource(StringBuilder sb, TypstElement element, double slideWidth)
     {
         var xPos = element.X;
         var yPos = element.Y;
@@ -134,6 +134,11 @@ public sealed class PptxToTypstConverter : IDisposable
             yPos += text.PaddingTop + topLeading + metricOffset;
             width = Math.Max(0, width - text.PaddingLeft - text.PaddingRight);
             height = Math.Max(0, height - text.PaddingTop - text.PaddingBottom);
+
+            if (IsSingleLineAutoFit(text, height) && text.Formatting.Align == "left")
+            {
+                width = Math.Max(width, slideWidth - xPos - 2);
+            }
         }
 
         var x = FormatPt(xPos);
@@ -220,7 +225,7 @@ public sealed class PptxToTypstConverter : IDisposable
 
     private double GetTextMetricOffset(TypstTextElement text)
     {
-        if (!_fontMetrics.TryGetValue(text.Formatting.FontFamily, out var metrics) || metrics.UnitsPerEm <= 0)
+        if (!TryGetFontMetrics(text, out var metrics) || metrics.UnitsPerEm <= 0)
             return 0;
 
         var scale = text.Formatting.FontSize / metrics.UnitsPerEm;
@@ -229,6 +234,50 @@ public sealed class PptxToTypstConverter : IDisposable
         var ascenderDelta = Math.Max(0, renderAscender - typoAscender) * scale;
 
         return ascenderDelta * 0.65;
+    }
+
+    private bool IsSingleLineAutoFit(TypstTextElement text, double height)
+    {
+        if (!text.AutoFit || text.ParagraphCount != 1 || text.HasExplicitLineBreaks)
+            return false;
+
+        var lineHeight = text.LineSpacing ?? text.Formatting.FontSize;
+        return height <= lineHeight * 1.25;
+    }
+
+    private double? MeasureTextWidth(TypstTextElement text)
+    {
+        if (!TryGetFontMetrics(text, out var metrics) || metrics.UnitsPerEm <= 0 || metrics.AdvanceWidths.Count == 0)
+            return null;
+
+        var totalAdvance = 0L;
+        foreach (var rune in text.Content.EnumerateRunes())
+        {
+            if (!metrics.AdvanceWidths.TryGetValue(rune.Value, out var advance))
+                return null;
+
+            totalAdvance += advance;
+        }
+
+        return totalAdvance * text.Formatting.FontSize / metrics.UnitsPerEm;
+    }
+
+    private bool TryGetFontMetrics(TypstTextElement text, out TypstFontMetrics metrics)
+    {
+        if (text.Formatting.Bold && _fontMetrics.TryGetValue($"{text.Formatting.FontFamily} Bold", out var boldMetrics))
+        {
+            metrics = boldMetrics;
+            return true;
+        }
+
+        if (_fontMetrics.TryGetValue(text.Formatting.FontFamily, out var familyMetrics))
+        {
+            metrics = familyMetrics;
+            return true;
+        }
+
+        metrics = null!;
+        return false;
     }
 
     private void GenerateImageSource(StringBuilder sb, TypstImageElement image, string width, string height)
@@ -753,6 +802,8 @@ public sealed class PptxToTypstConverter : IDisposable
         TypstTextFormatting? formatting = null;
         string? align = null;
         double? lineSpacing = null;
+        var paragraphCount = 0;
+        var hasExplicitLineBreaks = false;
 
         // Extract body properties (padding, auto-fit, anchor)
         var bodyPr = textBody.Elements<Drawing.BodyProperties>().FirstOrDefault();
@@ -773,6 +824,8 @@ public sealed class PptxToTypstConverter : IDisposable
 
         foreach (var paragraph in textBody.Elements<Drawing.Paragraph>())
         {
+            paragraphCount++;
+
             // Extract alignment from first paragraph
             if (align == null)
             {
@@ -797,6 +850,12 @@ public sealed class PptxToTypstConverter : IDisposable
                     }
                 }
             }
+
+            if (paragraph.Elements<Drawing.Break>().Any())
+            {
+                hasExplicitLineBreaks = true;
+            }
+
             sb.Append(" ");
         }
 
@@ -816,7 +875,9 @@ public sealed class PptxToTypstConverter : IDisposable
             PaddingTop = padTop,
             PaddingRight = padRight,
             PaddingBottom = padBottom,
-            LineSpacing = lineSpacing
+            LineSpacing = lineSpacing,
+            ParagraphCount = Math.Max(1, paragraphCount),
+            HasExplicitLineBreaks = hasExplicitLineBreaks
         };
     }
 
