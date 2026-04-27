@@ -5,6 +5,20 @@ public sealed class TypstPresentation
     public List<TypstSlide> Slides { get; init; } = new();
     public string TempDirectory { get; init; } = string.Empty;
     public List<string> FontFiles { get; init; } = new();
+    public Dictionary<string, TypstFontMetrics> FontMetrics { get; init; } = new(StringComparer.OrdinalIgnoreCase);
+}
+
+public sealed class TypstFontMetrics
+{
+    public int UnitsPerEm { get; init; }
+    public short TypoAscender { get; init; }
+    public short TypoDescender { get; init; }
+    public short TypoLineGap { get; init; }
+    public short HheaAscender { get; init; }
+    public short HheaDescender { get; init; }
+    public short HheaLineGap { get; init; }
+    public ushort WinAscent { get; init; }
+    public ushort WinDescent { get; init; }
 }
 
 public sealed class TypstSlide
@@ -45,6 +59,7 @@ public sealed class TypstTextElement
     public double PaddingTop { get; init; }
     public double PaddingRight { get; init; }
     public double PaddingBottom { get; init; }
+    public double? LineSpacing { get; init; }
     public string VerticalAlign { get; init; } = "top";
 }
 
