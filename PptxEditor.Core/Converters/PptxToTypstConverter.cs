@@ -16,6 +16,7 @@ public sealed class PptxToTypstConverter : IDisposable
     private readonly string _tempDirectory;
     private readonly string _assetsDirectory;
     private readonly string _fontsDirectory;
+    private readonly Dictionary<string, TypstFontMetrics> _fontMetrics = new(StringComparer.OrdinalIgnoreCase);
     private int _imageCounter;
 
     public PptxToTypstConverter(PresentationDocument document)
@@ -30,13 +31,15 @@ public sealed class PptxToTypstConverter : IDisposable
 
     public TypstPresentation Convert()
     {
+        _fontMetrics.Clear();
         ExtractFonts();
         var fontFiles = Directory.GetFiles(_fontsDirectory).ToList();
         
         var presentation = new TypstPresentation
         {
             TempDirectory = _tempDirectory,
-            FontFiles = fontFiles
+            FontFiles = fontFiles,
+            FontMetrics = new Dictionary<string, TypstFontMetrics>(_fontMetrics, StringComparer.OrdinalIgnoreCase)
         };
 
         var slideIdList = _document.PresentationPart!.Presentation.SlideIdList;
@@ -116,10 +119,27 @@ public sealed class PptxToTypstConverter : IDisposable
 
     private void GenerateElementSource(StringBuilder sb, TypstElement element)
     {
-        var x = FormatPt(element.X);
-        var y = FormatPt(element.Y);
-        var widthStr = FormatPt(element.Width);
-        var heightStr = FormatPt(element.Height);
+        var xPos = element.X;
+        var yPos = element.Y;
+        var width = element.Width;
+        var height = element.Height;
+
+        if (element.Type == "Text" && element.Text != null)
+        {
+            var text = element.Text;
+            var topLeading = Math.Max(0, ((text.LineSpacing ?? text.Formatting.FontSize) - text.Formatting.FontSize) / 2);
+            var metricOffset = GetTextMetricOffset(text);
+
+            xPos += text.PaddingLeft;
+            yPos += text.PaddingTop + topLeading + metricOffset;
+            width = Math.Max(0, width - text.PaddingLeft - text.PaddingRight);
+            height = Math.Max(0, height - text.PaddingTop - text.PaddingBottom);
+        }
+
+        var x = FormatPt(xPos);
+        var y = FormatPt(yPos);
+        var widthStr = FormatPt(width);
+        var heightStr = FormatPt(height);
 
         sb.Append($"#place(top + left, dx: {x}, dy: {y})");
         sb.Append("[");
@@ -196,6 +216,19 @@ public sealed class PptxToTypstConverter : IDisposable
 
         // Close block
         sb.Append("]");
+    }
+
+    private double GetTextMetricOffset(TypstTextElement text)
+    {
+        if (!_fontMetrics.TryGetValue(text.Formatting.FontFamily, out var metrics) || metrics.UnitsPerEm <= 0)
+            return 0;
+
+        var scale = text.Formatting.FontSize / metrics.UnitsPerEm;
+        var typoAscender = metrics.TypoAscender != 0 ? metrics.TypoAscender : metrics.HheaAscender;
+        var renderAscender = metrics.WinAscent != 0 ? metrics.WinAscent : Math.Max(0, (int)metrics.HheaAscender);
+        var ascenderDelta = Math.Max(0, renderAscender - typoAscender) * scale;
+
+        return ascenderDelta * 0.65;
     }
 
     private void GenerateImageSource(StringBuilder sb, TypstImageElement image, string width, string height)
@@ -719,6 +752,7 @@ public sealed class PptxToTypstConverter : IDisposable
         var sb = new StringBuilder();
         TypstTextFormatting? formatting = null;
         string? align = null;
+        double? lineSpacing = null;
 
         // Extract body properties (padding, auto-fit, anchor)
         var bodyPr = textBody.Elements<Drawing.BodyProperties>().FirstOrDefault();
@@ -743,6 +777,11 @@ public sealed class PptxToTypstConverter : IDisposable
             if (align == null)
             {
                 align = ExtractParagraphAlignment(paragraph);
+            }
+
+            if (lineSpacing == null)
+            {
+                lineSpacing = ExtractParagraphLineSpacing(paragraph);
             }
 
             foreach (var run in paragraph.Elements<Drawing.Run>())
@@ -776,8 +815,22 @@ public sealed class PptxToTypstConverter : IDisposable
             PaddingLeft = padLeft,
             PaddingTop = padTop,
             PaddingRight = padRight,
-            PaddingBottom = padBottom
+            PaddingBottom = padBottom,
+            LineSpacing = lineSpacing
         };
+    }
+
+    private double? ExtractParagraphLineSpacing(Drawing.Paragraph paragraph)
+    {
+        var pPr = paragraph.Elements<Drawing.ParagraphProperties>().FirstOrDefault();
+        var lnSpc = pPr?.ChildElements.FirstOrDefault(e => e.LocalName == "lnSpc");
+        var spcPts = lnSpc?.ChildElements.FirstOrDefault(e => e.LocalName == "spcPts");
+        if (spcPts == null) return null;
+
+        var valAttr = spcPts.GetAttribute("val", "");
+        return int.TryParse(valAttr.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value)
+            ? value / 100.0
+            : null;
     }
 
     private string? ExtractParagraphAlignment(Drawing.Paragraph paragraph)
@@ -1139,7 +1192,31 @@ public sealed class PptxToTypstConverter : IDisposable
     private void ExtractFonts()
     {
         var fontPartIndex = 0;
-        
+
+        var embeddedFonts = _document.PresentationPart!.Presentation
+            .Descendants()
+            .Where(e => e.LocalName == "embeddedFont")
+            .ToList();
+
+        foreach (var embeddedFont in embeddedFonts)
+        {
+            var family = embeddedFont.ChildElements.FirstOrDefault(e => e.LocalName == "font")?.GetAttribute("typeface", "").Value;
+            foreach (var fontReference in embeddedFont.ChildElements.Where(e => e.LocalName is "regular" or "bold" or "italic" or "boldItalic"))
+            {
+                var relationshipId = fontReference.GetAttribute("id", "http://schemas.openxmlformats.org/officeDocument/2006/relationships").Value;
+                if (string.IsNullOrEmpty(relationshipId)) continue;
+
+                if (_document.PresentationPart.GetPartById(relationshipId) is FontPart fontPart)
+                {
+                    ExtractFontFile(fontPart, fontPartIndex, family);
+                    fontPartIndex++;
+                }
+            }
+        }
+
+        if (fontPartIndex > 0)
+            return;
+
         // Extract fonts from all parts
         var allParts = new List<OpenXmlPart>();
         allParts.Add(_document.PresentationPart!);
@@ -1151,14 +1228,14 @@ public sealed class PptxToTypstConverter : IDisposable
             {
                 if (p.OpenXmlPart is FontPart fontPart)
                 {
-                    ExtractFontFile(fontPart, fontPartIndex);
+                    ExtractFontFile(fontPart, fontPartIndex, family: null);
                     fontPartIndex++;
                 }
             }
         }
     }
 
-    private void ExtractFontFile(FontPart fontPart, int index)
+    private void ExtractFontFile(FontPart fontPart, int index, string? family)
     {
         using var stream = fontPart.GetStream();
         using var ms = new MemoryStream();
@@ -1192,6 +1269,16 @@ public sealed class PptxToTypstConverter : IDisposable
         var fontData = data[pos..];
         var fontName = $"font{index}{ext}";
         File.WriteAllBytes(Path.Combine(_fontsDirectory, fontName), fontData);
+
+        var metrics = OpenTypeFontMetricsReader.TryRead(fontData);
+        if (metrics != null && !string.IsNullOrWhiteSpace(family))
+        {
+            _fontMetrics[family] = metrics;
+            if (family.EndsWith(" Bold", StringComparison.OrdinalIgnoreCase))
+            {
+                _fontMetrics.TryAdd(family[..^5], metrics);
+            }
+        }
     }
 
     private static double EmuToPt(long emu)
