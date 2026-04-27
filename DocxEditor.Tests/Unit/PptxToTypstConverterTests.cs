@@ -433,9 +433,17 @@ public class PptxToTypstConverterTests : IDisposable
 
         var method = typeof(PptxToTypstConverter).GetMethod(
             "ExtractTextFromShape",
-            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic,
+            null,
+            [typeof(P.Shape), typeof(StyleResolver)],
+            null);
 
-        var text = Assert.IsType<TypstTextElement>(method!.Invoke(converter, [shape]));
+        // Get the first slide part for style resolution
+        var slidePart = document.PresentationPart!.SlideParts.FirstOrDefault();
+        Assert.NotNull(slidePart);
+
+        var styleResolver = new StyleResolver(document, slidePart);
+        var text = Assert.IsType<TypstTextElement>(method!.Invoke(converter, [shape, styleResolver]));
 
         Assert.Equal("First paragraph\n\n\n\nSecond paragraph", text.Content);
     }
@@ -498,5 +506,42 @@ public class PptxToTypstConverterTests : IDisposable
         // After dispose, temp directory should be cleaned up
         // Note: This may fail on some systems due to file locking
         // Assert.False(Directory.Exists(tempDir));
+    }
+
+    [Fact]
+    public void PresPro_Slide1_BackgroundColor_ResolvedFromLayout()
+    {
+        var path = "examples/REF/pres-pro.pptx";
+        if (!File.Exists(path))
+            return; // Skip if file doesn't exist
+
+        using var doc = PresentationDocument.Open(path, false);
+        var converter = new PptxToTypstConverter(doc);
+        var presentation = converter.Convert();
+
+        var slide1 = presentation.Slides.FirstOrDefault();
+        Assert.NotNull(slide1);
+        
+        // Background should be resolved from layout (accent1 = #CEBA80)
+        Assert.Equal("#CEBA80", slide1.Layout.BackgroundColor);
+    }
+
+    [Fact]
+    public void PresPro_Slide1_TitleFontSize_FromMaster()
+    {
+        var path = "examples/REF/pres-pro.pptx";
+        if (!File.Exists(path))
+            return;
+
+        using var doc = PresentationDocument.Open(path, false);
+        var converter = new PptxToTypstConverter(doc);
+        var presentation = converter.Convert();
+
+        var slide1 = presentation.Slides.FirstOrDefault();
+        Assert.NotNull(slide1);
+
+        var titleElement = slide1.Elements.FirstOrDefault(e => e.Name == "Title 1");
+        Assert.NotNull(titleElement);
+        Assert.Equal(54.0, titleElement.Text?.Formatting.FontSize);
     }
 }

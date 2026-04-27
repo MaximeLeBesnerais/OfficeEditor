@@ -426,7 +426,8 @@ public sealed class PptxToTypstConverter : IDisposable
 
     private TypstSlide ConvertSlide(SlidePart slidePart, Slide slide, int slideIndex)
     {
-        var layout = ExtractSlideLayout(slidePart, slide);
+        var styleResolver = new StyleResolver(_document, slidePart);
+        var layout = ExtractSlideLayout(slidePart, slide, styleResolver);
         var typstSlide = new TypstSlide
         {
             SlideIndex = slideIndex,
@@ -438,7 +439,7 @@ public sealed class PptxToTypstConverter : IDisposable
 
         foreach (var element in shapeTree.ChildElements)
         {
-            foreach (var typstElement in ConvertElement(slidePart, element))
+            foreach (var typstElement in ConvertElement(slidePart, element, styleResolver))
             {
                 typstSlide.Elements.Add(typstElement);
             }
@@ -447,7 +448,7 @@ public sealed class PptxToTypstConverter : IDisposable
         return typstSlide;
     }
 
-    private Models.SlideLayout ExtractSlideLayout(SlidePart slidePart, Slide slide)
+    private Models.SlideLayout ExtractSlideLayout(SlidePart slidePart, Slide slide, StyleResolver styleResolver)
     {
         // Default to 16:9 (960pt x 540pt at 96 DPI, or 10in x 5.625in = 720pt x 405pt)
         double width = 720;
@@ -463,17 +464,8 @@ public sealed class PptxToTypstConverter : IDisposable
             height = EmuToPt(sldSz.Cy?.Value ?? 6858000);
         }
 
-        // Background
-        var bg = slide.CommonSlideData?.Background;
-        if (bg?.BackgroundProperties != null)
-        {
-            var bgProps = bg.BackgroundProperties;
-            var solidFill = bgProps.Elements<Drawing.SolidFill>().FirstOrDefault();
-            if (solidFill != null)
-            {
-                bgColor = ExtractColor(solidFill);
-            }
-        }
+        // Background - use style resolver for cascade: slide -> layout -> master
+        bgColor = styleResolver.ResolveBackgroundColor();
 
         return new Models.SlideLayout
         {
@@ -483,23 +475,23 @@ public sealed class PptxToTypstConverter : IDisposable
         };
     }
 
-    private IEnumerable<TypstElement> ConvertElement(SlidePart slidePart, OpenXmlElement element, double offX = 0, double offY = 0, double scaleX = 1, double scaleY = 1)
+    private IEnumerable<TypstElement> ConvertElement(SlidePart slidePart, OpenXmlElement element, StyleResolver styleResolver, double offX = 0, double offY = 0, double scaleX = 1, double scaleY = 1)
     {
         return element switch
         {
-            P.Shape shape => ConvertShape(slidePart, shape, offX, offY, scaleX, scaleY),
+            P.Shape shape => ConvertShape(slidePart, shape, styleResolver, offX, offY, scaleX, scaleY),
             P.Picture picture => ConvertPicture(slidePart, picture, offX, offY, scaleX, scaleY),
             P.GraphicFrame graphicFrame => ConvertGraphicFrame(graphicFrame, offX, offY, scaleX, scaleY),
-            P.GroupShape groupShape => ConvertGroupShape(slidePart, groupShape, offX, offY, scaleX, scaleY),
+            P.GroupShape groupShape => ConvertGroupShape(slidePart, groupShape, styleResolver, offX, offY, scaleX, scaleY),
             _ => Array.Empty<TypstElement>()
         };
     }
 
-    private IEnumerable<TypstElement> ConvertShape(SlidePart slidePart, P.Shape shape, double offX, double offY, double scaleX, double scaleY)
+    private IEnumerable<TypstElement> ConvertShape(SlidePart slidePart, P.Shape shape, StyleResolver styleResolver, double offX, double offY, double scaleX, double scaleY)
     {
         var (id, name) = GetElementIdAndName(shape.NonVisualShapeProperties);
         var position = GetElementPosition(shape.ShapeProperties);
-        var text = ExtractTextFromShape(shape);
+        var text = ExtractTextFromShape(shape, styleResolver);
 
         // Apply group transform
         var finalX = offX + position.X * scaleX;
@@ -790,7 +782,7 @@ public sealed class PptxToTypstConverter : IDisposable
         }
     }
 
-    private IEnumerable<TypstElement> ConvertGroupShape(SlidePart slidePart, P.GroupShape groupShape, double parentOffX, double parentOffY, double parentScaleX, double parentScaleY)
+    private IEnumerable<TypstElement> ConvertGroupShape(SlidePart slidePart, P.GroupShape groupShape, StyleResolver styleResolver, double parentOffX, double parentOffY, double parentScaleX, double parentScaleY)
     {
         var grpXfrm = groupShape.GroupShapeProperties?.TransformGroup;
 
@@ -821,12 +813,12 @@ public sealed class PptxToTypstConverter : IDisposable
 
         foreach (var child in groupShape.ChildElements)
         {
-            foreach (var element in ConvertElement(slidePart, child, newOffX, newOffY, newScaleX, newScaleY))
+            foreach (var element in ConvertElement(slidePart, child, styleResolver, newOffX, newOffY, newScaleX, newScaleY))
                 yield return element;
         }
     }
 
-    private TypstTextElement ExtractTextFromShape(P.Shape shape)
+    private TypstTextElement ExtractTextFromShape(P.Shape shape, StyleResolver styleResolver)
     {
         var textBody = shape.TextBody;
         if (textBody == null)
@@ -900,11 +892,28 @@ public sealed class PptxToTypstConverter : IDisposable
             paragraphTexts.Add(paragraphText.ToString());
         }
 
+        // Get default text style from master based on placeholder type
+        var placeholderType = GetPlaceholderType(shape);
+        var defaultStyle = styleResolver.GetDefaultTextStyle(placeholderType);
+
+        // Merge explicit formatting with defaults
         var fmt = formatting ?? new TypstTextFormatting();
         if (align != null)
         {
             fmt = fmt with { Align = align };
         }
+
+        // Apply defaults for missing values
+        if (fmt.FontSize == 18.0 && defaultStyle.FontSize.HasValue)
+            fmt = fmt with { FontSize = defaultStyle.FontSize.Value };
+        if (!fmt.Bold && defaultStyle.Bold.HasValue)
+            fmt = fmt with { Bold = defaultStyle.Bold.Value };
+        if (!fmt.Italic && defaultStyle.Italic.HasValue)
+            fmt = fmt with { Italic = defaultStyle.Italic.Value };
+        if (fmt.Color == "#000000" && !string.IsNullOrEmpty(defaultStyle.Color))
+            fmt = fmt with { Color = defaultStyle.Color };
+        if (fmt.FontFamily == "Arial" && !string.IsNullOrEmpty(defaultStyle.FontFamily))
+            fmt = fmt with { FontFamily = defaultStyle.FontFamily };
 
         return new TypstTextElement
         {
@@ -920,6 +929,17 @@ public sealed class PptxToTypstConverter : IDisposable
             ParagraphCount = Math.Max(1, paragraphCount),
             HasExplicitLineBreaks = hasExplicitLineBreaks
         };
+    }
+
+    private static PlaceholderValues? GetPlaceholderType(P.Shape shape)
+    {
+        var nvSpPr = shape.NonVisualShapeProperties;
+        if (nvSpPr == null) return null;
+
+        var ph = nvSpPr.Elements<PlaceholderShape>().FirstOrDefault();
+        if (ph == null) return null;
+
+        return ph.Type?.Value;
     }
 
     private double? ExtractParagraphLineSpacing(Drawing.Paragraph paragraph)
