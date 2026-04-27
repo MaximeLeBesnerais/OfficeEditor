@@ -368,7 +368,95 @@ public class PptxToTypstConverterTests : IDisposable
         Assert.Contains("#block(width: 10.00pt)", source);
     }
 
+    [Fact]
+    public void GenerateTypstSource_EmitsParagraphLeadingFromLineSpacing()
+    {
+        var path = CreateSimplePptx();
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = CreateTextPresentation(new TypstTextElement
+        {
+            Content = "Line one line two",
+            LineSpacing = 32.25,
+            Formatting = new TypstTextFormatting
+            {
+                FontFamily = "Arial",
+                FontSize = 18
+            }
+        });
+        var source = converter.GenerateTypstSource(presentation);
+
+        Assert.Contains("#set par(leading: 20.55pt)", source);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_EmitsVerticalGapForEmptyParagraph()
+    {
+        var path = CreateSimplePptx();
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = CreateTextPresentation(new TypstTextElement
+        {
+            Content = "First paragraph\n\n\n\nSecond paragraph",
+            LineSpacing = 32.25,
+            Formatting = new TypstTextFormatting
+            {
+                FontFamily = "Arial",
+                FontSize = 18
+            }
+        });
+        var source = converter.GenerateTypstSource(presentation);
+
+        Assert.Contains("First paragraph]#v(32.25pt)", source);
+        Assert.Contains("[Second paragraph]", source);
+    }
+
+    [Fact]
+    public void Convert_PreservesEmptyPptxParagraphAsBlankParagraphBreak()
+    {
+        var path = CreateSimplePptx();
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var shape = new P.Shape(
+            new TextBody(
+                new Drawing.BodyProperties(),
+                new Drawing.ListStyle(),
+                new Drawing.Paragraph(new Drawing.Run(new Drawing.Text { Text = "First paragraph" })),
+                new Drawing.Paragraph(),
+                new Drawing.Paragraph(new Drawing.Run(new Drawing.Text { Text = "Second paragraph" }))));
+
+        var method = typeof(PptxToTypstConverter).GetMethod(
+            "ExtractTextFromShape",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+
+        var text = Assert.IsType<TypstTextElement>(method!.Invoke(converter, [shape]));
+
+        Assert.Equal("First paragraph\n\n\n\nSecond paragraph", text.Content);
+    }
+
     private static TypstPresentation CreateAutoFitPresentation(double height, string align = "left")
+    {
+        return CreateTextPresentation(new TypstTextElement
+        {
+            Content = "WW",
+            AutoFit = true,
+            ParagraphCount = 1,
+            Formatting = new TypstTextFormatting
+            {
+                FontFamily = "Arial",
+                FontSize = 10,
+                Align = align
+            }
+        }, height: height, width: 10);
+    }
+
+    private static TypstPresentation CreateTextPresentation(TypstTextElement text, double height = 100, double width = 300)
     {
         return new TypstPresentation
         {
@@ -383,20 +471,9 @@ public class PptxToTypstConverterTests : IDisposable
                         {
                             Type = "Text",
                             X = 100,
-                            Width = 10,
+                            Width = width,
                             Height = height,
-                            Text = new TypstTextElement
-                            {
-                                Content = "WW",
-                                AutoFit = true,
-                                ParagraphCount = 1,
-                                Formatting = new TypstTextFormatting
-                                {
-                                    FontFamily = "Arial",
-                                    FontSize = 10,
-                                    Align = align
-                                }
-                            }
+                            Text = text
                         }
                     ]
                 }

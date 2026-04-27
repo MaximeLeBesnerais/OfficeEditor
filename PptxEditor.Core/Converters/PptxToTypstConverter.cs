@@ -193,6 +193,12 @@ public sealed class PptxToTypstConverter : IDisposable
         // Constrain text to original text box width
         sb.Append($"#block(width: {width})[");
 
+        var leading = GetTypstParagraphLeading(text);
+        if (leading > 0.01)
+        {
+            sb.Append($"#set par(leading: {FormatPt(leading)})\n");
+        }
+
         // Apply horizontal alignment if not left
         if (fmt.Align != "left" && !string.IsNullOrEmpty(fmt.Align))
         {
@@ -201,17 +207,7 @@ public sealed class PptxToTypstConverter : IDisposable
 
         var paramStr = parameters.Count > 0 ? $"#text({string.Join(", ", parameters)})" : "";
         
-        if (!string.IsNullOrEmpty(paramStr))
-        {
-            sb.Append(paramStr);
-            sb.Append("[");
-            sb.Append(EscapeTypstText(text.Content));
-            sb.Append("]");
-        }
-        else
-        {
-            sb.Append(EscapeTypstText(text.Content));
-        }
+        AppendTextContent(sb, text, paramStr);
 
         // Close alignment wrapper if opened
         if (fmt.Align != "left" && !string.IsNullOrEmpty(fmt.Align))
@@ -221,6 +217,46 @@ public sealed class PptxToTypstConverter : IDisposable
 
         // Close block
         sb.Append("]");
+    }
+
+    private static void AppendTextContent(StringBuilder sb, TypstTextElement text, string paramStr)
+    {
+        var paragraphs = text.Content.Split("\n\n", StringSplitOptions.None);
+        for (var i = 0; i < paragraphs.Length; i++)
+        {
+            if (i > 0 && !string.IsNullOrEmpty(paragraphs[i - 1]) && !string.IsNullOrEmpty(paragraphs[i]))
+            {
+                sb.Append("\n\n");
+            }
+
+            if (string.IsNullOrEmpty(paragraphs[i]))
+            {
+                sb.Append($"#v({FormatPt(text.LineSpacing ?? text.Formatting.FontSize)})\n");
+                continue;
+            }
+
+            if (!string.IsNullOrEmpty(paramStr))
+            {
+                sb.Append(paramStr);
+                sb.Append("[");
+                sb.Append(EscapeTypstText(paragraphs[i]));
+                sb.Append("]");
+            }
+            else
+            {
+                sb.Append(EscapeTypstText(paragraphs[i]));
+            }
+        }
+    }
+
+    private static double GetTypstParagraphLeading(TypstTextElement text)
+    {
+        if (text.LineSpacing == null)
+            return 0;
+
+        // Typst's par.leading is added to its own default line advance, while PPTX spcPts is the target line pitch.
+        var estimatedTypstLineAdvance = text.Formatting.FontSize * 0.65;
+        return Math.Max(0, text.LineSpacing.Value - estimatedTypstLineAdvance);
     }
 
     private double GetTextMetricOffset(TypstTextElement text)
@@ -233,7 +269,7 @@ public sealed class PptxToTypstConverter : IDisposable
         var renderAscender = metrics.WinAscent != 0 ? metrics.WinAscent : Math.Max(0, (int)metrics.HheaAscender);
         var ascenderDelta = Math.Max(0, renderAscender - typoAscender) * scale;
 
-        return ascenderDelta * 0.65;
+        return ascenderDelta;
     }
 
     private bool IsSingleLineAutoFit(TypstTextElement text, double height)
@@ -798,7 +834,7 @@ public sealed class PptxToTypstConverter : IDisposable
             return new TypstTextElement { Content = "" };
         }
 
-        var sb = new StringBuilder();
+        var paragraphTexts = new List<string>();
         TypstTextFormatting? formatting = null;
         string? align = null;
         double? lineSpacing = null;
@@ -837,26 +873,31 @@ public sealed class PptxToTypstConverter : IDisposable
                 lineSpacing = ExtractParagraphLineSpacing(paragraph);
             }
 
-            foreach (var run in paragraph.Elements<Drawing.Run>())
+            var paragraphText = new StringBuilder();
+            foreach (var child in paragraph.ChildElements)
             {
-                if (run.Text?.Text != null)
+                if (child is Drawing.Run run)
                 {
-                    sb.Append(run.Text.Text);
-                    
+                    if (run.Text?.Text != null)
+                    {
+                        paragraphText.Append(run.Text.Text);
+                    }
+
                     // Extract formatting from first run
                     if (formatting == null)
                     {
                         formatting = ExtractTextFormatting(run);
                     }
                 }
+
+                if (child is Drawing.Break)
+                {
+                    paragraphText.Append('\n');
+                    hasExplicitLineBreaks = true;
+                }
             }
 
-            if (paragraph.Elements<Drawing.Break>().Any())
-            {
-                hasExplicitLineBreaks = true;
-            }
-
-            sb.Append(" ");
+            paragraphTexts.Add(paragraphText.ToString());
         }
 
         var fmt = formatting ?? new TypstTextFormatting();
@@ -867,7 +908,7 @@ public sealed class PptxToTypstConverter : IDisposable
 
         return new TypstTextElement
         {
-            Content = sb.ToString().Trim(),
+            Content = string.Join("\n\n", paragraphTexts).Trim(),
             Formatting = fmt,
             AutoFit = autoFit,
             VerticalAlign = vertAlign,
@@ -1327,7 +1368,8 @@ public sealed class PptxToTypstConverter : IDisposable
             return;
         }
         
-        var fontData = data[pos..];
+        var fontDataLength = TryReadEotFontDataLength(data, pos);
+        var fontData = data[pos..(pos + fontDataLength)];
         var fontName = $"font{index}{ext}";
         File.WriteAllBytes(Path.Combine(_fontsDirectory, fontName), fontData);
 
@@ -1340,6 +1382,18 @@ public sealed class PptxToTypstConverter : IDisposable
                 _fontMetrics.TryAdd(family[..^5], metrics);
             }
         }
+    }
+
+    private static int TryReadEotFontDataLength(byte[] data, int fontDataOffset)
+    {
+        if (data.Length >= 8)
+        {
+            var fontDataLength = BitConverter.ToUInt32(data, 4);
+            if (fontDataLength > 0 && fontDataLength <= int.MaxValue && fontDataOffset + fontDataLength <= data.Length)
+                return (int)fontDataLength;
+        }
+
+        return data.Length - fontDataOffset;
     }
 
     private static double EmuToPt(long emu)
