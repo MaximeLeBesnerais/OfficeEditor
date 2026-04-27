@@ -19,6 +19,7 @@ public sealed class TypstFontMetrics
     public short HheaLineGap { get; init; }
     public ushort WinAscent { get; init; }
     public ushort WinDescent { get; init; }
+    public Dictionary<int, ushort> AdvanceWidths { get; init; } = new();
 }
 
 public sealed class TypstSlide
@@ -61,6 +62,8 @@ public sealed class TypstTextElement
     public double PaddingBottom { get; init; }
     public double? LineSpacing { get; init; }
     public string VerticalAlign { get; init; } = "top";
+    public int ParagraphCount { get; init; } = 1;
+    public bool HasExplicitLineBreaks { get; init; }
 }
 
 public sealed record TypstTextFormatting

@@ -327,6 +327,84 @@ public class PptxToTypstConverterTests : IDisposable
     }
 
     [Fact]
+    public void GenerateTypstSource_ExpandsSingleLineAutoFitTextToSlideBounds()
+    {
+        var path = CreateSimplePptx();
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = CreateAutoFitPresentation(height: 10);
+        var source = converter.GenerateTypstSource(presentation);
+
+        Assert.Contains("#block(width: 618.00pt)", source);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_KeepsMultiLineAutoFitTextConstrained()
+    {
+        var path = CreateSimplePptx();
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = CreateAutoFitPresentation(height: 30);
+        var source = converter.GenerateTypstSource(presentation);
+
+        Assert.Contains("#block(width: 10.00pt)", source);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_KeepsCenteredSingleLineAutoFitTextConstrained()
+    {
+        var path = CreateSimplePptx();
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = CreateAutoFitPresentation(height: 10, align: "center");
+        var source = converter.GenerateTypstSource(presentation);
+
+        Assert.Contains("#block(width: 10.00pt)", source);
+    }
+
+    private static TypstPresentation CreateAutoFitPresentation(double height, string align = "left")
+    {
+        return new TypstPresentation
+        {
+            Slides =
+            [
+                new TypstSlide
+                {
+                    Layout = new PptxEditor.Core.Models.SlideLayout { Width = 720, Height = 540 },
+                    Elements =
+                    [
+                        new TypstElement
+                        {
+                            Type = "Text",
+                            X = 100,
+                            Width = 10,
+                            Height = height,
+                            Text = new TypstTextElement
+                            {
+                                Content = "WW",
+                                AutoFit = true,
+                                ParagraphCount = 1,
+                                Formatting = new TypstTextFormatting
+                                {
+                                    FontFamily = "Arial",
+                                    FontSize = 10,
+                                    Align = align
+                                }
+                            }
+                        }
+                    ]
+                }
+            ]
+        };
+    }
+
+    [Fact]
     public void Dispose_CleansUpTempDirectory()
     {
         var path = CreateSimplePptx();
