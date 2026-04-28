@@ -6,6 +6,7 @@ public sealed class TypstPresentation
     public string TempDirectory { get; init; } = string.Empty;
     public List<string> FontFiles { get; init; } = new();
     public Dictionary<string, TypstFontMetrics> FontMetrics { get; init; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, string> ThemeFonts { get; init; } = new(StringComparer.OrdinalIgnoreCase);
 }
 
 public sealed class TypstFontMetrics
@@ -45,6 +46,7 @@ public sealed class TypstElement
     public double Y { get; init; }
     public double Width { get; init; }
     public double Height { get; init; }
+    public double Rotation { get; init; }
     public TypstTextElement? Text { get; init; }
     public TypstImageElement? Image { get; init; }
     public TypstTableElement? Table { get; init; }

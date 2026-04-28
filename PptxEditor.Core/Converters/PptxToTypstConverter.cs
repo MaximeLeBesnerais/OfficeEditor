@@ -17,6 +17,7 @@ public sealed class PptxToTypstConverter : IDisposable
     private readonly string _assetsDirectory;
     private readonly string _fontsDirectory;
     private readonly Dictionary<string, TypstFontMetrics> _fontMetrics = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, string> _themeFonts = new(StringComparer.OrdinalIgnoreCase);
     private int _imageCounter;
 
     public PptxToTypstConverter(PresentationDocument document)
@@ -34,12 +35,14 @@ public sealed class PptxToTypstConverter : IDisposable
         _fontMetrics.Clear();
         ExtractFonts();
         var fontFiles = Directory.GetFiles(_fontsDirectory).ToList();
+        _themeFonts = ExtractThemeFonts();
         
         var presentation = new TypstPresentation
         {
             TempDirectory = _tempDirectory,
             FontFiles = fontFiles,
-            FontMetrics = new Dictionary<string, TypstFontMetrics>(_fontMetrics, StringComparer.OrdinalIgnoreCase)
+            FontMetrics = new Dictionary<string, TypstFontMetrics>(_fontMetrics, StringComparer.OrdinalIgnoreCase),
+            ThemeFonts = _themeFonts
         };
 
         var slideIdList = _document.PresentationPart!.Presentation.SlideIdList;
@@ -93,10 +96,15 @@ public sealed class PptxToTypstConverter : IDisposable
         var height = slide.Layout.Height;
         sb.AppendLine($"#set page(width: {FormatPt(width)}, height: {FormatPt(height)}, margin: 0pt)");
 
-        // Background
+        // Background - must explicitly set for each slide since Typst persists page properties
         if (!string.IsNullOrEmpty(slide.Layout.BackgroundColor))
         {
             sb.AppendLine($"#set page(fill: rgb(\"{slide.Layout.BackgroundColor}\"))");
+        }
+        else
+        {
+            // No explicit background means white (window/background color)
+            sb.AppendLine("#set page(fill: rgb(\"#FFFFFF\"))");
         }
 
         sb.AppendLine();
@@ -149,6 +157,14 @@ public sealed class PptxToTypstConverter : IDisposable
         sb.Append($"#place(top + left, dx: {x}, dy: {y})");
         sb.Append("[");
 
+        // Apply rotation if present (PPTX rotation is clockwise, Typst is CCW)
+        if (Math.Abs(element.Rotation) > 0.01)
+        {
+            var typstAngle = -element.Rotation; // Negate because PPTX is CW, Typst is CCW
+            sb.Append($"#rotate({typstAngle.ToString("F1", CultureInfo.InvariantCulture)}deg, origin: center)");
+            sb.Append("[");
+        }
+
         switch (element.Type)
         {
             case "Text":
@@ -163,6 +179,11 @@ public sealed class PptxToTypstConverter : IDisposable
             case "Shape":
                 GenerateShapeSource(sb, element.Shape!, widthStr, heightStr, element.Width, element.Height);
                 break;
+        }
+
+        if (Math.Abs(element.Rotation) > 0.01)
+        {
+            sb.Append("]");
         }
 
         sb.AppendLine("]");
@@ -185,9 +206,10 @@ public sealed class PptxToTypstConverter : IDisposable
             parameters.Add($"fill: rgb(\"{fmt.Color}\")");
         
         // Add font family if specified and not default
-        if (!string.IsNullOrEmpty(fmt.FontFamily) && fmt.FontFamily != "Arial")
+        var fontFamily = ResolveThemeFont(fmt.FontFamily);
+        if (!string.IsNullOrEmpty(fontFamily) && fontFamily != "Arial")
         {
-            parameters.Add($"font: \"{fmt.FontFamily}\"");
+            parameters.Add($"font: \"{fontFamily}\"");
         }
 
         // Constrain text to original text box width
@@ -439,7 +461,7 @@ public sealed class PptxToTypstConverter : IDisposable
 
         foreach (var element in shapeTree.ChildElements)
         {
-            foreach (var typstElement in ConvertElement(slidePart, element, styleResolver))
+            foreach (var typstElement in ConvertElement(slidePart, element, styleResolver, slideIndex))
             {
                 typstSlide.Elements.Add(typstElement);
             }
@@ -475,29 +497,61 @@ public sealed class PptxToTypstConverter : IDisposable
         };
     }
 
-    private IEnumerable<TypstElement> ConvertElement(SlidePart slidePart, OpenXmlElement element, StyleResolver styleResolver, double offX = 0, double offY = 0, double scaleX = 1, double scaleY = 1)
+    private IEnumerable<TypstElement> ConvertElement(SlidePart slidePart, OpenXmlElement element, StyleResolver styleResolver, int slideIndex, double offX = 0, double offY = 0, double scaleX = 1, double scaleY = 1)
     {
         return element switch
         {
-            P.Shape shape => ConvertShape(slidePart, shape, styleResolver, offX, offY, scaleX, scaleY),
+            P.Shape shape => ConvertShape(slidePart, shape, styleResolver, slideIndex, offX, offY, scaleX, scaleY),
             P.Picture picture => ConvertPicture(slidePart, picture, offX, offY, scaleX, scaleY),
             P.GraphicFrame graphicFrame => ConvertGraphicFrame(graphicFrame, offX, offY, scaleX, scaleY),
-            P.GroupShape groupShape => ConvertGroupShape(slidePart, groupShape, styleResolver, offX, offY, scaleX, scaleY),
+            P.GroupShape groupShape => ConvertGroupShape(slidePart, groupShape, styleResolver, slideIndex, offX, offY, scaleX, scaleY),
             _ => Array.Empty<TypstElement>()
         };
     }
 
-    private IEnumerable<TypstElement> ConvertShape(SlidePart slidePart, P.Shape shape, StyleResolver styleResolver, double offX, double offY, double scaleX, double scaleY)
+    private IEnumerable<TypstElement> ConvertShape(SlidePart slidePart, P.Shape shape, StyleResolver styleResolver, int slideIndex, double offX, double offY, double scaleX, double scaleY)
     {
         var (id, name) = GetElementIdAndName(shape.NonVisualShapeProperties);
         var position = GetElementPosition(shape.ShapeProperties);
+        
+        // If no transform on slide, inherit from layout placeholder
+        if (position.X == 0 && position.Y == 0 && position.Width == 100 && position.Height == 50)
+        {
+            var layoutPosition = GetLayoutPlaceholderPosition(slidePart, shape);
+            if (layoutPosition != null)
+            {
+                position = layoutPosition.Value;
+            }
+        }
+        
         var text = ExtractTextFromShape(shape, styleResolver);
+        
+        // Handle slide number placeholder
+        var placeholderType = GetPlaceholderType(shape);
+        if (placeholderType == PlaceholderValues.SlideNumber)
+        {
+            text = new TypstTextElement
+            {
+                Content = slideIndex.ToString(),
+                Formatting = text.Formatting,
+                AutoFit = text.AutoFit,
+                VerticalAlign = text.VerticalAlign,
+                PaddingLeft = text.PaddingLeft,
+                PaddingTop = text.PaddingTop,
+                PaddingRight = text.PaddingRight,
+                PaddingBottom = text.PaddingBottom,
+                LineSpacing = text.LineSpacing,
+                ParagraphCount = text.ParagraphCount,
+                HasExplicitLineBreaks = text.HasExplicitLineBreaks
+            };
+        }
 
         // Apply group transform
         var finalX = offX + position.X * scaleX;
         var finalY = offY + position.Y * scaleY;
         var finalW = position.Width * scaleX;
         var finalH = position.Height * scaleY;
+        var finalRot = position.Rotation;
 
         // Check for image fill
         var blipFill = shape.ShapeProperties?.Elements<Drawing.BlipFill>().FirstOrDefault();
@@ -510,17 +564,18 @@ public sealed class PptxToTypstConverter : IDisposable
                 // For now, return image if no text, or prioritize text if present
                 if (string.IsNullOrWhiteSpace(text.Content))
                 {
-                    yield return new TypstElement
-                    {
-                        Type = "Image",
-                        Id = id,
-                        Name = name,
-                        X = finalX,
-                        Y = finalY,
-                        Width = finalW,
-                        Height = finalH,
-                        Image = imageElement
-                    };
+                yield return new TypstElement
+                {
+                    Type = "Image",
+                    Id = id,
+                    Name = name,
+                    X = finalX,
+                    Y = finalY,
+                    Width = finalW,
+                    Height = finalH,
+                    Rotation = finalRot,
+                    Image = imageElement
+                };
                     yield break;
                 }
             }
@@ -540,6 +595,7 @@ public sealed class PptxToTypstConverter : IDisposable
                 Y = finalY,
                 Width = finalW,
                 Height = finalH,
+                Rotation = finalRot,
                 Shape = shapeElement
             };
         }
@@ -556,6 +612,7 @@ public sealed class PptxToTypstConverter : IDisposable
                 Y = finalY,
                 Width = finalW,
                 Height = finalH,
+                Rotation = finalRot,
                 Text = text
             };
         }
@@ -782,7 +839,7 @@ public sealed class PptxToTypstConverter : IDisposable
         }
     }
 
-    private IEnumerable<TypstElement> ConvertGroupShape(SlidePart slidePart, P.GroupShape groupShape, StyleResolver styleResolver, double parentOffX, double parentOffY, double parentScaleX, double parentScaleY)
+    private IEnumerable<TypstElement> ConvertGroupShape(SlidePart slidePart, P.GroupShape groupShape, StyleResolver styleResolver, int slideIndex, double parentOffX, double parentOffY, double parentScaleX, double parentScaleY)
     {
         var grpXfrm = groupShape.GroupShapeProperties?.TransformGroup;
 
@@ -813,7 +870,7 @@ public sealed class PptxToTypstConverter : IDisposable
 
         foreach (var child in groupShape.ChildElements)
         {
-            foreach (var element in ConvertElement(slidePart, child, styleResolver, newOffX, newOffY, newScaleX, newScaleY))
+            foreach (var element in ConvertElement(slidePart, child, styleResolver, slideIndex, newOffX, newOffY, newScaleX, newScaleY))
                 yield return element;
         }
     }
@@ -1310,18 +1367,97 @@ public sealed class PptxToTypstConverter : IDisposable
         return null;
     }
 
-    private (double X, double Y, double Width, double Height) GetElementPosition(ShapeProperties? shapeProperties)
+    private (double X, double Y, double Width, double Height, double Rotation) GetElementPosition(ShapeProperties? shapeProperties)
     {
         if (shapeProperties?.Transform2D == null)
-            return (0, 0, 100, 50);
+            return (0, 0, 100, 50, 0);
 
         var transform = shapeProperties.Transform2D;
         var x = transform.Offset?.X?.Value ?? 0;
         var y = transform.Offset?.Y?.Value ?? 0;
         var width = transform.Extents?.Cx?.Value ?? 100;
         var height = transform.Extents?.Cy?.Value ?? 50;
+        var rotation = transform.Rotation?.Value ?? 0;
 
-        return (EmuToPt((long)x), EmuToPt((long)y), EmuToPt((long)width), EmuToPt((long)height));
+        return (EmuToPt((long)x), EmuToPt((long)y), EmuToPt((long)width), EmuToPt((long)height), rotation / 60000.0);
+    }
+
+    private (double X, double Y, double Width, double Height, double Rotation)? GetLayoutPlaceholderPosition(SlidePart slidePart, P.Shape shape)
+    {
+        var layoutPart = slidePart.SlideLayoutPart;
+        if (layoutPart?.SlideLayout?.CommonSlideData?.ShapeTree == null)
+            return null;
+
+        // Get placeholder info from the slide shape
+        var slidePh = GetPlaceholderInfo(shape);
+        if (slidePh == null)
+            return null;
+
+        // Find matching placeholder in layout
+        foreach (var layoutShape in layoutPart.SlideLayout.CommonSlideData.ShapeTree.ChildElements.OfType<P.Shape>())
+        {
+            var layoutPh = GetPlaceholderInfo(layoutShape);
+            if (layoutPh == null)
+                continue;
+
+            var slideType = slidePh.Value.Type;
+            var slideIdx = slidePh.Value.Index;
+            var layoutType = layoutPh.Value.Type;
+            var layoutIdx = layoutPh.Value.Index;
+
+            // Match by type or index
+            bool matches = !string.IsNullOrEmpty(slideType) && slideType == layoutType;
+            if (!matches && slideIdx.HasValue && layoutIdx.HasValue)
+                matches = slideIdx.Value == layoutIdx.Value;
+
+            if (matches)
+            {
+                var layoutXfrm = layoutShape.ShapeProperties?.Transform2D;
+                if (layoutXfrm != null)
+                {
+                    var x = layoutXfrm.Offset?.X?.Value ?? 0;
+                    var y = layoutXfrm.Offset?.Y?.Value ?? 0;
+                    var width = layoutXfrm.Extents?.Cx?.Value ?? 100;
+                    var height = layoutXfrm.Extents?.Cy?.Value ?? 50;
+                    var rotation = layoutXfrm.Rotation?.Value ?? 0;
+                    return (EmuToPt((long)x), EmuToPt((long)y), EmuToPt((long)width), EmuToPt((long)height), rotation / 60000.0);
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private (string? Type, int? Index)? GetPlaceholderInfo(P.Shape shape)
+    {
+        var nvSpPr = shape.NonVisualShapeProperties;
+        if (nvSpPr == null) return null;
+
+        PlaceholderShape? ph = nvSpPr.Elements<PlaceholderShape>().FirstOrDefault();
+        if (ph == null)
+        {
+            var appProps = nvSpPr.ApplicationNonVisualDrawingProperties;
+            ph = appProps?.Elements<PlaceholderShape>().FirstOrDefault();
+        }
+
+        if (ph == null) return null;
+
+        string? type = null;
+        int? idx = null;
+
+        var outerXml = ph.OuterXml;
+        if (!string.IsNullOrEmpty(outerXml))
+        {
+            var typeMatch = System.Text.RegularExpressions.Regex.Match(outerXml, @"type\s*=\s*""([^""]*)""");
+            if (typeMatch.Success)
+                type = typeMatch.Groups[1].Value;
+
+            var idxMatch = System.Text.RegularExpressions.Regex.Match(outerXml, @"idx\s*=\s*""([^""]*)""");
+            if (idxMatch.Success && int.TryParse(idxMatch.Groups[1].Value, out var parsedIdx))
+                idx = parsedIdx;
+        }
+
+        return (type, idx);
     }
 
     private (double X, double Y, double Width, double Height) GetGraphicFramePosition(P.GraphicFrame graphicFrame)
@@ -1463,6 +1599,43 @@ public sealed class PptxToTypstConverter : IDisposable
         return data.Length - fontDataOffset;
     }
 
+    private Dictionary<string, string> ExtractThemeFonts()
+    {
+        var themeFonts = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        
+        // Try to get theme from the first slide's master
+        var firstSlideId = _document.PresentationPart!.Presentation.SlideIdList?.ChildElements.OfType<SlideId>().FirstOrDefault();
+        if (firstSlideId == null) return themeFonts;
+        
+        var firstSlidePart = (SlidePart)_document.PresentationPart.GetPartById(firstSlideId.RelationshipId!);
+        var layoutPart = firstSlidePart.SlideLayoutPart;
+        var masterPart = layoutPart?.SlideMasterPart;
+        var themePart = masterPart?.ThemePart;
+        
+        if (themePart?.Theme?.ThemeElements?.FontScheme == null)
+            return themeFonts;
+        
+        var fontScheme = themePart.Theme.ThemeElements.FontScheme;
+        
+        // Major font (used for titles, headings)
+        var majorLatin = fontScheme.MajorFont?.LatinFont?.Typeface?.Value;
+        if (!string.IsNullOrEmpty(majorLatin))
+        {
+            themeFonts["+mj-lt"] = majorLatin;
+            themeFonts["major-latin"] = majorLatin;
+        }
+        
+        // Minor font (used for body text)
+        var minorLatin = fontScheme.MinorFont?.LatinFont?.Typeface?.Value;
+        if (!string.IsNullOrEmpty(minorLatin))
+        {
+            themeFonts["+mn-lt"] = minorLatin;
+            themeFonts["minor-latin"] = minorLatin;
+        }
+        
+        return themeFonts;
+    }
+
     private static double EmuToPt(long emu)
     {
         return emu / 12700.0;
@@ -1471,6 +1644,18 @@ public sealed class PptxToTypstConverter : IDisposable
     private static string FormatPt(double pt)
     {
         return pt.ToString("F2", CultureInfo.InvariantCulture) + "pt";
+    }
+
+    private string ResolveThemeFont(string? fontRef)
+    {
+        if (string.IsNullOrEmpty(fontRef))
+            return "Arial";
+        
+        // Check if it's a theme font reference
+        if (_themeFonts.TryGetValue(fontRef, out var resolvedFont))
+            return resolvedFont;
+        
+        return fontRef;
     }
 
     private static string EscapeTypstText(string text)
