@@ -57,7 +57,18 @@ public sealed class StyleResolver
     /// </summary>
     public DefaultTextStyle GetDefaultTextStyle(PlaceholderValues? placeholderType)
     {
-        var key = placeholderType?.ToString() ?? "Body";
+        string key;
+        if (placeholderType == PlaceholderValues.Title || placeholderType == PlaceholderValues.CenteredTitle)
+            key = "Title";
+        else if (placeholderType == PlaceholderValues.Body)
+            key = "Body";
+        else if (placeholderType == PlaceholderValues.SubTitle)
+            key = "Body";
+        else if (placeholderType == PlaceholderValues.Object)
+            key = "Other";
+        else
+            key = "Body";
+        
         return _textStyles.GetStyle(key);
     }
 
@@ -116,11 +127,33 @@ public sealed class StyleResolver
 
         // Check for scheme color
         var schemeClr = solidFill.SchemeColor;
-        if (schemeClr?.Val != null)
+        if (schemeClr != null)
         {
-            var resolved = ResolveSchemeColor(schemeClr.Val.Value.ToString());
-            if (!string.IsNullOrEmpty(resolved))
-                return resolved;
+            // Try to get the value from the enum property
+            if (schemeClr.Val != null && schemeClr.Val.HasValue)
+            {
+                var valStr = schemeClr.Val.Value.ToString();
+                // Check if it's not empty/default
+                if (!string.IsNullOrEmpty(valStr) && valStr != "None")
+                {
+                    var resolved = ResolveSchemeColor(valStr);
+                    if (!string.IsNullOrEmpty(resolved))
+                        return resolved;
+                }
+            }
+            
+            // Fallback: parse from OuterXml since SDK enum parsing is unreliable
+            var outerXml = schemeClr.OuterXml;
+            if (!string.IsNullOrEmpty(outerXml))
+            {
+                var match = System.Text.RegularExpressions.Regex.Match(outerXml, @"val\s*=\s*""([^""]*)""");
+                if (match.Success)
+                {
+                    var resolved = ResolveSchemeColor(match.Groups[1].Value);
+                    if (!string.IsNullOrEmpty(resolved))
+                        return resolved;
+                }
+            }
         }
 
         return null;
@@ -286,40 +319,8 @@ public sealed class StyleResolver
 
     private SlideLayoutPart? GetSlideLayoutPart()
     {
-        try
-        {
-            // Check internal relationships first
-            foreach (var part in _slidePart.Parts)
-            {
-                if (part.OpenXmlPart is SlideLayoutPart layoutPart)
-                    return layoutPart;
-            }
-
-            // Fallback: check external relationships
-            foreach (var rel in _slidePart.ExternalRelationships)
-            {
-                if (rel.RelationshipType?.Contains("slideLayout") == true)
-                {
-                    var uriString = rel.Uri.OriginalString;
-                    var targetPath = uriString.StartsWith("/") ? uriString.Substring(1) : uriString;
-                    // Find layout by checking if any layout part matches the target path
-                    foreach (var layoutPart in _document.PresentationPart?.Parts ?? Enumerable.Empty<IdPartPair>())
-                    {
-                        if (layoutPart.OpenXmlPart is SlideLayoutPart lp && 
-                            lp.Uri.ToString().Contains(targetPath))
-                        {
-                            return lp;
-                        }
-                    }
-                }
-            }
-        }
-        catch
-        {
-            // Best effort
-        }
-
-        return null;
+        // Use the SDK's built-in property which correctly resolves the layout relationship
+        return _slidePart.SlideLayoutPart;
     }
 
     #endregion
