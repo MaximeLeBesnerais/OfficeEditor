@@ -368,7 +368,7 @@ public sealed class PptxToTypstConverter : IDisposable
             ? string.Join(", ", table.ColumnWidths.Select(w => FormatPt(w)))
             : string.Join(", ", Enumerable.Repeat("1fr", cols));
 
-        sb.Append($"#table(columns: ({colWidths}), stroke: {FormatPt(table.BorderWidth)}pt + rgb(\"{table.BorderColor ?? "#000000"}\"), ");
+        sb.Append($"#table(columns: ({colWidths}), stroke: {FormatPt(table.BorderWidth)} + rgb(\"{table.BorderColor ?? "#000000"}\"), ");
 
         // Generate cells
         foreach (var row in table.Rows)
@@ -906,6 +906,7 @@ public sealed class PptxToTypstConverter : IDisposable
         // Apply defaults for missing values
         if (fmt.FontSize == 18.0 && defaultStyle.FontSize.HasValue)
             fmt = fmt with { FontSize = defaultStyle.FontSize.Value };
+
         if (!fmt.Bold && defaultStyle.Bold.HasValue)
             fmt = fmt with { Bold = defaultStyle.Bold.Value };
         if (!fmt.Italic && defaultStyle.Italic.HasValue)
@@ -936,10 +937,49 @@ public sealed class PptxToTypstConverter : IDisposable
         var nvSpPr = shape.NonVisualShapeProperties;
         if (nvSpPr == null) return null;
 
-        var ph = nvSpPr.Elements<PlaceholderShape>().FirstOrDefault();
+        // The placeholder shape can be in different locations depending on the shape type
+        PlaceholderShape? ph = null;
+
+        // Try NonVisualShapeProperties first (for shapes)
+        ph = nvSpPr.Elements<PlaceholderShape>().FirstOrDefault();
+
+        // For some shapes, the placeholder might be in the ApplicationNonVisualDrawingProperties
+        if (ph == null)
+        {
+            var appProps = nvSpPr.ApplicationNonVisualDrawingProperties;
+            ph = appProps?.Elements<PlaceholderShape>().FirstOrDefault();
+        }
+
         if (ph == null) return null;
 
-        return ph.Type?.Value;
+        // The OpenXML SDK often fails to parse enum values from attributes
+        // Use regex parsing from OuterXml as the primary method
+        var outerXml = ph.OuterXml;
+        if (!string.IsNullOrEmpty(outerXml))
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(outerXml, @"type\s*=\s*""([^""]*)""");
+            if (match.Success)
+            {
+                var typeStr = match.Groups[1].Value;
+                return typeStr switch
+                {
+                    "title" => PlaceholderValues.Title,
+                    "ctrTitle" => PlaceholderValues.CenteredTitle,
+                    "subTitle" => PlaceholderValues.SubTitle,
+                    "body" => PlaceholderValues.Body,
+                    "pic" => PlaceholderValues.Picture,
+                    "chart" => PlaceholderValues.Chart,
+                    "tbl" => PlaceholderValues.Table,
+                    "sldNum" => PlaceholderValues.SlideNumber,
+                    "ftr" => PlaceholderValues.Footer,
+                    "hdr" => PlaceholderValues.Header,
+                    "obj" => PlaceholderValues.Object,
+                    _ => (PlaceholderValues?)null
+                };
+            }
+        }
+
+        return null;
     }
 
     private double? ExtractParagraphLineSpacing(Drawing.Paragraph paragraph)
@@ -963,16 +1003,23 @@ public sealed class PptxToTypstConverter : IDisposable
 
         // The OpenXML SDK doesn't always parse the algn attribute into Alignment property
         // Read the raw XML attribute directly
-        var algnAttr = pPr.GetAttribute("algn", "");
-        if (!string.IsNullOrEmpty(algnAttr.Value))
+        try
         {
-            return algnAttr.Value switch
+            var algnAttr = pPr.GetAttribute("algn", "");
+            if (!string.IsNullOrEmpty(algnAttr.Value))
             {
-                "ctr" => "center",
-                "r" => "right",
-                "just" => "left",  // Typst doesn't have 'justify', use left as fallback
-                _ => "left"
-            };
+                return algnAttr.Value switch
+                {
+                    "ctr" => "center",
+                    "r" => "right",
+                    "just" => "left",  // Typst doesn't have 'justify', use left as fallback
+                    _ => "left"
+                };
+            }
+        }
+        catch
+        {
+            // Attribute doesn't exist in schema
         }
 
         return null;
@@ -1437,7 +1484,8 @@ public sealed class PptxToTypstConverter : IDisposable
             .Replace("*", "\\*")
             .Replace("_", "\\_")
             .Replace("#", "\\#")
-            .Replace("`", "\\`");
+            .Replace("`", "\\`")
+            .Replace("$", "\\$");
     }
 
     public void Dispose()

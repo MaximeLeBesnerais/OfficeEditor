@@ -511,7 +511,10 @@ public class PptxToTypstConverterTests : IDisposable
     [Fact]
     public void PresPro_Slide1_BackgroundColor_ResolvedFromLayout()
     {
-        var path = "examples/REF/pres-pro.pptx";
+        var baseDir = AppContext.BaseDirectory;
+        var path = Path.Combine(baseDir, "..", "..", "..", "..", "examples", "REF", "pres-pro.pptx");
+        path = Path.GetFullPath(path);
+        
         if (!File.Exists(path))
             return; // Skip if file doesn't exist
 
@@ -529,7 +532,9 @@ public class PptxToTypstConverterTests : IDisposable
     [Fact]
     public void PresPro_Slide1_TitleFontSize_FromMaster()
     {
-        var path = "examples/REF/pres-pro.pptx";
+        var baseDir = AppContext.BaseDirectory;
+        var path = Path.Combine(baseDir, "..", "..", "..", "..", "examples", "REF", "pres-pro.pptx");
+        path = Path.GetFullPath(path);
         if (!File.Exists(path))
             return;
 
