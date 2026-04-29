@@ -248,6 +248,201 @@ public sealed class StyleResolver
         return null;
     }
 
+    public DefaultTextStyle GetLayoutPlaceholderLstStyle(int? idx, int level)
+    {
+        if (_layoutPart?.SlideLayout?.CommonSlideData?.ShapeTree == null || !idx.HasValue)
+            return new DefaultTextStyle();
+
+        foreach (var layoutShape in _layoutPart.SlideLayout.CommonSlideData.ShapeTree.ChildElements.OfType<Shape>())
+        {
+            var shapeIdx = GetPlaceholderIdx(layoutShape);
+            if (shapeIdx == idx.Value)
+            {
+                return ExtractLstStyleDefRPr(layoutShape.TextBody, level);
+            }
+        }
+        return new DefaultTextStyle();
+    }
+
+    public DefaultTextStyle GetMasterPlaceholderLstStyle(int? idx, int level)
+    {
+        if (_masterPart?.SlideMaster?.CommonSlideData?.ShapeTree == null || !idx.HasValue)
+            return new DefaultTextStyle();
+
+        foreach (var masterShape in _masterPart.SlideMaster.CommonSlideData.ShapeTree.ChildElements.OfType<Shape>())
+        {
+            var shapeIdx = GetPlaceholderIdx(masterShape);
+            if (shapeIdx == idx.Value)
+            {
+                return ExtractLstStyleDefRPr(masterShape.TextBody, level);
+            }
+        }
+        return new DefaultTextStyle();
+    }
+
+    #region Bullet Resolution
+
+    public (string? BulletChar, string? AutoNumberType, bool HasBullet, bool HasBulletNone) GetLayoutPlaceholderBulletInfo(int? idx, int level)
+    {
+        if (_layoutPart?.SlideLayout?.CommonSlideData?.ShapeTree == null || !idx.HasValue)
+            return (null, null, false, false);
+
+        foreach (var layoutShape in _layoutPart.SlideLayout.CommonSlideData.ShapeTree.ChildElements.OfType<Shape>())
+        {
+            var shapeIdx = GetPlaceholderIdx(layoutShape);
+            if (shapeIdx == idx.Value)
+            {
+                return ExtractBulletInfoFromTextBodyLstStyle(layoutShape.TextBody, level);
+            }
+        }
+        return (null, null, false, false);
+    }
+
+    public (string? BulletChar, string? AutoNumberType, bool HasBullet, bool HasBulletNone) GetMasterPlaceholderBulletInfo(int? idx, int level)
+    {
+        if (_masterPart?.SlideMaster?.CommonSlideData?.ShapeTree == null || !idx.HasValue)
+            return (null, null, false, false);
+
+        foreach (var masterShape in _masterPart.SlideMaster.CommonSlideData.ShapeTree.ChildElements.OfType<Shape>())
+        {
+            var shapeIdx = GetPlaceholderIdx(masterShape);
+            if (shapeIdx == idx.Value)
+            {
+                return ExtractBulletInfoFromTextBodyLstStyle(masterShape.TextBody, level);
+            }
+        }
+        return (null, null, false, false);
+    }
+
+    public (string? BulletChar, string? AutoNumberType, bool HasBullet, bool HasBulletNone) GetMasterTxStyleBulletInfo(PlaceholderValues? placeholderType, int level)
+    {
+        string key;
+        if (placeholderType == PlaceholderValues.Title || placeholderType == PlaceholderValues.CenteredTitle)
+            key = "Title";
+        else if (placeholderType == PlaceholderValues.Body)
+            key = "Body";
+        else if (placeholderType == PlaceholderValues.SubTitle)
+            key = "Body";
+        else if (placeholderType == PlaceholderValues.Object)
+            key = "Other";
+        else
+            key = "Body";
+
+        OpenXmlElement? styleList = key switch
+        {
+            "Title" => _masterPart?.SlideMaster?.TextStyles?.TitleStyle,
+            "Body" => _masterPart?.SlideMaster?.TextStyles?.BodyStyle,
+            "Other" => _masterPart?.SlideMaster?.TextStyles?.OtherStyle,
+            _ => null
+        };
+
+        if (styleList == null)
+            return (null, null, false, false);
+
+        var levelName = $"lvl{level + 1}pPr";
+        var lvlPpr = styleList.ChildElements.FirstOrDefault(e => e.LocalName == levelName);
+        if (lvlPpr == null)
+            return (null, null, false, false);
+
+        return ExtractBulletInfo(lvlPpr);
+    }
+
+    private static (string? BulletChar, string? AutoNumberType, bool HasBullet, bool HasBulletNone) ExtractBulletInfoFromTextBodyLstStyle(OpenXmlElement? textBody, int level)
+    {
+        if (textBody == null) return (null, null, false, false);
+
+        var lstStyle = textBody.ChildElements.FirstOrDefault(e => e.LocalName == "lstStyle");
+        if (lstStyle == null) return (null, null, false, false);
+
+        var levelName = $"lvl{level + 1}pPr";
+        var lvlPpr = lstStyle.ChildElements.FirstOrDefault(e => e.LocalName == levelName);
+        if (lvlPpr == null) return (null, null, false, false);
+
+        return ExtractBulletInfo(lvlPpr);
+    }
+
+    private static (string? BulletChar, string? AutoNumberType, bool HasBullet, bool HasBulletNone) ExtractBulletInfo(OpenXmlElement? element)
+    {
+        if (element == null) return (null, null, false, false);
+
+        var buChar = element.ChildElements.FirstOrDefault(e => e.LocalName == "buChar");
+        if (buChar != null)
+        {
+            var charAttr = buChar.GetAttribute("char", "");
+            if (!string.IsNullOrEmpty(charAttr.Value))
+                return (charAttr.Value, null, true, false);
+        }
+
+        var buAutoNum = element.ChildElements.FirstOrDefault(e => e.LocalName == "buAutoNum");
+        if (buAutoNum != null)
+        {
+            var typeAttr = buAutoNum.GetAttribute("type", "");
+            if (!string.IsNullOrEmpty(typeAttr.Value))
+                return (null, typeAttr.Value, true, false);
+        }
+
+        var buNone = element.ChildElements.FirstOrDefault(e => e.LocalName == "buNone");
+        if (buNone != null)
+            return (null, null, false, true);
+
+        return (null, null, false, false);
+    }
+
+    #endregion
+
+    private static int? GetPlaceholderIdx(Shape shape)
+    {
+        var nvSpPr = shape.NonVisualShapeProperties;
+        if (nvSpPr == null) return null;
+
+        PlaceholderShape? ph = nvSpPr.Elements<PlaceholderShape>().FirstOrDefault();
+        if (ph == null)
+        {
+            var appProps = nvSpPr.ApplicationNonVisualDrawingProperties;
+            ph = appProps?.Elements<PlaceholderShape>().FirstOrDefault();
+        }
+        if (ph == null) return null;
+
+        var outerXml = ph.OuterXml;
+        if (!string.IsNullOrEmpty(outerXml))
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(outerXml, @"idx\s*=\s*""([^""]*)""");
+            if (match.Success && int.TryParse(match.Groups[1].Value, out var idx))
+                return idx;
+        }
+        return null;
+    }
+
+    private static DefaultTextStyle ExtractLstStyleDefRPr(OpenXmlElement? textBody, int level)
+    {
+        if (textBody == null) return new DefaultTextStyle();
+
+        var lstStyle = textBody.ChildElements.FirstOrDefault(e => e.LocalName == "lstStyle");
+        if (lstStyle == null) return new DefaultTextStyle();
+
+        var levelName = $"lvl{level + 1}pPr";
+        var lvlPpr = lstStyle.ChildElements.FirstOrDefault(e => e.LocalName == levelName);
+        if (lvlPpr == null) return new DefaultTextStyle();
+
+        var defRPr = lvlPpr.Elements<Drawing.DefaultRunProperties>().FirstOrDefault();
+        if (defRPr == null) return new DefaultTextStyle();
+
+        var style = new DefaultTextStyle
+        {
+            FontSize = defRPr.FontSize?.Value != null ? defRPr.FontSize.Value / 100.0 : null,
+            Bold = defRPr.Bold?.Value,
+            Italic = defRPr.Italic?.Value,
+            Underline = defRPr.Underline?.Value != null && defRPr.Underline.Value != Drawing.TextUnderlineValues.None,
+            Color = ExtractColorFromRunProperties(defRPr)
+        };
+
+        var latinFont = defRPr.Elements<Drawing.LatinFont>().FirstOrDefault();
+        if (latinFont?.Typeface != null)
+            style.FontFamily = latinFont.Typeface.Value;
+
+        return style;
+    }
+
     #endregion
 
     #region Theme/Scheme Color Resolution
