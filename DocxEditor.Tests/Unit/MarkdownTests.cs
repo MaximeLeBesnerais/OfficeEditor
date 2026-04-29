@@ -24,7 +24,12 @@ public class MarkdownTests : IDisposable
         // Assert
         using (var doc = WordprocessingDocument.Open(_testFilePath, false))
         {
-            var body = doc.MainDocumentPart!.Document.Body!;
+            var mainPart = doc.MainDocumentPart;
+            Assert.NotNull(mainPart);
+            var document = mainPart.Document;
+            Assert.NotNull(document);
+            var body = document.Body;
+            Assert.NotNull(body);
             var text = body.InnerText;
             
             Assert.Contains("Title", text);
@@ -48,7 +53,12 @@ public class MarkdownTests : IDisposable
         // Assert
         using (var doc = WordprocessingDocument.Open(_testFilePath, false))
         {
-            var body = doc.MainDocumentPart!.Document.Body!;
+            var mainPart = doc.MainDocumentPart;
+            Assert.NotNull(mainPart);
+            var document = mainPart.Document;
+            Assert.NotNull(document);
+            var body = document.Body;
+            Assert.NotNull(body);
             var text = body.InnerText;
             Assert.Contains("This is a paragraph with", text);
         }
@@ -70,7 +80,12 @@ public class MarkdownTests : IDisposable
         // Assert
         using (var doc = WordprocessingDocument.Open(_testFilePath, false))
         {
-            var body = doc.MainDocumentPart!.Document.Body!;
+            var mainPart = doc.MainDocumentPart;
+            Assert.NotNull(mainPart);
+            var document = mainPart.Document;
+            Assert.NotNull(document);
+            var body = document.Body;
+            Assert.NotNull(body);
             var text = body.InnerText;
             
             Assert.Contains("Item 1", text);
@@ -102,7 +117,12 @@ public class MarkdownTests : IDisposable
         // Assert
         using (var doc = WordprocessingDocument.Open(_testFilePath, false))
         {
-            var body = doc.MainDocumentPart!.Document.Body!;
+            var mainPart = doc.MainDocumentPart;
+            Assert.NotNull(mainPart);
+            var document = mainPart.Document;
+            Assert.NotNull(document);
+            var body = document.Body;
+            Assert.NotNull(body);
             var paragraph = body.Elements<DocumentFormat.OpenXml.Wordprocessing.Paragraph>().First();
             
             Assert.Equal("CustomTitle", paragraph.ParagraphProperties?.ParagraphStyleId?.Val?.Value);

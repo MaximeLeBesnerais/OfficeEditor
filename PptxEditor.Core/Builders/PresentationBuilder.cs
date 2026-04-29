@@ -112,17 +112,17 @@ public class PresentationBuilder : IPresentationBuilder
 
     public IPresentationBuilder AddSlide(string? layoutName = null)
     {
-        var presentation = _document.PresentationPart!.Presentation;
+        var presentation = _document.PresentationPart!.Presentation!;
         var slideIdList = presentation.SlideIdList!;
-        
+
         // Get slide master and layout
         var slideMasterPart = _document.PresentationPart!.SlideMasterParts.First();
         SlideLayoutPart slideLayoutPart;
-        
+
         if (!string.IsNullOrEmpty(layoutName))
         {
             slideLayoutPart = slideMasterPart.SlideLayoutParts
-                .FirstOrDefault(slp => slp.SlideLayout.CommonSlideData?.Name?.Value == layoutName)
+                .FirstOrDefault(slp => slp.SlideLayout?.CommonSlideData?.Name?.Value == layoutName)
                 ?? slideMasterPart.SlideLayoutParts.First();
         }
         else
@@ -186,7 +186,7 @@ public class PresentationBuilder : IPresentationBuilder
 
         var slideBuilder = _slides[index];
         var slidePart = slideBuilder.SlidePart;
-        var presentation = _document.PresentationPart!.Presentation;
+        var presentation = _document.PresentationPart!.Presentation!;
         var slideIdList = presentation.SlideIdList!;
 
         // Find and remove the slide ID
@@ -223,7 +223,7 @@ public class PresentationBuilder : IPresentationBuilder
         _slides.Insert(toIndex, slideBuilder);
 
         // Reorder in presentation
-        var presentation = _document.PresentationPart!.Presentation;
+        var presentation = _document.PresentationPart!.Presentation!;
         var slideIdList = presentation.SlideIdList!;
         var slideIds = slideIdList.ChildElements.OfType<SlideId>().ToList();
         
@@ -593,7 +593,7 @@ public class PresentationBuilder : IPresentationBuilder
 
     private void LoadExistingSlides()
     {
-        var presentation = _document.PresentationPart!.Presentation;
+        var presentation = _document.PresentationPart!.Presentation!;
         var slideIdList = presentation.SlideIdList;
         
         if (slideIdList == null) return;

@@ -21,7 +21,12 @@ public class DocumentBuilderTests : IDisposable
         Assert.True(File.Exists(_testFilePath));
         using (var doc = WordprocessingDocument.Open(_testFilePath, false))
         {
-            Assert.NotNull(doc.MainDocumentPart?.Document.Body);
+            var mainPart = doc.MainDocumentPart;
+            Assert.NotNull(mainPart);
+            var document = mainPart.Document;
+            Assert.NotNull(document);
+            var body = document.Body;
+            Assert.NotNull(body);
         }
     }
 
@@ -39,7 +44,12 @@ public class DocumentBuilderTests : IDisposable
         // Assert
         using (var doc = WordprocessingDocument.Open(_testFilePath, false))
         {
-            var body = doc.MainDocumentPart!.Document.Body!;
+            var mainPart = doc.MainDocumentPart;
+            Assert.NotNull(mainPart);
+            var document = mainPart.Document;
+            Assert.NotNull(document);
+            var body = document.Body;
+            Assert.NotNull(body);
             var paragraphs = body.Elements<DocumentFormat.OpenXml.Wordprocessing.Paragraph>();
             Assert.Contains(paragraphs, p => p.InnerText == "Test paragraph");
         }
@@ -61,7 +71,12 @@ public class DocumentBuilderTests : IDisposable
         // Assert
         using (var doc = WordprocessingDocument.Open(_testFilePath, false))
         {
-            var body = doc.MainDocumentPart!.Document.Body!;
+            var mainPart = doc.MainDocumentPart;
+            Assert.NotNull(mainPart);
+            var document = mainPart.Document;
+            Assert.NotNull(document);
+            var body = document.Body;
+            Assert.NotNull(body);
             var paragraphs = body.Elements<DocumentFormat.OpenXml.Wordprocessing.Paragraph>();
             Assert.Contains(paragraphs, p => p.InnerText == "Hello World");
         }

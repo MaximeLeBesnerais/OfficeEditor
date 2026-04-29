@@ -17,7 +17,10 @@ public class XlsxVariableDetector
         var workbookPart = document.WorkbookPart;
         if (workbookPart == null) return variables;
 
-        var sheets = workbookPart.Workbook.Sheets;
+        var workbook = workbookPart.Workbook;
+        if (workbook == null) return variables;
+
+        var sheets = workbook.Sheets;
         if (sheets == null) return variables;
 
         foreach (var sheet in sheets.Elements<Sheet>())
@@ -25,6 +28,7 @@ public class XlsxVariableDetector
             var sheetName = sheet.Name?.Value ?? "Unknown";
             var worksheetPart = (WorksheetPart)workbookPart.GetPartById(sheet.Id!);
             var worksheet = worksheetPart.Worksheet;
+            if (worksheet == null) continue;
             var sheetData = worksheet.GetFirstChild<SheetData>();
             
             if (sheetData == null) continue;

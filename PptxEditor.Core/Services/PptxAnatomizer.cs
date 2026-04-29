@@ -12,7 +12,7 @@ public class PptxAnatomizer
     public List<SlideAnatomy> Analyze(PresentationDocument document)
     {
         var anatomy = new List<SlideAnatomy>();
-        var presentation = document.PresentationPart!.Presentation;
+        var presentation = document.PresentationPart!.Presentation!;
         var slideIdList = presentation.SlideIdList;
         
         if (slideIdList == null) return anatomy;

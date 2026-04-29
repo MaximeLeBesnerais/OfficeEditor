@@ -26,7 +26,7 @@ public class PptxTemplateEngine
 
     public void Process(PresentationDocument document, Dictionary<string, object> data)
     {
-        var presentation = document.PresentationPart!.Presentation;
+        var presentation = document.PresentationPart!.Presentation!;
         var slideIdList = presentation.SlideIdList;
         
         if (slideIdList == null) return;
