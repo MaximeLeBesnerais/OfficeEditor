@@ -97,7 +97,7 @@ public sealed class TypstCompilerService : IDisposable
                 Success = true
             };
         }
-        catch (Exception ex)
+        catch (Exception)
         {
             // Fall back to CLI on any native error
             return CompileCli(source, options);

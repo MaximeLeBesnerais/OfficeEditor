@@ -29,7 +29,12 @@ public class ContentBlockTests : IDisposable
         // Assert
         using (var doc = WordprocessingDocument.Open(_testFilePath, false))
         {
-            var body = doc.MainDocumentPart!.Document.Body!;
+            var mainPart = doc.MainDocumentPart;
+            Assert.NotNull(mainPart);
+            var document = mainPart.Document;
+            Assert.NotNull(document);
+            var body = document.Body;
+            Assert.NotNull(body);
             var paragraphs = body.Elements<DocumentFormat.OpenXml.Wordprocessing.Paragraph>().ToList();
             
             Assert.True(paragraphs.Count >= 3);
@@ -60,7 +65,12 @@ public class ContentBlockTests : IDisposable
         // Assert
         using (var doc = WordprocessingDocument.Open(_testFilePath, false))
         {
-            var body = doc.MainDocumentPart!.Document.Body!;
+            var mainPart = doc.MainDocumentPart;
+            Assert.NotNull(mainPart);
+            var document = mainPart.Document;
+            Assert.NotNull(document);
+            var body = document.Body;
+            Assert.NotNull(body);
             var tables = body.Elements<DocumentFormat.OpenXml.Wordprocessing.Table>().ToList();
             
             Assert.Single(tables);
@@ -93,7 +103,12 @@ public class ContentBlockTests : IDisposable
         // Assert
         using (var doc = WordprocessingDocument.Open(_testFilePath, false))
         {
-            var body = doc.MainDocumentPart!.Document.Body!;
+            var mainPart = doc.MainDocumentPart;
+            Assert.NotNull(mainPart);
+            var document = mainPart.Document;
+            Assert.NotNull(document);
+            var body = document.Body;
+            Assert.NotNull(body);
             var text = body.InnerText;
             
             Assert.DoesNotContain("Old content", text);

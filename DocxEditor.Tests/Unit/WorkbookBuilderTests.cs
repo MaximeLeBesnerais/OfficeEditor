@@ -35,9 +35,13 @@ public class WorkbookBuilderTests : IDisposable
 
         // Assert
         using var doc = SpreadsheetDocument.Open(_testFilePath, false);
-        var sheets = doc.WorkbookPart!.Workbook.Sheets;
+        var workbookPart = doc.WorkbookPart;
+        Assert.NotNull(workbookPart);
+        var workbook = workbookPart.Workbook;
+        Assert.NotNull(workbook);
+        var sheets = workbook.Sheets;
         Assert.NotNull(sheets);
-        Assert.Single(sheets!.Elements<Sheet>());
+        Assert.Single(sheets.Elements<Sheet>());
     }
 
     [Fact]
@@ -54,7 +58,8 @@ public class WorkbookBuilderTests : IDisposable
         // Assert
         using var doc = SpreadsheetDocument.Open(_testFilePath, false);
         var worksheetPart = doc.WorkbookPart!.WorksheetParts.First();
-        var sheetData = worksheetPart.Worksheet.GetFirstChild<SheetData>()!;
+        var sheetData = worksheetPart.Worksheet?.GetFirstChild<SheetData>();
+        Assert.NotNull(sheetData);
         var cell = sheetData.Elements<Row>().First().Elements<Cell>().First();
         
         Assert.Equal("A1", cell.CellReference?.Value);
@@ -74,7 +79,8 @@ public class WorkbookBuilderTests : IDisposable
         // Assert
         using var doc = SpreadsheetDocument.Open(_testFilePath, false);
         var worksheetPart = doc.WorkbookPart!.WorksheetParts.First();
-        var sheetData = worksheetPart.Worksheet.GetFirstChild<SheetData>()!;
+        var sheetData = worksheetPart.Worksheet?.GetFirstChild<SheetData>();
+        Assert.NotNull(sheetData);
         var row = sheetData.Elements<Row>().First();
         var cells = row.Elements<Cell>().ToList();
         
@@ -96,7 +102,8 @@ public class WorkbookBuilderTests : IDisposable
         // Assert
         using var doc = SpreadsheetDocument.Open(_testFilePath, false);
         var worksheetPart = doc.WorkbookPart!.WorksheetParts.First();
-        var sheetData = worksheetPart.Worksheet.GetFirstChild<SheetData>()!;
+        var sheetData = worksheetPart.Worksheet?.GetFirstChild<SheetData>();
+        Assert.NotNull(sheetData);
         var rows = sheetData.Elements<Row>().ToList();
         
         Assert.Equal(2, rows.Count);
@@ -118,7 +125,8 @@ public class WorkbookBuilderTests : IDisposable
         // Assert
         using var doc = SpreadsheetDocument.Open(_testFilePath, false);
         var worksheetPart = doc.WorkbookPart!.WorksheetParts.First();
-        var sheetData = worksheetPart.Worksheet.GetFirstChild<SheetData>()!;
+        var sheetData = worksheetPart.Worksheet?.GetFirstChild<SheetData>();
+        Assert.NotNull(sheetData);
         var row = sheetData.Elements<Row>().Last();
         var cell = row.Elements<Cell>().First();
         
@@ -173,7 +181,8 @@ public class WorkbookBuilderTests : IDisposable
         // Assert
         using var doc = SpreadsheetDocument.Open(_testFilePath, false);
         var worksheetPart = doc.WorkbookPart!.WorksheetParts.First();
-        var sheetData = worksheetPart.Worksheet.GetFirstChild<SheetData>()!;
+        var sheetData = worksheetPart.Worksheet?.GetFirstChild<SheetData>();
+        Assert.NotNull(sheetData);
         var cell = sheetData.Elements<Row>().First().Elements<Cell>().First();
         
         // The cell should have been updated

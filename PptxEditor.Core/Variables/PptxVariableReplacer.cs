@@ -14,7 +14,7 @@ public class PptxVariableReplacer
 
     public void Replace(PresentationDocument document, Dictionary<string, string> data)
     {
-        var presentation = document.PresentationPart!.Presentation;
+        var presentation = document.PresentationPart!.Presentation!;
         var slideIdList = presentation.SlideIdList;
         
         if (slideIdList == null) return;

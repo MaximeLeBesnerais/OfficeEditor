@@ -16,7 +16,7 @@ public record ParagraphBlock : ContentBlock
 
     public string Text { get; init; } = string.Empty;
     public List<InlineFormat>? InlineFormats { get; init; }
-    public new string? Style { get; init; }
+    public string? Style { get; init; }
 }
 
 public record HeadingBlock : ContentBlock
@@ -28,7 +28,7 @@ public record HeadingBlock : ContentBlock
 
     public int Level { get; init; }
     public string Text { get; init; } = string.Empty;
-    public new string? Style { get; init; }
+    public string? Style { get; init; }
 }
 
 public record ListBlock : ContentBlock
@@ -40,7 +40,7 @@ public record ListBlock : ContentBlock
 
     public bool Ordered { get; init; }
     public List<string> Items { get; init; } = new();
-    public new string? Style { get; init; }
+    public string? Style { get; init; }
 }
 
 public record TableBlock : ContentBlock
@@ -71,7 +71,7 @@ public record BlockquoteBlock : ContentBlock
     }
 
     public string Text { get; init; } = string.Empty;
-    public new string? Style { get; init; }
+    public string? Style { get; init; }
 }
 
 public record CodeBlock : ContentBlock
@@ -83,7 +83,7 @@ public record CodeBlock : ContentBlock
 
     public string Text { get; init; } = string.Empty;
     public string? Language { get; init; }
-    public new string? Style { get; init; }
+    public string? Style { get; init; }
 }
 
 public record HorizontalRuleBlock : ContentBlock
@@ -103,7 +103,7 @@ public record CustomBlock : ContentBlock
 
     public string CustomType { get; init; } = string.Empty;
     public string Text { get; init; } = string.Empty;
-    public new string? Style { get; init; }
+    public string? Style { get; init; }
 }
 
 public record InlineFormat
