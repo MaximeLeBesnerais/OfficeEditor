@@ -78,7 +78,12 @@ public class VariableDetectionTests : IDisposable
         // Assert
         using (var doc = WordprocessingDocument.Open(_testFilePath, false))
         {
-            var body = doc.MainDocumentPart!.Document.Body!;
+            var mainPart = doc.MainDocumentPart;
+            Assert.NotNull(mainPart);
+            var document = mainPart.Document;
+            Assert.NotNull(document);
+            var body = document.Body;
+            Assert.NotNull(body);
             var text = body.InnerText;
             Assert.Contains("John Doe", text);
             Assert.DoesNotContain("{{clientName}}", text);
@@ -108,7 +113,12 @@ public class VariableDetectionTests : IDisposable
         // Assert - the variable replacer uses default value when no data provided
         using (var doc = WordprocessingDocument.Open(_testFilePath, false))
         {
-            var body = doc.MainDocumentPart!.Document.Body!;
+            var mainPart = doc.MainDocumentPart;
+            Assert.NotNull(mainPart);
+            var document = mainPart.Document;
+            Assert.NotNull(document);
+            var body = document.Body;
+            Assert.NotNull(body);
             var text = body.InnerText;
             // The variable replacer uses default value when no data provided
             Assert.Contains("Hello Guest", text);

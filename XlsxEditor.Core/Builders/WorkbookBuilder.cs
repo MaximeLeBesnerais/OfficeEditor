@@ -87,10 +87,11 @@ public class WorkbookBuilder : IWorkbookBuilder
         worksheetPart.Worksheet = worksheet;
 
         // Add sheet to workbook
-        var sheets = _workbookPart.Workbook.Sheets ?? new Sheets();
-        if (_workbookPart.Workbook.Sheets == null)
+        var workbook = _workbookPart.Workbook!;
+        var sheets = workbook.Sheets ?? new Sheets();
+        if (workbook.Sheets == null)
         {
-            _workbookPart.Workbook.Append(sheets);
+            workbook.Append(sheets);
         }
 
         var sheet = new Sheet
@@ -118,7 +119,8 @@ public class WorkbookBuilder : IWorkbookBuilder
         var worksheetPart = worksheetBuilder.WorksheetPart;
 
         // Remove from workbook sheets
-        var sheets = _workbookPart.Workbook.Sheets;
+        var workbook = _workbookPart.Workbook!;
+        var sheets = workbook.Sheets;
         if (sheets != null)
         {
             var sheet = sheets.Elements<Sheet>().FirstOrDefault(s => s.Name?.Value == name);
@@ -174,13 +176,14 @@ public class WorkbookBuilder : IWorkbookBuilder
 
     internal string GetSharedString(string text)
     {
-        if (_sharedStringPart == null)
+        var sharedStringPart = _sharedStringPart;
+        if (sharedStringPart == null)
         {
-            _sharedStringPart = _workbookPart.AddNewPart<SharedStringTablePart>();
-            _sharedStringPart.SharedStringTable = new SharedStringTable();
+            sharedStringPart = _workbookPart.AddNewPart<SharedStringTablePart>();
+            _sharedStringPart = sharedStringPart;
         }
 
-        var sharedStringTable = _sharedStringPart.SharedStringTable;
+        var sharedStringTable = sharedStringPart.SharedStringTable ??= new SharedStringTable();
         
         // Check if string already exists
         foreach (var item in sharedStringTable.Elements<SharedStringItem>())
@@ -199,13 +202,14 @@ public class WorkbookBuilder : IWorkbookBuilder
 
     internal int GetSharedStringIndex(string text)
     {
-        if (_sharedStringPart == null)
+        var sharedStringPart = _sharedStringPart;
+        if (sharedStringPart == null)
         {
-            _sharedStringPart = _workbookPart.AddNewPart<SharedStringTablePart>();
-            _sharedStringPart.SharedStringTable = new SharedStringTable();
+            sharedStringPart = _workbookPart.AddNewPart<SharedStringTablePart>();
+            _sharedStringPart = sharedStringPart;
         }
 
-        var sharedStringTable = _sharedStringPart.SharedStringTable;
+        var sharedStringTable = sharedStringPart.SharedStringTable ??= new SharedStringTable();
         int index = 0;
         
         foreach (var item in sharedStringTable.Elements<SharedStringItem>())
@@ -231,7 +235,8 @@ public class WorkbookBuilder : IWorkbookBuilder
 
     private void LoadExistingWorksheets()
     {
-        var sheets = _workbookPart.Workbook.Sheets;
+        var workbook = _workbookPart.Workbook!;
+        var sheets = workbook.Sheets;
         if (sheets == null) return;
 
         foreach (var sheet in sheets.Elements<Sheet>())

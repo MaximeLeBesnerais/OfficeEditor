@@ -25,7 +25,7 @@ public class DocxTemplateEngine
 
     public void Process(WordprocessingDocument document, Dictionary<string, object> data)
     {
-        var body = document.MainDocumentPart?.Document.Body;
+        var body = document.MainDocumentPart?.Document?.Body;
         if (body != null)
         {
             ProcessElement(body, data);
