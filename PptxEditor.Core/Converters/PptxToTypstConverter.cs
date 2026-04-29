@@ -18,6 +18,7 @@ public sealed class PptxToTypstConverter : IDisposable
     private readonly string _fontsDirectory;
     private readonly Dictionary<string, TypstFontMetrics> _fontMetrics = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, string> _themeFonts = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, TableStyleDefinition> _tableStyles = new(StringComparer.OrdinalIgnoreCase);
     private int _imageCounter;
 
     public PptxToTypstConverter(PresentationDocument document)
@@ -36,6 +37,19 @@ public sealed class PptxToTypstConverter : IDisposable
         ExtractFonts();
         var fontFiles = Directory.GetFiles(_fontsDirectory).ToList();
         _themeFonts = ExtractThemeFonts();
+
+        // Load table styles using first slide's theme for scheme color resolution
+        var firstSlideId = _document.PresentationPart!.Presentation.SlideIdList?.ChildElements.OfType<SlideId>().FirstOrDefault();
+        if (firstSlideId != null)
+        {
+            var firstSlidePart = (SlidePart)_document.PresentationPart.GetPartById(firstSlideId.RelationshipId!);
+            var globalStyleResolver = new StyleResolver(_document, firstSlidePart);
+            LoadTableStyles(globalStyleResolver);
+        }
+        else
+        {
+            LoadTableStyles(null);
+        }
         
         var presentation = new TypstPresentation
         {
@@ -229,25 +243,6 @@ public sealed class PptxToTypstConverter : IDisposable
     private void GenerateTextSource(StringBuilder sb, TypstTextElement text, string width, HashSet<string> availableFonts)
     {
         var fmt = text.Formatting;
-        var parameters = new List<string>();
-
-        parameters.Add($"size: {FormatPt(fmt.FontSize)}");
-        
-        if (fmt.Bold)
-            parameters.Add("weight: \"bold\"");
-        
-        if (fmt.Italic)
-            parameters.Add("style: \"italic\"");
-        
-        if (!string.IsNullOrEmpty(fmt.Color) && fmt.Color != "#000000")
-            parameters.Add($"fill: rgb(\"{fmt.Color}\")");
-        
-        // Add font family if specified, resolved, and available
-        var fontFamily = ResolveThemeFont(fmt.FontFamily);
-        if (!string.IsNullOrEmpty(fontFamily) && fontFamily != "Arial" && availableFonts.Contains(fontFamily))
-        {
-            parameters.Add($"font: \"{fontFamily}\"");
-        }
 
         // Constrain text to original text box width
         sb.Append($"#block(width: {width})[");
@@ -264,9 +259,7 @@ public sealed class PptxToTypstConverter : IDisposable
             sb.Append($"#align({fmt.Align})[");
         }
 
-        var paramStr = parameters.Count > 0 ? $"#text({string.Join(", ", parameters)})" : "";
-        
-        AppendTextContent(sb, text, paramStr);
+        AppendParagraphs(sb, text, availableFonts);
 
         // Close alignment wrapper if opened
         if (fmt.Align != "left" && !string.IsNullOrEmpty(fmt.Align))
@@ -278,34 +271,131 @@ public sealed class PptxToTypstConverter : IDisposable
         sb.Append("]");
     }
 
-    private static void AppendTextContent(StringBuilder sb, TypstTextElement text, string paramStr)
+    private void AppendParagraphs(StringBuilder sb, TypstTextElement text, HashSet<string> availableFonts)
     {
-        var paragraphs = text.Content.Split("\n\n", StringSplitOptions.None);
-        for (var i = 0; i < paragraphs.Length; i++)
+        var paragraphs = text.Paragraphs;
+
+        // Pre-compute enum start numbers per level for numbered lists
+        var enumCounters = new Dictionary<int, int>();
+        var enumStarts = new int[paragraphs.Count];
+        for (int i = 0; i < paragraphs.Count; i++)
         {
-            if (i > 0 && !string.IsNullOrEmpty(paragraphs[i - 1]) && !string.IsNullOrEmpty(paragraphs[i]))
+            var p = paragraphs[i];
+            if (!string.IsNullOrEmpty(p.AutoNumberType))
+            {
+                var level = p.Level;
+                enumCounters.TryGetValue(level, out var count);
+                enumStarts[i] = count + 1;
+                enumCounters[level] = count + 1;
+            }
+        }
+
+        for (var i = 0; i < paragraphs.Count; i++)
+        {
+            var paragraph = paragraphs[i];
+
+            if (i > 0)
             {
                 sb.Append("\n\n");
             }
 
-            if (string.IsNullOrEmpty(paragraphs[i]))
+            // Heuristic: literal bullet characters when no bullet property exists
+            string content = paragraph.Content;
+            bool isLiteralBullet = false;
+            string? literalBulletChar = null;
+            if (!paragraph.HasBullet && !string.IsNullOrEmpty(content))
             {
-                sb.Append($"#v({FormatPt(text.LineSpacing ?? text.Formatting.FontSize)})\n");
+                var trimmed = content.TrimStart();
+                if (trimmed.StartsWith("- ") || trimmed.StartsWith("• ") || trimmed.StartsWith("* ") || trimmed.StartsWith("o "))
+                {
+                    isLiteralBullet = true;
+                    literalBulletChar = trimmed.Substring(0, 1);
+                    // Strip the bullet prefix (spaces before bullet + bullet + space after)
+                    var prefixLen = content.Length - trimmed.Length + 2;
+                    if (prefixLen > 0 && prefixLen <= content.Length)
+                    {
+                        content = content.Substring(prefixLen);
+                    }
+                }
+            }
+
+            if (string.IsNullOrEmpty(content))
+            {
+                sb.Append($"#v({FormatPt(text.LineSpacing ?? paragraph.Formatting.FontSize)})\n");
                 continue;
             }
 
-            if (!string.IsNullOrEmpty(paramStr))
+            var paramStr = BuildTextParameters(paragraph.Formatting, availableFonts);
+            var escapedContent = EscapeTypstText(content);
+
+            bool effectiveHasBullet = paragraph.HasBullet || isLiteralBullet;
+            string? effectiveBulletChar = paragraph.BulletChar ?? literalBulletChar;
+
+            if (!string.IsNullOrEmpty(paragraph.AutoNumberType))
             {
-                sb.Append(paramStr);
-                sb.Append("[");
-                sb.Append(EscapeTypstText(paragraphs[i]));
-                sb.Append("]");
+                var startNum = enumStarts[i];
+                if (!string.IsNullOrEmpty(paramStr))
+                {
+                    sb.Append($"#enum(start: {startNum})[{paramStr}[{escapedContent}]]");
+                }
+                else
+                {
+                    sb.Append($"#enum(start: {startNum})[{escapedContent}]");
+                }
+            }
+            else if (effectiveHasBullet)
+            {
+                var marker = effectiveBulletChar ?? "•";
+                var markerEscaped = EscapeTypstText(marker);
+                var indent = paragraph.Level > 0 ? $"#h({paragraph.Level * 1.5}em) " : "";
+                if (!string.IsNullOrEmpty(paramStr))
+                {
+                    sb.Append($"{indent}#list(marker: [{markerEscaped}])[{paramStr}[{escapedContent}]]");
+                }
+                else
+                {
+                    sb.Append($"{indent}#list(marker: [{markerEscaped}])[{escapedContent}]");
+                }
             }
             else
             {
-                sb.Append(EscapeTypstText(paragraphs[i]));
+                if (!string.IsNullOrEmpty(paramStr))
+                {
+                    sb.Append(paramStr);
+                    sb.Append("[");
+                    sb.Append(escapedContent);
+                    sb.Append("]");
+                }
+                else
+                {
+                    sb.Append(escapedContent);
+                }
             }
         }
+    }
+
+    private string BuildTextParameters(TypstTextFormatting fmt, HashSet<string> availableFonts)
+    {
+        var parameters = new List<string>();
+
+        parameters.Add($"size: {FormatPt(fmt.FontSize)}");
+
+        if (fmt.Bold)
+            parameters.Add("weight: \"bold\"");
+
+        if (fmt.Italic)
+            parameters.Add("style: \"italic\"");
+
+        if (!string.IsNullOrEmpty(fmt.Color) && fmt.Color != "#000000")
+            parameters.Add($"fill: rgb(\"{fmt.Color}\")");
+
+        var fontFamily = ResolveThemeFont(fmt.FontFamily);
+        if (!string.IsNullOrEmpty(fontFamily) && fontFamily != "Arial" && availableFonts.Contains(fontFamily))
+        {
+            parameters.Add($"font: \"{fontFamily}\"");
+        }
+
+        return parameters.Count > 0 ? $"#text({string.Join(", ", parameters)})" : "";
     }
 
     private static double GetTypstParagraphLeading(TypstTextElement text)
@@ -540,7 +630,7 @@ public sealed class PptxToTypstConverter : IDisposable
         {
             P.Shape shape => ConvertShape(slidePart, shape, styleResolver, slideIndex, offX, offY, scaleX, scaleY),
             P.Picture picture => ConvertPicture(slidePart, picture, offX, offY, scaleX, scaleY),
-            P.GraphicFrame graphicFrame => ConvertGraphicFrame(graphicFrame, offX, offY, scaleX, scaleY),
+            P.GraphicFrame graphicFrame => ConvertGraphicFrame(slidePart, graphicFrame, styleResolver, offX, offY, scaleX, scaleY),
             P.GroupShape groupShape => ConvertGroupShape(slidePart, groupShape, styleResolver, slideIndex, offX, offY, scaleX, scaleY),
             _ => Array.Empty<TypstElement>()
         };
@@ -569,8 +659,10 @@ public sealed class PptxToTypstConverter : IDisposable
         {
             text = new TypstTextElement
             {
-                Content = slideIndex.ToString(),
-                Formatting = text.Formatting,
+                Paragraphs = new()
+                {
+                    new TypstParagraph { Content = slideIndex.ToString(), Formatting = text.Formatting }
+                },
                 AutoFit = text.AutoFit,
                 VerticalAlign = text.VerticalAlign,
                 PaddingLeft = text.PaddingLeft,
@@ -850,7 +942,7 @@ public sealed class PptxToTypstConverter : IDisposable
         };
     }
 
-    private IEnumerable<TypstElement> ConvertGraphicFrame(P.GraphicFrame graphicFrame, double offX, double offY, double scaleX, double scaleY)
+    private IEnumerable<TypstElement> ConvertGraphicFrame(SlidePart slidePart, P.GraphicFrame graphicFrame, StyleResolver styleResolver, double offX, double offY, double scaleX, double scaleY)
     {
         var (id, name) = GetElementIdAndName(graphicFrame.NonVisualGraphicFrameProperties);
         var position = GetGraphicFramePosition(graphicFrame);
@@ -861,7 +953,7 @@ public sealed class PptxToTypstConverter : IDisposable
         var table = graphicData.Elements<Drawing.Table>().FirstOrDefault();
         if (table != null)
         {
-            var tableElement = ExtractTable(table);
+            var tableElement = ExtractTable(table, styleResolver);
             yield return new TypstElement
             {
                 Type = "Table",
@@ -873,7 +965,186 @@ public sealed class PptxToTypstConverter : IDisposable
                 Height = position.Height * scaleY,
                 Table = tableElement
             };
+            yield break;
         }
+
+        var uri = graphicData.Uri?.Value ?? "";
+        if (uri.Contains("/drawingml/2006/diagram", StringComparison.Ordinal))
+        {
+            foreach (var element in ConvertDiagramGraphicFrame(slidePart, graphicFrame, position, offX, offY, scaleX, scaleY))
+                yield return element;
+        }
+    }
+
+    private IEnumerable<TypstElement> ConvertDiagramGraphicFrame(SlidePart slidePart, P.GraphicFrame graphicFrame,
+        (double X, double Y, double Width, double Height) framePosition,
+        double offX, double offY, double scaleX, double scaleY)
+    {
+        var graphicData = graphicFrame.Graphic?.GraphicData;
+        if (graphicData == null) yield break;
+
+        var candidateParts = new List<OpenXmlPart>();
+
+        // Parse dgm:relIds to get relationship IDs
+        var relIdsElement = graphicData.Elements()
+            .FirstOrDefault(e => e.LocalName == "relIds" &&
+                e.NamespaceUri == "http://schemas.openxmlformats.org/drawing/2006/diagram");
+
+        if (relIdsElement != null)
+        {
+            var rIds = relIdsElement.GetAttributes()
+                .Select(a => a.Value)
+                .Where(v => !string.IsNullOrEmpty(v) && v.StartsWith("rId", StringComparison.Ordinal))
+                .Distinct()
+                .ToList();
+
+            foreach (var rId in rIds)
+            {
+                try
+                {
+                    var part = slidePart.GetPartById(rId);
+                    if (part != null)
+                    {
+                        candidateParts.Add(part);
+                        foreach (var childPart in part.Parts)
+                        {
+                            candidateParts.Add(childPart.OpenXmlPart);
+                        }
+                    }
+                }
+                catch
+                {
+                    // Ignore parts that can't be resolved
+                }
+            }
+        }
+
+        // Also add diagram drawing parts (not referenced in relIds but accessible via type)
+        foreach (var drawingPart in slidePart.GetPartsOfType<DiagramPersistLayoutPart>())
+        {
+            candidateParts.Add(drawingPart);
+        }
+
+        // Also scan all slide parts as fallback
+        foreach (var partPair in slidePart.Parts)
+        {
+            candidateParts.Add(partPair.OpenXmlPart);
+        }
+
+        // Find the first part that contains diagram shapes
+        foreach (var part in candidateParts.Distinct())
+        {
+            OpenXmlElement? root;
+            try
+            {
+                root = part.RootElement;
+            }
+            catch
+            {
+                continue;
+            }
+
+            if (root == null) continue;
+
+            var diagramShapes = root.Descendants()
+                .Where(e => e.LocalName == "sp" &&
+                    (e.NamespaceUri == "http://schemas.openxmlformats.org/drawing/2006/diagram" ||
+                     e.NamespaceUri == "http://schemas.microsoft.com/office/drawing/2008/diagram"))
+                .ToList();
+
+            if (diagramShapes.Count == 0) continue;
+
+            foreach (var shape in diagramShapes)
+            {
+                var textElement = ExtractTextFromDiagramShape(shape);
+                if (textElement == null || string.IsNullOrWhiteSpace(textElement.Content))
+                    continue;
+
+                var shapePosition = GetDiagramShapePosition(shape);
+                if (shapePosition == null) continue;
+
+                var (shapeX, shapeY, shapeW, shapeH) = shapePosition.Value;
+
+                yield return new TypstElement
+                {
+                    Type = "Text",
+                    X = offX + (framePosition.X + shapeX) * scaleX,
+                    Y = offY + (framePosition.Y + shapeY) * scaleY,
+                    Width = shapeW * scaleX,
+                    Height = shapeH * scaleY,
+                    Text = textElement
+                };
+            }
+
+            yield break;
+        }
+    }
+
+    private static readonly HashSet<string> _diagramNamespaces = new(StringComparer.Ordinal)
+    {
+        "http://schemas.openxmlformats.org/drawing/2006/diagram",
+        "http://schemas.microsoft.com/office/drawing/2008/diagram"
+    };
+
+    private TypstTextElement? ExtractTextFromDiagramShape(OpenXmlElement diagramShape)
+    {
+        var txBody = diagramShape.Elements()
+            .FirstOrDefault(e => e.LocalName == "txBody" && _diagramNamespaces.Contains(e.NamespaceUri));
+
+        if (txBody == null) return null;
+
+        return ExtractTextFromTextBody(txBody);
+    }
+
+    private (double X, double Y, double Width, double Height)? GetDiagramShapePosition(OpenXmlElement diagramShape)
+    {
+        // Try txXfrm first (Microsoft 2008 diagram namespace), then spPr/xfrm
+        var txXfrm = diagramShape.Elements()
+            .FirstOrDefault(e => e.LocalName == "txXfrm" && _diagramNamespaces.Contains(e.NamespaceUri));
+
+        OpenXmlElement? xfrm = null;
+        if (txXfrm != null)
+        {
+            xfrm = txXfrm;
+        }
+        else
+        {
+            var spPr = diagramShape.Elements()
+                .FirstOrDefault(e => e.LocalName == "spPr" && _diagramNamespaces.Contains(e.NamespaceUri));
+            if (spPr == null) return null;
+
+            xfrm = spPr.Elements()
+                .FirstOrDefault(e => e.LocalName == "xfrm" &&
+                    e.NamespaceUri == "http://schemas.openxmlformats.org/drawingml/2006/main");
+        }
+
+        if (xfrm == null) return null;
+
+        var off = xfrm.Elements()
+            .FirstOrDefault(e => e.LocalName == "off" &&
+                e.NamespaceUri == "http://schemas.openxmlformats.org/drawingml/2006/main");
+        var ext = xfrm.Elements()
+            .FirstOrDefault(e => e.LocalName == "ext" &&
+                e.NamespaceUri == "http://schemas.openxmlformats.org/drawingml/2006/main");
+
+        if (off == null || ext == null) return null;
+
+        var xAttr = off.GetAttribute("x", "");
+        var yAttr = off.GetAttribute("y", "");
+        var cxAttr = ext.GetAttribute("cx", "");
+        var cyAttr = ext.GetAttribute("cy", "");
+
+        if (string.IsNullOrEmpty(xAttr.Value) || string.IsNullOrEmpty(yAttr.Value) ||
+            string.IsNullOrEmpty(cxAttr.Value) || string.IsNullOrEmpty(cyAttr.Value))
+            return null;
+
+        if (!long.TryParse(xAttr.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var xEmu) ||
+            !long.TryParse(yAttr.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var yEmu) ||
+            !long.TryParse(cxAttr.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var cxEmu) ||
+            !long.TryParse(cyAttr.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var cyEmu))
+            return null;
+
+        return (EmuToPt(xEmu), EmuToPt(yEmu), EmuToPt(cxEmu), EmuToPt(cyEmu));
     }
 
     private IEnumerable<TypstElement> ConvertGroupShape(SlidePart slidePart, P.GroupShape groupShape, StyleResolver styleResolver, int slideIndex, double parentOffX, double parentOffY, double parentScaleX, double parentScaleY)
@@ -917,11 +1188,68 @@ public sealed class PptxToTypstConverter : IDisposable
         var textBody = shape.TextBody;
         if (textBody == null)
         {
-            return new TypstTextElement { Content = "" };
+            return new TypstTextElement();
         }
 
-        var paragraphTexts = new List<string>();
-        TypstTextFormatting? formatting = null;
+        var placeholderInfo = GetPlaceholderInfo(shape);
+        var placeholderType = GetPlaceholderType(shape);
+        var result = ExtractTextFromTextBody(textBody, styleResolver, placeholderInfo?.Index, placeholderType);
+
+        // Get default text style from master based on placeholder type
+        var defaultStyle = styleResolver.GetDefaultTextStyle(placeholderType);
+
+        // Apply defaults for missing values per-paragraph
+        var updatedParagraphs = new List<TypstParagraph>();
+        foreach (var paragraph in result.Paragraphs)
+        {
+            var fmt = paragraph.Formatting;
+
+            if (fmt.FontSize == 18.0 && defaultStyle.FontSize.HasValue)
+                fmt = fmt with { FontSize = defaultStyle.FontSize.Value };
+            if (!fmt.Bold && defaultStyle.Bold.HasValue)
+                fmt = fmt with { Bold = defaultStyle.Bold.Value };
+            if (!fmt.Italic && defaultStyle.Italic.HasValue)
+                fmt = fmt with { Italic = defaultStyle.Italic.Value };
+            if (fmt.Color == "#000000" && !string.IsNullOrEmpty(defaultStyle.Color))
+                fmt = fmt with { Color = defaultStyle.Color };
+            if (fmt.FontFamily == "Arial" && !string.IsNullOrEmpty(defaultStyle.FontFamily))
+                fmt = fmt with { FontFamily = defaultStyle.FontFamily };
+
+            updatedParagraphs.Add(new TypstParagraph
+            {
+                Content = paragraph.Content,
+                Formatting = fmt,
+                Level = paragraph.Level,
+                BulletChar = paragraph.BulletChar,
+                AutoNumberType = paragraph.AutoNumberType,
+                HasBullet = paragraph.HasBullet,
+                LineSpacing = paragraph.LineSpacing
+            });
+        }
+
+        return new TypstTextElement
+        {
+            Paragraphs = updatedParagraphs,
+            AutoFit = result.AutoFit,
+            VerticalAlign = result.VerticalAlign,
+            PaddingLeft = result.PaddingLeft,
+            PaddingTop = result.PaddingTop,
+            PaddingRight = result.PaddingRight,
+            PaddingBottom = result.PaddingBottom,
+            LineSpacing = result.LineSpacing,
+            ParagraphCount = result.ParagraphCount,
+            HasExplicitLineBreaks = result.HasExplicitLineBreaks
+        };
+    }
+
+    private TypstTextElement ExtractTextFromTextBody(OpenXmlElement textBody)
+    {
+        return ExtractTextFromTextBody(textBody, null, null, null);
+    }
+
+    private TypstTextElement ExtractTextFromTextBody(OpenXmlElement textBody, StyleResolver? styleResolver, int? placeholderIdx, PlaceholderValues? placeholderType = null)
+    {
+        var paragraphs = new List<TypstParagraph>();
         string? align = null;
         double? lineSpacing = null;
         var paragraphCount = 0;
@@ -944,6 +1272,9 @@ public sealed class PptxToTypstConverter : IDisposable
         var padRight = EmuToPt(bodyPr?.RightInset?.Value ?? 0);
         var padBottom = EmuToPt(bodyPr?.BottomInset?.Value ?? 0);
 
+        // Get text body list style for cascade level 3
+        var bodyLstStyle = textBody.ChildElements.FirstOrDefault(e => e.LocalName == "lstStyle");
+
         foreach (var paragraph in textBody.Elements<Drawing.Paragraph>())
         {
             paragraphCount++;
@@ -960,6 +1291,7 @@ public sealed class PptxToTypstConverter : IDisposable
             }
 
             var paragraphText = new StringBuilder();
+            Drawing.Run? firstRun = null;
             foreach (var child in paragraph.ChildElements)
             {
                 if (child is Drawing.Run run)
@@ -969,10 +1301,9 @@ public sealed class PptxToTypstConverter : IDisposable
                         paragraphText.Append(run.Text.Text);
                     }
 
-                    // Extract formatting from first run
-                    if (formatting == null)
+                    if (firstRun == null)
                     {
-                        formatting = ExtractTextFormatting(run);
+                        firstRun = run;
                     }
                 }
 
@@ -983,37 +1314,39 @@ public sealed class PptxToTypstConverter : IDisposable
                 }
             }
 
-            paragraphTexts.Add(paragraphText.ToString());
+            var content = paragraphText.ToString();
+            var level = 0;
+            var pPr = paragraph.Elements<Drawing.ParagraphProperties>().FirstOrDefault();
+            if (pPr?.Level?.Value != null)
+            {
+                level = pPr.Level.Value;
+            }
+
+            // Resolve formatting through full cascade
+            var formatting = ResolveParagraphFormatting(firstRun, pPr, bodyLstStyle, level, styleResolver, placeholderIdx);
+            if (align != null)
+            {
+                formatting = formatting with { Align = align };
+            }
+
+            // Resolve bullet properties through full cascade
+            var (bulletChar, autoNumberType, hasBullet) = ResolveBulletProperties(pPr, bodyLstStyle, level, styleResolver, placeholderIdx, placeholderType);
+
+            paragraphs.Add(new TypstParagraph
+            {
+                Content = content,
+                Formatting = formatting,
+                Level = level,
+                BulletChar = bulletChar,
+                AutoNumberType = autoNumberType,
+                HasBullet = hasBullet,
+                LineSpacing = lineSpacing
+            });
         }
-
-        // Get default text style from master based on placeholder type
-        var placeholderType = GetPlaceholderType(shape);
-        var defaultStyle = styleResolver.GetDefaultTextStyle(placeholderType);
-
-        // Merge explicit formatting with defaults
-        var fmt = formatting ?? new TypstTextFormatting();
-        if (align != null)
-        {
-            fmt = fmt with { Align = align };
-        }
-
-        // Apply defaults for missing values
-        if (fmt.FontSize == 18.0 && defaultStyle.FontSize.HasValue)
-            fmt = fmt with { FontSize = defaultStyle.FontSize.Value };
-
-        if (!fmt.Bold && defaultStyle.Bold.HasValue)
-            fmt = fmt with { Bold = defaultStyle.Bold.Value };
-        if (!fmt.Italic && defaultStyle.Italic.HasValue)
-            fmt = fmt with { Italic = defaultStyle.Italic.Value };
-        if (fmt.Color == "#000000" && !string.IsNullOrEmpty(defaultStyle.Color))
-            fmt = fmt with { Color = defaultStyle.Color };
-        if (fmt.FontFamily == "Arial" && !string.IsNullOrEmpty(defaultStyle.FontFamily))
-            fmt = fmt with { FontFamily = defaultStyle.FontFamily };
 
         return new TypstTextElement
         {
-            Content = string.Join("\n\n", paragraphTexts).Trim(),
-            Formatting = fmt,
+            Paragraphs = paragraphs,
             AutoFit = autoFit,
             VerticalAlign = vertAlign,
             PaddingLeft = padLeft,
@@ -1174,6 +1507,245 @@ public sealed class PptxToTypstConverter : IDisposable
         return fmt;
     }
 
+    private TypstTextFormatting ResolveParagraphFormatting(
+        Drawing.Run? firstRun,
+        Drawing.ParagraphProperties? pPr,
+        OpenXmlElement? bodyLstStyle,
+        int level,
+        StyleResolver? styleResolver,
+        int? placeholderIdx)
+    {
+        var fmt = new TypstTextFormatting();
+
+        // 1. Run level - from first run's rPr
+        if (firstRun != null)
+        {
+            var runProps = firstRun.RunProperties;
+            if (runProps != null)
+            {
+                if (runProps.FontSize?.Value != null)
+                    fmt = fmt with { FontSize = runProps.FontSize.Value / 100.0 };
+                if (runProps.Bold?.Value != null)
+                    fmt = fmt with { Bold = runProps.Bold.Value };
+                if (runProps.Italic?.Value != null)
+                    fmt = fmt with { Italic = runProps.Italic.Value };
+
+                var color = ExtractRunColor(runProps);
+                if (!string.IsNullOrEmpty(color))
+                    fmt = fmt with { Color = color };
+
+                var latinFont = runProps.Elements<Drawing.LatinFont>().FirstOrDefault();
+                if (latinFont?.Typeface != null)
+                {
+                    var fontName = latinFont.Typeface.Value;
+                    if (fontName.EndsWith(" Bold", StringComparison.OrdinalIgnoreCase))
+                    {
+                        fontName = fontName.Substring(0, fontName.Length - 5);
+                        fmt = fmt with { Bold = true };
+                    }
+                    fmt = fmt with { FontFamily = fontName };
+                }
+            }
+        }
+
+        // 2. Paragraph default: pPr/defRPr
+        var defRPr = pPr?.Elements<Drawing.DefaultRunProperties>().FirstOrDefault();
+        if (defRPr != null)
+        {
+            if (fmt.FontSize == 18.0 && defRPr.FontSize?.Value != null)
+                fmt = fmt with { FontSize = defRPr.FontSize.Value / 100.0 };
+            if (!fmt.Bold && defRPr.Bold?.Value != null)
+                fmt = fmt with { Bold = defRPr.Bold.Value };
+            if (!fmt.Italic && defRPr.Italic?.Value != null)
+                fmt = fmt with { Italic = defRPr.Italic.Value };
+
+            var defColor = ExtractDefRPrColor(defRPr);
+            if (fmt.Color == "#000000" && !string.IsNullOrEmpty(defColor))
+                fmt = fmt with { Color = defColor };
+
+            var defLatinFont = defRPr.Elements<Drawing.LatinFont>().FirstOrDefault();
+            if (fmt.FontFamily == "Arial" && defLatinFont?.Typeface != null)
+            {
+                var fontName = defLatinFont.Typeface.Value;
+                if (fontName.EndsWith(" Bold", StringComparison.OrdinalIgnoreCase))
+                {
+                    fontName = fontName.Substring(0, fontName.Length - 5);
+                    fmt = fmt with { Bold = true };
+                }
+                fmt = fmt with { FontFamily = fontName };
+            }
+        }
+
+        // 3. Text body list style
+        if (bodyLstStyle != null)
+        {
+            var bodyStyle = ExtractLstStyleDefRPr(bodyLstStyle, level);
+            fmt = MergeDefaultStyle(fmt, bodyStyle);
+        }
+
+        // 4. Layout placeholder list style
+        if (styleResolver != null)
+        {
+            var layoutStyle = styleResolver.GetLayoutPlaceholderLstStyle(placeholderIdx, level);
+            fmt = MergeDefaultStyle(fmt, layoutStyle);
+
+            // 5. Master placeholder list style
+            var masterStyle = styleResolver.GetMasterPlaceholderLstStyle(placeholderIdx, level);
+            fmt = MergeDefaultStyle(fmt, masterStyle);
+        }
+
+        return fmt;
+    }
+
+    private static TypstTextFormatting MergeDefaultStyle(TypstTextFormatting fmt, StyleResolver.DefaultTextStyle style)
+    {
+        if (fmt.FontSize == 18.0 && style.FontSize.HasValue)
+            fmt = fmt with { FontSize = style.FontSize.Value };
+        if (!fmt.Bold && style.Bold.HasValue)
+            fmt = fmt with { Bold = style.Bold.Value };
+        if (!fmt.Italic && style.Italic.HasValue)
+            fmt = fmt with { Italic = style.Italic.Value };
+        if (fmt.Color == "#000000" && !string.IsNullOrEmpty(style.Color))
+            fmt = fmt with { Color = style.Color };
+        if (fmt.FontFamily == "Arial" && !string.IsNullOrEmpty(style.FontFamily))
+        {
+            var fontName = style.FontFamily;
+            if (fontName.EndsWith(" Bold", StringComparison.OrdinalIgnoreCase))
+            {
+                fontName = fontName.Substring(0, fontName.Length - 5);
+                fmt = fmt with { Bold = true };
+            }
+            fmt = fmt with { FontFamily = fontName };
+        }
+        return fmt;
+    }
+
+    private static (string? BulletChar, string? AutoNumberType, bool HasBullet) ResolveBulletProperties(
+        Drawing.ParagraphProperties? pPr,
+        OpenXmlElement? bodyLstStyle,
+        int level,
+        StyleResolver? styleResolver,
+        int? placeholderIdx,
+        PlaceholderValues? placeholderType)
+    {
+        // 1. Paragraph level
+        var info = ExtractBulletInfo(pPr);
+        if (info.HasBullet || info.HasBulletNone)
+            return (info.BulletChar, info.AutoNumberType, info.HasBullet);
+
+        // 2. Text body list style
+        info = ExtractBulletInfoFromLstStyle(bodyLstStyle, level);
+        if (info.HasBullet || info.HasBulletNone)
+            return (info.BulletChar, info.AutoNumberType, info.HasBullet);
+
+        if (styleResolver != null)
+        {
+            // 3. Layout placeholder list style
+            info = styleResolver.GetLayoutPlaceholderBulletInfo(placeholderIdx, level);
+            if (info.HasBullet || info.HasBulletNone)
+                return (info.BulletChar, info.AutoNumberType, info.HasBullet);
+
+            // 4. Master placeholder list style
+            info = styleResolver.GetMasterPlaceholderBulletInfo(placeholderIdx, level);
+            if (info.HasBullet || info.HasBulletNone)
+                return (info.BulletChar, info.AutoNumberType, info.HasBullet);
+
+            // 5. Master txStyles
+            info = styleResolver.GetMasterTxStyleBulletInfo(placeholderType, level);
+            if (info.HasBullet || info.HasBulletNone)
+                return (info.BulletChar, info.AutoNumberType, info.HasBullet);
+        }
+
+        return (null, null, false);
+    }
+
+    private static (string? BulletChar, string? AutoNumberType, bool HasBullet, bool HasBulletNone) ExtractBulletInfo(OpenXmlElement? element)
+    {
+        if (element == null) return (null, null, false, false);
+
+        var buChar = element.ChildElements.FirstOrDefault(e => e.LocalName == "buChar");
+        if (buChar != null)
+        {
+            var charAttr = buChar.GetAttribute("char", "");
+            if (!string.IsNullOrEmpty(charAttr.Value))
+                return (charAttr.Value, null, true, false);
+        }
+
+        var buAutoNum = element.ChildElements.FirstOrDefault(e => e.LocalName == "buAutoNum");
+        if (buAutoNum != null)
+        {
+            var typeAttr = buAutoNum.GetAttribute("type", "");
+            if (!string.IsNullOrEmpty(typeAttr.Value))
+                return (null, typeAttr.Value, true, false);
+        }
+
+        var buNone = element.ChildElements.FirstOrDefault(e => e.LocalName == "buNone");
+        if (buNone != null)
+            return (null, null, false, true);
+
+        return (null, null, false, false);
+    }
+
+    private static (string? BulletChar, string? AutoNumberType, bool HasBullet, bool HasBulletNone) ExtractBulletInfoFromLstStyle(OpenXmlElement? lstStyle, int level)
+    {
+        if (lstStyle == null) return (null, null, false, false);
+
+        var levelName = $"lvl{level + 1}pPr";
+        var lvlPpr = lstStyle.ChildElements.FirstOrDefault(e => e.LocalName == levelName);
+        if (lvlPpr == null) return (null, null, false, false);
+
+        return ExtractBulletInfo(lvlPpr);
+    }
+
+    private string? ExtractDefRPrColor(Drawing.DefaultRunProperties defRPr)
+    {
+        var solidFill = defRPr.Elements<Drawing.SolidFill>().FirstOrDefault();
+        if (solidFill != null)
+        {
+            return ExtractColor(solidFill);
+        }
+        return null;
+    }
+
+    private static StyleResolver.DefaultTextStyle ExtractLstStyleDefRPr(OpenXmlElement? lstStyle, int level)
+    {
+        if (lstStyle == null) return new StyleResolver.DefaultTextStyle();
+
+        var levelName = $"lvl{level + 1}pPr";
+        var lvlPpr = lstStyle.ChildElements.FirstOrDefault(e => e.LocalName == levelName);
+        if (lvlPpr == null) return new StyleResolver.DefaultTextStyle();
+
+        var defRPr = lvlPpr.Elements<Drawing.DefaultRunProperties>().FirstOrDefault();
+        if (defRPr == null) return new StyleResolver.DefaultTextStyle();
+
+        var style = new StyleResolver.DefaultTextStyle
+        {
+            FontSize = defRPr.FontSize?.Value != null ? defRPr.FontSize.Value / 100.0 : null,
+            Bold = defRPr.Bold?.Value,
+            Italic = defRPr.Italic?.Value,
+            Underline = defRPr.Underline?.Value != null && defRPr.Underline.Value != Drawing.TextUnderlineValues.None,
+            Color = ExtractDefRPrColorStatic(defRPr)
+        };
+
+        var latinFont = defRPr.Elements<Drawing.LatinFont>().FirstOrDefault();
+        if (latinFont?.Typeface != null)
+            style.FontFamily = latinFont.Typeface.Value;
+
+        return style;
+    }
+
+    private static string? ExtractDefRPrColorStatic(Drawing.DefaultRunProperties defRPr)
+    {
+        var solidFill = defRPr.Elements<Drawing.SolidFill>().FirstOrDefault();
+        if (solidFill != null)
+        {
+            var rgb = solidFill.RgbColorModelHex;
+            if (rgb?.Val != null)
+                return $"#{rgb.Val.Value}";
+        }
+        return null;
+    }
+
     private string? ExtractRunColor(Drawing.RunProperties runProps)
     {
         var solidFill = runProps.Elements<Drawing.SolidFill>().FirstOrDefault();
@@ -1294,7 +1866,7 @@ public sealed class PptxToTypstConverter : IDisposable
         };
     }
 
-    private TypstTableElement ExtractTable(Drawing.Table table)
+    private TypstTableElement ExtractTable(Drawing.Table table, StyleResolver styleResolver)
     {
         var rows = new List<List<TypstTableCell>>();
         var columnWidths = new List<double>();
@@ -1311,17 +1883,54 @@ public sealed class PptxToTypstConverter : IDisposable
             }
         }
 
-        foreach (var row in table.Elements<Drawing.TableRow>())
+        var tableRows = table.Elements<Drawing.TableRow>().ToList();
+        int totalRows = tableRows.Count;
+        int totalCols = columnWidths.Count;
+
+        // Read table style and flags
+        var tableProps = table.TableProperties;
+        string? styleId = null;
+        bool firstRowFlag = false, bandRowFlag = false, firstColFlag = false, lastColFlag = false, lastRowFlag = false;
+
+        if (tableProps != null)
         {
+            var styleIdElem = tableProps.ChildElements.FirstOrDefault(e => e.LocalName == "tableStyleId");
+            if (styleIdElem != null)
+                styleId = styleIdElem.InnerText;
+
+            firstRowFlag = tableProps.FirstRow?.Value == true;
+            bandRowFlag = tableProps.BandRow?.Value == true;
+            firstColFlag = tableProps.FirstColumn?.Value == true;
+            lastColFlag = tableProps.LastColumn?.Value == true;
+            lastRowFlag = tableProps.LastRow?.Value == true;
+        }
+
+        _tableStyles.TryGetValue(styleId ?? "", out var tableStyle);
+
+        // Derive border color from wholeTbl border; fallback to black
+        var borderColor = "#000000";
+        if (tableStyle?.Parts.TryGetValue("wholeTbl", out var wholeTblPart) == true)
+        {
+            borderColor = wholeTblPart.BorderTopColor ?? borderColor;
+        }
+        var borderWidth = 1.0;
+
+        for (int rowIndex = 0; rowIndex < totalRows; rowIndex++)
+        {
+            var row = tableRows[rowIndex];
             var rowHeight = row.Height?.Value ?? 0;
             rowHeights.Add(EmuToPt((long)rowHeight));
 
             var rowCells = new List<TypstTableCell>();
-            foreach (var cell in row.Elements<Drawing.TableCell>())
+            var cells = row.Elements<Drawing.TableCell>().ToList();
+            for (int colIndex = 0; colIndex < cells.Count; colIndex++)
             {
+                var cell = cells[colIndex];
                 var cellText = ExtractCellText(cell);
                 var cellFormatting = ExtractCellFormatting(cell);
-                var bgColor = ExtractCellBackground(cell);
+                var explicitBg = ExtractCellBackground(cell);
+                var styleBg = ResolveCellBackgroundColor(rowIndex, colIndex, totalRows, totalCols, tableStyle, firstRowFlag, bandRowFlag, firstColFlag, lastColFlag, lastRowFlag);
+                var bgColor = explicitBg ?? styleBg;
 
                 rowCells.Add(new TypstTableCell
                 {
@@ -1331,16 +1940,6 @@ public sealed class PptxToTypstConverter : IDisposable
                 });
             }
             rows.Add(rowCells);
-        }
-
-        // Extract border info from table properties
-        var borderColor = "#000000";
-        var borderWidth = 1.0;
-        
-        var tableProps = table.TableProperties;
-        if (tableProps != null)
-        {
-            // Could extract more detailed border info here
         }
 
         return new TypstTableElement
@@ -1402,6 +2001,203 @@ public sealed class PptxToTypstConverter : IDisposable
         }
 
         return null;
+    }
+
+    private void LoadTableStyles(StyleResolver? styleResolver)
+    {
+        var part = _document.PresentationPart!.TableStylesPart;
+        if (part?.TableStyleList == null) return;
+
+        foreach (var style in part.TableStyleList.ChildElements.OfType<Drawing.TableStyleEntry>())
+        {
+            var styleId = style.StyleId?.Value;
+            if (string.IsNullOrEmpty(styleId)) continue;
+
+            var definition = new TableStyleDefinition { StyleId = styleId };
+            ExtractTableStylePart(style.WholeTable, "wholeTbl", definition, styleResolver);
+            ExtractTableStylePart(style.Band1Horizontal, "band1H", definition, styleResolver);
+            ExtractTableStylePart(style.Band2Horizontal, "band2H", definition, styleResolver);
+            ExtractTableStylePart(style.FirstRow, "firstRow", definition, styleResolver);
+            ExtractTableStylePart(style.LastRow, "lastRow", definition, styleResolver);
+            ExtractTableStylePart(style.FirstColumn, "firstCol", definition, styleResolver);
+            ExtractTableStylePart(style.LastColumn, "lastCol", definition, styleResolver);
+
+            _tableStyles[styleId] = definition;
+        }
+    }
+
+    private void ExtractTableStylePart(Drawing.TablePartStyleType? part, string key, TableStyleDefinition definition, StyleResolver? styleResolver)
+    {
+        if (part == null) return;
+
+        var tcStyle = part.TableCellStyle;
+        if (tcStyle == null) return;
+
+        string? bgColor = null;
+        var fill = tcStyle.Elements<Drawing.FillProperties>().FirstOrDefault();
+        if (fill != null)
+        {
+            var solidFill = fill.Elements<Drawing.SolidFill>().FirstOrDefault();
+            if (solidFill != null)
+            {
+                bgColor = ExtractSolidFillColor(solidFill, styleResolver);
+            }
+        }
+
+        var borders = tcStyle.TableCellBorders;
+        var borderTop = ExtractBorderColor(borders, "top", styleResolver);
+        var borderBottom = ExtractBorderColor(borders, "bottom", styleResolver);
+        var borderLeft = ExtractBorderColor(borders, "left", styleResolver);
+        var borderRight = ExtractBorderColor(borders, "right", styleResolver);
+
+        definition.Parts[key] = new TableStylePart
+        {
+            BackgroundColor = bgColor,
+            BorderTopColor = borderTop,
+            BorderBottomColor = borderBottom,
+            BorderLeftColor = borderLeft,
+            BorderRightColor = borderRight
+        };
+    }
+
+    private string? ExtractBorderColor(Drawing.TableCellBorders? borders, string side, StyleResolver? styleResolver)
+    {
+        if (borders == null) return null;
+
+        Drawing.Outline? outline = side switch
+        {
+            "top" => borders.TopBorder?.Outline,
+            "bottom" => borders.BottomBorder?.Outline,
+            "left" => borders.LeftBorder?.Outline,
+            "right" => borders.RightBorder?.Outline,
+            _ => null
+        };
+
+        if (outline == null) return null;
+
+        var solidFill = outline.Elements<Drawing.SolidFill>().FirstOrDefault();
+        if (solidFill != null)
+        {
+            return ExtractSolidFillColor(solidFill, styleResolver);
+        }
+
+        return null;
+    }
+
+    private string? ExtractSolidFillColor(Drawing.SolidFill solidFill, StyleResolver? styleResolver)
+    {
+        var rgb = solidFill.RgbColorModelHex;
+        if (rgb?.Val != null)
+        {
+            var color = ParseHexColor(rgb.Val.Value);
+            return ApplyColorModifiers(color, rgb.ChildElements);
+        }
+
+        var schemeColor = solidFill.SchemeColor;
+        if (schemeColor != null)
+        {
+            string? schemeName = null;
+            // Use regex as primary method — SDK enum parsing is unreliable
+            var match = System.Text.RegularExpressions.Regex.Match(
+                schemeColor.OuterXml,
+                @"val=""([^""]+)""");
+            if (match.Success)
+            {
+                schemeName = match.Groups[1].Value;
+            }
+
+            if (!string.IsNullOrEmpty(schemeName))
+            {
+                var resolved = styleResolver?.ResolveSchemeColor(schemeName);
+                if (!string.IsNullOrEmpty(resolved))
+                {
+                    var color = ParseHexColor(resolved);
+                    return ApplyColorModifiers(color, schemeColor.ChildElements);
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static string? ResolveCellBackgroundColor(int row, int col, int rowCount, int colCount, TableStyleDefinition? style, bool firstRowFlag, bool bandRowFlag, bool firstColFlag, bool lastColFlag, bool lastRowFlag)
+    {
+        if (style == null) return null;
+
+        string partKey;
+        if (row == 0 && firstRowFlag)
+            partKey = "firstRow";
+        else if (row == rowCount - 1 && lastRowFlag)
+            partKey = "lastRow";
+        else if (col == 0 && firstColFlag)
+            partKey = "firstCol";
+        else if (col == colCount - 1 && lastColFlag)
+            partKey = "lastCol";
+        else if (bandRowFlag)
+            partKey = (row % 2 == 1) ? "band1H" : "band2H";
+        else
+            partKey = "wholeTbl";
+
+        if (style.Parts.TryGetValue(partKey, out var part))
+            return part.BackgroundColor;
+
+        return null;
+    }
+
+    private static (byte R, byte G, byte B) ParseHexColor(string hex)
+    {
+        hex = hex.TrimStart('#');
+        if (hex.Length == 6)
+        {
+            return (
+                (byte)int.Parse(hex.Substring(0, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture),
+                (byte)int.Parse(hex.Substring(2, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture),
+                (byte)int.Parse(hex.Substring(4, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture)
+            );
+        }
+        return (0, 0, 0);
+    }
+
+    private static string FormatHexColor((byte R, byte G, byte B) color, byte alpha = 255)
+    {
+        if (alpha == 255)
+            return $"#{color.R:X2}{color.G:X2}{color.B:X2}";
+        return $"#{color.R:X2}{color.G:X2}{color.B:X2}{alpha:X2}";
+    }
+
+    private static (byte R, byte G, byte B) ApplyTint((byte R, byte G, byte B) color, int tint)
+    {
+        double t = tint / 100000.0;
+        return (
+            (byte)(color.R + (255 - color.R) * t),
+            (byte)(color.G + (255 - color.G) * t),
+            (byte)(color.B + (255 - color.B) * t)
+        );
+    }
+
+    private static byte ApplyAlpha(int alpha)
+    {
+        return (byte)(alpha / 100000.0 * 255);
+    }
+
+    private static string? ApplyColorModifiers((byte R, byte G, byte B) color, OpenXmlElementList modifiers)
+    {
+        byte alpha = 255;
+        foreach (var mod in modifiers)
+        {
+            switch (mod.LocalName)
+            {
+                case "tint":
+                    if (int.TryParse(mod.GetAttribute("val", "").Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var tintVal))
+                        color = ApplyTint(color, tintVal);
+                    break;
+                case "alpha":
+                    if (int.TryParse(mod.GetAttribute("val", "").Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var alphaVal))
+                        alpha = ApplyAlpha(alphaVal);
+                    break;
+            }
+        }
+        return FormatHexColor(color, alpha);
     }
 
     private (double X, double Y, double Width, double Height, double Rotation) GetElementPosition(ShapeProperties? shapeProperties)
