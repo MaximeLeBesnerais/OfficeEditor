@@ -475,7 +475,7 @@ public class PptxToTypstConverterTests : IDisposable
             "ExtractTextFromShape",
             System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic,
             null,
-            [typeof(P.Shape), typeof(StyleResolver)],
+            [typeof(P.Shape), typeof(StyleResolver), typeof(SlidePart)],
             null);
 
         // Get the first slide part for style resolution
@@ -483,7 +483,7 @@ public class PptxToTypstConverterTests : IDisposable
         Assert.NotNull(slidePart);
 
         var styleResolver = new StyleResolver(document, slidePart);
-        var text = Assert.IsType<TypstTextElement>(method!.Invoke(converter, [shape, styleResolver]));
+        var text = Assert.IsType<TypstTextElement>(method!.Invoke(converter, [shape, styleResolver, slidePart]));
 
         Assert.Equal("First paragraph\n\n\n\nSecond paragraph", text.Content);
     }
