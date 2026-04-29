@@ -57,6 +57,10 @@ public sealed class StyleResolver
     /// </summary>
     public DefaultTextStyle GetDefaultTextStyle(PlaceholderValues? placeholderType)
     {
+        // Shapes without placeholders should NOT inherit body style defaults
+        if (placeholderType == null)
+            return new DefaultTextStyle();
+
         string key;
         if (placeholderType == PlaceholderValues.Title || placeholderType == PlaceholderValues.CenteredTitle)
             key = "Title";
@@ -67,8 +71,8 @@ public sealed class StyleResolver
         else if (placeholderType == PlaceholderValues.Object)
             key = "Other";
         else
-            key = "Body";
-        
+            return new DefaultTextStyle();
+
         return _textStyles.GetStyle(key);
     }
 
@@ -316,6 +320,10 @@ public sealed class StyleResolver
 
     public (string? BulletChar, string? AutoNumberType, bool HasBullet, bool HasBulletNone) GetMasterTxStyleBulletInfo(PlaceholderValues? placeholderType, int level)
     {
+        // Shapes without placeholders should NOT inherit body style bullets
+        if (placeholderType == null)
+            return (null, null, false, false);
+
         string key;
         if (placeholderType == PlaceholderValues.Title || placeholderType == PlaceholderValues.CenteredTitle)
             key = "Title";
@@ -326,7 +334,7 @@ public sealed class StyleResolver
         else if (placeholderType == PlaceholderValues.Object)
             key = "Other";
         else
-            key = "Body";
+            return (null, null, false, false);
 
         OpenXmlElement? styleList = key switch
         {
@@ -386,6 +394,121 @@ public sealed class StyleResolver
             return (null, null, false, true);
 
         return (null, null, false, false);
+    }
+
+    #endregion
+
+    #region Line Spacing Resolution
+
+    public double? GetLayoutPlaceholderLineSpacing(int? idx, int level)
+    {
+        if (_layoutPart?.SlideLayout?.CommonSlideData?.ShapeTree == null || !idx.HasValue)
+            return null;
+
+        foreach (var layoutShape in _layoutPart.SlideLayout.CommonSlideData.ShapeTree.ChildElements.OfType<Shape>())
+        {
+            var shapeIdx = GetPlaceholderIdx(layoutShape);
+            if (shapeIdx == idx.Value)
+            {
+                return ExtractLineSpacingFromTextBodyLstStyle(layoutShape.TextBody, level);
+            }
+        }
+        return null;
+    }
+
+    public double? GetMasterPlaceholderLineSpacing(int? idx, int level)
+    {
+        if (_masterPart?.SlideMaster?.CommonSlideData?.ShapeTree == null || !idx.HasValue)
+            return null;
+
+        foreach (var masterShape in _masterPart.SlideMaster.CommonSlideData.ShapeTree.ChildElements.OfType<Shape>())
+        {
+            var shapeIdx = GetPlaceholderIdx(masterShape);
+            if (shapeIdx == idx.Value)
+            {
+                return ExtractLineSpacingFromTextBodyLstStyle(masterShape.TextBody, level);
+            }
+        }
+        return null;
+    }
+
+    public double? GetMasterTxStyleLineSpacing(PlaceholderValues? placeholderType, int level)
+    {
+        // Shapes without placeholders should NOT inherit body style line spacing
+        if (placeholderType == null)
+            return null;
+
+        string key;
+        if (placeholderType == PlaceholderValues.Title || placeholderType == PlaceholderValues.CenteredTitle)
+            key = "Title";
+        else if (placeholderType == PlaceholderValues.Body)
+            key = "Body";
+        else if (placeholderType == PlaceholderValues.SubTitle)
+            key = "Body";
+        else if (placeholderType == PlaceholderValues.Object)
+            key = "Other";
+        else
+            return null;
+
+        OpenXmlElement? styleList = key switch
+        {
+            "Title" => _masterPart?.SlideMaster?.TextStyles?.TitleStyle,
+            "Body" => _masterPart?.SlideMaster?.TextStyles?.BodyStyle,
+            "Other" => _masterPart?.SlideMaster?.TextStyles?.OtherStyle,
+            _ => null
+        };
+
+        if (styleList == null)
+            return null;
+
+        var levelName = $"lvl{level + 1}pPr";
+        var lvlPpr = styleList.ChildElements.FirstOrDefault(e => e.LocalName == levelName);
+        if (lvlPpr == null)
+            return null;
+
+        return ExtractLineSpacingFromElement(lvlPpr);
+    }
+
+    private static double? ExtractLineSpacingFromTextBodyLstStyle(OpenXmlElement? textBody, int level)
+    {
+        if (textBody == null) return null;
+
+        var lstStyle = textBody.ChildElements.FirstOrDefault(e => e.LocalName == "lstStyle");
+        if (lstStyle == null) return null;
+
+        var levelName = $"lvl{level + 1}pPr";
+        var lvlPpr = lstStyle.ChildElements.FirstOrDefault(e => e.LocalName == levelName);
+        if (lvlPpr == null) return null;
+
+        return ExtractLineSpacingFromElement(lvlPpr);
+    }
+
+    private static double? ExtractLineSpacingFromElement(OpenXmlElement? element)
+    {
+        if (element == null) return null;
+
+        var lnSpc = element.ChildElements.FirstOrDefault(e => e.LocalName == "lnSpc");
+        if (lnSpc == null) return null;
+
+        // Try spcPts first (absolute points)
+        var spcPts = lnSpc.ChildElements.FirstOrDefault(e => e.LocalName == "spcPts");
+        if (spcPts != null)
+        {
+            var valAttr = spcPts.GetAttribute("val", "");
+            if (int.TryParse(valAttr.Value, out var value))
+                return value / 100.0;
+        }
+
+        // Try spcPct (percentage of line height)
+        var spcPct = lnSpc.ChildElements.FirstOrDefault(e => e.LocalName == "spcPct");
+        if (spcPct != null)
+        {
+            var valAttr = spcPct.GetAttribute("val", "");
+            if (int.TryParse(valAttr.Value, out var value))
+                return value / 100000.0; // spcPct is in 1/1000ths of a percent (100000 = 100% = 1.0)
+        }
+
+        return null;
     }
 
     #endregion
