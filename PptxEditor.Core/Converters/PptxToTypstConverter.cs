@@ -208,11 +208,10 @@ public sealed class PptxToTypstConverter : IDisposable
         sb.Append($"#place(top + left, dx: {x}, dy: {y})");
         sb.Append("[");
 
-        // Apply rotation if present (PPTX rotation is clockwise, Typst is CCW)
+        // Apply rotation if present
         if (Math.Abs(element.Rotation) > 0.01)
         {
-            var typstAngle = -element.Rotation; // Negate because PPTX is CW, Typst is CCW
-            sb.Append($"#rotate({typstAngle.ToString("F1", CultureInfo.InvariantCulture)}deg, origin: center)");
+            sb.Append($"#rotate({element.Rotation.ToString("F1", CultureInfo.InvariantCulture)}deg, origin: center)");
             sb.Append("[");
         }
 
@@ -275,31 +274,18 @@ public sealed class PptxToTypstConverter : IDisposable
     {
         var paragraphs = text.Paragraphs;
 
-        // Pre-compute enum start numbers per level for numbered lists
-        var enumCounters = new Dictionary<int, int>();
-        var enumStarts = new int[paragraphs.Count];
-        for (int i = 0; i < paragraphs.Count; i++)
+        // Group consecutive list paragraphs for unified enum/list emission
+        int i = 0;
+        while (i < paragraphs.Count)
         {
-            var p = paragraphs[i];
-            if (!string.IsNullOrEmpty(p.AutoNumberType))
-            {
-                var level = p.Level;
-                enumCounters.TryGetValue(level, out var count);
-                enumStarts[i] = count + 1;
-                enumCounters[level] = count + 1;
-            }
-        }
-
-        for (var i = 0; i < paragraphs.Count; i++)
-        {
-            var paragraph = paragraphs[i];
-
             if (i > 0)
             {
                 sb.Append("\n\n");
             }
 
-            // Heuristic: literal bullet characters when no bullet property exists
+            var paragraph = paragraphs[i];
+
+            // Determine if this paragraph is a list item
             string content = paragraph.Content;
             bool isLiteralBullet = false;
             string? literalBulletChar = null;
@@ -310,7 +296,6 @@ public sealed class PptxToTypstConverter : IDisposable
                 {
                     isLiteralBullet = true;
                     literalBulletChar = trimmed.Substring(0, 1);
-                    // Strip the bullet prefix (spaces before bullet + bullet + space after)
                     var prefixLen = content.Length - trimmed.Length + 2;
                     if (prefixLen > 0 && prefixLen <= content.Length)
                     {
@@ -319,58 +304,206 @@ public sealed class PptxToTypstConverter : IDisposable
                 }
             }
 
-            if (string.IsNullOrEmpty(content))
+            bool effectiveHasBullet = paragraph.HasBullet || isLiteralBullet;
+            string? effectiveBulletChar = paragraph.BulletChar ?? literalBulletChar;
+            bool isListItem = !string.IsNullOrEmpty(paragraph.AutoNumberType) || effectiveHasBullet;
+
+            if (!isListItem || string.IsNullOrEmpty(content))
             {
-                sb.Append($"#v({FormatPt(text.LineSpacing ?? paragraph.Formatting.FontSize)})\n");
+                // Non-list paragraph or empty paragraph - emit individually
+                if (string.IsNullOrEmpty(content))
+                {
+                    sb.Append($"#v({FormatPt(text.LineSpacing ?? paragraph.Formatting.FontSize)})\n");
+                }
+                else
+                {
+                    var paramStr = BuildTextParameters(paragraph.Formatting, availableFonts);
+                    var escapedContent = EscapeTypstText(content);
+
+                    if (!string.IsNullOrEmpty(paragraph.AutoNumberType))
+                    {
+                        sb.Append($"#enum(start: 1)[{paramStr}[{escapedContent}]]");
+                    }
+                    else if (effectiveHasBullet)
+                    {
+                        var marker = effectiveBulletChar ?? "•";
+                        var markerEscaped = EscapeTypstText(marker);
+                        var indent = paragraph.Level > 0 ? $"#h({paragraph.Level * 1.5}em) " : "";
+                        sb.Append($"{indent}#list(marker: [{markerEscaped}])[{paramStr}[{escapedContent}]]");
+                    }
+                    else
+                    {
+                        if (!string.IsNullOrEmpty(paramStr))
+                        {
+                            sb.Append(paramStr);
+                            sb.Append("[");
+                            sb.Append(escapedContent);
+                            sb.Append("]");
+                        }
+                        else
+                        {
+                            sb.Append(escapedContent);
+                        }
+                    }
+                }
+                i++;
                 continue;
             }
 
-            var paramStr = BuildTextParameters(paragraph.Formatting, availableFonts);
-            var escapedContent = EscapeTypstText(content);
-
-            bool effectiveHasBullet = paragraph.HasBullet || isLiteralBullet;
-            string? effectiveBulletChar = paragraph.BulletChar ?? literalBulletChar;
-
-            if (!string.IsNullOrEmpty(paragraph.AutoNumberType))
+            // Find the end of this list group
+            int groupEnd = i;
+            for (int j = i + 1; j < paragraphs.Count; j++)
             {
-                var startNum = enumStarts[i];
-                if (!string.IsNullOrEmpty(paramStr))
+                var nextP = paragraphs[j];
+                string nextContent = nextP.Content;
+                bool nextIsLiteral = false;
+                if (!nextP.HasBullet && !string.IsNullOrEmpty(nextContent))
                 {
-                    sb.Append($"#enum(start: {startNum})[{paramStr}[{escapedContent}]]");
+                    var trimmed = nextContent.TrimStart();
+                    if (trimmed.StartsWith("- ") || trimmed.StartsWith("• ") || trimmed.StartsWith("* ") || trimmed.StartsWith("o "))
+                    {
+                        nextIsLiteral = true;
+                    }
                 }
-                else
+                bool nextHasBullet = nextP.HasBullet || nextIsLiteral;
+                bool nextIsList = !string.IsNullOrEmpty(nextP.AutoNumberType) || nextHasBullet;
+
+                // Group if same list type and level
+                bool sameType = (!string.IsNullOrEmpty(paragraph.AutoNumberType) && !string.IsNullOrEmpty(nextP.AutoNumberType))
+                    || (effectiveHasBullet && nextHasBullet && paragraph.Level == nextP.Level);
+
+                if (!nextIsList || !sameType)
+                    break;
+
+                groupEnd = j;
+            }
+
+            // Emit the list group
+            bool isNumbered = !string.IsNullOrEmpty(paragraph.AutoNumberType);
+            int groupSize = groupEnd - i + 1;
+
+            // Check if all items in the group share the same formatting
+            var firstFmt = paragraphs[i].Formatting;
+            bool allSameFormatting = true;
+            for (int k = i + 1; k <= groupEnd; k++)
+            {
+                if (!AreFormattingEqual(firstFmt, paragraphs[k].Formatting))
                 {
-                    sb.Append($"#enum(start: {startNum})[{escapedContent}]");
+                    allSameFormatting = false;
+                    break;
                 }
             }
-            else if (effectiveHasBullet)
+            var groupParamStr = allSameFormatting ? BuildTextParameters(firstFmt, availableFonts) : "";
+
+            if (isNumbered)
             {
-                var marker = effectiveBulletChar ?? "•";
-                var markerEscaped = EscapeTypstText(marker);
-                var indent = paragraph.Level > 0 ? $"#h({paragraph.Level * 1.5}em) " : "";
-                if (!string.IsNullOrEmpty(paramStr))
+                // For numbered lists, find the start number
+                int startNum = 1;
+                for (int k = 0; k < i; k++)
                 {
-                    sb.Append($"{indent}#list(marker: [{markerEscaped}])[{paramStr}[{escapedContent}]]");
+                    if (!string.IsNullOrEmpty(paragraphs[k].AutoNumberType) && paragraphs[k].Level == paragraph.Level)
+                    {
+                        startNum++;
+                    }
                 }
-                else
+
+                var startParam = startNum > 1 ? $"(start: {startNum})" : "";
+                
+                if (!string.IsNullOrEmpty(groupParamStr))
                 {
-                    sb.Append($"{indent}#list(marker: [{markerEscaped}])[{escapedContent}]");
+                    sb.Append(groupParamStr);
+                    sb.Append("[");
+                }
+                sb.Append($"#enum{startParam}[");
+
+                for (int k = i; k <= groupEnd; k++)
+                {
+                    if (k > i) sb.Append("\n");
+                    var p = paragraphs[k];
+                    var pContent = p.Content;
+                    // Strip literal bullets if any
+                    if (!p.HasBullet && !string.IsNullOrEmpty(pContent))
+                    {
+                        var trimmed = pContent.TrimStart();
+                        if (trimmed.StartsWith("- ") || trimmed.StartsWith("• ") || trimmed.StartsWith("* ") || trimmed.StartsWith("o "))
+                        {
+                            var prefixLen = pContent.Length - trimmed.Length + 2;
+                            if (prefixLen > 0 && prefixLen <= pContent.Length)
+                                pContent = pContent.Substring(prefixLen);
+                        }
+                    }
+                    var itemParamStr = allSameFormatting ? "" : BuildTextParameters(p.Formatting, availableFonts);
+                    var escapedContent = EscapeTypstText(pContent);
+                    if (!string.IsNullOrEmpty(itemParamStr))
+                    {
+                        sb.Append(itemParamStr);
+                        sb.Append("[");
+                        sb.Append(escapedContent);
+                        sb.Append("]");
+                    }
+                    else
+                    {
+                        sb.Append(escapedContent);
+                    }
+                }
+                sb.Append("]");
+                if (!string.IsNullOrEmpty(groupParamStr))
+                {
+                    sb.Append("]");
                 }
             }
             else
             {
-                if (!string.IsNullOrEmpty(paramStr))
+                // Bulleted list
+                var marker = effectiveBulletChar ?? "•";
+                var markerEscaped = EscapeTypstText(marker);
+                var indent = paragraph.Level > 0 ? $"#h({paragraph.Level * 1.5}em) " : "";
+                
+                if (!string.IsNullOrEmpty(groupParamStr))
                 {
-                    sb.Append(paramStr);
+                    sb.Append(groupParamStr);
                     sb.Append("[");
-                    sb.Append(escapedContent);
+                }
+                sb.Append($"{indent}#list(marker: [{markerEscaped}])[");
+
+                for (int k = i; k <= groupEnd; k++)
+                {
+                    if (k > i) sb.Append("\n");
+                    var p = paragraphs[k];
+                    var pContent = p.Content;
+                    // Strip literal bullets
+                    if (!p.HasBullet && !string.IsNullOrEmpty(pContent))
+                    {
+                        var trimmed = pContent.TrimStart();
+                        if (trimmed.StartsWith("- ") || trimmed.StartsWith("• ") || trimmed.StartsWith("* ") || trimmed.StartsWith("o "))
+                        {
+                            var prefixLen = pContent.Length - trimmed.Length + 2;
+                            if (prefixLen > 0 && prefixLen <= pContent.Length)
+                                pContent = pContent.Substring(prefixLen);
+                        }
+                    }
+                    var itemParamStr = allSameFormatting ? "" : BuildTextParameters(p.Formatting, availableFonts);
+                    var escapedContent = EscapeTypstText(pContent);
+                    if (!string.IsNullOrEmpty(itemParamStr))
+                    {
+                        sb.Append(itemParamStr);
+                        sb.Append("[");
+                        sb.Append(escapedContent);
+                        sb.Append("]");
+                    }
+                    else
+                    {
+                        sb.Append(escapedContent);
+                    }
+                }
+                sb.Append("]");
+                if (!string.IsNullOrEmpty(groupParamStr))
+                {
                     sb.Append("]");
                 }
-                else
-                {
-                    sb.Append(escapedContent);
-                }
             }
+
+            i = groupEnd + 1;
         }
     }
 
@@ -398,14 +531,35 @@ public sealed class PptxToTypstConverter : IDisposable
         return parameters.Count > 0 ? $"#text({string.Join(", ", parameters)})" : "";
     }
 
+    private static bool AreFormattingEqual(TypstTextFormatting a, TypstTextFormatting b)
+    {
+        return a.FontSize == b.FontSize
+            && a.Bold == b.Bold
+            && a.Italic == b.Italic
+            && a.Color == b.Color
+            && a.FontFamily == b.FontFamily;
+    }
+
     private static double GetTypstParagraphLeading(TypstTextElement text)
     {
         if (text.LineSpacing == null)
             return 0;
 
+        double lineSpacingPts;
+        if (text.LineSpacing.Value < 10)
+        {
+            // Percentage value (e.g., 1.2 = 120%)
+            lineSpacingPts = text.Formatting.FontSize * text.LineSpacing.Value;
+        }
+        else
+        {
+            // Absolute points value
+            lineSpacingPts = text.LineSpacing.Value;
+        }
+
         // Typst's par.leading is added to its own default line advance, while PPTX spcPts is the target line pitch.
         var estimatedTypstLineAdvance = text.Formatting.FontSize * 0.65;
-        return Math.Max(0, text.LineSpacing.Value - estimatedTypstLineAdvance);
+        return Math.Max(0, lineSpacingPts - estimatedTypstLineAdvance);
     }
 
     private double GetTextMetricOffset(TypstTextElement text)
@@ -651,7 +805,7 @@ public sealed class PptxToTypstConverter : IDisposable
             }
         }
         
-        var text = ExtractTextFromShape(shape, styleResolver);
+        var text = ExtractTextFromShape(shape, styleResolver, slidePart);
         
         // Handle slide number placeholder
         var placeholderType = GetPlaceholderType(shape);
@@ -1183,7 +1337,7 @@ public sealed class PptxToTypstConverter : IDisposable
         }
     }
 
-    private TypstTextElement ExtractTextFromShape(P.Shape shape, StyleResolver styleResolver)
+    private TypstTextElement ExtractTextFromShape(P.Shape shape, StyleResolver styleResolver, SlidePart? slidePart = null)
     {
         var textBody = shape.TextBody;
         if (textBody == null)
@@ -1193,6 +1347,13 @@ public sealed class PptxToTypstConverter : IDisposable
 
         var placeholderInfo = GetPlaceholderInfo(shape);
         var placeholderType = GetPlaceholderType(shape);
+        
+        // If slide shape has no explicit type, look up from layout/master by idx
+        if (placeholderType == null && placeholderInfo?.Index.HasValue == true && slidePart != null)
+        {
+            placeholderType = GetPlaceholderTypeFromLayout(slidePart, placeholderInfo.Value.Index!.Value);
+        }
+        
         var result = ExtractTextFromTextBody(textBody, styleResolver, placeholderInfo?.Index, placeholderType);
 
         // Get default text style from master based on placeholder type
@@ -1251,7 +1412,6 @@ public sealed class PptxToTypstConverter : IDisposable
     {
         var paragraphs = new List<TypstParagraph>();
         string? align = null;
-        double? lineSpacing = null;
         var paragraphCount = 0;
         var hasExplicitLineBreaks = false;
 
@@ -1283,11 +1443,6 @@ public sealed class PptxToTypstConverter : IDisposable
             if (align == null)
             {
                 align = ExtractParagraphAlignment(paragraph);
-            }
-
-            if (lineSpacing == null)
-            {
-                lineSpacing = ExtractParagraphLineSpacing(paragraph);
             }
 
             var paragraphText = new StringBuilder();
@@ -1332,6 +1487,9 @@ public sealed class PptxToTypstConverter : IDisposable
             // Resolve bullet properties through full cascade
             var (bulletChar, autoNumberType, hasBullet) = ResolveBulletProperties(pPr, bodyLstStyle, level, styleResolver, placeholderIdx, placeholderType);
 
+            // Resolve line spacing through full cascade
+            var paragraphLineSpacing = ResolveLineSpacing(pPr, bodyLstStyle, level, styleResolver, placeholderIdx, placeholderType);
+
             paragraphs.Add(new TypstParagraph
             {
                 Content = content,
@@ -1340,7 +1498,7 @@ public sealed class PptxToTypstConverter : IDisposable
                 BulletChar = bulletChar,
                 AutoNumberType = autoNumberType,
                 HasBullet = hasBullet,
-                LineSpacing = lineSpacing
+                LineSpacing = paragraphLineSpacing
             });
         }
 
@@ -1353,7 +1511,7 @@ public sealed class PptxToTypstConverter : IDisposable
             PaddingTop = padTop,
             PaddingRight = padRight,
             PaddingBottom = padBottom,
-            LineSpacing = lineSpacing,
+            LineSpacing = paragraphs.FirstOrDefault()?.LineSpacing,
             ParagraphCount = Math.Max(1, paragraphCount),
             HasExplicitLineBreaks = hasExplicitLineBreaks
         };
@@ -1409,17 +1567,118 @@ public sealed class PptxToTypstConverter : IDisposable
         return null;
     }
 
+    private static PlaceholderValues? GetPlaceholderTypeFromLayout(SlidePart slidePart, int idx)
+    {
+        var layoutPart = slidePart.SlideLayoutPart;
+        if (layoutPart?.SlideLayout?.CommonSlideData?.ShapeTree == null)
+            return null;
+
+        // Find matching placeholder in layout by idx
+        foreach (var layoutShape in layoutPart.SlideLayout.CommonSlideData.ShapeTree.ChildElements.OfType<P.Shape>())
+        {
+            var layoutPh = layoutShape.NonVisualShapeProperties?.Elements<PlaceholderShape>().FirstOrDefault();
+            if (layoutPh == null)
+            {
+                var appProps = layoutShape.NonVisualShapeProperties?.ApplicationNonVisualDrawingProperties;
+                layoutPh = appProps?.Elements<PlaceholderShape>().FirstOrDefault();
+            }
+
+            if (layoutPh != null)
+            {
+                var outerXml = layoutPh.OuterXml;
+                if (!string.IsNullOrEmpty(outerXml))
+                {
+                    var idxMatch = System.Text.RegularExpressions.Regex.Match(outerXml, @"idx\s*=\s*""([^""]*)""");
+                    if (idxMatch.Success && int.TryParse(idxMatch.Groups[1].Value, out var layoutIdx) && layoutIdx == idx)
+                    {
+                        // Try explicit type first
+                        var typeMatch = System.Text.RegularExpressions.Regex.Match(outerXml, @"type\s*=\s*""([^""]*)""");
+                        if (typeMatch.Success && !string.IsNullOrEmpty(typeMatch.Groups[1].Value))
+                        {
+                            var typeStr = typeMatch.Groups[1].Value;
+                            return typeStr switch
+                            {
+                                "title" => PlaceholderValues.Title,
+                                "ctrTitle" => PlaceholderValues.CenteredTitle,
+                                "subTitle" => PlaceholderValues.SubTitle,
+                                "body" => PlaceholderValues.Body,
+                                "pic" => PlaceholderValues.Picture,
+                                "chart" => PlaceholderValues.Chart,
+                                "tbl" => PlaceholderValues.Table,
+                                "sldNum" => PlaceholderValues.SlideNumber,
+                                "ftr" => PlaceholderValues.Footer,
+                                "hdr" => PlaceholderValues.Header,
+                                "obj" => PlaceholderValues.Object,
+                                _ => (PlaceholderValues?)null
+                            };
+                        }
+
+                        // If no explicit type, infer from list style characteristics
+                        var txBody = layoutShape.TextBody;
+                        if (txBody != null)
+                        {
+                            var lstStyle = txBody.ChildElements.FirstOrDefault(e => e.LocalName == "lstStyle");
+                            if (lstStyle != null)
+                            {
+                                var lstStyleXml = lstStyle.OuterXml;
+                                if (lstStyleXml.Contains("buAutoNum") || lstStyleXml.Contains("buChar") || lstStyleXml.Contains("buNone"))
+                                {
+                                    // Placeholder with list styles is typically a body/content placeholder
+                                    return PlaceholderValues.Body;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
     private double? ExtractParagraphLineSpacing(Drawing.Paragraph paragraph)
     {
         var pPr = paragraph.Elements<Drawing.ParagraphProperties>().FirstOrDefault();
-        var lnSpc = pPr?.ChildElements.FirstOrDefault(e => e.LocalName == "lnSpc");
-        var spcPts = lnSpc?.ChildElements.FirstOrDefault(e => e.LocalName == "spcPts");
-        if (spcPts == null) return null;
+        return ExtractLineSpacingFromElement(pPr);
+    }
 
-        var valAttr = spcPts.GetAttribute("val", "");
-        return int.TryParse(valAttr.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value)
-            ? value / 100.0
-            : null;
+    private static double? ExtractLineSpacingFromElement(OpenXmlElement? element)
+    {
+        if (element == null) return null;
+
+        var lnSpc = element.ChildElements.FirstOrDefault(e => e.LocalName == "lnSpc");
+        if (lnSpc == null) return null;
+
+        // Try spcPts first (absolute points)
+        var spcPts = lnSpc.ChildElements.FirstOrDefault(e => e.LocalName == "spcPts");
+        if (spcPts != null)
+        {
+            var valAttr = spcPts.GetAttribute("val", "");
+            if (int.TryParse(valAttr.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value))
+                return value / 100.0;
+        }
+
+        // Try spcPct (percentage of line height)
+        var spcPct = lnSpc.ChildElements.FirstOrDefault(e => e.LocalName == "spcPct");
+        if (spcPct != null)
+        {
+            var valAttr = spcPct.GetAttribute("val", "");
+            if (int.TryParse(valAttr.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value))
+                return value / 100000.0; // spcPct is in 1/1000ths of a percent (100000 = 100% = 1.0)
+        }
+
+        return null;
+    }
+
+    private static double? ExtractLineSpacingFromLstStyle(OpenXmlElement? lstStyle, int level)
+    {
+        if (lstStyle == null) return null;
+
+        var levelName = $"lvl{level + 1}pPr";
+        var lvlPpr = lstStyle.ChildElements.FirstOrDefault(e => e.LocalName == levelName);
+        if (lvlPpr == null) return null;
+
+        return ExtractLineSpacingFromElement(lvlPpr);
     }
 
     private string? ExtractParagraphAlignment(Drawing.Paragraph paragraph)
@@ -1657,6 +1916,46 @@ public sealed class PptxToTypstConverter : IDisposable
         }
 
         return (null, null, false);
+    }
+
+    private static double? ResolveLineSpacing(
+        Drawing.ParagraphProperties? pPr,
+        OpenXmlElement? bodyLstStyle,
+        int level,
+        StyleResolver? styleResolver,
+        int? placeholderIdx,
+        PlaceholderValues? placeholderType)
+    {
+        // DEBUG
+        // 1. Paragraph level
+        var spacing = ExtractLineSpacingFromElement(pPr);
+        if (spacing.HasValue)
+            return spacing.Value;
+
+        // 2. Text body list style
+        spacing = ExtractLineSpacingFromLstStyle(bodyLstStyle, level);
+        if (spacing.HasValue)
+            return spacing.Value;
+
+        if (styleResolver != null)
+        {
+            // 3. Layout placeholder list style
+            spacing = styleResolver.GetLayoutPlaceholderLineSpacing(placeholderIdx, level);
+                if (spacing.HasValue)
+                return spacing.Value;
+
+            // 4. Master placeholder list style
+            spacing = styleResolver.GetMasterPlaceholderLineSpacing(placeholderIdx, level);
+                if (spacing.HasValue)
+                return spacing.Value;
+
+            // 5. Master txStyles
+            spacing = styleResolver.GetMasterTxStyleLineSpacing(placeholderType, level);
+                if (spacing.HasValue)
+                return spacing.Value;
+        }
+
+        return null;
     }
 
     private static (string? BulletChar, string? AutoNumberType, bool HasBullet, bool HasBulletNone) ExtractBulletInfo(OpenXmlElement? element)
