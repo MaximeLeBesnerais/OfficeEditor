@@ -378,13 +378,19 @@ public class PptxToTypstConverterTests : IDisposable
 
         var presentation = CreateTextPresentation(new TypstTextElement
         {
-            Content = "Line one line two",
-            LineSpacing = 32.25,
-            Formatting = new TypstTextFormatting
-            {
-                FontFamily = "Arial",
-                FontSize = 18
-            }
+            Paragraphs =
+            [
+                new TypstParagraph
+                {
+                    Content = "Line one line two",
+                    Formatting = new TypstTextFormatting
+                    {
+                        FontFamily = "Arial",
+                        FontSize = 18
+                    }
+                }
+            ],
+            LineSpacing = 32.25
         });
         var source = converter.GenerateTypstSource(presentation);
 
@@ -401,17 +407,51 @@ public class PptxToTypstConverterTests : IDisposable
 
         var presentation = CreateTextPresentation(new TypstTextElement
         {
-            Content = "First paragraph\n\n\n\nSecond paragraph",
-            LineSpacing = 32.25,
-            Formatting = new TypstTextFormatting
-            {
-                FontFamily = "Arial",
-                FontSize = 18
-            }
+            Paragraphs =
+            [
+                new TypstParagraph
+                {
+                    Content = "First paragraph",
+                    Formatting = new TypstTextFormatting
+                    {
+                        FontFamily = "Arial",
+                        FontSize = 18
+                    }
+                },
+                new TypstParagraph
+                {
+                    Content = "",
+                    Formatting = new TypstTextFormatting
+                    {
+                        FontFamily = "Arial",
+                        FontSize = 18
+                    }
+                },
+                new TypstParagraph
+                {
+                    Content = "",
+                    Formatting = new TypstTextFormatting
+                    {
+                        FontFamily = "Arial",
+                        FontSize = 18
+                    }
+                },
+                new TypstParagraph
+                {
+                    Content = "Second paragraph",
+                    Formatting = new TypstTextFormatting
+                    {
+                        FontFamily = "Arial",
+                        FontSize = 18
+                    }
+                }
+            ],
+            LineSpacing = 32.25
         });
         var source = converter.GenerateTypstSource(presentation);
 
-        Assert.Contains("First paragraph]#v(32.25pt)", source);
+        Assert.Contains("[First paragraph]", source);
+        Assert.Contains("#v(32.25pt)", source);
         Assert.Contains("[Second paragraph]", source);
     }
 
@@ -452,15 +492,21 @@ public class PptxToTypstConverterTests : IDisposable
     {
         return CreateTextPresentation(new TypstTextElement
         {
-            Content = "WW",
+            Paragraphs =
+            [
+                new TypstParagraph
+                {
+                    Content = "WW",
+                    Formatting = new TypstTextFormatting
+                    {
+                        FontFamily = "Arial",
+                        FontSize = 10,
+                        Align = align
+                    }
+                }
+            ],
             AutoFit = true,
-            ParagraphCount = 1,
-            Formatting = new TypstTextFormatting
-            {
-                FontFamily = "Arial",
-                FontSize = 10,
-                Align = align
-            }
+            ParagraphCount = 1
         }, height: height, width: 10);
     }
 
