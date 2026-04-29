@@ -1,3 +1,5 @@
+using System;
+
 namespace PptxEditor.Core.Models;
 
 public sealed class TypstPresentation
@@ -53,10 +55,22 @@ public sealed class TypstElement
     public TypstShapeElement? Shape { get; init; }
 }
 
+public sealed class TypstParagraph
+{
+    public string Content { get; set; } = "";
+    public TypstTextFormatting Formatting { get; set; } = new();
+    public int Level { get; set; }
+    public string? BulletChar { get; set; }
+    public string? AutoNumberType { get; set; }
+    public bool HasBullet { get; set; }
+    public double? LineSpacing { get; set; }
+}
+
 public sealed class TypstTextElement
 {
-    public string Content { get; init; } = string.Empty;
-    public TypstTextFormatting Formatting { get; init; } = new();
+    public List<TypstParagraph> Paragraphs { get; set; } = new();
+    public string Content => string.Join("\n\n", Paragraphs.Select(p => p.Content));
+    public TypstTextFormatting Formatting => Paragraphs.FirstOrDefault()?.Formatting ?? new();
     public bool AutoFit { get; init; }
     public double PaddingLeft { get; init; }
     public double PaddingTop { get; init; }
@@ -113,4 +127,19 @@ public sealed class TypstShapeElement
     public double StrokeWidth { get; init; }
     public double CornerRadius { get; init; }
     public List<(double X, double Y)> Points { get; init; } = new();
+}
+
+public sealed class TableStyleDefinition
+{
+    public string StyleId { get; init; } = string.Empty;
+    public Dictionary<string, TableStylePart> Parts { get; init; } = new(StringComparer.OrdinalIgnoreCase);
+}
+
+public sealed class TableStylePart
+{
+    public string? BackgroundColor { get; init; }
+    public string? BorderTopColor { get; init; }
+    public string? BorderBottomColor { get; init; }
+    public string? BorderLeftColor { get; init; }
+    public string? BorderRightColor { get; init; }
 }
