@@ -79,17 +79,54 @@ public sealed class PptxToTypstConverter : IDisposable
         sb.AppendLine($"#set text(font: ({fontList}))");
         sb.AppendLine();
 
+        // Build set of fonts we actually have available (embedded or system-known)
+        var availableFonts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var fontName in presentation.FontMetrics.Keys)
+        {
+            availableFonts.Add(fontName);
+            // Also add without " Bold" suffix if present
+            if (fontName.EndsWith(" Bold", StringComparison.OrdinalIgnoreCase))
+            {
+                availableFonts.Add(fontName[..^5].Trim());
+            }
+        }
+        // Add known system fonts that are commonly available
+        availableFonts.Add("Arial");
+        availableFonts.Add("Helvetica");
+        availableFonts.Add("Liberation Sans");
+        availableFonts.Add("Liberation Serif");
+        availableFonts.Add("DejaVu Sans");
+        availableFonts.Add("DejaVu Serif");
+        availableFonts.Add("Times New Roman");
+        availableFonts.Add("Courier New");
+        availableFonts.Add("Georgia");
+        availableFonts.Add("Verdana");
+        availableFonts.Add("Trebuchet MS");
+        availableFonts.Add("Palatino");
+        availableFonts.Add("Garamond");
+        availableFonts.Add("Bookman");
+        availableFonts.Add("Comic Sans MS");
+        availableFonts.Add("Impact");
+        availableFonts.Add("Candara");
+        availableFonts.Add("Calibri");
+        availableFonts.Add("Cambria");
+        availableFonts.Add("Constantia");
+        availableFonts.Add("Corbel");
+        availableFonts.Add("Franklin Gothic");
+        availableFonts.Add("Gabriola");
+        availableFonts.Add("Segoe UI");
+
         // Process each slide
         for (int i = 0; i < presentation.Slides.Count; i++)
         {
             var slide = presentation.Slides[i];
-            GenerateSlideSource(sb, slide, i == 0);
+            GenerateSlideSource(sb, slide, i == 0, availableFonts);
         }
 
         return sb.ToString();
     }
 
-    private void GenerateSlideSource(StringBuilder sb, TypstSlide slide, bool isFirst)
+    private void GenerateSlideSource(StringBuilder sb, TypstSlide slide, bool isFirst, HashSet<string> availableFonts)
     {
         // Page setup for this slide
         var width = slide.Layout.Width;
@@ -119,13 +156,13 @@ public sealed class PptxToTypstConverter : IDisposable
         // Elements
         foreach (var element in slide.Elements)
         {
-            GenerateElementSource(sb, element, slide.Layout.Width);
+            GenerateElementSource(sb, element, slide.Layout.Width, availableFonts);
         }
 
         sb.AppendLine();
     }
 
-    private void GenerateElementSource(StringBuilder sb, TypstElement element, double slideWidth)
+    private void GenerateElementSource(StringBuilder sb, TypstElement element, double slideWidth, HashSet<string> availableFonts)
     {
         var xPos = element.X;
         var yPos = element.Y;
@@ -168,7 +205,7 @@ public sealed class PptxToTypstConverter : IDisposable
         switch (element.Type)
         {
             case "Text":
-                GenerateTextSource(sb, element.Text!, widthStr);
+                GenerateTextSource(sb, element.Text!, widthStr, availableFonts);
                 break;
             case "Image":
                 GenerateImageSource(sb, element.Image!, widthStr, heightStr);
@@ -189,7 +226,7 @@ public sealed class PptxToTypstConverter : IDisposable
         sb.AppendLine("]");
     }
 
-    private void GenerateTextSource(StringBuilder sb, TypstTextElement text, string width)
+    private void GenerateTextSource(StringBuilder sb, TypstTextElement text, string width, HashSet<string> availableFonts)
     {
         var fmt = text.Formatting;
         var parameters = new List<string>();
@@ -205,9 +242,9 @@ public sealed class PptxToTypstConverter : IDisposable
         if (!string.IsNullOrEmpty(fmt.Color) && fmt.Color != "#000000")
             parameters.Add($"fill: rgb(\"{fmt.Color}\")");
         
-        // Add font family if specified and not default
+        // Add font family if specified, resolved, and available
         var fontFamily = ResolveThemeFont(fmt.FontFamily);
-        if (!string.IsNullOrEmpty(fontFamily) && fontFamily != "Arial")
+        if (!string.IsNullOrEmpty(fontFamily) && fontFamily != "Arial" && availableFonts.Contains(fontFamily))
         {
             parameters.Add($"font: \"{fontFamily}\"");
         }
