@@ -90,7 +90,7 @@ public sealed class StyleResolver
 
     private string? GetSlideBackground()
     {
-        var bg = _slidePart.Slide.CommonSlideData?.Background;
+        var bg = _slidePart.Slide?.CommonSlideData?.Background;
         if (bg?.BackgroundProperties != null)
         {
             return ExtractBackgroundColor(bg.BackgroundProperties);

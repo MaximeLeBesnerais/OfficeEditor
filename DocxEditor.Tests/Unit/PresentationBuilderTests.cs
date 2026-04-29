@@ -35,9 +35,13 @@ public class PresentationBuilderTests : IDisposable
 
         // Assert
         using var doc = PresentationDocument.Open(_testFilePath, false);
-        var slideIdList = doc.PresentationPart!.Presentation.SlideIdList;
+        var presentationPart = doc.PresentationPart;
+        Assert.NotNull(presentationPart);
+        var presentation = presentationPart.Presentation;
+        Assert.NotNull(presentation);
+        var slideIdList = presentation.SlideIdList;
         Assert.NotNull(slideIdList);
-        Assert.Single(slideIdList!.ChildElements.OfType<SlideId>());
+        Assert.Single(slideIdList.ChildElements.OfType<SlideId>());
     }
 
     [Fact]

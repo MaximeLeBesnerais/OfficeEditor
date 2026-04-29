@@ -47,7 +47,7 @@ public class DocumentBuilder : IDocumentBuilder
         _document = document;
         _isNewDocument = isNew;
         _filePath = filePath;
-        _body = document.MainDocumentPart!.Document.Body!;
+        _body = document.MainDocumentPart!.Document!.Body!;
         _cachedStyles = LoadStyles();
     }
 
@@ -255,6 +255,7 @@ public class DocumentBuilder : IDocumentBuilder
         }
 
         var style = CreateDefaultStyle(styleId);
+        stylesPart.Styles ??= new Styles();
         stylesPart.Styles.Append(style);
         _cachedStyles[styleId] = style;
     }

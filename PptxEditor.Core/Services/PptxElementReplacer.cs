@@ -92,7 +92,7 @@ public class PptxElementReplacer
         var blip = blipFill.Blip;
         if (blip == null) return;
 
-        var oldEmbedId = blip.Embed;
+        var oldEmbedId = blip.Embed?.Value;
         if (oldEmbedId == null) return;
 
         // Remove old image part

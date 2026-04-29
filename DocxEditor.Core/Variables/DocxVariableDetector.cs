@@ -17,7 +17,7 @@ public class DocxVariableDetector
         var variables = new List<VariableInfo>();
         
         // Scan body
-        var body = document.MainDocumentPart?.Document.Body;
+        var body = document.MainDocumentPart?.Document?.Body;
         if (body != null)
         {
             variables.AddRange(ScanElement(body, "body"));
@@ -29,7 +29,10 @@ public class DocxVariableDetector
         {
             foreach (var header in headers)
             {
-                variables.AddRange(ScanElement(header.Header, $"header:{header.Uri}"));
+                if (header.Header != null)
+                {
+                    variables.AddRange(ScanElement(header.Header, $"header:{header.Uri}"));
+                }
             }
         }
 
@@ -39,7 +42,10 @@ public class DocxVariableDetector
         {
             foreach (var footer in footers)
             {
-                variables.AddRange(ScanElement(footer.Footer, $"footer:{footer.Uri}"));
+                if (footer.Footer != null)
+                {
+                    variables.AddRange(ScanElement(footer.Footer, $"footer:{footer.Uri}"));
+                }
             }
         }
 
