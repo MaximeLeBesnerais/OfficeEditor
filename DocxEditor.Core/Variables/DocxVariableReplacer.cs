@@ -14,7 +14,7 @@ public class DocxVariableReplacer
     public void Replace(WordprocessingDocument document, Dictionary<string, string> data)
     {
         // Replace in body
-        var body = document.MainDocumentPart?.Document.Body;
+        var body = document.MainDocumentPart?.Document?.Body;
         if (body != null)
         {
             ReplaceInElement(body, data);
@@ -26,7 +26,10 @@ public class DocxVariableReplacer
         {
             foreach (var header in headers)
             {
-                ReplaceInElement(header.Header, data);
+                if (header.Header != null)
+                {
+                    ReplaceInElement(header.Header, data);
+                }
             }
         }
 
@@ -36,7 +39,10 @@ public class DocxVariableReplacer
         {
             foreach (var footer in footers)
             {
-                ReplaceInElement(footer.Footer, data);
+                if (footer.Footer != null)
+                {
+                    ReplaceInElement(footer.Footer, data);
+                }
             }
         }
     }

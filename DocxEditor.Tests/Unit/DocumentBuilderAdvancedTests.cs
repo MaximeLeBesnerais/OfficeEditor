@@ -25,7 +25,12 @@ public class DocumentBuilderAdvancedTests : IDisposable
         // Assert
         using (var doc = WordprocessingDocument.Open(_testFilePath, false))
         {
-            var body = doc.MainDocumentPart!.Document.Body!;
+            var mainPart = doc.MainDocumentPart;
+            Assert.NotNull(mainPart);
+            var document = mainPart.Document;
+            Assert.NotNull(document);
+            var body = document.Body;
+            Assert.NotNull(body);
             var paragraphs = body.Elements<DocumentFormat.OpenXml.Wordprocessing.Paragraph>().ToList();
             
             Assert.Equal(4, paragraphs.Count);
@@ -53,7 +58,12 @@ public class DocumentBuilderAdvancedTests : IDisposable
         // Assert
         using (var doc = WordprocessingDocument.Open(_testFilePath, false))
         {
-            var body = doc.MainDocumentPart!.Document.Body!;
+            var mainPart = doc.MainDocumentPart;
+            Assert.NotNull(mainPart);
+            var document = mainPart.Document;
+            Assert.NotNull(document);
+            var body = document.Body;
+            Assert.NotNull(body);
             var paragraphs = body.Elements<DocumentFormat.OpenXml.Wordprocessing.Paragraph>().ToList();
             
             Assert.Equal(3, paragraphs.Count);
@@ -79,7 +89,12 @@ public class DocumentBuilderAdvancedTests : IDisposable
         // Assert
         using (var doc = WordprocessingDocument.Open(_testFilePath, false))
         {
-            var body = doc.MainDocumentPart!.Document.Body!;
+            var mainPart = doc.MainDocumentPart;
+            Assert.NotNull(mainPart);
+            var document = mainPart.Document;
+            Assert.NotNull(document);
+            var body = document.Body;
+            Assert.NotNull(body);
             var paragraph = body.Elements<DocumentFormat.OpenXml.Wordprocessing.Paragraph>().First();
             
             Assert.Equal("New content", paragraph.InnerText);
@@ -105,7 +120,12 @@ public class DocumentBuilderAdvancedTests : IDisposable
         // Assert
         using (var doc = WordprocessingDocument.Open(_testFilePath, false))
         {
-            var body = doc.MainDocumentPart!.Document.Body!;
+            var mainPart = doc.MainDocumentPart;
+            Assert.NotNull(mainPart);
+            var document = mainPart.Document;
+            Assert.NotNull(document);
+            var body = document.Body;
+            Assert.NotNull(body);
             var paragraphs = body.Elements<DocumentFormat.OpenXml.Wordprocessing.Paragraph>().ToList();
             
             Assert.Equal(2, paragraphs.Count);
@@ -133,7 +153,12 @@ public class DocumentBuilderAdvancedTests : IDisposable
         // Assert
         using (var doc = WordprocessingDocument.Open(_testFilePath, false))
         {
-            var body = doc.MainDocumentPart!.Document.Body!;
+            var mainPart = doc.MainDocumentPart;
+            Assert.NotNull(mainPart);
+            var document = mainPart.Document;
+            Assert.NotNull(document);
+            var body = document.Body;
+            Assert.NotNull(body);
             var paragraphs = body.Elements<DocumentFormat.OpenXml.Wordprocessing.Paragraph>().ToList();
             
             Assert.Equal(2, paragraphs.Count);
@@ -155,7 +180,12 @@ public class DocumentBuilderAdvancedTests : IDisposable
         // Assert
         using (var doc = WordprocessingDocument.Open(_testFilePath, false))
         {
-            var body = doc.MainDocumentPart!.Document.Body!;
+            var mainPart = doc.MainDocumentPart;
+            Assert.NotNull(mainPart);
+            var document = mainPart.Document;
+            Assert.NotNull(document);
+            var body = document.Body;
+            Assert.NotNull(body);
             var paragraph = body.Elements<DocumentFormat.OpenXml.Wordprocessing.Paragraph>().First();
             
             Assert.Equal("Heading1", paragraph.ParagraphProperties?.ParagraphStyleId?.Val?.Value);

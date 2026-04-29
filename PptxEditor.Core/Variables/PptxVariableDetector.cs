@@ -16,7 +16,7 @@ public class PptxVariableDetector
     public List<VariableInfo> Scan(PresentationDocument document)
     {
         var variables = new List<VariableInfo>();
-        var presentation = document.PresentationPart!.Presentation;
+        var presentation = document.PresentationPart!.Presentation!;
         var slideIdList = presentation.SlideIdList;
         
         if (slideIdList == null) return variables;

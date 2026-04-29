@@ -39,7 +39,7 @@ public sealed class PptxToTypstConverter : IDisposable
         _themeFonts = ExtractThemeFonts();
 
         // Load table styles using first slide's theme for scheme color resolution
-        var firstSlideId = _document.PresentationPart!.Presentation.SlideIdList?.ChildElements.OfType<SlideId>().FirstOrDefault();
+        var firstSlideId = _document.PresentationPart!.Presentation!.SlideIdList?.ChildElements.OfType<SlideId>().FirstOrDefault();
         if (firstSlideId != null)
         {
             var firstSlidePart = (SlidePart)_document.PresentationPart.GetPartById(firstSlideId.RelationshipId!);
@@ -759,7 +759,7 @@ public sealed class PptxToTypstConverter : IDisposable
         string? bgColor = null;
 
         // Try to get slide dimensions from presentation
-        var presentation = _document.PresentationPart!.Presentation;
+        var presentation = _document.PresentationPart!.Presentation!;
         var sldSz = presentation.SlideSize;
         if (sldSz != null)
         {
@@ -1156,7 +1156,7 @@ public sealed class PptxToTypstConverter : IDisposable
             {
                 try
                 {
-                    var part = slidePart.GetPartById(rId);
+                    var part = slidePart.GetPartById(rId!);
                     if (part != null)
                     {
                         candidateParts.Add(part);
@@ -1753,7 +1753,7 @@ public sealed class PptxToTypstConverter : IDisposable
         var latinFont = runProps.Elements<Drawing.LatinFont>().FirstOrDefault();
         if (latinFont?.Typeface != null)
         {
-            var fontName = latinFont.Typeface.Value;
+            var fontName = latinFont.Typeface.Value ?? "";
             // If font name ends with " Bold" and bold isn't set, set it
             if (fontName.EndsWith(" Bold", StringComparison.OrdinalIgnoreCase))
             {
@@ -1796,7 +1796,7 @@ public sealed class PptxToTypstConverter : IDisposable
                 var latinFont = runProps.Elements<Drawing.LatinFont>().FirstOrDefault();
                 if (latinFont?.Typeface != null)
                 {
-                    var fontName = latinFont.Typeface.Value;
+                    var fontName = latinFont.Typeface.Value ?? "";
                     if (fontName.EndsWith(" Bold", StringComparison.OrdinalIgnoreCase))
                     {
                         fontName = fontName.Substring(0, fontName.Length - 5);
@@ -1825,7 +1825,7 @@ public sealed class PptxToTypstConverter : IDisposable
             var defLatinFont = defRPr.Elements<Drawing.LatinFont>().FirstOrDefault();
             if (fmt.FontFamily == "Arial" && defLatinFont?.Typeface != null)
             {
-                var fontName = defLatinFont.Typeface.Value;
+                var fontName = defLatinFont.Typeface.Value ?? "";
                 if (fontName.EndsWith(" Bold", StringComparison.OrdinalIgnoreCase))
                 {
                     fontName = fontName.Substring(0, fontName.Length - 5);
@@ -2388,7 +2388,7 @@ public sealed class PptxToTypstConverter : IDisposable
         var rgb = solidFill.RgbColorModelHex;
         if (rgb?.Val != null)
         {
-            var color = ParseHexColor(rgb.Val.Value);
+            var color = ParseHexColor(rgb.Val.Value!);
             return ApplyColorModifiers(color, rgb.ChildElements);
         }
 
@@ -2630,7 +2630,7 @@ public sealed class PptxToTypstConverter : IDisposable
     {
         var fontPartIndex = 0;
 
-        var embeddedFonts = _document.PresentationPart!.Presentation
+        var embeddedFonts = _document.PresentationPart!.Presentation!
             .Descendants()
             .Where(e => e.LocalName == "embeddedFont")
             .ToList();
@@ -2736,7 +2736,7 @@ public sealed class PptxToTypstConverter : IDisposable
         var themeFonts = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         
         // Try to get theme from the first slide's master
-        var firstSlideId = _document.PresentationPart!.Presentation.SlideIdList?.ChildElements.OfType<SlideId>().FirstOrDefault();
+        var firstSlideId = _document.PresentationPart!.Presentation!.SlideIdList?.ChildElements.OfType<SlideId>().FirstOrDefault();
         if (firstSlideId == null) return themeFonts;
         
         var firstSlidePart = (SlidePart)_document.PresentationPart.GetPartById(firstSlideId.RelationshipId!);
