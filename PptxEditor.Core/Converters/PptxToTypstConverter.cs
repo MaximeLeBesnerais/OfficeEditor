@@ -1949,12 +1949,12 @@ public sealed class PptxToTypstConverter : IDisposable
             double? indent = null;
             if (pPr != null)
             {
-                var marLAttr = pPr.GetAttribute("marL", "");
-                if (!string.IsNullOrEmpty(marLAttr.Value) && int.TryParse(marLAttr.Value, out var marL))
+                var marLAttr = GetAttributeValue(pPr, "marL");
+                if (!string.IsNullOrEmpty(marLAttr) && int.TryParse(marLAttr, out var marL))
                     marginLeft = EmuToPt(marL);
 
-                var indentAttr = pPr.GetAttribute("indent", "");
-                if (!string.IsNullOrEmpty(indentAttr.Value) && int.TryParse(indentAttr.Value, out var ind))
+                var indentAttr = GetAttributeValue(pPr, "indent");
+                if (!string.IsNullOrEmpty(indentAttr) && int.TryParse(indentAttr, out var ind))
                     indent = EmuToPt(ind);
             }
 
@@ -3614,6 +3614,18 @@ public sealed class PptxToTypstConverter : IDisposable
     private static string FormatPt(double pt)
     {
         return pt.ToString("F2", CultureInfo.InvariantCulture) + "pt";
+    }
+
+    private static string? GetAttributeValue(OpenXmlElement? element, string attributeName)
+    {
+        if (element == null)
+            return null;
+
+        var match = System.Text.RegularExpressions.Regex.Match(
+            element.OuterXml,
+            $@"\b{System.Text.RegularExpressions.Regex.Escape(attributeName)}\s*=\s*""([^""]*)""");
+
+        return match.Success ? match.Groups[1].Value : null;
     }
 
     private string ResolveThemeFont(string? fontRef)
