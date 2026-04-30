@@ -4,12 +4,28 @@ using OfficeEditor.Core.Services;
 
 if (args.Length < 2)
 {
-    Console.WriteLine("Usage: convert-pptx <input.pptx> <output.pdf>");
+    Console.WriteLine("Usage: convert-pptx <input.pptx> <output-path> [--format pdf|png] [--font-path <path>]");
     return 1;
 }
 
 var inputPath = args[0];
 var outputPath = args[1];
+var format = OutputFormat.Pdf;
+string? fontPath = null;
+
+for (var i = 2; i < args.Length; i++)
+{
+    if ((args[i] == "--format" || args[i] == "--foramt") && i + 1 < args.Length)
+    {
+        format = args[++i].Equals("png", StringComparison.OrdinalIgnoreCase)
+            ? OutputFormat.Png
+            : OutputFormat.Pdf;
+    }
+    else if (args[i] == "--font-path" && i + 1 < args.Length)
+    {
+        fontPath = args[++i];
+    }
+}
 
 if (!File.Exists(inputPath))
 {
@@ -27,19 +43,30 @@ var presentation = converter.Convert();
 var typstSource = converter.GenerateTypstSource(presentation);
 
 // Save Typst source for debugging
-var typstPath = Path.ChangeExtension(outputPath, ".typ");
+var typstPath = format == OutputFormat.Png
+    ? Path.Combine(outputPath, Path.GetFileNameWithoutExtension(inputPath) + ".typ")
+    : Path.ChangeExtension(outputPath, ".typ");
+var typstDirectory = Path.GetDirectoryName(typstPath);
+if (!string.IsNullOrEmpty(typstDirectory))
+{
+    Directory.CreateDirectory(typstDirectory);
+}
 File.WriteAllText(typstPath, typstSource);
 Console.WriteLine($"Typst source saved to: {typstPath}");
 
 // Compile with Typst
 Console.WriteLine("Compiling with Typst...");
 using var compiler = new TypstCompilerService();
+var embeddedFontPath = presentation.FontFiles.Count > 0 ? Path.GetDirectoryName(presentation.FontFiles[0]) : null;
+var compilerFontPath = fontPath != null && embeddedFontPath != null
+    ? string.Join(Path.PathSeparator, embeddedFontPath, fontPath)
+    : fontPath ?? embeddedFontPath;
 
 var options = new CompileOptions
 {
-    Format = OutputFormat.Pdf,
+    Format = format,
     WorkingDirectory = presentation.TempDirectory,
-    FontDirectory = presentation.FontFiles.Count > 0 ? Path.GetDirectoryName(presentation.FontFiles[0]) : null
+    FontDirectory = compilerFontPath
 };
 
 var result = compiler.Compile(typstSource, options);
@@ -50,8 +77,23 @@ if (!result.Success)
     return 1;
 }
 
-// Save PDF
-File.WriteAllBytes(outputPath, result.Pages[0]);
-Console.WriteLine($"PDF saved to: {outputPath}");
+if (format == OutputFormat.Png)
+{
+    Directory.CreateDirectory(outputPath);
+
+    var width = Math.Max(2, result.Pages.Length.ToString().Length);
+    for (var i = 0; i < result.Pages.Length; i++)
+    {
+        var pagePath = Path.Combine(outputPath, $"slide-{(i + 1).ToString().PadLeft(width, '0')}.png");
+        File.WriteAllBytes(pagePath, result.Pages[i]);
+    }
+
+    Console.WriteLine($"PNG slides saved to: {outputPath}");
+}
+else
+{
+    File.WriteAllBytes(outputPath, result.Pages[0]);
+    Console.WriteLine($"PDF saved to: {outputPath}");
+}
 
 return 0;
