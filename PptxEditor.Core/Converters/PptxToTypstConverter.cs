@@ -21,6 +21,16 @@ public sealed class PptxToTypstConverter : IDisposable
     private Dictionary<string, TableStyleDefinition> _tableStyles = new(StringComparer.OrdinalIgnoreCase);
     private int _imageCounter;
 
+    private readonly HashSet<string> _knownSystemFonts = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Arial", "Helvetica", "Liberation Sans", "Liberation Serif", "DejaVu Sans", "DejaVu Serif",
+        "Times New Roman", "Courier New", "Georgia", "Verdana", "Trebuchet MS", "Palatino",
+        "Garamond", "Bookman", "Comic Sans MS", "Impact", "Candara", "Calibri", "Cambria",
+        "Constantia", "Corbel", "Franklin Gothic", "Gabriola", "Segoe UI"
+    };
+    private HashSet<string> _availableSystemFonts = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> _systemFontPaths = new(StringComparer.OrdinalIgnoreCase);
+
     public PptxToTypstConverter(PresentationDocument document)
     {
         _document = document ?? throw new ArgumentNullException(nameof(document));
@@ -37,6 +47,7 @@ public sealed class PptxToTypstConverter : IDisposable
         ExtractFonts();
         var fontFiles = Directory.GetFiles(_fontsDirectory).ToList();
         _themeFonts = ExtractThemeFonts();
+        _availableSystemFonts = DiscoverSystemFonts();
 
         // Load table styles using first slide's theme for scheme color resolution
         var firstSlideId = _document.PresentationPart!.Presentation!.SlideIdList?.ChildElements.OfType<SlideId>().FirstOrDefault();
@@ -104,31 +115,11 @@ public sealed class PptxToTypstConverter : IDisposable
                 availableFonts.Add(fontName[..^5].Trim());
             }
         }
-        // Add known system fonts that are commonly available
-        availableFonts.Add("Arial");
-        availableFonts.Add("Helvetica");
-        availableFonts.Add("Liberation Sans");
-        availableFonts.Add("Liberation Serif");
-        availableFonts.Add("DejaVu Sans");
-        availableFonts.Add("DejaVu Serif");
-        availableFonts.Add("Times New Roman");
-        availableFonts.Add("Courier New");
-        availableFonts.Add("Georgia");
-        availableFonts.Add("Verdana");
-        availableFonts.Add("Trebuchet MS");
-        availableFonts.Add("Palatino");
-        availableFonts.Add("Garamond");
-        availableFonts.Add("Bookman");
-        availableFonts.Add("Comic Sans MS");
-        availableFonts.Add("Impact");
-        availableFonts.Add("Candara");
-        availableFonts.Add("Calibri");
-        availableFonts.Add("Cambria");
-        availableFonts.Add("Constantia");
-        availableFonts.Add("Corbel");
-        availableFonts.Add("Franklin Gothic");
-        availableFonts.Add("Gabriola");
-        availableFonts.Add("Segoe UI");
+        // Add discovered system fonts
+        availableFonts.UnionWith(_availableSystemFonts);
+
+        // Add known system fonts as ultimate fallback
+        foreach (var f in _knownSystemFonts) availableFonts.Add(f);
 
         // Process each slide
         for (int i = 0; i < presentation.Slides.Count; i++)
@@ -186,13 +177,23 @@ public sealed class PptxToTypstConverter : IDisposable
         if (element.Type == "Text" && element.Text != null)
         {
             var text = element.Text;
-            var topLeading = Math.Max(0, ((text.LineSpacing ?? text.Formatting.FontSize) - text.Formatting.FontSize) / 2);
-            var metricOffset = GetTextMetricOffset(text);
 
             xPos += text.PaddingLeft;
-            yPos += text.PaddingTop + topLeading + metricOffset;
             width = Math.Max(0, width - text.PaddingLeft - text.PaddingRight);
             height = Math.Max(0, height - text.PaddingTop - text.PaddingBottom);
+
+            if (text.VerticalAlign == "top")
+            {
+                yPos += text.PaddingTop;
+            }
+            else
+            {
+                var estimatedTextHeight = EstimateTextHeight(text);
+                var yOffset = text.VerticalAlign == "center"
+                    ? Math.Max(0, (height - estimatedTextHeight) / 2)
+                    : Math.Max(0, height - estimatedTextHeight);
+                yPos += text.PaddingTop + yOffset;
+            }
 
             if (IsSingleLineAutoFit(text, height) && text.Formatting.Align == "left")
             {
@@ -218,7 +219,7 @@ public sealed class PptxToTypstConverter : IDisposable
         switch (element.Type)
         {
             case "Text":
-                GenerateTextSource(sb, element.Text!, widthStr, availableFonts);
+                GenerateTextSource(sb, element.Text!, widthStr, heightStr, availableFonts);
                 break;
             case "Image":
                 GenerateImageSource(sb, element.Image!, widthStr, heightStr);
@@ -239,17 +240,18 @@ public sealed class PptxToTypstConverter : IDisposable
         sb.AppendLine("]");
     }
 
-    private void GenerateTextSource(StringBuilder sb, TypstTextElement text, string width, HashSet<string> availableFonts)
+    private void GenerateTextSource(StringBuilder sb, TypstTextElement text, string width, string? height, HashSet<string> availableFonts)
     {
         var fmt = text.Formatting;
 
-        // Constrain text to original text box width
-        sb.Append($"#block(width: {width})[");
-
-        var leading = GetTypstParagraphLeading(text);
-        if (leading > 0.01)
+        // Constrain text to original text box width, with height for non-top alignment
+        if (!string.IsNullOrEmpty(height) && text.VerticalAlign != "top")
         {
-            sb.Append($"#set par(leading: {FormatPt(leading)})\n");
+            sb.Append($"#block(width: {width}, height: {height})[");
+        }
+        else
+        {
+            sb.Append($"#block(width: {width})[");
         }
 
         // Apply horizontal alignment if not left
@@ -260,13 +262,13 @@ public sealed class PptxToTypstConverter : IDisposable
 
         AppendParagraphs(sb, text, availableFonts);
 
-        // Close alignment wrapper if opened
+        // Close horizontal alignment wrapper if opened
         if (fmt.Align != "left" && !string.IsNullOrEmpty(fmt.Align))
         {
             sb.Append("]");
         }
 
-        // Close block
+        // Close block wrapper
         sb.Append("]");
     }
 
@@ -278,11 +280,6 @@ public sealed class PptxToTypstConverter : IDisposable
         int i = 0;
         while (i < paragraphs.Count)
         {
-            if (i > 0)
-            {
-                sb.Append("\n\n");
-            }
-
             var paragraph = paragraphs[i];
 
             // Determine if this paragraph is a list item
@@ -311,17 +308,50 @@ public sealed class PptxToTypstConverter : IDisposable
             if (!isListItem || string.IsNullOrEmpty(content))
             {
                 // Non-list paragraph or empty paragraph - emit individually
+                if (i > 0)
+                {
+                    var prevParagraph = paragraphs[i - 1];
+                    bool prevIsList = !string.IsNullOrEmpty(prevParagraph.AutoNumberType) || prevParagraph.HasBullet;
+                    bool currIsList = !string.IsNullOrEmpty(paragraph.AutoNumberType) || paragraph.HasBullet;
+
+                    // Only add paragraph break between non-list paragraphs or after list back to normal
+                    if (!prevIsList && !currIsList)
+                    {
+                        sb.Append("\n\n");
+                    }
+                    else if (prevIsList && !currIsList)
+                    {
+                        sb.Append("\n\n");
+                    }
+                    // Don't add extra break when entering a list
+                }
+
+                // Emit space before if present
+                if (paragraph.SpaceBefore != null && paragraph.SpaceBefore.Value > 0.01)
+                {
+                    var spaceBeforePts = ResolveParagraphSpacingToPoints(paragraph.SpaceBefore, paragraph.Formatting);
+                    sb.Append($"#v({FormatPt(spaceBeforePts)})\n");
+                }
+
                 if (string.IsNullOrEmpty(content))
                 {
-                    sb.Append($"#v({FormatPt(text.LineSpacing ?? paragraph.Formatting.FontSize)})\n");
+                    sb.Append($"#v({FormatPt((paragraph.LineSpacing ?? text.LineSpacing)?.Value ?? paragraph.Formatting.FontSize)})\n");
                 }
                 else
                 {
-                    var paramStr = BuildTextParameters(paragraph.Formatting, availableFonts);
-                    var escapedContent = EscapeTypstText(content);
+                    var spacing = paragraph.LineSpacing ?? text.LineSpacing;
+                    var leading = GetTypstParagraphLeading(spacing, paragraph.Formatting, text.LineSpacingReduction);
+                    bool hasLeading = Math.Abs(leading) > 0.01;
+
+                    if (hasLeading)
+                    {
+                        sb.Append($"#set par(leading: {FormatPt(leading)})\n");
+                    }
 
                     if (!string.IsNullOrEmpty(paragraph.AutoNumberType))
                     {
+                        var paramStr = BuildTextParameters(paragraph.Formatting, availableFonts);
+                        var escapedContent = EscapeTypstText(content);
                         sb.Append($"#enum(start: 1)[{paramStr}[{escapedContent}]]");
                     }
                     else if (effectiveHasBullet)
@@ -329,23 +359,23 @@ public sealed class PptxToTypstConverter : IDisposable
                         var marker = effectiveBulletChar ?? "•";
                         var markerEscaped = EscapeTypstText(marker);
                         var indent = paragraph.Level > 0 ? $"#h({paragraph.Level * 1.5}em) " : "";
+                        var paramStr = BuildTextParameters(paragraph.Formatting, availableFonts);
+                        var escapedContent = EscapeTypstText(content);
                         sb.Append($"{indent}#list(marker: [{markerEscaped}])[{paramStr}[{escapedContent}]]");
                     }
                     else
                     {
-                        if (!string.IsNullOrEmpty(paramStr))
-                        {
-                            sb.Append(paramStr);
-                            sb.Append("[");
-                            sb.Append(escapedContent);
-                            sb.Append("]");
-                        }
-                        else
-                        {
-                            sb.Append(escapedContent);
-                        }
+                        AppendParagraphContent(sb, paragraph, null, availableFonts);
                     }
                 }
+
+                // Emit space after if present
+                if (paragraph.SpaceAfter != null && paragraph.SpaceAfter.Value > 0.01)
+                {
+                    var spaceAfterPts = ResolveParagraphSpacingToPoints(paragraph.SpaceAfter, paragraph.Formatting);
+                    sb.Append($"#v({FormatPt(spaceAfterPts)})\n");
+                }
+
                 i++;
                 continue;
             }
@@ -395,6 +425,47 @@ public sealed class PptxToTypstConverter : IDisposable
             }
             var groupParamStr = allSameFormatting ? BuildTextParameters(firstFmt, availableFonts) : "";
 
+            // Determine paragraph break before list
+            if (i > 0)
+            {
+                var prevParagraph = paragraphs[i - 1];
+                bool prevIsList = !string.IsNullOrEmpty(prevParagraph.AutoNumberType) || prevParagraph.HasBullet;
+                if (!prevIsList)
+                {
+                    // Don't add extra \n\n when entering a list from normal text
+                }
+                else
+                {
+                    sb.Append("\n\n");
+                }
+            }
+
+            // Emit space before first list item if present
+            var firstListItem = paragraphs[i];
+            var firstListItemSpaceBefore = firstListItem.SpaceBefore;
+            if (firstListItemSpaceBefore != null && firstListItemSpaceBefore.Value > 0.01)
+            {
+                var spaceBeforePts = ResolveParagraphSpacingToPoints(firstListItemSpaceBefore, firstListItem.Formatting);
+                sb.Append($"#v({FormatPt(spaceBeforePts)})\n");
+            }
+
+            // Check for uniform line spacing in the group
+            var firstItemSpacing = paragraphs[i].LineSpacing ?? text.LineSpacing;
+            var firstItemLeading = GetTypstParagraphLeading(firstItemSpacing, paragraphs[i].Formatting, text.LineSpacingReduction);
+            bool allSameLeading = true;
+            for (int k = i + 1; k <= groupEnd; k++)
+            {
+                var itemSpacing = paragraphs[k].LineSpacing ?? text.LineSpacing;
+                var itemLeading = GetTypstParagraphLeading(itemSpacing, paragraphs[k].Formatting, text.LineSpacingReduction);
+                if (Math.Abs(itemLeading - firstItemLeading) > 0.01)
+                {
+                    allSameLeading = false;
+                    break;
+                }
+            }
+
+            bool hasGroupLeading = allSameLeading && Math.Abs(firstItemLeading) > 0.01;
+
             if (isNumbered)
             {
                 // For numbered lists, find the start number
@@ -408,17 +479,23 @@ public sealed class PptxToTypstConverter : IDisposable
                 }
 
                 var startParam = startNum > 1 ? $"(start: {startNum})" : "";
+                var listIndent = BuildListIndentParams(paragraph);
                 
                 if (!string.IsNullOrEmpty(groupParamStr))
                 {
                     sb.Append(groupParamStr);
                     sb.Append("[");
                 }
-                sb.Append($"#enum{startParam}[");
+
+                if (hasGroupLeading)
+                {
+                    sb.Append($"#set par(leading: {FormatPt(firstItemLeading)})\n");
+                }
+
+                sb.Append($"#enum{startParam}{listIndent}");
 
                 for (int k = i; k <= groupEnd; k++)
                 {
-                    if (k > i) sb.Append("\n");
                     var p = paragraphs[k];
                     var pContent = p.Content;
                     // Strip literal bullets if any
@@ -432,21 +509,20 @@ public sealed class PptxToTypstConverter : IDisposable
                                 pContent = pContent.Substring(prefixLen);
                         }
                     }
-                    var itemParamStr = allSameFormatting ? "" : BuildTextParameters(p.Formatting, availableFonts);
-                    var escapedContent = EscapeTypstText(pContent);
-                    if (!string.IsNullOrEmpty(itemParamStr))
+                    if (!allSameLeading)
                     {
-                        sb.Append(itemParamStr);
-                        sb.Append("[");
-                        sb.Append(escapedContent);
-                        sb.Append("]");
+                        var itemSpacing = p.LineSpacing ?? text.LineSpacing;
+                        var itemLeading = GetTypstParagraphLeading(itemSpacing, p.Formatting, text.LineSpacingReduction);
+                        if (Math.Abs(itemLeading) > 0.01)
+                        {
+                            sb.Append($"#set par(leading: {FormatPt(itemLeading)})\n");
+                        }
                     }
-                    else
-                    {
-                        sb.Append(escapedContent);
-                    }
+                    sb.Append("[");
+                    AppendParagraphContent(sb, p, pContent, availableFonts);
+                    sb.Append("]");
                 }
-                sb.Append("]");
+
                 if (!string.IsNullOrEmpty(groupParamStr))
                 {
                     sb.Append("]");
@@ -457,18 +533,23 @@ public sealed class PptxToTypstConverter : IDisposable
                 // Bulleted list
                 var marker = effectiveBulletChar ?? "•";
                 var markerEscaped = EscapeTypstText(marker);
-                var indent = paragraph.Level > 0 ? $"#h({paragraph.Level * 1.5}em) " : "";
+                var listIndent = BuildListIndentParams(paragraph);
                 
                 if (!string.IsNullOrEmpty(groupParamStr))
                 {
                     sb.Append(groupParamStr);
                     sb.Append("[");
                 }
-                sb.Append($"{indent}#list(marker: [{markerEscaped}])[");
+
+                if (hasGroupLeading)
+                {
+                    sb.Append($"#set par(leading: {FormatPt(firstItemLeading)})\n");
+                }
+
+                sb.Append($"#list(marker: [{markerEscaped}]{listIndent})");
 
                 for (int k = i; k <= groupEnd; k++)
                 {
-                    if (k > i) sb.Append("\n");
                     var p = paragraphs[k];
                     var pContent = p.Content;
                     // Strip literal bullets
@@ -482,29 +563,72 @@ public sealed class PptxToTypstConverter : IDisposable
                                 pContent = pContent.Substring(prefixLen);
                         }
                     }
-                    var itemParamStr = allSameFormatting ? "" : BuildTextParameters(p.Formatting, availableFonts);
-                    var escapedContent = EscapeTypstText(pContent);
-                    if (!string.IsNullOrEmpty(itemParamStr))
+                    if (!allSameLeading)
                     {
-                        sb.Append(itemParamStr);
-                        sb.Append("[");
-                        sb.Append(escapedContent);
-                        sb.Append("]");
+                        var itemSpacing = p.LineSpacing ?? text.LineSpacing;
+                        var itemLeading = GetTypstParagraphLeading(itemSpacing, p.Formatting, text.LineSpacingReduction);
+                        if (Math.Abs(itemLeading) > 0.01)
+                        {
+                            sb.Append($"#set par(leading: {FormatPt(itemLeading)})\n");
+                        }
                     }
-                    else
-                    {
-                        sb.Append(escapedContent);
-                    }
+                    sb.Append("[");
+                    AppendParagraphContent(sb, p, pContent, availableFonts);
+                    sb.Append("]");
                 }
-                sb.Append("]");
+
                 if (!string.IsNullOrEmpty(groupParamStr))
                 {
                     sb.Append("]");
                 }
             }
 
+            // Emit space after last list item if present
+            var lastListItem = paragraphs[groupEnd];
+            var lastListItemSpaceAfter = lastListItem.SpaceAfter;
+            if (lastListItemSpaceAfter != null && lastListItemSpaceAfter.Value > 0.01)
+            {
+                var spaceAfterPts = ResolveParagraphSpacingToPoints(lastListItemSpaceAfter, lastListItem.Formatting);
+                sb.Append($"#v({FormatPt(spaceAfterPts)})\n");
+            }
+
             i = groupEnd + 1;
         }
+    }
+
+    private static double ResolveParagraphSpacingToPoints(TextSpacing spacing, TypstTextFormatting formatting)
+    {
+        return spacing.Kind switch
+        {
+            TextSpacingKind.Points => spacing.Value,
+            TextSpacingKind.Percent => spacing.Value * formatting.FontSize,
+            _ => spacing.Value
+        };
+    }
+
+    private static string BuildListIndentParams(TypstParagraph paragraph)
+    {
+        var parts = new List<string>();
+        if (paragraph.MarginLeft.HasValue && paragraph.MarginLeft.Value > 0.01)
+        {
+            parts.Add($"indent: {FormatPtStatic(paragraph.MarginLeft.Value)}");
+        }
+        if (paragraph.Indent.HasValue)
+        {
+            // PPTX indent is a hanging indent (negative = body indent offset)
+            // In Typst, body-indent controls the indent of the body relative to the marker
+            var bodyIndent = Math.Abs(paragraph.Indent.Value);
+            if (bodyIndent > 0.01)
+            {
+                parts.Add($"body-indent: {FormatPtStatic(bodyIndent)}");
+            }
+        }
+        return parts.Count > 0 ? ", " + string.Join(", ", parts) : "";
+    }
+
+    private static string FormatPtStatic(double pt)
+    {
+        return pt.ToString("F2", CultureInfo.InvariantCulture) + "pt";
     }
 
     private string BuildTextParameters(TypstTextFormatting fmt, HashSet<string> availableFonts)
@@ -540,31 +664,173 @@ public sealed class PptxToTypstConverter : IDisposable
             && a.FontFamily == b.FontFamily;
     }
 
-    private static double GetTypstParagraphLeading(TypstTextElement text)
+    private static bool AllRunsHaveSameFormatting(List<TypstTextRun> runs)
     {
-        if (text.LineSpacing == null)
-            return 0;
+        if (runs.Count <= 1) return true;
 
-        double lineSpacingPts;
-        if (text.LineSpacing.Value < 10)
+        var first = runs[0].Formatting;
+        for (int i = 1; i < runs.Count; i++)
         {
-            // Percentage value (e.g., 1.2 = 120%)
-            lineSpacingPts = text.Formatting.FontSize * text.LineSpacing.Value;
+            if (!AreFormattingEqual(first, runs[i].Formatting))
+                return false;
+        }
+        return true;
+    }
+
+    private TypstTextFormatting MergeRunWithParagraphDefaults(TypstTextFormatting paragraphDefault, Drawing.Run run)
+    {
+        var runProps = run.RunProperties;
+        if (runProps == null) return paragraphDefault;
+
+        var result = paragraphDefault;
+
+        if (runProps.FontSize?.Value != null)
+            result = result with { FontSize = runProps.FontSize.Value / 100.0 };
+
+        if (runProps.Bold?.Value != null)
+            result = result with { Bold = runProps.Bold.Value };
+
+        if (runProps.Italic?.Value != null)
+            result = result with { Italic = runProps.Italic.Value };
+
+        if (runProps.Underline?.Value != null && runProps.Underline.Value != Drawing.TextUnderlineValues.None)
+            result = result with { Underline = true };
+
+        var color = ExtractRunColor(runProps);
+        if (!string.IsNullOrEmpty(color))
+            result = result with { Color = color };
+
+        var latinFont = runProps.Elements<Drawing.LatinFont>().FirstOrDefault();
+        if (latinFont?.Typeface != null)
+        {
+            var fontName = latinFont.Typeface.Value ?? "";
+            if (fontName.EndsWith(" Bold", StringComparison.OrdinalIgnoreCase))
+            {
+                fontName = fontName.Substring(0, fontName.Length - 5);
+                result = result with { Bold = true };
+            }
+            result = result with { FontFamily = fontName };
+        }
+
+        return result;
+    }
+
+    private void AppendParagraphContent(StringBuilder sb, TypstParagraph paragraph, string? overrideContent, HashSet<string> availableFonts)
+    {
+        if (paragraph.Runs.Count <= 1 || AllRunsHaveSameFormatting(paragraph.Runs))
+        {
+            var paramStr = BuildTextParameters(paragraph.Formatting, availableFonts);
+            var content = overrideContent ?? paragraph.Content;
+
+            if (!string.IsNullOrEmpty(paramStr))
+            {
+                sb.Append(paramStr);
+                sb.Append("[");
+                AppendEscapedContentWithBreaks(sb, content);
+                sb.Append("]");
+            }
+            else
+            {
+                AppendEscapedContentWithBreaks(sb, content);
+            }
         }
         else
         {
-            // Absolute points value
-            lineSpacingPts = text.LineSpacing.Value;
+            foreach (var run in paragraph.Runs)
+            {
+                if (run.IsLineBreak)
+                {
+                    sb.Append(" #linebreak() ");
+                    continue;
+                }
+
+                var paramStr = BuildTextParameters(run.Formatting, availableFonts);
+                var escapedContent = EscapeTypstText(run.Content);
+
+                if (!string.IsNullOrEmpty(paramStr))
+                {
+                    sb.Append(paramStr);
+                    sb.Append("[");
+                    sb.Append(escapedContent);
+                    sb.Append("]");
+                }
+                else
+                {
+                    sb.Append(escapedContent);
+                }
+            }
+        }
+    }
+
+    private static void AppendEscapedContentWithBreaks(StringBuilder sb, string content)
+    {
+        if (string.IsNullOrEmpty(content))
+            return;
+
+        var parts = content.Split('\n');
+        for (int p = 0; p < parts.Length; p++)
+        {
+            if (p > 0)
+                sb.Append(" #linebreak() ");
+            if (!string.IsNullOrEmpty(parts[p]))
+                sb.Append(EscapeTypstText(parts[p]));
+        }
+    }
+
+    private static double ResolveLineSpacingTargetPoints(TextSpacing spacing, TypstTextFormatting formatting, double? lineSpacingReduction = null)
+    {
+        var target = spacing.Kind switch
+        {
+            TextSpacingKind.Points => spacing.Value,
+            TextSpacingKind.Percent => spacing.Value * formatting.FontSize,
+            _ => spacing.Value
+        };
+
+        if (lineSpacingReduction.HasValue && lineSpacingReduction.Value > 0)
+        {
+            target *= (1.0 - lineSpacingReduction.Value);
         }
 
-        // Typst's par.leading is added to its own default line advance, while PPTX spcPts is the target line pitch.
-        var estimatedTypstLineAdvance = text.Formatting.FontSize * 0.65;
-        return Math.Max(0, lineSpacingPts - estimatedTypstLineAdvance);
+        return target;
+    }
+
+    private double EstimateNaturalLineHeight(TypstTextFormatting formatting)
+    {
+        var metrics = GetFontMetrics(formatting.FontFamily);
+        if (metrics != null && metrics.UnitsPerEm > 0)
+        {
+            var scale = formatting.FontSize / metrics.UnitsPerEm;
+            var ascender = metrics.TypoAscender != 0 ? metrics.TypoAscender : metrics.HheaAscender;
+            var descender = metrics.TypoDescender != 0 ? metrics.TypoDescender : metrics.HheaDescender;
+            var lineGap = metrics.TypoLineGap != 0 ? metrics.TypoLineGap : metrics.HheaLineGap;
+            var naturalHeight = (ascender - descender + lineGap) * scale;
+            if (naturalHeight > 0)
+                return naturalHeight;
+        }
+
+        return formatting.FontSize;
+    }
+
+    private double GetTypstParagraphLeading(TextSpacing? spacing, TypstTextFormatting formatting, double? lineSpacingReduction = null)
+    {
+        if (spacing == null)
+            return 0;
+
+        var targetPitch = ResolveLineSpacingTargetPoints(spacing, formatting, lineSpacingReduction);
+        var naturalLineHeight = EstimateNaturalLineHeight(formatting);
+        return targetPitch - naturalLineHeight;
+    }
+
+    private double GetTypstParagraphLeading(TypstTextElement text)
+    {
+        return GetTypstParagraphLeading(text.LineSpacing, text.Formatting, text.LineSpacingReduction);
     }
 
     private double GetTextMetricOffset(TypstTextElement text)
     {
-        if (!TryGetFontMetrics(text, out var metrics) || metrics.UnitsPerEm <= 0)
+        var fontFamily = text.Formatting.FontFamily ?? "Arial";
+        var metrics = GetFontMetrics(fontFamily);
+        if (metrics == null || metrics.UnitsPerEm <= 0)
             return 0;
 
         var scale = text.Formatting.FontSize / metrics.UnitsPerEm;
@@ -575,12 +841,40 @@ public sealed class PptxToTypstConverter : IDisposable
         return ascenderDelta;
     }
 
+    private double EstimateTextHeight(TypstTextElement text)
+    {
+        if (text.Paragraphs.Count == 0)
+            return text.Formatting.FontSize;
+
+        double totalHeight = 0;
+
+        foreach (var paragraph in text.Paragraphs)
+        {
+            var formatting = paragraph.Formatting;
+            var spacing = paragraph.LineSpacing ?? text.LineSpacing;
+
+            double linePitch = spacing != null
+                ? ResolveLineSpacingTargetPoints(spacing, formatting, text.LineSpacingReduction)
+                : formatting.FontSize;
+
+            int lineCount = 1;
+            if (!string.IsNullOrEmpty(paragraph.Content) && text.HasExplicitLineBreaks)
+            {
+                lineCount = paragraph.Content.Split('\n').Length;
+            }
+
+            totalHeight += lineCount * linePitch;
+        }
+
+        return totalHeight;
+    }
+
     private bool IsSingleLineAutoFit(TypstTextElement text, double height)
     {
         if (!text.AutoFit || text.ParagraphCount != 1 || text.HasExplicitLineBreaks)
             return false;
 
-        var lineHeight = text.LineSpacing ?? text.Formatting.FontSize;
+        var lineHeight = text.LineSpacing?.Value ?? text.Formatting.FontSize;
         return height <= lineHeight * 1.25;
     }
 
@@ -601,15 +895,52 @@ public sealed class PptxToTypstConverter : IDisposable
         return totalAdvance * text.Formatting.FontSize / metrics.UnitsPerEm;
     }
 
-    private bool TryGetFontMetrics(TypstTextElement text, out TypstFontMetrics metrics)
+    private TypstFontMetrics? GetFontMetrics(string fontFamily)
     {
-        if (text.Formatting.Bold && _fontMetrics.TryGetValue($"{text.Formatting.FontFamily} Bold", out var boldMetrics))
+        // 1. Check embedded font cache
+        if (_fontMetrics.TryGetValue(fontFamily, out var metrics))
+            return metrics;
+
+        // 2. Try to find and read system font
+        var systemFontPath = FindSystemFontPath(fontFamily);
+        if (systemFontPath != null)
         {
-            metrics = boldMetrics;
-            return true;
+            try
+            {
+                var m = OpenTypeFontMetricsReader.ReadMetrics(systemFontPath);
+                if (m != null)
+                {
+                    _fontMetrics[fontFamily] = m;
+                    return m;
+                }
+            }
+            catch { /* skip unreadable font metrics */ }
         }
 
-        if (_fontMetrics.TryGetValue(text.Formatting.FontFamily, out var familyMetrics))
+        return null;
+    }
+
+    private string? FindSystemFontPath(string fontFamily)
+    {
+        if (_systemFontPaths.TryGetValue(fontFamily, out var path))
+            return path;
+        return null;
+    }
+
+    private bool TryGetFontMetrics(TypstTextElement text, out TypstFontMetrics metrics)
+    {
+        if (text.Formatting.Bold)
+        {
+            var boldMetrics = GetFontMetrics($"{text.Formatting.FontFamily} Bold");
+            if (boldMetrics != null)
+            {
+                metrics = boldMetrics;
+                return true;
+            }
+        }
+
+        var familyMetrics = GetFontMetrics(text.Formatting.FontFamily);
+        if (familyMetrics != null)
         {
             metrics = familyMetrics;
             return true;
@@ -617,6 +948,47 @@ public sealed class PptxToTypstConverter : IDisposable
 
         metrics = null!;
         return false;
+    }
+
+    private HashSet<string> DiscoverSystemFonts()
+    {
+        var systemFontDirs = new[]
+        {
+            "/usr/share/fonts",
+            "/usr/local/share/fonts",
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Fonts)),
+            "/System/Library/Fonts",
+            "/Library/Fonts",
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".fonts"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Fonts"),
+        };
+
+        var fontFamilies = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        _systemFontPaths.Clear();
+
+        foreach (var dir in systemFontDirs.Where(Directory.Exists))
+        {
+            try
+            {
+                foreach (var fontFile in Directory.GetFiles(dir, "*.ttf", SearchOption.AllDirectories)
+                    .Concat(Directory.GetFiles(dir, "*.otf", SearchOption.AllDirectories)))
+                {
+                    try
+                    {
+                        var familyName = OpenTypeFontMetricsReader.ReadFontFamilyName(fontFile);
+                        if (!string.IsNullOrEmpty(familyName))
+                        {
+                            fontFamilies.Add(familyName);
+                            _systemFontPaths.TryAdd(familyName, fontFile);
+                        }
+                    }
+                    catch { /* skip unreadable fonts */ }
+                }
+            }
+            catch { /* skip inaccessible directories */ }
+        }
+
+        return fontFamilies;
     }
 
     private void GenerateImageSource(StringBuilder sb, TypstImageElement image, string width, string height)
@@ -665,13 +1037,40 @@ public sealed class PptxToTypstConverter : IDisposable
     private void GenerateTableSource(StringBuilder sb, TypstTableElement table, string width, string height)
     {
         var cols = table.Rows.Count > 0 ? table.Rows[0].Count : 0;
-        
+
         // Column widths
         var colWidths = table.ColumnWidths.Count > 0
             ? string.Join(", ", table.ColumnWidths.Select(w => FormatPt(w)))
             : string.Join(", ", Enumerable.Repeat("1fr", cols));
 
-        sb.Append($"#table(columns: ({colWidths}), stroke: {FormatPt(table.BorderWidth)} + rgb(\"{table.BorderColor ?? "#000000"}\"), ");
+        // Row heights
+        var rowHeights = table.RowHeights.Count > 0
+            ? string.Join(", ", table.RowHeights.Select(h => FormatPt(h)))
+            : null;
+
+        // Determine if we need per-cell border control
+        bool hasComplexBorders = table.Rows.Any(row =>
+            row.Any(cell => cell.StylePart != null && (
+                cell.StylePart.BorderTopNone || cell.StylePart.BorderBottomNone ||
+                cell.StylePart.BorderLeftNone || cell.StylePart.BorderRightNone ||
+                cell.StylePart.BorderInsideHNone || cell.StylePart.BorderInsideVNone)));
+
+        if (hasComplexBorders)
+        {
+            // Emit table without global stroke, handle per-cell
+            if (rowHeights != null)
+                sb.Append($"#table(columns: ({colWidths}), rows: ({rowHeights}), ");
+            else
+                sb.Append($"#table(columns: ({colWidths}), ");
+        }
+        else
+        {
+            // Existing behavior
+            if (rowHeights != null)
+                sb.Append($"#table(columns: ({colWidths}), rows: ({rowHeights}), stroke: {FormatPt(table.BorderWidth)} + rgb(\"{table.BorderColor ?? "#000000"}\"), ");
+            else
+                sb.Append($"#table(columns: ({colWidths}), stroke: {FormatPt(table.BorderWidth)} + rgb(\"{table.BorderColor ?? "#000000"}\"), ");
+        }
 
         // Generate cells
         foreach (var row in table.Rows)
@@ -679,13 +1078,19 @@ public sealed class PptxToTypstConverter : IDisposable
             foreach (var cell in row)
             {
                 var cellParams = new List<string>();
-                
+
                 if (cell.RowSpan > 1)
                     cellParams.Add($"rowspan: {cell.RowSpan}");
                 if (cell.ColSpan > 1)
                     cellParams.Add($"colspan: {cell.ColSpan}");
                 if (!string.IsNullOrEmpty(cell.BackgroundColor))
                     cellParams.Add($"fill: rgb(\"{cell.BackgroundColor}\")");
+
+                var cellStroke = BuildCellStroke(cell, table.BorderWidth, table.BorderColor);
+                if (!string.IsNullOrEmpty(cellStroke))
+                    cellParams.Add($"stroke: {cellStroke}");
+                else if (hasComplexBorders)
+                    cellParams.Add($"stroke: {FormatPt(table.BorderWidth)} + rgb(\"{table.BorderColor ?? "#000000"}\")");
 
                 if (cellParams.Count > 0)
                 {
@@ -699,7 +1104,7 @@ public sealed class PptxToTypstConverter : IDisposable
                 // Cell content with formatting
                 var fmt = cell.Formatting;
                 var textParams = new List<string>();
-                
+
                 if (fmt.FontSize != 18.0)
                     textParams.Add($"size: {FormatPt(fmt.FontSize)}");
                 if (fmt.Bold)
@@ -725,6 +1130,39 @@ public sealed class PptxToTypstConverter : IDisposable
         }
 
         sb.Append(")");
+    }
+
+    private static string? BuildCellStroke(TypstTableCell cell, double defaultWidth, string? defaultColor)
+    {
+        var parts = new List<string>();
+        var sp = cell.StylePart;
+        if (sp == null) return null;
+
+        bool topDiffers = (sp.BorderTopWidth.HasValue && sp.BorderTopWidth.Value != defaultWidth)
+                       || (!string.IsNullOrEmpty(sp.BorderTopColor) && sp.BorderTopColor != defaultColor);
+        if (sp.BorderTopNone) parts.Add("top: none");
+        else if (topDiffers)
+            parts.Add($"top: {FormatPt(sp.BorderTopWidth ?? defaultWidth)} + rgb(\"{sp.BorderTopColor ?? defaultColor}\")");
+
+        bool bottomDiffers = (sp.BorderBottomWidth.HasValue && sp.BorderBottomWidth.Value != defaultWidth)
+                          || (!string.IsNullOrEmpty(sp.BorderBottomColor) && sp.BorderBottomColor != defaultColor);
+        if (sp.BorderBottomNone) parts.Add("bottom: none");
+        else if (bottomDiffers)
+            parts.Add($"bottom: {FormatPt(sp.BorderBottomWidth ?? defaultWidth)} + rgb(\"{sp.BorderBottomColor ?? defaultColor}\")");
+
+        bool leftDiffers = (sp.BorderLeftWidth.HasValue && sp.BorderLeftWidth.Value != defaultWidth)
+                        || (!string.IsNullOrEmpty(sp.BorderLeftColor) && sp.BorderLeftColor != defaultColor);
+        if (sp.BorderLeftNone) parts.Add("left: none");
+        else if (leftDiffers)
+            parts.Add($"left: {FormatPt(sp.BorderLeftWidth ?? defaultWidth)} + rgb(\"{sp.BorderLeftColor ?? defaultColor}\")");
+
+        bool rightDiffers = (sp.BorderRightWidth.HasValue && sp.BorderRightWidth.Value != defaultWidth)
+                         || (!string.IsNullOrEmpty(sp.BorderRightColor) && sp.BorderRightColor != defaultColor);
+        if (sp.BorderRightNone) parts.Add("right: none");
+        else if (rightDiffers)
+            parts.Add($"right: {FormatPt(sp.BorderRightWidth ?? defaultWidth)} + rgb(\"{sp.BorderRightColor ?? defaultColor}\")");
+
+        return parts.Count > 0 ? $"({string.Join(", ", parts)})" : null;
     }
 
     private TypstSlide ConvertSlide(SlidePart slidePart, Slide slide, int slideIndex)
@@ -815,7 +1253,12 @@ public sealed class PptxToTypstConverter : IDisposable
             {
                 Paragraphs = new()
                 {
-                    new TypstParagraph { Content = slideIndex.ToString(), Formatting = text.Formatting }
+                    new TypstParagraph
+                    {
+                        Content = slideIndex.ToString(),
+                        Runs = new() { new TypstTextRun { Content = slideIndex.ToString(), Formatting = text.Formatting } },
+                        Formatting = text.Formatting
+                    }
                 },
                 AutoFit = text.AutoFit,
                 VerticalAlign = text.VerticalAlign,
@@ -825,7 +1268,9 @@ public sealed class PptxToTypstConverter : IDisposable
                 PaddingBottom = text.PaddingBottom,
                 LineSpacing = text.LineSpacing,
                 ParagraphCount = text.ParagraphCount,
-                HasExplicitLineBreaks = text.HasExplicitLineBreaks
+                HasExplicitLineBreaks = text.HasExplicitLineBreaks,
+                FontScale = text.FontScale,
+                LineSpacingReduction = text.LineSpacingReduction
             };
         }
 
@@ -882,6 +1327,9 @@ public sealed class PptxToTypstConverter : IDisposable
                 Shape = shapeElement
             };
         }
+
+        // Set original text box height (before padding)
+        text.TextBoxHeight = finalH;
 
         // Return text if present
         if (!string.IsNullOrWhiteSpace(text.Content))
@@ -1247,7 +1695,121 @@ public sealed class PptxToTypstConverter : IDisposable
 
         if (txBody == null) return null;
 
-        return ExtractTextFromTextBody(txBody);
+        var text = ExtractTextFromTextBody(txBody);
+        if (!text.FontScale.HasValue) return text;
+
+        var scale = text.FontScale.Value;
+        var scaledParagraphs = text.Paragraphs.Select(p => new TypstParagraph
+        {
+            Content = p.Content,
+            Runs = p.Runs.Select(r => new TypstTextRun
+            {
+                Content = r.Content,
+                Formatting = r.Formatting with { FontSize = r.Formatting.FontSize * scale },
+                IsLineBreak = r.IsLineBreak
+            }).ToList(),
+            Formatting = p.Formatting with { FontSize = p.Formatting.FontSize * scale },
+            Level = p.Level,
+            BulletChar = p.BulletChar,
+            AutoNumberType = p.AutoNumberType,
+            HasBullet = p.HasBullet,
+            LineSpacing = p.LineSpacing,
+            SpaceBefore = p.SpaceBefore,
+            SpaceAfter = p.SpaceAfter,
+            MarginLeft = p.MarginLeft,
+            Indent = p.Indent
+        }).ToList();
+
+        return new TypstTextElement
+        {
+            Paragraphs = scaledParagraphs,
+            AutoFit = text.AutoFit,
+            VerticalAlign = text.VerticalAlign,
+            PaddingLeft = text.PaddingLeft,
+            PaddingTop = text.PaddingTop,
+            PaddingRight = text.PaddingRight,
+            PaddingBottom = text.PaddingBottom,
+            LineSpacing = text.LineSpacing,
+            ParagraphCount = text.ParagraphCount,
+            HasExplicitLineBreaks = text.HasExplicitLineBreaks,
+            FontScale = text.FontScale,
+            LineSpacingReduction = text.LineSpacingReduction
+        };
+    }
+
+    private static Drawing.BodyProperties? GetCascadedBodyPr(
+        OpenXmlElement? slideTextBody,
+        StyleResolver? styleResolver,
+        int? placeholderIdx,
+        PlaceholderValues? placeholderType)
+    {
+        var slideBodyPr = slideTextBody?.Elements<Drawing.BodyProperties>().FirstOrDefault();
+        var layoutBodyPr = styleResolver?.GetLayoutPlaceholderBodyPr(placeholderIdx, placeholderType);
+        var masterBodyPr = styleResolver?.GetMasterPlaceholderBodyPr(placeholderIdx, placeholderType);
+
+        if (slideBodyPr == null && layoutBodyPr == null && masterBodyPr == null)
+            return null;
+
+        var result = new Drawing.BodyProperties();
+
+        // Copy attributes from master -> layout -> slide
+        var sources = new[] { masterBodyPr, layoutBodyPr, slideBodyPr };
+
+        foreach (var source in sources)
+        {
+            if (source == null) continue;
+
+            // Anchor - SDK doesn't parse this attribute, use regex
+            var anchorMatch = System.Text.RegularExpressions.Regex.Match(source.OuterXml, @"anchor\s*=\s*""([^""]*)""");
+            if (anchorMatch.Success)
+            {
+                var anchorStr = anchorMatch.Groups[1].Value;
+                var anchorVal = anchorStr switch
+                {
+                    "t" => Drawing.TextAnchoringTypeValues.Top,
+                    "ctr" => Drawing.TextAnchoringTypeValues.Center,
+                    "b" => Drawing.TextAnchoringTypeValues.Bottom,
+                    _ => (Drawing.TextAnchoringTypeValues?)null
+                };
+                if (anchorVal.HasValue)
+                    result.Anchor = anchorVal.Value;
+            }
+
+            if (source.LeftInset?.Value != null)
+                result.LeftInset = new Int32Value(source.LeftInset.Value);
+            if (source.TopInset?.Value != null)
+                result.TopInset = new Int32Value(source.TopInset.Value);
+            if (source.RightInset?.Value != null)
+                result.RightInset = new Int32Value(source.RightInset.Value);
+            if (source.BottomInset?.Value != null)
+                result.BottomInset = new Int32Value(source.BottomInset.Value);
+
+            if (source.Rotation?.Value != null)
+                result.Rotation = new Int32Value(source.Rotation.Value);
+
+            if (source.Wrap?.Value != null)
+                result.Wrap = source.Wrap.Value;
+        }
+
+        // Copy autofit child elements from slide -> layout -> master
+        var noAutoFit = slideBodyPr?.Elements<Drawing.NoAutoFit>().FirstOrDefault()
+            ?? layoutBodyPr?.Elements<Drawing.NoAutoFit>().FirstOrDefault()
+            ?? masterBodyPr?.Elements<Drawing.NoAutoFit>().FirstOrDefault();
+        var normalAutoFit = slideBodyPr?.Elements<Drawing.NormalAutoFit>().FirstOrDefault()
+            ?? layoutBodyPr?.Elements<Drawing.NormalAutoFit>().FirstOrDefault()
+            ?? masterBodyPr?.Elements<Drawing.NormalAutoFit>().FirstOrDefault();
+        var shapeAutoFit = slideBodyPr?.Elements<Drawing.ShapeAutoFit>().FirstOrDefault()
+            ?? layoutBodyPr?.Elements<Drawing.ShapeAutoFit>().FirstOrDefault()
+            ?? masterBodyPr?.Elements<Drawing.ShapeAutoFit>().FirstOrDefault();
+
+        if (noAutoFit != null)
+            result.Append(noAutoFit.CloneNode(true));
+        else if (normalAutoFit != null)
+            result.Append(normalAutoFit.CloneNode(true));
+        else if (shapeAutoFit != null)
+            result.Append(shapeAutoFit.CloneNode(true));
+
+        return result;
     }
 
     private (double X, double Y, double Width, double Height)? GetDiagramShapePosition(OpenXmlElement diagramShape)
@@ -1363,29 +1925,88 @@ public sealed class PptxToTypstConverter : IDisposable
         var updatedParagraphs = new List<TypstParagraph>();
         foreach (var paragraph in result.Paragraphs)
         {
-            var fmt = paragraph.Formatting;
+            var oldFmt = paragraph.Formatting;
+            var newFmt = oldFmt;
 
-            if (fmt.FontSize == 18.0 && defaultStyle.FontSize.HasValue)
-                fmt = fmt with { FontSize = defaultStyle.FontSize.Value };
-            if (!fmt.Bold && defaultStyle.Bold.HasValue)
-                fmt = fmt with { Bold = defaultStyle.Bold.Value };
-            if (!fmt.Italic && defaultStyle.Italic.HasValue)
-                fmt = fmt with { Italic = defaultStyle.Italic.Value };
-            if (fmt.Color == "#000000" && !string.IsNullOrEmpty(defaultStyle.Color))
-                fmt = fmt with { Color = defaultStyle.Color };
-            if (fmt.FontFamily == "Arial" && !string.IsNullOrEmpty(defaultStyle.FontFamily))
-                fmt = fmt with { FontFamily = defaultStyle.FontFamily };
+            if (newFmt.FontSize == 18.0 && defaultStyle.FontSize.HasValue)
+                newFmt = newFmt with { FontSize = defaultStyle.FontSize.Value };
+            if (!newFmt.Bold && defaultStyle.Bold.HasValue)
+                newFmt = newFmt with { Bold = defaultStyle.Bold.Value };
+            if (!newFmt.Italic && defaultStyle.Italic.HasValue)
+                newFmt = newFmt with { Italic = defaultStyle.Italic.Value };
+            if (newFmt.Color == "#000000" && !string.IsNullOrEmpty(defaultStyle.Color))
+                newFmt = newFmt with { Color = defaultStyle.Color };
+            if (newFmt.FontFamily == "Arial" && !string.IsNullOrEmpty(defaultStyle.FontFamily))
+            {
+                var fontName = defaultStyle.FontFamily;
+                if (fontName.EndsWith(" Bold", StringComparison.OrdinalIgnoreCase))
+                {
+                    fontName = fontName.Substring(0, fontName.Length - 5);
+                    newFmt = newFmt with { Bold = true };
+                }
+                newFmt = newFmt with { FontFamily = fontName };
+            }
+
+            // Propagate paragraph formatting changes to runs that inherited them
+            var updatedRuns = new List<TypstTextRun>();
+            foreach (var run in paragraph.Runs)
+            {
+                var runFmt = run.Formatting;
+                if (runFmt.FontSize == oldFmt.FontSize)
+                    runFmt = runFmt with { FontSize = newFmt.FontSize };
+                if (runFmt.Bold == oldFmt.Bold)
+                    runFmt = runFmt with { Bold = newFmt.Bold };
+                if (runFmt.Italic == oldFmt.Italic)
+                    runFmt = runFmt with { Italic = newFmt.Italic };
+                if (runFmt.Color == oldFmt.Color)
+                    runFmt = runFmt with { Color = newFmt.Color };
+                if (runFmt.FontFamily == oldFmt.FontFamily)
+                    runFmt = runFmt with { FontFamily = newFmt.FontFamily };
+
+                updatedRuns.Add(new TypstTextRun { Content = run.Content, Formatting = runFmt });
+            }
 
             updatedParagraphs.Add(new TypstParagraph
             {
                 Content = paragraph.Content,
-                Formatting = fmt,
+                Runs = updatedRuns,
+                Formatting = newFmt,
                 Level = paragraph.Level,
                 BulletChar = paragraph.BulletChar,
                 AutoNumberType = paragraph.AutoNumberType,
                 HasBullet = paragraph.HasBullet,
-                LineSpacing = paragraph.LineSpacing
+                LineSpacing = paragraph.LineSpacing,
+                SpaceBefore = paragraph.SpaceBefore,
+                SpaceAfter = paragraph.SpaceAfter,
+                MarginLeft = paragraph.MarginLeft,
+                Indent = paragraph.Indent
             });
+        }
+
+        // Apply normAutofit font scale to effective formatting
+        if (result.FontScale.HasValue)
+        {
+            var scale = result.FontScale.Value;
+            updatedParagraphs = updatedParagraphs.Select(p => new TypstParagraph
+            {
+                Content = p.Content,
+                Runs = p.Runs.Select(r => new TypstTextRun
+                {
+                    Content = r.Content,
+                    Formatting = r.Formatting with { FontSize = r.Formatting.FontSize * scale },
+                    IsLineBreak = r.IsLineBreak
+                }).ToList(),
+                Formatting = p.Formatting with { FontSize = p.Formatting.FontSize * scale },
+                Level = p.Level,
+                BulletChar = p.BulletChar,
+                AutoNumberType = p.AutoNumberType,
+                HasBullet = p.HasBullet,
+                LineSpacing = p.LineSpacing,
+                SpaceBefore = p.SpaceBefore,
+                SpaceAfter = p.SpaceAfter,
+                MarginLeft = p.MarginLeft,
+                Indent = p.Indent
+            }).ToList();
         }
 
         return new TypstTextElement
@@ -1399,7 +2020,10 @@ public sealed class PptxToTypstConverter : IDisposable
             PaddingBottom = result.PaddingBottom,
             LineSpacing = result.LineSpacing,
             ParagraphCount = result.ParagraphCount,
-            HasExplicitLineBreaks = result.HasExplicitLineBreaks
+            HasExplicitLineBreaks = result.HasExplicitLineBreaks,
+            FontScale = result.FontScale,
+            LineSpacingReduction = result.LineSpacingReduction,
+            TextBoxHeight = result.TextBoxHeight
         };
     }
 
@@ -1415,22 +2039,43 @@ public sealed class PptxToTypstConverter : IDisposable
         var paragraphCount = 0;
         var hasExplicitLineBreaks = false;
 
-        // Extract body properties (padding, auto-fit, anchor)
-        var bodyPr = textBody.Elements<Drawing.BodyProperties>().FirstOrDefault();
-        var autoFit = bodyPr?.Elements<Drawing.ShapeAutoFit>().FirstOrDefault() != null;
+        // Extract body properties (padding, auto-fit, anchor) with cascade
+        var bodyPr = GetCascadedBodyPr(textBody, styleResolver, placeholderIdx, placeholderType);
+        var autoFit = bodyPr?.Elements<Drawing.ShapeAutoFit>().FirstOrDefault() != null
+            || bodyPr?.Elements<Drawing.NormalAutoFit>().FirstOrDefault() != null;
         var vertAlign = "top";
-        var anchorVal = bodyPr?.Anchor?.Value.ToString();
-        if (anchorVal != null)
+        if (bodyPr != null)
         {
-            if (anchorVal.Contains("Center"))
-                vertAlign = "center";
-            else if (anchorVal.Contains("Bottom"))
-                vertAlign = "bottom";
+            var anchorMatch = System.Text.RegularExpressions.Regex.Match(bodyPr.OuterXml, @"anchor\s*=\s*""([^""]*)""");
+            if (anchorMatch.Success)
+            {
+                var anchorStr = anchorMatch.Groups[1].Value;
+                if (anchorStr == "ctr")
+                    vertAlign = "center";
+                else if (anchorStr == "b")
+                    vertAlign = "bottom";
+            }
         }
         var padLeft = EmuToPt(bodyPr?.LeftInset?.Value ?? 0);
         var padTop = EmuToPt(bodyPr?.TopInset?.Value ?? 0);
         var padRight = EmuToPt(bodyPr?.RightInset?.Value ?? 0);
         var padBottom = EmuToPt(bodyPr?.BottomInset?.Value ?? 0);
+
+        // Parse normAutofit scale attributes
+        double? fontScale = null;
+        double? lnSpcReduction = null;
+        var normalAutoFit = bodyPr?.Elements<Drawing.NormalAutoFit>().FirstOrDefault();
+        if (normalAutoFit != null)
+        {
+            var outerXml = normalAutoFit.OuterXml;
+            var fontScaleMatch = System.Text.RegularExpressions.Regex.Match(outerXml, @"fontScale\s*=\s*""([^""]*)""");
+            if (fontScaleMatch.Success && int.TryParse(fontScaleMatch.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var fontScaleValue))
+                fontScale = fontScaleValue / 100000.0;
+
+            var lnSpcReductionMatch = System.Text.RegularExpressions.Regex.Match(outerXml, @"lnSpcReduction\s*=\s*""([^""]*)""");
+            if (lnSpcReductionMatch.Success && int.TryParse(lnSpcReductionMatch.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var lnSpcReductionValue))
+                lnSpcReduction = lnSpcReductionValue / 100000.0;
+        }
 
         // Get text body list style for cascade level 3
         var bodyLstStyle = textBody.ChildElements.FirstOrDefault(e => e.LocalName == "lstStyle");
@@ -1447,13 +2092,19 @@ public sealed class PptxToTypstConverter : IDisposable
 
             var paragraphText = new StringBuilder();
             Drawing.Run? firstRun = null;
+            var textRuns = new List<(string Text, Drawing.Run Run, TypstTextFormatting RawFmt)>();
+            var elements = new List<(bool IsRun, Drawing.Run? Run, string Text)>();
+
             foreach (var child in paragraph.ChildElements)
             {
                 if (child is Drawing.Run run)
                 {
-                    if (run.Text?.Text != null)
+                    var runText = run.Text?.Text;
+                    if (!string.IsNullOrEmpty(runText))
                     {
-                        paragraphText.Append(run.Text.Text);
+                        paragraphText.Append(runText);
+                        textRuns.Add((runText, run, ExtractTextFormatting(run)));
+                        elements.Add((true, run, runText));
                     }
 
                     if (firstRun == null)
@@ -1466,6 +2117,7 @@ public sealed class PptxToTypstConverter : IDisposable
                 {
                     paragraphText.Append('\n');
                     hasExplicitLineBreaks = true;
+                    elements.Add((false, null, "\n"));
                 }
             }
 
@@ -1477,11 +2129,42 @@ public sealed class PptxToTypstConverter : IDisposable
                 level = pPr.Level.Value;
             }
 
+            // Detect mixed formatting within the paragraph
+            bool hasMixedFormatting = false;
+            if (textRuns.Count > 1)
+            {
+                var firstRawFmt = textRuns[0].RawFmt;
+                for (int i = 1; i < textRuns.Count; i++)
+                {
+                    if (!AreFormattingEqual(firstRawFmt, textRuns[i].RawFmt))
+                    {
+                        hasMixedFormatting = true;
+                        break;
+                    }
+                }
+            }
+
             // Resolve formatting through full cascade
-            var formatting = ResolveParagraphFormatting(firstRun, pPr, bodyLstStyle, level, styleResolver, placeholderIdx);
+            // When mixed formatting is present, don't let firstRun dictate paragraph defaults
+            var formatting = ResolveParagraphFormatting(hasMixedFormatting ? null : firstRun, pPr, bodyLstStyle, level, styleResolver, placeholderIdx, placeholderType);
             if (align != null)
             {
                 formatting = formatting with { Align = align };
+            }
+
+            // Build per-run formatting merged with paragraph defaults
+            var runs = new List<TypstTextRun>();
+            foreach (var (isRun, run, text) in elements)
+            {
+                if (isRun && run != null)
+                {
+                    var runFormatting = MergeRunWithParagraphDefaults(formatting, run);
+                    runs.Add(new TypstTextRun { Content = text, Formatting = runFormatting });
+                }
+                else
+                {
+                    runs.Add(new TypstTextRun { Content = text, Formatting = formatting, IsLineBreak = text == "\n" });
+                }
             }
 
             // Resolve bullet properties through full cascade
@@ -1490,15 +2173,37 @@ public sealed class PptxToTypstConverter : IDisposable
             // Resolve line spacing through full cascade
             var paragraphLineSpacing = ResolveLineSpacing(pPr, bodyLstStyle, level, styleResolver, placeholderIdx, placeholderType);
 
+            // Resolve paragraph spacing (spcBef / spcAft) through full cascade
+            var (spaceBefore, spaceAfter) = ResolveParagraphSpacing(pPr, bodyLstStyle, level, styleResolver, placeholderIdx, placeholderType);
+
+            // Extract explicit margin left and indent from paragraph properties
+            double? marginLeft = null;
+            double? indent = null;
+            if (pPr != null)
+            {
+                var marLValue = GetAttributeValue(pPr, "marL");
+                if (!string.IsNullOrEmpty(marLValue) && int.TryParse(marLValue, out var marL))
+                    marginLeft = EmuToPt(marL);
+
+                var indentValue = GetAttributeValue(pPr, "indent");
+                if (!string.IsNullOrEmpty(indentValue) && int.TryParse(indentValue, out var ind))
+                    indent = EmuToPt(ind);
+            }
+
             paragraphs.Add(new TypstParagraph
             {
                 Content = content,
+                Runs = runs,
                 Formatting = formatting,
                 Level = level,
                 BulletChar = bulletChar,
                 AutoNumberType = autoNumberType,
                 HasBullet = hasBullet,
-                LineSpacing = paragraphLineSpacing
+                LineSpacing = paragraphLineSpacing,
+                SpaceBefore = spaceBefore,
+                SpaceAfter = spaceAfter,
+                MarginLeft = marginLeft,
+                Indent = indent
             });
         }
 
@@ -1513,7 +2218,9 @@ public sealed class PptxToTypstConverter : IDisposable
             PaddingBottom = padBottom,
             LineSpacing = paragraphs.FirstOrDefault()?.LineSpacing,
             ParagraphCount = Math.Max(1, paragraphCount),
-            HasExplicitLineBreaks = hasExplicitLineBreaks
+            HasExplicitLineBreaks = hasExplicitLineBreaks,
+            FontScale = fontScale,
+            LineSpacingReduction = lnSpcReduction
         };
     }
 
@@ -1559,6 +2266,7 @@ public sealed class PptxToTypstConverter : IDisposable
                     "ftr" => PlaceholderValues.Footer,
                     "hdr" => PlaceholderValues.Header,
                     "obj" => PlaceholderValues.Object,
+                    "dt" => PlaceholderValues.DateAndTime,
                     _ => (PlaceholderValues?)null
                 };
             }
@@ -1636,13 +2344,13 @@ public sealed class PptxToTypstConverter : IDisposable
         return null;
     }
 
-    private double? ExtractParagraphLineSpacing(Drawing.Paragraph paragraph)
+    private TextSpacing? ExtractParagraphLineSpacing(Drawing.Paragraph paragraph)
     {
         var pPr = paragraph.Elements<Drawing.ParagraphProperties>().FirstOrDefault();
         return ExtractLineSpacingFromElement(pPr);
     }
 
-    private static double? ExtractLineSpacingFromElement(OpenXmlElement? element)
+    private static TextSpacing? ExtractLineSpacingFromElement(OpenXmlElement? element)
     {
         if (element == null) return null;
 
@@ -1653,24 +2361,24 @@ public sealed class PptxToTypstConverter : IDisposable
         var spcPts = lnSpc.ChildElements.FirstOrDefault(e => e.LocalName == "spcPts");
         if (spcPts != null)
         {
-            var valAttr = spcPts.GetAttribute("val", "");
-            if (int.TryParse(valAttr.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value))
-                return value / 100.0;
+            var valStr = GetAttributeValue(spcPts, "val");
+            if (int.TryParse(valStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value))
+                return new TextSpacing(TextSpacingKind.Points, value / 100.0);
         }
 
         // Try spcPct (percentage of line height)
         var spcPct = lnSpc.ChildElements.FirstOrDefault(e => e.LocalName == "spcPct");
         if (spcPct != null)
         {
-            var valAttr = spcPct.GetAttribute("val", "");
-            if (int.TryParse(valAttr.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value))
-                return value / 100000.0; // spcPct is in 1/1000ths of a percent (100000 = 100% = 1.0)
+            var valStr = GetAttributeValue(spcPct, "val");
+            if (int.TryParse(valStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value))
+                return new TextSpacing(TextSpacingKind.Percent, value / 100000.0); // spcPct is in 1/1000ths of a percent (100000 = 100% = 1.0)
         }
 
         return null;
     }
 
-    private static double? ExtractLineSpacingFromLstStyle(OpenXmlElement? lstStyle, int level)
+    private static TextSpacing? ExtractLineSpacingFromLstStyle(OpenXmlElement? lstStyle, int level)
     {
         if (lstStyle == null) return null;
 
@@ -1689,23 +2397,16 @@ public sealed class PptxToTypstConverter : IDisposable
 
         // The OpenXML SDK doesn't always parse the algn attribute into Alignment property
         // Read the raw XML attribute directly
-        try
+        var algnValue = GetAttributeValue(pPr, "algn");
+        if (!string.IsNullOrEmpty(algnValue))
         {
-            var algnAttr = pPr.GetAttribute("algn", "");
-            if (!string.IsNullOrEmpty(algnAttr.Value))
+            return algnValue switch
             {
-                return algnAttr.Value switch
-                {
-                    "ctr" => "center",
-                    "r" => "right",
-                    "just" => "left",  // Typst doesn't have 'justify', use left as fallback
-                    _ => "left"
-                };
-            }
-        }
-        catch
-        {
-            // Attribute doesn't exist in schema
+                "ctr" => "center",
+                "r" => "right",
+                "just" => "left",  // Typst doesn't have 'justify', use left as fallback
+                _ => "left"
+            };
         }
 
         return null;
@@ -1772,7 +2473,8 @@ public sealed class PptxToTypstConverter : IDisposable
         OpenXmlElement? bodyLstStyle,
         int level,
         StyleResolver? styleResolver,
-        int? placeholderIdx)
+        int? placeholderIdx,
+        PlaceholderValues? placeholderType)
     {
         var fmt = new TypstTextFormatting();
 
@@ -1845,11 +2547,11 @@ public sealed class PptxToTypstConverter : IDisposable
         // 4. Layout placeholder list style
         if (styleResolver != null)
         {
-            var layoutStyle = styleResolver.GetLayoutPlaceholderLstStyle(placeholderIdx, level);
+            var layoutStyle = styleResolver.GetLayoutPlaceholderLstStyle(placeholderIdx, placeholderType, level);
             fmt = MergeDefaultStyle(fmt, layoutStyle);
 
             // 5. Master placeholder list style
-            var masterStyle = styleResolver.GetMasterPlaceholderLstStyle(placeholderIdx, level);
+            var masterStyle = styleResolver.GetMasterPlaceholderLstStyle(placeholderIdx, placeholderType, level);
             fmt = MergeDefaultStyle(fmt, masterStyle);
         }
 
@@ -1900,12 +2602,12 @@ public sealed class PptxToTypstConverter : IDisposable
         if (styleResolver != null)
         {
             // 3. Layout placeholder list style
-            info = styleResolver.GetLayoutPlaceholderBulletInfo(placeholderIdx, level);
+            info = styleResolver.GetLayoutPlaceholderBulletInfo(placeholderIdx, placeholderType, level);
             if (info.HasBullet || info.HasBulletNone)
                 return (info.BulletChar, info.AutoNumberType, info.HasBullet);
 
             // 4. Master placeholder list style
-            info = styleResolver.GetMasterPlaceholderBulletInfo(placeholderIdx, level);
+            info = styleResolver.GetMasterPlaceholderBulletInfo(placeholderIdx, placeholderType, level);
             if (info.HasBullet || info.HasBulletNone)
                 return (info.BulletChar, info.AutoNumberType, info.HasBullet);
 
@@ -1918,7 +2620,7 @@ public sealed class PptxToTypstConverter : IDisposable
         return (null, null, false);
     }
 
-    private static double? ResolveLineSpacing(
+    private static TextSpacing? ResolveLineSpacing(
         Drawing.ParagraphProperties? pPr,
         OpenXmlElement? bodyLstStyle,
         int level,
@@ -1926,36 +2628,133 @@ public sealed class PptxToTypstConverter : IDisposable
         int? placeholderIdx,
         PlaceholderValues? placeholderType)
     {
-        // DEBUG
         // 1. Paragraph level
         var spacing = ExtractLineSpacingFromElement(pPr);
-        if (spacing.HasValue)
-            return spacing.Value;
+        if (spacing != null)
+            return spacing;
 
         // 2. Text body list style
         spacing = ExtractLineSpacingFromLstStyle(bodyLstStyle, level);
-        if (spacing.HasValue)
-            return spacing.Value;
+        if (spacing != null)
+            return spacing;
 
         if (styleResolver != null)
         {
             // 3. Layout placeholder list style
-            spacing = styleResolver.GetLayoutPlaceholderLineSpacing(placeholderIdx, level);
-                if (spacing.HasValue)
-                return spacing.Value;
+            spacing = styleResolver.GetLayoutPlaceholderLineSpacing(placeholderIdx, placeholderType, level);
+            if (spacing != null)
+                return spacing;
 
             // 4. Master placeholder list style
-            spacing = styleResolver.GetMasterPlaceholderLineSpacing(placeholderIdx, level);
-                if (spacing.HasValue)
-                return spacing.Value;
+            spacing = styleResolver.GetMasterPlaceholderLineSpacing(placeholderIdx, placeholderType, level);
+            if (spacing != null)
+                return spacing;
 
             // 5. Master txStyles
             spacing = styleResolver.GetMasterTxStyleLineSpacing(placeholderType, level);
-                if (spacing.HasValue)
-                return spacing.Value;
+            if (spacing != null)
+                return spacing;
         }
 
         return null;
+    }
+
+    private static (TextSpacing? SpaceBefore, TextSpacing? SpaceAfter) ResolveParagraphSpacing(
+        Drawing.ParagraphProperties? pPr,
+        OpenXmlElement? bodyLstStyle,
+        int level,
+        StyleResolver? styleResolver,
+        int? placeholderIdx,
+        PlaceholderValues? placeholderType)
+    {
+        // 1. Paragraph level
+        var spacing = ExtractParagraphSpacing(pPr);
+        if (spacing.SpaceBefore != null || spacing.SpaceAfter != null)
+            return spacing;
+
+        // 2. Text body list style
+        spacing = ExtractParagraphSpacingFromLstStyle(bodyLstStyle, level);
+        if (spacing.SpaceBefore != null || spacing.SpaceAfter != null)
+            return spacing;
+
+        if (styleResolver != null)
+        {
+            // 3. Layout placeholder list style
+            spacing = styleResolver.GetLayoutPlaceholderSpacing(placeholderIdx, placeholderType, level);
+            if (spacing.SpaceBefore != null || spacing.SpaceAfter != null)
+                return spacing;
+
+            // 4. Master placeholder list style
+            spacing = styleResolver.GetMasterPlaceholderSpacing(placeholderIdx, placeholderType, level);
+            if (spacing.SpaceBefore != null || spacing.SpaceAfter != null)
+                return spacing;
+
+            // 5. Master txStyles
+            spacing = styleResolver.GetMasterTxStyleSpacing(placeholderType, level);
+            if (spacing.SpaceBefore != null || spacing.SpaceAfter != null)
+                return spacing;
+        }
+
+        return (null, null);
+    }
+
+    private static (TextSpacing? SpaceBefore, TextSpacing? SpaceAfter) ExtractParagraphSpacing(OpenXmlElement? pPr)
+    {
+        if (pPr == null) return (null, null);
+
+        TextSpacing? spcBef = null;
+        TextSpacing? spcAft = null;
+
+        var spcBefEl = pPr.ChildElements.FirstOrDefault(e => e.LocalName == "spcBef");
+        if (spcBefEl != null)
+        {
+            var spcPts = spcBefEl.ChildElements.FirstOrDefault(e => e.LocalName == "spcPts");
+            if (spcPts != null)
+            {
+                var valStr = GetAttributeValue(spcPts, "val");
+                if (int.TryParse(valStr, out var ptsHundredths))
+                    spcBef = new TextSpacing(TextSpacingKind.Points, ptsHundredths / 100.0);
+            }
+            var spcPct = spcBefEl.ChildElements.FirstOrDefault(e => e.LocalName == "spcPct");
+            if (spcPct != null)
+            {
+                var valStr = GetAttributeValue(spcPct, "val");
+                if (int.TryParse(valStr, out var pct))
+                    spcBef = new TextSpacing(TextSpacingKind.Percent, pct / 100000.0);
+            }
+        }
+
+        var spcAftEl = pPr.ChildElements.FirstOrDefault(e => e.LocalName == "spcAft");
+        if (spcAftEl != null)
+        {
+            var spcPts = spcAftEl.ChildElements.FirstOrDefault(e => e.LocalName == "spcPts");
+            if (spcPts != null)
+            {
+                var valStr = GetAttributeValue(spcPts, "val");
+                if (int.TryParse(valStr, out var ptsHundredths))
+                    spcAft = new TextSpacing(TextSpacingKind.Points, ptsHundredths / 100.0);
+            }
+            var spcPct = spcAftEl.ChildElements.FirstOrDefault(e => e.LocalName == "spcPct");
+            if (spcPct != null)
+            {
+                var valStr = GetAttributeValue(spcPct, "val");
+                if (int.TryParse(valStr, out var pct))
+                    spcAft = new TextSpacing(TextSpacingKind.Percent, pct / 100000.0);
+            }
+        }
+
+        return (spcBef, spcAft);
+    }
+
+    private static (TextSpacing? SpaceBefore, TextSpacing? SpaceAfter) ExtractParagraphSpacingFromLstStyle(OpenXmlElement? lstStyle, int level)
+    {
+        if (lstStyle == null) return (null, null);
+
+        var levelName = $"lvl{level + 1}pPr";
+        var lvlPpr = lstStyle.ChildElements.FirstOrDefault(e => e.LocalName == levelName);
+        if (lvlPpr == null) return (null, null);
+
+        return ExtractParagraphSpacing(lvlPpr);
     }
 
     private static (string? BulletChar, string? AutoNumberType, bool HasBullet, bool HasBulletNone) ExtractBulletInfo(OpenXmlElement? element)
@@ -1965,17 +2764,17 @@ public sealed class PptxToTypstConverter : IDisposable
         var buChar = element.ChildElements.FirstOrDefault(e => e.LocalName == "buChar");
         if (buChar != null)
         {
-            var charAttr = buChar.GetAttribute("char", "");
-            if (!string.IsNullOrEmpty(charAttr.Value))
-                return (charAttr.Value, null, true, false);
+            var charValue = GetAttributeValue(buChar, "char");
+            if (!string.IsNullOrEmpty(charValue))
+                return (charValue, null, true, false);
         }
 
         var buAutoNum = element.ChildElements.FirstOrDefault(e => e.LocalName == "buAutoNum");
         if (buAutoNum != null)
         {
-            var typeAttr = buAutoNum.GetAttribute("type", "");
-            if (!string.IsNullOrEmpty(typeAttr.Value))
-                return (null, typeAttr.Value, true, false);
+            var typeValue = GetAttributeValue(buAutoNum, "type");
+            if (!string.IsNullOrEmpty(typeValue))
+                return (null, typeValue, true, false);
         }
 
         var buNone = element.ChildElements.FirstOrDefault(e => e.LocalName == "buNone");
@@ -2206,13 +3005,15 @@ public sealed class PptxToTypstConverter : IDisposable
 
         _tableStyles.TryGetValue(styleId ?? "", out var tableStyle);
 
-        // Derive border color from wholeTbl border; fallback to black
+        // Derive border color and width from wholeTbl border; fallback to black/1.0
         var borderColor = "#000000";
-        if (tableStyle?.Parts.TryGetValue("wholeTbl", out var wholeTblPart) == true)
+        var borderWidth = 1.0;
+        TableStylePart? wholeTblPart = null;
+        if (tableStyle?.Parts.TryGetValue("wholeTbl", out wholeTblPart) == true)
         {
             borderColor = wholeTblPart.BorderTopColor ?? borderColor;
+            borderWidth = wholeTblPart.BorderTopWidth ?? borderWidth;
         }
-        var borderWidth = 1.0;
 
         for (int rowIndex = 0; rowIndex < totalRows; rowIndex++)
         {
@@ -2226,7 +3027,15 @@ public sealed class PptxToTypstConverter : IDisposable
             {
                 var cell = cells[colIndex];
                 var cellText = ExtractCellText(cell);
-                var cellFormatting = ExtractCellFormatting(cell);
+                var stylePart = ResolveCellStylePart(rowIndex, colIndex, totalRows, totalCols, tableStyle, firstRowFlag, bandRowFlag, firstColFlag, lastColFlag, lastRowFlag);
+
+                // Merge explicit cell borders with style part
+                stylePart = MergeExplicitCellBorders(cell, stylePart, styleResolver);
+
+                // Apply interior border suppression from wholeTbl
+                stylePart = ApplyInteriorBorderLogic(stylePart, rowIndex, colIndex, totalRows, totalCols);
+
+                var cellFormatting = ExtractCellFormatting(cell, stylePart);
                 var explicitBg = ExtractCellBackground(cell);
                 var styleBg = ResolveCellBackgroundColor(rowIndex, colIndex, totalRows, totalCols, tableStyle, firstRowFlag, bandRowFlag, firstColFlag, lastColFlag, lastRowFlag);
                 var bgColor = explicitBg ?? styleBg;
@@ -2235,7 +3044,8 @@ public sealed class PptxToTypstConverter : IDisposable
                 {
                     Content = cellText,
                     Formatting = cellFormatting,
-                    BackgroundColor = bgColor
+                    BackgroundColor = bgColor,
+                    StylePart = stylePart
                 });
             }
             rows.Add(rowCells);
@@ -2271,21 +3081,40 @@ public sealed class PptxToTypstConverter : IDisposable
         return sb.ToString().Trim();
     }
 
-    private TypstTextFormatting ExtractCellFormatting(Drawing.TableCell cell)
+    private TypstTextFormatting ExtractCellFormatting(Drawing.TableCell cell, TableStylePart? stylePart)
     {
-        // Try to get formatting from first run
-        var textBody = cell.TextBody;
-        if (textBody == null) return new TypstTextFormatting();
+        var formatting = new TypstTextFormatting();
 
-        foreach (var paragraph in textBody.Elements<Drawing.Paragraph>())
+        // Get explicit cell formatting from first run
+        var textBody = cell.TextBody;
+        if (textBody != null)
         {
-            foreach (var run in paragraph.Elements<Drawing.Run>())
+            foreach (var paragraph in textBody.Elements<Drawing.Paragraph>())
             {
-                return ExtractTextFormatting(run);
+                foreach (var run in paragraph.Elements<Drawing.Run>())
+                {
+                    formatting = ExtractTextFormatting(run);
+                    break;
+                }
+                if (formatting.FontSize != 18.0 || formatting.Bold || formatting.Italic || formatting.Color != "#000000")
+                    break;
             }
         }
 
-        return new TypstTextFormatting();
+        // Merge table style text properties (style overrides if cell doesn't specify)
+        if (stylePart != null)
+        {
+            if (stylePart.TextBold.HasValue && !formatting.Bold)
+                formatting = formatting with { Bold = stylePart.TextBold.Value };
+            if (stylePart.TextItalic.HasValue && !formatting.Italic)
+                formatting = formatting with { Italic = stylePart.TextItalic.Value };
+            if (!string.IsNullOrEmpty(stylePart.TextColor) && formatting.Color == "#000000")
+                formatting = formatting with { Color = stylePart.TextColor };
+            if (stylePart.TextFontSize.HasValue && formatting.FontSize == 18.0)
+                formatting = formatting with { FontSize = stylePart.TextFontSize.Value };
+        }
+
+        return formatting;
     }
 
     private string? ExtractCellBackground(Drawing.TableCell cell)
@@ -2344,10 +3173,79 @@ public sealed class PptxToTypstConverter : IDisposable
         }
 
         var borders = tcStyle.TableCellBorders;
-        var borderTop = ExtractBorderColor(borders, "top", styleResolver);
-        var borderBottom = ExtractBorderColor(borders, "bottom", styleResolver);
-        var borderLeft = ExtractBorderColor(borders, "left", styleResolver);
-        var borderRight = ExtractBorderColor(borders, "right", styleResolver);
+        var (borderTop, borderTopWidth, borderTopNone) = ExtractBorderInfo(borders?.TopBorder, styleResolver);
+        var (borderBottom, borderBottomWidth, borderBottomNone) = ExtractBorderInfo(borders?.BottomBorder, styleResolver);
+        var (borderLeft, borderLeftWidth, borderLeftNone) = ExtractBorderInfo(borders?.LeftBorder, styleResolver);
+        var (borderRight, borderRightWidth, borderRightNone) = ExtractBorderInfo(borders?.RightBorder, styleResolver);
+
+        // Parse text style
+        var tcTxStyle = part.TableCellTextStyle;
+        bool? textBold = null;
+        bool? textItalic = null;
+        string? textColor = null;
+        double? textFontSize = null;
+
+        if (tcTxStyle != null)
+        {
+            // Parse attributes directly on tcTxStyle using regex (SDK GetAttribute throws for schema-unrecognized attrs)
+            var tcTxStyleXml = tcTxStyle.OuterXml;
+            if (!string.IsNullOrEmpty(tcTxStyleXml))
+            {
+                var bMatch = System.Text.RegularExpressions.Regex.Match(tcTxStyleXml, @"\bb\s*=\s*""([^""]*)""");
+                if (bMatch.Success)
+                    textBold = bMatch.Groups[1].Value is "on" or "1" or "true";
+
+                var iMatch = System.Text.RegularExpressions.Regex.Match(tcTxStyleXml, @"\bi\s*=\s*""([^""]*)""");
+                if (iMatch.Success)
+                    textItalic = iMatch.Groups[1].Value is "on" or "1" or "true";
+            }
+
+            // Parse direct color children under tcTxStyle
+            var directSolidFill = tcTxStyle.Elements<Drawing.SolidFill>().FirstOrDefault();
+            if (directSolidFill != null)
+            {
+                textColor = ExtractSolidFillColor(directSolidFill, styleResolver);
+            }
+            else
+            {
+                // Some PPTX files place schemeClr directly under tcTxStyle
+                var schemeClrEl = tcTxStyle.ChildElements.FirstOrDefault(e => e.LocalName == "schemeClr");
+                if (schemeClrEl != null)
+                {
+                    var valAttr = schemeClrEl.GetAttribute("val", "");
+                    if (!string.IsNullOrEmpty(valAttr.Value))
+                    {
+                        var resolved = styleResolver?.ResolveSchemeColor(valAttr.Value);
+                        if (!string.IsNullOrEmpty(resolved))
+                            textColor = resolved;
+                    }
+                }
+            }
+
+            var defRPr = tcTxStyle.Elements<Drawing.DefaultRunProperties>().FirstOrDefault();
+            if (defRPr != null)
+            {
+                if (!textBold.HasValue)
+                    textBold = defRPr.Bold?.Value;
+                if (!textItalic.HasValue)
+                    textItalic = defRPr.Italic?.Value;
+                textFontSize = defRPr.FontSize?.Value != null ? defRPr.FontSize.Value / 100.0 : (double?)null;
+
+                if (string.IsNullOrEmpty(textColor))
+                {
+                    var solidFill = defRPr.Elements<Drawing.SolidFill>().FirstOrDefault();
+                    if (solidFill != null)
+                        textColor = ExtractSolidFillColor(solidFill, styleResolver);
+                }
+            }
+        }
+
+        // Parse insideH and insideV explicitly rather than deriving from exterior borders
+        var (insideHColor, insideHWidth, insideHNone) = ExtractBorderInfo(borders?.InsideHorizontalBorder, styleResolver);
+        var (insideVColor, insideVWidth, insideVNone) = ExtractBorderInfo(borders?.InsideVerticalBorder, styleResolver);
+
+        bool borderInsideHNone = insideHNone;
+        bool borderInsideVNone = insideVNone;
 
         definition.Parts[key] = new TableStylePart
         {
@@ -2355,7 +3253,25 @@ public sealed class PptxToTypstConverter : IDisposable
             BorderTopColor = borderTop,
             BorderBottomColor = borderBottom,
             BorderLeftColor = borderLeft,
-            BorderRightColor = borderRight
+            BorderRightColor = borderRight,
+            BorderTopWidth = borderTopWidth,
+            BorderBottomWidth = borderBottomWidth,
+            BorderLeftWidth = borderLeftWidth,
+            BorderRightWidth = borderRightWidth,
+            BorderTopNone = borderTopNone,
+            BorderBottomNone = borderBottomNone,
+            BorderLeftNone = borderLeftNone,
+            BorderRightNone = borderRightNone,
+            BorderInsideHNone = borderInsideHNone,
+            BorderInsideVNone = borderInsideVNone,
+            InsideHColor = insideHColor,
+            InsideHWidth = insideHWidth,
+            InsideVColor = insideVColor,
+            InsideVWidth = insideVWidth,
+            TextBold = textBold,
+            TextItalic = textItalic,
+            TextColor = textColor,
+            TextFontSize = textFontSize
         };
     }
 
@@ -2383,7 +3299,39 @@ public sealed class PptxToTypstConverter : IDisposable
         return null;
     }
 
+    private (string? Color, double? Width, bool IsNone) ExtractBorderInfo(OpenXmlElement? border, StyleResolver? styleResolver)
+    {
+        // Missing border element means "inherit", NOT "none"
+        if (border == null) return (null, null, false);
+
+        var outline = border.GetFirstChild<Drawing.Outline>();
+        // Empty border side element means "inherit", NOT "none"
+        if (outline == null) return (null, null, false);
+
+        // Explicit <a:noFill/> means none
+        var noFill = outline.Elements<Drawing.NoFill>().FirstOrDefault();
+        if (noFill != null) return (null, null, true);
+
+        var width = outline.Width != null ? outline.Width.Value / 12700.0 : (double?)null; // EMU to pt
+        var color = ExtractBorderColorFromOutline(outline, styleResolver);
+
+        return (color, width, false);
+    }
+
+    private static string? ExtractBorderColorFromOutline(Drawing.Outline outline, StyleResolver? styleResolver)
+    {
+        var solidFill = outline.Elements<Drawing.SolidFill>().FirstOrDefault();
+        if (solidFill != null)
+        {
+            return ExtractSolidFillColorStatic(solidFill, styleResolver);
+        }
+        return null;
+    }
+
     private string? ExtractSolidFillColor(Drawing.SolidFill solidFill, StyleResolver? styleResolver)
+        => ExtractSolidFillColorStatic(solidFill, styleResolver);
+
+    private static string? ExtractSolidFillColorStatic(Drawing.SolidFill solidFill, StyleResolver? styleResolver)
     {
         var rgb = solidFill.RgbColorModelHex;
         if (rgb?.Val != null)
@@ -2423,6 +3371,14 @@ public sealed class PptxToTypstConverter : IDisposable
     {
         if (style == null) return null;
 
+        var part = ResolveCellStylePart(row, col, rowCount, colCount, style, firstRowFlag, bandRowFlag, firstColFlag, lastColFlag, lastRowFlag);
+        return part?.BackgroundColor;
+    }
+
+    private static TableStylePart? ResolveCellStylePart(int row, int col, int rowCount, int colCount, TableStyleDefinition? style, bool firstRowFlag, bool bandRowFlag, bool firstColFlag, bool lastColFlag, bool lastRowFlag)
+    {
+        if (style == null) return null;
+
         string partKey;
         if (row == 0 && firstRowFlag)
             partKey = "firstRow";
@@ -2438,9 +3394,235 @@ public sealed class PptxToTypstConverter : IDisposable
             partKey = "wholeTbl";
 
         if (style.Parts.TryGetValue(partKey, out var part))
-            return part.BackgroundColor;
+        {
+            if (partKey == "wholeTbl" || !style.Parts.TryGetValue("wholeTbl", out var wholeTbl))
+                return part;
+            return MergeTableStylePart(part, wholeTbl);
+        }
+
+        // Fallback to wholeTbl for missing parts
+        if (partKey != "wholeTbl" && style.Parts.TryGetValue("wholeTbl", out var wholeTblFallback))
+            return wholeTblFallback;
 
         return null;
+    }
+
+    private static TableStylePart MergeTableStylePart(TableStylePart specific, TableStylePart whole)
+    {
+        return new TableStylePart
+        {
+            BackgroundColor = specific.BackgroundColor ?? whole.BackgroundColor,
+            BorderTopColor = specific.BorderTopColor ?? whole.BorderTopColor,
+            BorderBottomColor = specific.BorderBottomColor ?? whole.BorderBottomColor,
+            BorderLeftColor = specific.BorderLeftColor ?? whole.BorderLeftColor,
+            BorderRightColor = specific.BorderRightColor ?? whole.BorderRightColor,
+            BorderTopWidth = specific.BorderTopWidth ?? whole.BorderTopWidth,
+            BorderBottomWidth = specific.BorderBottomWidth ?? whole.BorderBottomWidth,
+            BorderLeftWidth = specific.BorderLeftWidth ?? whole.BorderLeftWidth,
+            BorderRightWidth = specific.BorderRightWidth ?? whole.BorderRightWidth,
+            BorderTopNone = specific.BorderTopNone || whole.BorderTopNone,
+            BorderBottomNone = specific.BorderBottomNone || whole.BorderBottomNone,
+            BorderLeftNone = specific.BorderLeftNone || whole.BorderLeftNone,
+            BorderRightNone = specific.BorderRightNone || whole.BorderRightNone,
+            BorderInsideHNone = specific.BorderInsideHNone || whole.BorderInsideHNone,
+            BorderInsideVNone = specific.BorderInsideVNone || whole.BorderInsideVNone,
+            InsideHColor = specific.InsideHColor ?? whole.InsideHColor,
+            InsideHWidth = specific.InsideHWidth ?? whole.InsideHWidth,
+            InsideVColor = specific.InsideVColor ?? whole.InsideVColor,
+            InsideVWidth = specific.InsideVWidth ?? whole.InsideVWidth,
+            TextBold = specific.TextBold ?? whole.TextBold,
+            TextItalic = specific.TextItalic ?? whole.TextItalic,
+            TextColor = specific.TextColor ?? whole.TextColor,
+            TextFontSize = specific.TextFontSize ?? whole.TextFontSize
+        };
+    }
+
+    private TableStylePart? MergeExplicitCellBorders(Drawing.TableCell cell, TableStylePart? stylePart, StyleResolver? styleResolver)
+    {
+        var cellProps = cell.TableCellProperties;
+        if (cellProps == null) return stylePart;
+
+        var borders = cellProps.Elements<Drawing.TableCellBorders>().FirstOrDefault();
+        if (borders == null) return stylePart;
+
+        var explicitTop = ExtractBorderInfo(borders.TopBorder, styleResolver);
+        var explicitBottom = ExtractBorderInfo(borders.BottomBorder, styleResolver);
+        var explicitLeft = ExtractBorderInfo(borders.LeftBorder, styleResolver);
+        var explicitRight = ExtractBorderInfo(borders.RightBorder, styleResolver);
+
+        // If no explicit borders at all, return style part as-is
+        if (explicitTop.IsNone && explicitTop.Color == null &&
+            explicitBottom.IsNone && explicitBottom.Color == null &&
+            explicitLeft.IsNone && explicitLeft.Color == null &&
+            explicitRight.IsNone && explicitRight.Color == null)
+            return stylePart;
+
+        return new TableStylePart
+        {
+            BackgroundColor = stylePart?.BackgroundColor,
+            BorderTopColor = explicitTop.IsNone ? null : (explicitTop.Color ?? stylePart?.BorderTopColor),
+            BorderBottomColor = explicitBottom.IsNone ? null : (explicitBottom.Color ?? stylePart?.BorderBottomColor),
+            BorderLeftColor = explicitLeft.IsNone ? null : (explicitLeft.Color ?? stylePart?.BorderLeftColor),
+            BorderRightColor = explicitRight.IsNone ? null : (explicitRight.Color ?? stylePart?.BorderRightColor),
+            BorderTopWidth = explicitTop.IsNone ? null : (explicitTop.Width ?? stylePart?.BorderTopWidth),
+            BorderBottomWidth = explicitBottom.IsNone ? null : (explicitBottom.Width ?? stylePart?.BorderBottomWidth),
+            BorderLeftWidth = explicitLeft.IsNone ? null : (explicitLeft.Width ?? stylePart?.BorderLeftWidth),
+            BorderRightWidth = explicitRight.IsNone ? null : (explicitRight.Width ?? stylePart?.BorderRightWidth),
+            BorderTopNone = explicitTop.IsNone || (stylePart?.BorderTopNone ?? false),
+            BorderBottomNone = explicitBottom.IsNone || (stylePart?.BorderBottomNone ?? false),
+            BorderLeftNone = explicitLeft.IsNone || (stylePart?.BorderLeftNone ?? false),
+            BorderRightNone = explicitRight.IsNone || (stylePart?.BorderRightNone ?? false),
+            BorderInsideHNone = stylePart?.BorderInsideHNone ?? false,
+            BorderInsideVNone = stylePart?.BorderInsideVNone ?? false,
+            InsideHColor = stylePart?.InsideHColor,
+            InsideHWidth = stylePart?.InsideHWidth,
+            InsideVColor = stylePart?.InsideVColor,
+            InsideVWidth = stylePart?.InsideVWidth,
+            TextBold = stylePart?.TextBold,
+            TextItalic = stylePart?.TextItalic,
+            TextColor = stylePart?.TextColor,
+            TextFontSize = stylePart?.TextFontSize
+        };
+    }
+
+    private static TableStylePart ApplyInteriorBorderLogic(TableStylePart? stylePart, int row, int col, int rowCount, int colCount)
+    {
+        if (stylePart == null) return new TableStylePart();
+
+        var result = stylePart;
+        bool isFirstCol = col == 0;
+        bool isLastCol = col == colCount - 1;
+        bool isFirstRow = row == 0;
+        bool isLastRow = row == rowCount - 1;
+
+        bool hasInsideV = result.InsideVColor != null || result.InsideVWidth.HasValue || result.BorderInsideVNone;
+        bool hasInsideH = result.InsideHColor != null || result.InsideHWidth.HasValue || result.BorderInsideHNone;
+
+        if (hasInsideV)
+        {
+            if (!isFirstCol)
+            {
+                result = new TableStylePart
+                {
+                    BackgroundColor = result.BackgroundColor,
+                    BorderTopColor = result.BorderTopColor,
+                    BorderBottomColor = result.BorderBottomColor,
+                    BorderLeftColor = result.InsideVColor,
+                    BorderRightColor = result.BorderRightColor,
+                    BorderTopWidth = result.BorderTopWidth,
+                    BorderBottomWidth = result.BorderBottomWidth,
+                    BorderLeftWidth = result.InsideVWidth,
+                    BorderRightWidth = result.BorderRightWidth,
+                    BorderTopNone = result.BorderTopNone,
+                    BorderBottomNone = result.BorderBottomNone,
+                    BorderLeftNone = result.BorderInsideVNone,
+                    BorderRightNone = result.BorderRightNone,
+                    BorderInsideHNone = result.BorderInsideHNone,
+                    BorderInsideVNone = result.BorderInsideVNone,
+                    InsideHColor = result.InsideHColor,
+                    InsideHWidth = result.InsideHWidth,
+                    InsideVColor = result.InsideVColor,
+                    InsideVWidth = result.InsideVWidth,
+                    TextBold = result.TextBold,
+                    TextItalic = result.TextItalic,
+                    TextColor = result.TextColor,
+                    TextFontSize = result.TextFontSize
+                };
+            }
+            if (!isLastCol)
+            {
+                result = new TableStylePart
+                {
+                    BackgroundColor = result.BackgroundColor,
+                    BorderTopColor = result.BorderTopColor,
+                    BorderBottomColor = result.BorderBottomColor,
+                    BorderLeftColor = result.BorderLeftColor,
+                    BorderRightColor = result.InsideVColor,
+                    BorderTopWidth = result.BorderTopWidth,
+                    BorderBottomWidth = result.BorderBottomWidth,
+                    BorderLeftWidth = result.BorderLeftWidth,
+                    BorderRightWidth = result.InsideVWidth,
+                    BorderTopNone = result.BorderTopNone,
+                    BorderBottomNone = result.BorderBottomNone,
+                    BorderLeftNone = result.BorderLeftNone,
+                    BorderRightNone = result.BorderInsideVNone,
+                    BorderInsideHNone = result.BorderInsideHNone,
+                    BorderInsideVNone = result.BorderInsideVNone,
+                    InsideHColor = result.InsideHColor,
+                    InsideHWidth = result.InsideHWidth,
+                    InsideVColor = result.InsideVColor,
+                    InsideVWidth = result.InsideVWidth,
+                    TextBold = result.TextBold,
+                    TextItalic = result.TextItalic,
+                    TextColor = result.TextColor,
+                    TextFontSize = result.TextFontSize
+                };
+            }
+        }
+
+        if (hasInsideH)
+        {
+            if (!isFirstRow)
+            {
+                result = new TableStylePart
+                {
+                    BackgroundColor = result.BackgroundColor,
+                    BorderTopColor = result.InsideHColor,
+                    BorderBottomColor = result.BorderBottomColor,
+                    BorderLeftColor = result.BorderLeftColor,
+                    BorderRightColor = result.BorderRightColor,
+                    BorderTopWidth = result.InsideHWidth,
+                    BorderBottomWidth = result.BorderBottomWidth,
+                    BorderLeftWidth = result.BorderLeftWidth,
+                    BorderRightWidth = result.BorderRightWidth,
+                    BorderTopNone = result.BorderInsideHNone,
+                    BorderBottomNone = result.BorderBottomNone,
+                    BorderLeftNone = result.BorderLeftNone,
+                    BorderRightNone = result.BorderRightNone,
+                    BorderInsideHNone = result.BorderInsideHNone,
+                    BorderInsideVNone = result.BorderInsideVNone,
+                    InsideHColor = result.InsideHColor,
+                    InsideHWidth = result.InsideHWidth,
+                    InsideVColor = result.InsideVColor,
+                    InsideVWidth = result.InsideVWidth,
+                    TextBold = result.TextBold,
+                    TextItalic = result.TextItalic,
+                    TextColor = result.TextColor,
+                    TextFontSize = result.TextFontSize
+                };
+            }
+            if (!isLastRow)
+            {
+                result = new TableStylePart
+                {
+                    BackgroundColor = result.BackgroundColor,
+                    BorderTopColor = result.BorderTopColor,
+                    BorderBottomColor = result.InsideHColor,
+                    BorderLeftColor = result.BorderLeftColor,
+                    BorderRightColor = result.BorderRightColor,
+                    BorderTopWidth = result.BorderTopWidth,
+                    BorderBottomWidth = result.InsideHWidth,
+                    BorderLeftWidth = result.BorderLeftWidth,
+                    BorderRightWidth = result.BorderRightWidth,
+                    BorderTopNone = result.BorderTopNone,
+                    BorderBottomNone = result.BorderInsideHNone,
+                    BorderLeftNone = result.BorderLeftNone,
+                    BorderRightNone = result.BorderRightNone,
+                    BorderInsideHNone = result.BorderInsideHNone,
+                    BorderInsideVNone = result.BorderInsideVNone,
+                    InsideHColor = result.InsideHColor,
+                    InsideHWidth = result.InsideHWidth,
+                    InsideVColor = result.InsideVColor,
+                    InsideVWidth = result.InsideVWidth,
+                    TextBold = result.TextBold,
+                    TextItalic = result.TextItalic,
+                    TextColor = result.TextColor,
+                    TextFontSize = result.TextFontSize
+                };
+            }
+        }
+
+        return result;
     }
 
     private static (byte R, byte G, byte B) ParseHexColor(string hex)
@@ -2771,6 +3953,21 @@ public sealed class PptxToTypstConverter : IDisposable
     private static double EmuToPt(long emu)
     {
         return emu / 12700.0;
+    }
+
+    /// <summary>
+    /// Safely extracts an attribute value from an OpenXml element by reading raw XML.
+    /// Avoids KeyNotFoundException thrown by GetAttribute on typed elements when the attribute is absent.
+    /// </summary>
+    private static string? GetAttributeValue(OpenXmlElement? element, string attributeName)
+    {
+        if (element == null) return null;
+        var outerXml = element.OuterXml;
+        var tagEndIndex = outerXml.IndexOf('>');
+        if (tagEndIndex < 0) return null;
+        var openingTag = outerXml[..tagEndIndex];
+        var match = System.Text.RegularExpressions.Regex.Match(openingTag, $@"\b{attributeName}\s*=\s*""([^""]*)""");
+        return match.Success ? match.Groups[1].Value : null;
     }
 
     private static string FormatPt(double pt)
