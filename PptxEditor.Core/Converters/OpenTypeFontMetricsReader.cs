@@ -1,3 +1,4 @@
+using System.Text;
 using PptxEditor.Core.Models;
 
 namespace PptxEditor.Core.Converters;
@@ -73,6 +74,102 @@ internal static class OpenTypeFontMetricsReader
             WinDescent = winDescent,
             AdvanceWidths = ReadAdvanceWidths(data, tables)
         };
+    }
+
+    public static TypstFontMetrics? ReadMetrics(string fontPath)
+    {
+        try
+        {
+            var data = File.ReadAllBytes(fontPath);
+            return TryRead(data);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public static string? ReadFontFamilyName(string fontPath)
+    {
+        try
+        {
+            var data = File.ReadAllBytes(fontPath);
+            if (data.Length < 12) return null;
+
+            var tableCount = ReadUInt16(data, 4);
+            var tables = new Dictionary<string, (int Offset, int Length)>(StringComparer.Ordinal);
+
+            for (var i = 0; i < tableCount; i++)
+            {
+                var recordOffset = 12 + i * 16;
+                if (recordOffset + 16 > data.Length) return null;
+
+                var tag = new string([
+                    (char)data[recordOffset],
+                    (char)data[recordOffset + 1],
+                    (char)data[recordOffset + 2],
+                    (char)data[recordOffset + 3]
+                ]);
+                var offset = (int)ReadUInt32(data, recordOffset + 8);
+                var length = (int)ReadUInt32(data, recordOffset + 12);
+                if (offset < 0 || length < 0 || offset + length > data.Length) continue;
+
+                tables[tag] = (offset, length);
+            }
+
+            if (!tables.TryGetValue("name", out var nameTable) || nameTable.Length < 6)
+                return null;
+
+            var format = ReadUInt16(data, nameTable.Offset);
+            var count = ReadUInt16(data, nameTable.Offset + 2);
+            var stringOffset = ReadUInt16(data, nameTable.Offset + 4);
+
+            string? familyName = null;
+
+            for (var i = 0; i < count; i++)
+            {
+                var recordOffset = nameTable.Offset + 6 + i * 12;
+                if (recordOffset + 12 > data.Length || recordOffset + 12 > nameTable.Offset + nameTable.Length)
+                    break;
+
+                var platformID = ReadUInt16(data, recordOffset);
+                var encodingID = ReadUInt16(data, recordOffset + 2);
+                var languageID = ReadUInt16(data, recordOffset + 4);
+                var nameID = ReadUInt16(data, recordOffset + 6);
+                var length = ReadUInt16(data, recordOffset + 8);
+                var offset = ReadUInt16(data, recordOffset + 10);
+
+                if (nameID != 1 && nameID != 16)
+                    continue;
+
+                var stringStart = nameTable.Offset + stringOffset + offset;
+                if (stringStart + length > data.Length)
+                    continue;
+
+                var isUnicode = platformID == 0 || (platformID == 3 && (encodingID == 0 || encodingID == 1 || encodingID == 10));
+                string name;
+                if (isUnicode)
+                {
+                    name = Encoding.BigEndianUnicode.GetString(data, stringStart, length);
+                }
+                else
+                {
+                    name = Encoding.UTF8.GetString(data, stringStart, length);
+                }
+
+                if (nameID == 16)
+                    return name.TrimEnd('\0');
+
+                if (nameID == 1 && familyName == null)
+                    familyName = name.TrimEnd('\0');
+            }
+
+            return familyName;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static Dictionary<int, ushort> ReadAdvanceWidths(ReadOnlySpan<byte> data, Dictionary<string, (int Offset, int Length)> tables)
