@@ -77,3 +77,40 @@ DocxEditor/
 - Support both imperative (fluent API) and declarative (JSON/YAML) interfaces
 - Preserve all existing styles when editing documents
 - Support template-based document creation
+
+## Expanded Project Scope
+The project has grown beyond DOCX to include:
+- **PPTX → Typst → PDF conversion pipeline** (primary active work)
+- **XLSX support** (basic read/write)
+- **Typst integration** via CLI fallback (`TypstCompilerService`)
+- **Reference files in `examples/REF/`** for visual regression testing
+
+## PPTX→Typst Conversion Critical Rules
+- **Use regex on `OuterXml` for unreliable OOXML attributes** (`marL`, `indent`, `algn`, `val`, `char`, `type`). `OpenXmlElement.GetAttribute()` crashes on missing attributes.
+- **`spcPct` values are 1/1000ths of a percent**: divide by `100000.0` (e.g., `120000` = `120%` = `1.2`).
+- **Typst `par(leading:)` is additive** to Typst's default line advance, not a direct replacement for PPTX line spacing.
+- **List items must be separate arguments**: `#enum[item1][item2]`, never `#enum[all text]`.
+- **Never apply global auto-fit** — it breaks body paragraph wrapping.
+
+## Font Handling Specifics
+- **Carlito** is the Linux fallback for missing `Aptos`/`Calibri`
+- **Never override embedded PPTX fonts** with `--font-path`; combine paths via `Path.PathSeparator`
+- Extract embedded fonts from `ppt/fonts/` and pass via `--font-path`
+
+## User Workflow Constraints
+- Incremental, targeted fixes only — never broad visual-fidelity sweeps
+- Always verify against reference PDFs in `examples/REF/` before considering a fix complete
+- Never commit unless explicitly asked
+- Run `dotnet test` after changes
+- Run conversions sequentially (parallel `dotnet run` causes build file locks)
+
+## Common Pitfalls
+- Native TypstSharp fails on hardened Linux → use Typst CLI fallback
+- `PlaceholderValues` and `SchemeColorValues` parsing via SDK is unreliable → regex fallback
+- Table styles: start with header bold/white, avoid complex partial per-cell strokes initially
+
+## Reference Files & Testing
+- Reference PPTX/PDF pairs: `REMOVED`, `pres-pro` in `examples/REF/`
+- Generated outputs: `examples/output/ref/`
+- PNG mode: `--format png` generates per-slide images
+- Smoke tests must pass on `REMOVED.pptx` and `pres-pro.pptx`
