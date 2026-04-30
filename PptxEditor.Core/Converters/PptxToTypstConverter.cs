@@ -177,23 +177,13 @@ public sealed class PptxToTypstConverter : IDisposable
         if (element.Type == "Text" && element.Text != null)
         {
             var text = element.Text;
+            var topLeading = Math.Max(0, ((text.LineSpacing ?? text.Formatting.FontSize) - text.Formatting.FontSize) / 2);
+            var metricOffset = GetTextMetricOffset(text);
 
             xPos += text.PaddingLeft;
+            yPos += text.PaddingTop + topLeading + metricOffset;
             width = Math.Max(0, width - text.PaddingLeft - text.PaddingRight);
             height = Math.Max(0, height - text.PaddingTop - text.PaddingBottom);
-
-            if (text.VerticalAlign == "top")
-            {
-                yPos += text.PaddingTop;
-            }
-            else
-            {
-                var estimatedTextHeight = EstimateTextHeight(text);
-                var yOffset = text.VerticalAlign == "center"
-                    ? Math.Max(0, (height - estimatedTextHeight) / 2)
-                    : Math.Max(0, height - estimatedTextHeight);
-                yPos += text.PaddingTop + yOffset;
-            }
 
             if (IsSingleLineAutoFit(text, height) && text.Formatting.Align == "left")
             {
@@ -244,14 +234,21 @@ public sealed class PptxToTypstConverter : IDisposable
     {
         var fmt = text.Formatting;
 
-        // Constrain text to original text box width, with height for non-top alignment
+        // Constrain text to original text box width, with height for vertical alignment
         if (!string.IsNullOrEmpty(height) && text.VerticalAlign != "top")
         {
-            sb.Append($"#block(width: {width}, height: {height})[");
+            var alignVal = text.VerticalAlign == "center" ? "horizon" : "bottom";
+            sb.Append($"#block(width: {width}, height: {height})[#align({alignVal})[");
         }
         else
         {
             sb.Append($"#block(width: {width})[");
+        }
+
+        var leading = GetTypstParagraphLeading(text);
+        if (leading > 0.01)
+        {
+            sb.Append($"#set par(leading: {FormatPt(leading)})\n");
         }
 
         // Apply horizontal alignment if not left
@@ -268,8 +265,15 @@ public sealed class PptxToTypstConverter : IDisposable
             sb.Append("]");
         }
 
-        // Close block wrapper
-        sb.Append("]");
+        // Close vertical alignment wrapper if opened
+        if (!string.IsNullOrEmpty(height) && text.VerticalAlign != "top")
+        {
+            sb.Append("]]");
+        }
+        else
+        {
+            sb.Append("]");
+        }
     }
 
     private void AppendParagraphs(StringBuilder sb, TypstTextElement text, HashSet<string> availableFonts)
@@ -327,27 +331,17 @@ public sealed class PptxToTypstConverter : IDisposable
                 }
 
                 // Emit space before if present
-                if (paragraph.SpaceBefore != null && paragraph.SpaceBefore.Value > 0.01)
+                if (paragraph.SpaceBefore > 0.01)
                 {
-                    var spaceBeforePts = ResolveParagraphSpacingToPoints(paragraph.SpaceBefore, paragraph.Formatting);
-                    sb.Append($"#v({FormatPt(spaceBeforePts)})\n");
+                    sb.Append($"#v({FormatPt(paragraph.SpaceBefore.Value)})");
                 }
 
                 if (string.IsNullOrEmpty(content))
                 {
-                    sb.Append($"#v({FormatPt((paragraph.LineSpacing ?? text.LineSpacing)?.Value ?? paragraph.Formatting.FontSize)})\n");
+                    sb.Append($"#v({FormatPt(text.LineSpacing ?? paragraph.Formatting.FontSize)})\n");
                 }
                 else
                 {
-                    var spacing = paragraph.LineSpacing ?? text.LineSpacing;
-                    var leading = GetTypstParagraphLeading(spacing, paragraph.Formatting, text.LineSpacingReduction);
-                    bool hasLeading = Math.Abs(leading) > 0.01;
-
-                    if (hasLeading)
-                    {
-                        sb.Append($"#set par(leading: {FormatPt(leading)})\n");
-                    }
-
                     if (!string.IsNullOrEmpty(paragraph.AutoNumberType))
                     {
                         var paramStr = BuildTextParameters(paragraph.Formatting, availableFonts);
@@ -370,10 +364,9 @@ public sealed class PptxToTypstConverter : IDisposable
                 }
 
                 // Emit space after if present
-                if (paragraph.SpaceAfter != null && paragraph.SpaceAfter.Value > 0.01)
+                if (paragraph.SpaceAfter > 0.01)
                 {
-                    var spaceAfterPts = ResolveParagraphSpacingToPoints(paragraph.SpaceAfter, paragraph.Formatting);
-                    sb.Append($"#v({FormatPt(spaceAfterPts)})\n");
+                    sb.Append($"#v({FormatPt(paragraph.SpaceAfter.Value)})");
                 }
 
                 i++;
@@ -441,30 +434,10 @@ public sealed class PptxToTypstConverter : IDisposable
             }
 
             // Emit space before first list item if present
-            var firstListItem = paragraphs[i];
-            var firstListItemSpaceBefore = firstListItem.SpaceBefore;
-            if (firstListItemSpaceBefore != null && firstListItemSpaceBefore.Value > 0.01)
+            if (paragraphs[i].SpaceBefore > 0.01)
             {
-                var spaceBeforePts = ResolveParagraphSpacingToPoints(firstListItemSpaceBefore, firstListItem.Formatting);
-                sb.Append($"#v({FormatPt(spaceBeforePts)})\n");
+                sb.Append($"#v({FormatPt(paragraphs[i].SpaceBefore.Value)})");
             }
-
-            // Check for uniform line spacing in the group
-            var firstItemSpacing = paragraphs[i].LineSpacing ?? text.LineSpacing;
-            var firstItemLeading = GetTypstParagraphLeading(firstItemSpacing, paragraphs[i].Formatting, text.LineSpacingReduction);
-            bool allSameLeading = true;
-            for (int k = i + 1; k <= groupEnd; k++)
-            {
-                var itemSpacing = paragraphs[k].LineSpacing ?? text.LineSpacing;
-                var itemLeading = GetTypstParagraphLeading(itemSpacing, paragraphs[k].Formatting, text.LineSpacingReduction);
-                if (Math.Abs(itemLeading - firstItemLeading) > 0.01)
-                {
-                    allSameLeading = false;
-                    break;
-                }
-            }
-
-            bool hasGroupLeading = allSameLeading && Math.Abs(firstItemLeading) > 0.01;
 
             if (isNumbered)
             {
@@ -486,12 +459,6 @@ public sealed class PptxToTypstConverter : IDisposable
                     sb.Append(groupParamStr);
                     sb.Append("[");
                 }
-
-                if (hasGroupLeading)
-                {
-                    sb.Append($"#set par(leading: {FormatPt(firstItemLeading)})\n");
-                }
-
                 sb.Append($"#enum{startParam}{listIndent}");
 
                 for (int k = i; k <= groupEnd; k++)
@@ -509,20 +476,10 @@ public sealed class PptxToTypstConverter : IDisposable
                                 pContent = pContent.Substring(prefixLen);
                         }
                     }
-                    if (!allSameLeading)
-                    {
-                        var itemSpacing = p.LineSpacing ?? text.LineSpacing;
-                        var itemLeading = GetTypstParagraphLeading(itemSpacing, p.Formatting, text.LineSpacingReduction);
-                        if (Math.Abs(itemLeading) > 0.01)
-                        {
-                            sb.Append($"#set par(leading: {FormatPt(itemLeading)})\n");
-                        }
-                    }
                     sb.Append("[");
                     AppendParagraphContent(sb, p, pContent, availableFonts);
                     sb.Append("]");
                 }
-
                 if (!string.IsNullOrEmpty(groupParamStr))
                 {
                     sb.Append("]");
@@ -540,12 +497,6 @@ public sealed class PptxToTypstConverter : IDisposable
                     sb.Append(groupParamStr);
                     sb.Append("[");
                 }
-
-                if (hasGroupLeading)
-                {
-                    sb.Append($"#set par(leading: {FormatPt(firstItemLeading)})\n");
-                }
-
                 sb.Append($"#list(marker: [{markerEscaped}]{listIndent})");
 
                 for (int k = i; k <= groupEnd; k++)
@@ -563,20 +514,10 @@ public sealed class PptxToTypstConverter : IDisposable
                                 pContent = pContent.Substring(prefixLen);
                         }
                     }
-                    if (!allSameLeading)
-                    {
-                        var itemSpacing = p.LineSpacing ?? text.LineSpacing;
-                        var itemLeading = GetTypstParagraphLeading(itemSpacing, p.Formatting, text.LineSpacingReduction);
-                        if (Math.Abs(itemLeading) > 0.01)
-                        {
-                            sb.Append($"#set par(leading: {FormatPt(itemLeading)})\n");
-                        }
-                    }
                     sb.Append("[");
                     AppendParagraphContent(sb, p, pContent, availableFonts);
                     sb.Append("]");
                 }
-
                 if (!string.IsNullOrEmpty(groupParamStr))
                 {
                     sb.Append("]");
@@ -584,26 +525,13 @@ public sealed class PptxToTypstConverter : IDisposable
             }
 
             // Emit space after last list item if present
-            var lastListItem = paragraphs[groupEnd];
-            var lastListItemSpaceAfter = lastListItem.SpaceAfter;
-            if (lastListItemSpaceAfter != null && lastListItemSpaceAfter.Value > 0.01)
+            if (paragraphs[groupEnd].SpaceAfter > 0.01)
             {
-                var spaceAfterPts = ResolveParagraphSpacingToPoints(lastListItemSpaceAfter, lastListItem.Formatting);
-                sb.Append($"#v({FormatPt(spaceAfterPts)})\n");
+                sb.Append($"#v({FormatPt(paragraphs[groupEnd].SpaceAfter.Value)})");
             }
 
             i = groupEnd + 1;
         }
-    }
-
-    private static double ResolveParagraphSpacingToPoints(TextSpacing spacing, TypstTextFormatting formatting)
-    {
-        return spacing.Kind switch
-        {
-            TextSpacingKind.Points => spacing.Value,
-            TextSpacingKind.Percent => spacing.Value * formatting.FontSize,
-            _ => spacing.Value
-        };
     }
 
     private static string BuildListIndentParams(TypstParagraph paragraph)
@@ -777,53 +705,26 @@ public sealed class PptxToTypstConverter : IDisposable
         }
     }
 
-    private static double ResolveLineSpacingTargetPoints(TextSpacing spacing, TypstTextFormatting formatting, double? lineSpacingReduction = null)
+    private static double GetTypstParagraphLeading(TypstTextElement text)
     {
-        var target = spacing.Kind switch
-        {
-            TextSpacingKind.Points => spacing.Value,
-            TextSpacingKind.Percent => spacing.Value * formatting.FontSize,
-            _ => spacing.Value
-        };
-
-        if (lineSpacingReduction.HasValue && lineSpacingReduction.Value > 0)
-        {
-            target *= (1.0 - lineSpacingReduction.Value);
-        }
-
-        return target;
-    }
-
-    private double EstimateNaturalLineHeight(TypstTextFormatting formatting)
-    {
-        var metrics = GetFontMetrics(formatting.FontFamily);
-        if (metrics != null && metrics.UnitsPerEm > 0)
-        {
-            var scale = formatting.FontSize / metrics.UnitsPerEm;
-            var ascender = metrics.TypoAscender != 0 ? metrics.TypoAscender : metrics.HheaAscender;
-            var descender = metrics.TypoDescender != 0 ? metrics.TypoDescender : metrics.HheaDescender;
-            var lineGap = metrics.TypoLineGap != 0 ? metrics.TypoLineGap : metrics.HheaLineGap;
-            var naturalHeight = (ascender - descender + lineGap) * scale;
-            if (naturalHeight > 0)
-                return naturalHeight;
-        }
-
-        return formatting.FontSize;
-    }
-
-    private double GetTypstParagraphLeading(TextSpacing? spacing, TypstTextFormatting formatting, double? lineSpacingReduction = null)
-    {
-        if (spacing == null)
+        if (text.LineSpacing == null)
             return 0;
 
-        var targetPitch = ResolveLineSpacingTargetPoints(spacing, formatting, lineSpacingReduction);
-        var naturalLineHeight = EstimateNaturalLineHeight(formatting);
-        return targetPitch - naturalLineHeight;
-    }
+        double lineSpacingPts;
+        if (text.LineSpacing.Value < 10)
+        {
+            // Percentage value (e.g., 1.2 = 120%)
+            lineSpacingPts = text.Formatting.FontSize * text.LineSpacing.Value;
+        }
+        else
+        {
+            // Absolute points value
+            lineSpacingPts = text.LineSpacing.Value;
+        }
 
-    private double GetTypstParagraphLeading(TypstTextElement text)
-    {
-        return GetTypstParagraphLeading(text.LineSpacing, text.Formatting, text.LineSpacingReduction);
+        // Typst's par.leading is added to its own default line advance, while PPTX spcPts is the target line pitch.
+        var estimatedTypstLineAdvance = text.Formatting.FontSize * 0.65;
+        return Math.Max(0, lineSpacingPts - estimatedTypstLineAdvance);
     }
 
     private double GetTextMetricOffset(TypstTextElement text)
@@ -841,40 +742,12 @@ public sealed class PptxToTypstConverter : IDisposable
         return ascenderDelta;
     }
 
-    private double EstimateTextHeight(TypstTextElement text)
-    {
-        if (text.Paragraphs.Count == 0)
-            return text.Formatting.FontSize;
-
-        double totalHeight = 0;
-
-        foreach (var paragraph in text.Paragraphs)
-        {
-            var formatting = paragraph.Formatting;
-            var spacing = paragraph.LineSpacing ?? text.LineSpacing;
-
-            double linePitch = spacing != null
-                ? ResolveLineSpacingTargetPoints(spacing, formatting, text.LineSpacingReduction)
-                : formatting.FontSize;
-
-            int lineCount = 1;
-            if (!string.IsNullOrEmpty(paragraph.Content) && text.HasExplicitLineBreaks)
-            {
-                lineCount = paragraph.Content.Split('\n').Length;
-            }
-
-            totalHeight += lineCount * linePitch;
-        }
-
-        return totalHeight;
-    }
-
     private bool IsSingleLineAutoFit(TypstTextElement text, double height)
     {
         if (!text.AutoFit || text.ParagraphCount != 1 || text.HasExplicitLineBreaks)
             return false;
 
-        var lineHeight = text.LineSpacing?.Value ?? text.Formatting.FontSize;
+        var lineHeight = text.LineSpacing ?? text.Formatting.FontSize;
         return height <= lineHeight * 1.25;
     }
 
@@ -1043,11 +916,6 @@ public sealed class PptxToTypstConverter : IDisposable
             ? string.Join(", ", table.ColumnWidths.Select(w => FormatPt(w)))
             : string.Join(", ", Enumerable.Repeat("1fr", cols));
 
-        // Row heights
-        var rowHeights = table.RowHeights.Count > 0
-            ? string.Join(", ", table.RowHeights.Select(h => FormatPt(h)))
-            : null;
-
         // Determine if we need per-cell border control
         bool hasComplexBorders = table.Rows.Any(row =>
             row.Any(cell => cell.StylePart != null && (
@@ -1058,18 +926,12 @@ public sealed class PptxToTypstConverter : IDisposable
         if (hasComplexBorders)
         {
             // Emit table without global stroke, handle per-cell
-            if (rowHeights != null)
-                sb.Append($"#table(columns: ({colWidths}), rows: ({rowHeights}), ");
-            else
-                sb.Append($"#table(columns: ({colWidths}), ");
+            sb.Append($"#table(columns: ({colWidths}), ");
         }
         else
         {
             // Existing behavior
-            if (rowHeights != null)
-                sb.Append($"#table(columns: ({colWidths}), rows: ({rowHeights}), stroke: {FormatPt(table.BorderWidth)} + rgb(\"{table.BorderColor ?? "#000000"}\"), ");
-            else
-                sb.Append($"#table(columns: ({colWidths}), stroke: {FormatPt(table.BorderWidth)} + rgb(\"{table.BorderColor ?? "#000000"}\"), ");
+            sb.Append($"#table(columns: ({colWidths}), stroke: {FormatPt(table.BorderWidth)} + rgb(\"{table.BorderColor ?? "#000000"}\"), ");
         }
 
         // Generate cells
@@ -1138,28 +1000,20 @@ public sealed class PptxToTypstConverter : IDisposable
         var sp = cell.StylePart;
         if (sp == null) return null;
 
-        bool topDiffers = (sp.BorderTopWidth.HasValue && sp.BorderTopWidth.Value != defaultWidth)
-                       || (!string.IsNullOrEmpty(sp.BorderTopColor) && sp.BorderTopColor != defaultColor);
         if (sp.BorderTopNone) parts.Add("top: none");
-        else if (topDiffers)
+        else if (sp.BorderTopWidth.HasValue || sp.BorderTopColor != defaultColor)
             parts.Add($"top: {FormatPt(sp.BorderTopWidth ?? defaultWidth)} + rgb(\"{sp.BorderTopColor ?? defaultColor}\")");
 
-        bool bottomDiffers = (sp.BorderBottomWidth.HasValue && sp.BorderBottomWidth.Value != defaultWidth)
-                          || (!string.IsNullOrEmpty(sp.BorderBottomColor) && sp.BorderBottomColor != defaultColor);
         if (sp.BorderBottomNone) parts.Add("bottom: none");
-        else if (bottomDiffers)
+        else if (sp.BorderBottomWidth.HasValue || sp.BorderBottomColor != defaultColor)
             parts.Add($"bottom: {FormatPt(sp.BorderBottomWidth ?? defaultWidth)} + rgb(\"{sp.BorderBottomColor ?? defaultColor}\")");
 
-        bool leftDiffers = (sp.BorderLeftWidth.HasValue && sp.BorderLeftWidth.Value != defaultWidth)
-                        || (!string.IsNullOrEmpty(sp.BorderLeftColor) && sp.BorderLeftColor != defaultColor);
         if (sp.BorderLeftNone) parts.Add("left: none");
-        else if (leftDiffers)
+        else if (sp.BorderLeftWidth.HasValue || sp.BorderLeftColor != defaultColor)
             parts.Add($"left: {FormatPt(sp.BorderLeftWidth ?? defaultWidth)} + rgb(\"{sp.BorderLeftColor ?? defaultColor}\")");
 
-        bool rightDiffers = (sp.BorderRightWidth.HasValue && sp.BorderRightWidth.Value != defaultWidth)
-                         || (!string.IsNullOrEmpty(sp.BorderRightColor) && sp.BorderRightColor != defaultColor);
         if (sp.BorderRightNone) parts.Add("right: none");
-        else if (rightDiffers)
+        else if (sp.BorderRightWidth.HasValue || sp.BorderRightColor != defaultColor)
             parts.Add($"right: {FormatPt(sp.BorderRightWidth ?? defaultWidth)} + rgb(\"{sp.BorderRightColor ?? defaultColor}\")");
 
         return parts.Count > 0 ? $"({string.Join(", ", parts)})" : null;
@@ -1268,9 +1122,7 @@ public sealed class PptxToTypstConverter : IDisposable
                 PaddingBottom = text.PaddingBottom,
                 LineSpacing = text.LineSpacing,
                 ParagraphCount = text.ParagraphCount,
-                HasExplicitLineBreaks = text.HasExplicitLineBreaks,
-                FontScale = text.FontScale,
-                LineSpacingReduction = text.LineSpacingReduction
+                HasExplicitLineBreaks = text.HasExplicitLineBreaks
             };
         }
 
@@ -1695,46 +1547,7 @@ public sealed class PptxToTypstConverter : IDisposable
 
         if (txBody == null) return null;
 
-        var text = ExtractTextFromTextBody(txBody);
-        if (!text.FontScale.HasValue) return text;
-
-        var scale = text.FontScale.Value;
-        var scaledParagraphs = text.Paragraphs.Select(p => new TypstParagraph
-        {
-            Content = p.Content,
-            Runs = p.Runs.Select(r => new TypstTextRun
-            {
-                Content = r.Content,
-                Formatting = r.Formatting with { FontSize = r.Formatting.FontSize * scale },
-                IsLineBreak = r.IsLineBreak
-            }).ToList(),
-            Formatting = p.Formatting with { FontSize = p.Formatting.FontSize * scale },
-            Level = p.Level,
-            BulletChar = p.BulletChar,
-            AutoNumberType = p.AutoNumberType,
-            HasBullet = p.HasBullet,
-            LineSpacing = p.LineSpacing,
-            SpaceBefore = p.SpaceBefore,
-            SpaceAfter = p.SpaceAfter,
-            MarginLeft = p.MarginLeft,
-            Indent = p.Indent
-        }).ToList();
-
-        return new TypstTextElement
-        {
-            Paragraphs = scaledParagraphs,
-            AutoFit = text.AutoFit,
-            VerticalAlign = text.VerticalAlign,
-            PaddingLeft = text.PaddingLeft,
-            PaddingTop = text.PaddingTop,
-            PaddingRight = text.PaddingRight,
-            PaddingBottom = text.PaddingBottom,
-            LineSpacing = text.LineSpacing,
-            ParagraphCount = text.ParagraphCount,
-            HasExplicitLineBreaks = text.HasExplicitLineBreaks,
-            FontScale = text.FontScale,
-            LineSpacingReduction = text.LineSpacingReduction
-        };
+        return ExtractTextFromTextBody(txBody);
     }
 
     private static Drawing.BodyProperties? GetCascadedBodyPr(
@@ -1983,32 +1796,6 @@ public sealed class PptxToTypstConverter : IDisposable
             });
         }
 
-        // Apply normAutofit font scale to effective formatting
-        if (result.FontScale.HasValue)
-        {
-            var scale = result.FontScale.Value;
-            updatedParagraphs = updatedParagraphs.Select(p => new TypstParagraph
-            {
-                Content = p.Content,
-                Runs = p.Runs.Select(r => new TypstTextRun
-                {
-                    Content = r.Content,
-                    Formatting = r.Formatting with { FontSize = r.Formatting.FontSize * scale },
-                    IsLineBreak = r.IsLineBreak
-                }).ToList(),
-                Formatting = p.Formatting with { FontSize = p.Formatting.FontSize * scale },
-                Level = p.Level,
-                BulletChar = p.BulletChar,
-                AutoNumberType = p.AutoNumberType,
-                HasBullet = p.HasBullet,
-                LineSpacing = p.LineSpacing,
-                SpaceBefore = p.SpaceBefore,
-                SpaceAfter = p.SpaceAfter,
-                MarginLeft = p.MarginLeft,
-                Indent = p.Indent
-            }).ToList();
-        }
-
         return new TypstTextElement
         {
             Paragraphs = updatedParagraphs,
@@ -2020,10 +1807,7 @@ public sealed class PptxToTypstConverter : IDisposable
             PaddingBottom = result.PaddingBottom,
             LineSpacing = result.LineSpacing,
             ParagraphCount = result.ParagraphCount,
-            HasExplicitLineBreaks = result.HasExplicitLineBreaks,
-            FontScale = result.FontScale,
-            LineSpacingReduction = result.LineSpacingReduction,
-            TextBoxHeight = result.TextBoxHeight
+            HasExplicitLineBreaks = result.HasExplicitLineBreaks
         };
     }
 
@@ -2060,22 +1844,6 @@ public sealed class PptxToTypstConverter : IDisposable
         var padTop = EmuToPt(bodyPr?.TopInset?.Value ?? 0);
         var padRight = EmuToPt(bodyPr?.RightInset?.Value ?? 0);
         var padBottom = EmuToPt(bodyPr?.BottomInset?.Value ?? 0);
-
-        // Parse normAutofit scale attributes
-        double? fontScale = null;
-        double? lnSpcReduction = null;
-        var normalAutoFit = bodyPr?.Elements<Drawing.NormalAutoFit>().FirstOrDefault();
-        if (normalAutoFit != null)
-        {
-            var outerXml = normalAutoFit.OuterXml;
-            var fontScaleMatch = System.Text.RegularExpressions.Regex.Match(outerXml, @"fontScale\s*=\s*""([^""]*)""");
-            if (fontScaleMatch.Success && int.TryParse(fontScaleMatch.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var fontScaleValue))
-                fontScale = fontScaleValue / 100000.0;
-
-            var lnSpcReductionMatch = System.Text.RegularExpressions.Regex.Match(outerXml, @"lnSpcReduction\s*=\s*""([^""]*)""");
-            if (lnSpcReductionMatch.Success && int.TryParse(lnSpcReductionMatch.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var lnSpcReductionValue))
-                lnSpcReduction = lnSpcReductionValue / 100000.0;
-        }
 
         // Get text body list style for cascade level 3
         var bodyLstStyle = textBody.ChildElements.FirstOrDefault(e => e.LocalName == "lstStyle");
@@ -2181,12 +1949,12 @@ public sealed class PptxToTypstConverter : IDisposable
             double? indent = null;
             if (pPr != null)
             {
-                var marLValue = GetAttributeValue(pPr, "marL");
-                if (!string.IsNullOrEmpty(marLValue) && int.TryParse(marLValue, out var marL))
+                var marLAttr = pPr.GetAttribute("marL", "");
+                if (!string.IsNullOrEmpty(marLAttr.Value) && int.TryParse(marLAttr.Value, out var marL))
                     marginLeft = EmuToPt(marL);
 
-                var indentValue = GetAttributeValue(pPr, "indent");
-                if (!string.IsNullOrEmpty(indentValue) && int.TryParse(indentValue, out var ind))
+                var indentAttr = pPr.GetAttribute("indent", "");
+                if (!string.IsNullOrEmpty(indentAttr.Value) && int.TryParse(indentAttr.Value, out var ind))
                     indent = EmuToPt(ind);
             }
 
@@ -2218,9 +1986,7 @@ public sealed class PptxToTypstConverter : IDisposable
             PaddingBottom = padBottom,
             LineSpacing = paragraphs.FirstOrDefault()?.LineSpacing,
             ParagraphCount = Math.Max(1, paragraphCount),
-            HasExplicitLineBreaks = hasExplicitLineBreaks,
-            FontScale = fontScale,
-            LineSpacingReduction = lnSpcReduction
+            HasExplicitLineBreaks = hasExplicitLineBreaks
         };
     }
 
@@ -2344,13 +2110,13 @@ public sealed class PptxToTypstConverter : IDisposable
         return null;
     }
 
-    private TextSpacing? ExtractParagraphLineSpacing(Drawing.Paragraph paragraph)
+    private double? ExtractParagraphLineSpacing(Drawing.Paragraph paragraph)
     {
         var pPr = paragraph.Elements<Drawing.ParagraphProperties>().FirstOrDefault();
         return ExtractLineSpacingFromElement(pPr);
     }
 
-    private static TextSpacing? ExtractLineSpacingFromElement(OpenXmlElement? element)
+    private static double? ExtractLineSpacingFromElement(OpenXmlElement? element)
     {
         if (element == null) return null;
 
@@ -2361,24 +2127,24 @@ public sealed class PptxToTypstConverter : IDisposable
         var spcPts = lnSpc.ChildElements.FirstOrDefault(e => e.LocalName == "spcPts");
         if (spcPts != null)
         {
-            var valStr = GetAttributeValue(spcPts, "val");
-            if (int.TryParse(valStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value))
-                return new TextSpacing(TextSpacingKind.Points, value / 100.0);
+            var valAttr = spcPts.GetAttribute("val", "");
+            if (int.TryParse(valAttr.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value))
+                return value / 100.0;
         }
 
         // Try spcPct (percentage of line height)
         var spcPct = lnSpc.ChildElements.FirstOrDefault(e => e.LocalName == "spcPct");
         if (spcPct != null)
         {
-            var valStr = GetAttributeValue(spcPct, "val");
-            if (int.TryParse(valStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value))
-                return new TextSpacing(TextSpacingKind.Percent, value / 100000.0); // spcPct is in 1/1000ths of a percent (100000 = 100% = 1.0)
+            var valAttr = spcPct.GetAttribute("val", "");
+            if (int.TryParse(valAttr.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value))
+                return value / 100000.0; // spcPct is in 1/1000ths of a percent (100000 = 100% = 1.0)
         }
 
         return null;
     }
 
-    private static TextSpacing? ExtractLineSpacingFromLstStyle(OpenXmlElement? lstStyle, int level)
+    private static double? ExtractLineSpacingFromLstStyle(OpenXmlElement? lstStyle, int level)
     {
         if (lstStyle == null) return null;
 
@@ -2397,16 +2163,23 @@ public sealed class PptxToTypstConverter : IDisposable
 
         // The OpenXML SDK doesn't always parse the algn attribute into Alignment property
         // Read the raw XML attribute directly
-        var algnValue = GetAttributeValue(pPr, "algn");
-        if (!string.IsNullOrEmpty(algnValue))
+        try
         {
-            return algnValue switch
+            var algnAttr = pPr.GetAttribute("algn", "");
+            if (!string.IsNullOrEmpty(algnAttr.Value))
             {
-                "ctr" => "center",
-                "r" => "right",
-                "just" => "left",  // Typst doesn't have 'justify', use left as fallback
-                _ => "left"
-            };
+                return algnAttr.Value switch
+                {
+                    "ctr" => "center",
+                    "r" => "right",
+                    "just" => "left",  // Typst doesn't have 'justify', use left as fallback
+                    _ => "left"
+                };
+            }
+        }
+        catch
+        {
+            // Attribute doesn't exist in schema
         }
 
         return null;
@@ -2620,7 +2393,7 @@ public sealed class PptxToTypstConverter : IDisposable
         return (null, null, false);
     }
 
-    private static TextSpacing? ResolveLineSpacing(
+    private static double? ResolveLineSpacing(
         Drawing.ParagraphProperties? pPr,
         OpenXmlElement? bodyLstStyle,
         int level,
@@ -2630,36 +2403,36 @@ public sealed class PptxToTypstConverter : IDisposable
     {
         // 1. Paragraph level
         var spacing = ExtractLineSpacingFromElement(pPr);
-        if (spacing != null)
-            return spacing;
+        if (spacing.HasValue)
+            return spacing.Value;
 
         // 2. Text body list style
         spacing = ExtractLineSpacingFromLstStyle(bodyLstStyle, level);
-        if (spacing != null)
-            return spacing;
+        if (spacing.HasValue)
+            return spacing.Value;
 
         if (styleResolver != null)
         {
             // 3. Layout placeholder list style
             spacing = styleResolver.GetLayoutPlaceholderLineSpacing(placeholderIdx, placeholderType, level);
-            if (spacing != null)
-                return spacing;
+            if (spacing.HasValue)
+                return spacing.Value;
 
             // 4. Master placeholder list style
             spacing = styleResolver.GetMasterPlaceholderLineSpacing(placeholderIdx, placeholderType, level);
-            if (spacing != null)
-                return spacing;
+            if (spacing.HasValue)
+                return spacing.Value;
 
             // 5. Master txStyles
             spacing = styleResolver.GetMasterTxStyleLineSpacing(placeholderType, level);
-            if (spacing != null)
-                return spacing;
+            if (spacing.HasValue)
+                return spacing.Value;
         }
 
         return null;
     }
 
-    private static (TextSpacing? SpaceBefore, TextSpacing? SpaceAfter) ResolveParagraphSpacing(
+    private static (double? SpaceBefore, double? SpaceAfter) ResolveParagraphSpacing(
         Drawing.ParagraphProperties? pPr,
         OpenXmlElement? bodyLstStyle,
         int level,
@@ -2669,41 +2442,41 @@ public sealed class PptxToTypstConverter : IDisposable
     {
         // 1. Paragraph level
         var spacing = ExtractParagraphSpacing(pPr);
-        if (spacing.SpaceBefore != null || spacing.SpaceAfter != null)
+        if (spacing.SpaceBefore.HasValue || spacing.SpaceAfter.HasValue)
             return spacing;
 
         // 2. Text body list style
         spacing = ExtractParagraphSpacingFromLstStyle(bodyLstStyle, level);
-        if (spacing.SpaceBefore != null || spacing.SpaceAfter != null)
+        if (spacing.SpaceBefore.HasValue || spacing.SpaceAfter.HasValue)
             return spacing;
 
         if (styleResolver != null)
         {
             // 3. Layout placeholder list style
             spacing = styleResolver.GetLayoutPlaceholderSpacing(placeholderIdx, placeholderType, level);
-            if (spacing.SpaceBefore != null || spacing.SpaceAfter != null)
+            if (spacing.SpaceBefore.HasValue || spacing.SpaceAfter.HasValue)
                 return spacing;
 
             // 4. Master placeholder list style
             spacing = styleResolver.GetMasterPlaceholderSpacing(placeholderIdx, placeholderType, level);
-            if (spacing.SpaceBefore != null || spacing.SpaceAfter != null)
+            if (spacing.SpaceBefore.HasValue || spacing.SpaceAfter.HasValue)
                 return spacing;
 
             // 5. Master txStyles
             spacing = styleResolver.GetMasterTxStyleSpacing(placeholderType, level);
-            if (spacing.SpaceBefore != null || spacing.SpaceAfter != null)
+            if (spacing.SpaceBefore.HasValue || spacing.SpaceAfter.HasValue)
                 return spacing;
         }
 
         return (null, null);
     }
 
-    private static (TextSpacing? SpaceBefore, TextSpacing? SpaceAfter) ExtractParagraphSpacing(OpenXmlElement? pPr)
+    private static (double? SpaceBefore, double? SpaceAfter) ExtractParagraphSpacing(OpenXmlElement? pPr)
     {
         if (pPr == null) return (null, null);
 
-        TextSpacing? spcBef = null;
-        TextSpacing? spcAft = null;
+        double? spcBef = null;
+        double? spcAft = null;
 
         var spcBefEl = pPr.ChildElements.FirstOrDefault(e => e.LocalName == "spcBef");
         if (spcBefEl != null)
@@ -2711,16 +2484,16 @@ public sealed class PptxToTypstConverter : IDisposable
             var spcPts = spcBefEl.ChildElements.FirstOrDefault(e => e.LocalName == "spcPts");
             if (spcPts != null)
             {
-                var valStr = GetAttributeValue(spcPts, "val");
-                if (int.TryParse(valStr, out var ptsHundredths))
-                    spcBef = new TextSpacing(TextSpacingKind.Points, ptsHundredths / 100.0);
+                var valAttr = spcPts.GetAttribute("val", "");
+                if (int.TryParse(valAttr.Value, out var ptsHundredths))
+                    spcBef = ptsHundredths / 100.0;
             }
             var spcPct = spcBefEl.ChildElements.FirstOrDefault(e => e.LocalName == "spcPct");
             if (spcPct != null)
             {
-                var valStr = GetAttributeValue(spcPct, "val");
-                if (int.TryParse(valStr, out var pct))
-                    spcBef = new TextSpacing(TextSpacingKind.Percent, pct / 100000.0);
+                var valAttr = spcPct.GetAttribute("val", "");
+                if (int.TryParse(valAttr.Value, out var pct))
+                    spcBef = pct / 100000.0;
             }
         }
 
@@ -2730,23 +2503,23 @@ public sealed class PptxToTypstConverter : IDisposable
             var spcPts = spcAftEl.ChildElements.FirstOrDefault(e => e.LocalName == "spcPts");
             if (spcPts != null)
             {
-                var valStr = GetAttributeValue(spcPts, "val");
-                if (int.TryParse(valStr, out var ptsHundredths))
-                    spcAft = new TextSpacing(TextSpacingKind.Points, ptsHundredths / 100.0);
+                var valAttr = spcPts.GetAttribute("val", "");
+                if (int.TryParse(valAttr.Value, out var ptsHundredths))
+                    spcAft = ptsHundredths / 100.0;
             }
             var spcPct = spcAftEl.ChildElements.FirstOrDefault(e => e.LocalName == "spcPct");
             if (spcPct != null)
             {
-                var valStr = GetAttributeValue(spcPct, "val");
-                if (int.TryParse(valStr, out var pct))
-                    spcAft = new TextSpacing(TextSpacingKind.Percent, pct / 100000.0);
+                var valAttr = spcPct.GetAttribute("val", "");
+                if (int.TryParse(valAttr.Value, out var pct))
+                    spcAft = pct / 100000.0;
             }
         }
 
         return (spcBef, spcAft);
     }
 
-    private static (TextSpacing? SpaceBefore, TextSpacing? SpaceAfter) ExtractParagraphSpacingFromLstStyle(OpenXmlElement? lstStyle, int level)
+    private static (double? SpaceBefore, double? SpaceAfter) ExtractParagraphSpacingFromLstStyle(OpenXmlElement? lstStyle, int level)
     {
         if (lstStyle == null) return (null, null);
 
@@ -2764,17 +2537,17 @@ public sealed class PptxToTypstConverter : IDisposable
         var buChar = element.ChildElements.FirstOrDefault(e => e.LocalName == "buChar");
         if (buChar != null)
         {
-            var charValue = GetAttributeValue(buChar, "char");
-            if (!string.IsNullOrEmpty(charValue))
-                return (charValue, null, true, false);
+            var charAttr = buChar.GetAttribute("char", "");
+            if (!string.IsNullOrEmpty(charAttr.Value))
+                return (charAttr.Value, null, true, false);
         }
 
         var buAutoNum = element.ChildElements.FirstOrDefault(e => e.LocalName == "buAutoNum");
         if (buAutoNum != null)
         {
-            var typeValue = GetAttributeValue(buAutoNum, "type");
-            if (!string.IsNullOrEmpty(typeValue))
-                return (null, typeValue, true, false);
+            var typeAttr = buAutoNum.GetAttribute("type", "");
+            if (!string.IsNullOrEmpty(typeAttr.Value))
+                return (null, typeAttr.Value, true, false);
         }
 
         var buNone = element.ChildElements.FirstOrDefault(e => e.LocalName == "buNone");
@@ -3033,7 +2806,7 @@ public sealed class PptxToTypstConverter : IDisposable
                 stylePart = MergeExplicitCellBorders(cell, stylePart, styleResolver);
 
                 // Apply interior border suppression from wholeTbl
-                stylePart = ApplyInteriorBorderLogic(stylePart, rowIndex, colIndex, totalRows, totalCols);
+                stylePart = ApplyInteriorBorderLogic(stylePart, rowIndex, colIndex, totalRows, totalCols, wholeTblPart);
 
                 var cellFormatting = ExtractCellFormatting(cell, stylePart);
                 var explicitBg = ExtractCellBackground(cell);
@@ -3187,65 +2960,21 @@ public sealed class PptxToTypstConverter : IDisposable
 
         if (tcTxStyle != null)
         {
-            // Parse attributes directly on tcTxStyle using regex (SDK GetAttribute throws for schema-unrecognized attrs)
-            var tcTxStyleXml = tcTxStyle.OuterXml;
-            if (!string.IsNullOrEmpty(tcTxStyleXml))
-            {
-                var bMatch = System.Text.RegularExpressions.Regex.Match(tcTxStyleXml, @"\bb\s*=\s*""([^""]*)""");
-                if (bMatch.Success)
-                    textBold = bMatch.Groups[1].Value is "on" or "1" or "true";
-
-                var iMatch = System.Text.RegularExpressions.Regex.Match(tcTxStyleXml, @"\bi\s*=\s*""([^""]*)""");
-                if (iMatch.Success)
-                    textItalic = iMatch.Groups[1].Value is "on" or "1" or "true";
-            }
-
-            // Parse direct color children under tcTxStyle
-            var directSolidFill = tcTxStyle.Elements<Drawing.SolidFill>().FirstOrDefault();
-            if (directSolidFill != null)
-            {
-                textColor = ExtractSolidFillColor(directSolidFill, styleResolver);
-            }
-            else
-            {
-                // Some PPTX files place schemeClr directly under tcTxStyle
-                var schemeClrEl = tcTxStyle.ChildElements.FirstOrDefault(e => e.LocalName == "schemeClr");
-                if (schemeClrEl != null)
-                {
-                    var valAttr = schemeClrEl.GetAttribute("val", "");
-                    if (!string.IsNullOrEmpty(valAttr.Value))
-                    {
-                        var resolved = styleResolver?.ResolveSchemeColor(valAttr.Value);
-                        if (!string.IsNullOrEmpty(resolved))
-                            textColor = resolved;
-                    }
-                }
-            }
-
             var defRPr = tcTxStyle.Elements<Drawing.DefaultRunProperties>().FirstOrDefault();
             if (defRPr != null)
             {
-                if (!textBold.HasValue)
-                    textBold = defRPr.Bold?.Value;
-                if (!textItalic.HasValue)
-                    textItalic = defRPr.Italic?.Value;
+                textBold = defRPr.Bold?.Value;
+                textItalic = defRPr.Italic?.Value;
                 textFontSize = defRPr.FontSize?.Value != null ? defRPr.FontSize.Value / 100.0 : (double?)null;
 
-                if (string.IsNullOrEmpty(textColor))
-                {
-                    var solidFill = defRPr.Elements<Drawing.SolidFill>().FirstOrDefault();
-                    if (solidFill != null)
-                        textColor = ExtractSolidFillColor(solidFill, styleResolver);
-                }
+                var solidFill = defRPr.Elements<Drawing.SolidFill>().FirstOrDefault();
+                if (solidFill != null)
+                    textColor = ExtractSolidFillColor(solidFill, styleResolver);
             }
         }
 
-        // Parse insideH and insideV explicitly rather than deriving from exterior borders
-        var (insideHColor, insideHWidth, insideHNone) = ExtractBorderInfo(borders?.InsideHorizontalBorder, styleResolver);
-        var (insideVColor, insideVWidth, insideVNone) = ExtractBorderInfo(borders?.InsideVerticalBorder, styleResolver);
-
-        bool borderInsideHNone = insideHNone;
-        bool borderInsideVNone = insideVNone;
+        bool borderInsideHNone = borderTopNone && borderBottomNone;
+        bool borderInsideVNone = borderLeftNone && borderRightNone;
 
         definition.Parts[key] = new TableStylePart
         {
@@ -3264,10 +2993,6 @@ public sealed class PptxToTypstConverter : IDisposable
             BorderRightNone = borderRightNone,
             BorderInsideHNone = borderInsideHNone,
             BorderInsideVNone = borderInsideVNone,
-            InsideHColor = insideHColor,
-            InsideHWidth = insideHWidth,
-            InsideVColor = insideVColor,
-            InsideVWidth = insideVWidth,
             TextBold = textBold,
             TextItalic = textItalic,
             TextColor = textColor,
@@ -3301,14 +3026,12 @@ public sealed class PptxToTypstConverter : IDisposable
 
     private (string? Color, double? Width, bool IsNone) ExtractBorderInfo(OpenXmlElement? border, StyleResolver? styleResolver)
     {
-        // Missing border element means "inherit", NOT "none"
-        if (border == null) return (null, null, false);
+        if (border == null) return (null, null, true);
 
         var outline = border.GetFirstChild<Drawing.Outline>();
-        // Empty border side element means "inherit", NOT "none"
-        if (outline == null) return (null, null, false);
+        if (outline == null) return (null, null, true);
 
-        // Explicit <a:noFill/> means none
+        // Check for noFill
         var noFill = outline.Elements<Drawing.NoFill>().FirstOrDefault();
         if (noFill != null) return (null, null, true);
 
@@ -3394,47 +3117,9 @@ public sealed class PptxToTypstConverter : IDisposable
             partKey = "wholeTbl";
 
         if (style.Parts.TryGetValue(partKey, out var part))
-        {
-            if (partKey == "wholeTbl" || !style.Parts.TryGetValue("wholeTbl", out var wholeTbl))
-                return part;
-            return MergeTableStylePart(part, wholeTbl);
-        }
-
-        // Fallback to wholeTbl for missing parts
-        if (partKey != "wholeTbl" && style.Parts.TryGetValue("wholeTbl", out var wholeTblFallback))
-            return wholeTblFallback;
+            return part;
 
         return null;
-    }
-
-    private static TableStylePart MergeTableStylePart(TableStylePart specific, TableStylePart whole)
-    {
-        return new TableStylePart
-        {
-            BackgroundColor = specific.BackgroundColor ?? whole.BackgroundColor,
-            BorderTopColor = specific.BorderTopColor ?? whole.BorderTopColor,
-            BorderBottomColor = specific.BorderBottomColor ?? whole.BorderBottomColor,
-            BorderLeftColor = specific.BorderLeftColor ?? whole.BorderLeftColor,
-            BorderRightColor = specific.BorderRightColor ?? whole.BorderRightColor,
-            BorderTopWidth = specific.BorderTopWidth ?? whole.BorderTopWidth,
-            BorderBottomWidth = specific.BorderBottomWidth ?? whole.BorderBottomWidth,
-            BorderLeftWidth = specific.BorderLeftWidth ?? whole.BorderLeftWidth,
-            BorderRightWidth = specific.BorderRightWidth ?? whole.BorderRightWidth,
-            BorderTopNone = specific.BorderTopNone || whole.BorderTopNone,
-            BorderBottomNone = specific.BorderBottomNone || whole.BorderBottomNone,
-            BorderLeftNone = specific.BorderLeftNone || whole.BorderLeftNone,
-            BorderRightNone = specific.BorderRightNone || whole.BorderRightNone,
-            BorderInsideHNone = specific.BorderInsideHNone || whole.BorderInsideHNone,
-            BorderInsideVNone = specific.BorderInsideVNone || whole.BorderInsideVNone,
-            InsideHColor = specific.InsideHColor ?? whole.InsideHColor,
-            InsideHWidth = specific.InsideHWidth ?? whole.InsideHWidth,
-            InsideVColor = specific.InsideVColor ?? whole.InsideVColor,
-            InsideVWidth = specific.InsideVWidth ?? whole.InsideVWidth,
-            TextBold = specific.TextBold ?? whole.TextBold,
-            TextItalic = specific.TextItalic ?? whole.TextItalic,
-            TextColor = specific.TextColor ?? whole.TextColor,
-            TextFontSize = specific.TextFontSize ?? whole.TextFontSize
-        };
     }
 
     private TableStylePart? MergeExplicitCellBorders(Drawing.TableCell cell, TableStylePart? stylePart, StyleResolver? styleResolver)
@@ -3472,12 +3157,6 @@ public sealed class PptxToTypstConverter : IDisposable
             BorderBottomNone = explicitBottom.IsNone || (stylePart?.BorderBottomNone ?? false),
             BorderLeftNone = explicitLeft.IsNone || (stylePart?.BorderLeftNone ?? false),
             BorderRightNone = explicitRight.IsNone || (stylePart?.BorderRightNone ?? false),
-            BorderInsideHNone = stylePart?.BorderInsideHNone ?? false,
-            BorderInsideVNone = stylePart?.BorderInsideVNone ?? false,
-            InsideHColor = stylePart?.InsideHColor,
-            InsideHWidth = stylePart?.InsideHWidth,
-            InsideVColor = stylePart?.InsideVColor,
-            InsideVWidth = stylePart?.InsideVWidth,
             TextBold = stylePart?.TextBold,
             TextItalic = stylePart?.TextItalic,
             TextColor = stylePart?.TextColor,
@@ -3485,141 +3164,118 @@ public sealed class PptxToTypstConverter : IDisposable
         };
     }
 
-    private static TableStylePart ApplyInteriorBorderLogic(TableStylePart? stylePart, int row, int col, int rowCount, int colCount)
+    private static TableStylePart ApplyInteriorBorderLogic(TableStylePart? stylePart, int row, int col, int rowCount, int colCount, TableStylePart? wholeTblPart)
     {
         if (stylePart == null) return new TableStylePart();
 
         var result = stylePart;
-        bool isFirstCol = col == 0;
-        bool isLastCol = col == colCount - 1;
-        bool isFirstRow = row == 0;
-        bool isLastRow = row == rowCount - 1;
 
-        bool hasInsideV = result.InsideVColor != null || result.InsideVWidth.HasValue || result.BorderInsideVNone;
-        bool hasInsideH = result.InsideHColor != null || result.InsideHWidth.HasValue || result.BorderInsideHNone;
-
-        if (hasInsideV)
+        // If wholeTbl indicates no interior vertical borders, suppress left/right on interior cells
+        if (wholeTblPart?.BorderInsideVNone == true)
         {
+            bool isFirstCol = col == 0;
+            bool isLastCol = col == colCount - 1;
+
             if (!isFirstCol)
-            {
-                result = new TableStylePart
-                {
-                    BackgroundColor = result.BackgroundColor,
-                    BorderTopColor = result.BorderTopColor,
-                    BorderBottomColor = result.BorderBottomColor,
-                    BorderLeftColor = result.InsideVColor,
-                    BorderRightColor = result.BorderRightColor,
-                    BorderTopWidth = result.BorderTopWidth,
-                    BorderBottomWidth = result.BorderBottomWidth,
-                    BorderLeftWidth = result.InsideVWidth,
-                    BorderRightWidth = result.BorderRightWidth,
-                    BorderTopNone = result.BorderTopNone,
-                    BorderBottomNone = result.BorderBottomNone,
-                    BorderLeftNone = result.BorderInsideVNone,
-                    BorderRightNone = result.BorderRightNone,
-                    BorderInsideHNone = result.BorderInsideHNone,
-                    BorderInsideVNone = result.BorderInsideVNone,
-                    InsideHColor = result.InsideHColor,
-                    InsideHWidth = result.InsideHWidth,
-                    InsideVColor = result.InsideVColor,
-                    InsideVWidth = result.InsideVWidth,
-                    TextBold = result.TextBold,
-                    TextItalic = result.TextItalic,
-                    TextColor = result.TextColor,
-                    TextFontSize = result.TextFontSize
-                };
-            }
-            if (!isLastCol)
-            {
                 result = new TableStylePart
                 {
                     BackgroundColor = result.BackgroundColor,
                     BorderTopColor = result.BorderTopColor,
                     BorderBottomColor = result.BorderBottomColor,
                     BorderLeftColor = result.BorderLeftColor,
-                    BorderRightColor = result.InsideVColor,
+                    BorderRightColor = result.BorderRightColor,
                     BorderTopWidth = result.BorderTopWidth,
                     BorderBottomWidth = result.BorderBottomWidth,
                     BorderLeftWidth = result.BorderLeftWidth,
-                    BorderRightWidth = result.InsideVWidth,
+                    BorderRightWidth = result.BorderRightWidth,
                     BorderTopNone = result.BorderTopNone,
                     BorderBottomNone = result.BorderBottomNone,
-                    BorderLeftNone = result.BorderLeftNone,
-                    BorderRightNone = result.BorderInsideVNone,
+                    BorderLeftNone = true,
+                    BorderRightNone = result.BorderRightNone,
                     BorderInsideHNone = result.BorderInsideHNone,
                     BorderInsideVNone = result.BorderInsideVNone,
-                    InsideHColor = result.InsideHColor,
-                    InsideHWidth = result.InsideHWidth,
-                    InsideVColor = result.InsideVColor,
-                    InsideVWidth = result.InsideVWidth,
                     TextBold = result.TextBold,
                     TextItalic = result.TextItalic,
                     TextColor = result.TextColor,
                     TextFontSize = result.TextFontSize
                 };
-            }
+            if (!isLastCol)
+                result = new TableStylePart
+                {
+                    BackgroundColor = result.BackgroundColor,
+                    BorderTopColor = result.BorderTopColor,
+                    BorderBottomColor = result.BorderBottomColor,
+                    BorderLeftColor = result.BorderLeftColor,
+                    BorderRightColor = result.BorderRightColor,
+                    BorderTopWidth = result.BorderTopWidth,
+                    BorderBottomWidth = result.BorderBottomWidth,
+                    BorderLeftWidth = result.BorderLeftWidth,
+                    BorderRightWidth = result.BorderRightWidth,
+                    BorderTopNone = result.BorderTopNone,
+                    BorderBottomNone = result.BorderBottomNone,
+                    BorderLeftNone = result.BorderLeftNone,
+                    BorderRightNone = true,
+                    BorderInsideHNone = result.BorderInsideHNone,
+                    BorderInsideVNone = result.BorderInsideVNone,
+                    TextBold = result.TextBold,
+                    TextItalic = result.TextItalic,
+                    TextColor = result.TextColor,
+                    TextFontSize = result.TextFontSize
+                };
         }
 
-        if (hasInsideH)
+        // If wholeTbl indicates no interior horizontal borders, suppress top/bottom on interior cells
+        if (wholeTblPart?.BorderInsideHNone == true)
         {
+            bool isFirstRow = row == 0;
+            bool isLastRow = row == rowCount - 1;
+
             if (!isFirstRow)
-            {
                 result = new TableStylePart
                 {
                     BackgroundColor = result.BackgroundColor,
-                    BorderTopColor = result.InsideHColor,
+                    BorderTopColor = result.BorderTopColor,
                     BorderBottomColor = result.BorderBottomColor,
                     BorderLeftColor = result.BorderLeftColor,
                     BorderRightColor = result.BorderRightColor,
-                    BorderTopWidth = result.InsideHWidth,
+                    BorderTopWidth = result.BorderTopWidth,
                     BorderBottomWidth = result.BorderBottomWidth,
                     BorderLeftWidth = result.BorderLeftWidth,
                     BorderRightWidth = result.BorderRightWidth,
-                    BorderTopNone = result.BorderInsideHNone,
+                    BorderTopNone = true,
                     BorderBottomNone = result.BorderBottomNone,
                     BorderLeftNone = result.BorderLeftNone,
                     BorderRightNone = result.BorderRightNone,
                     BorderInsideHNone = result.BorderInsideHNone,
                     BorderInsideVNone = result.BorderInsideVNone,
-                    InsideHColor = result.InsideHColor,
-                    InsideHWidth = result.InsideHWidth,
-                    InsideVColor = result.InsideVColor,
-                    InsideVWidth = result.InsideVWidth,
                     TextBold = result.TextBold,
                     TextItalic = result.TextItalic,
                     TextColor = result.TextColor,
                     TextFontSize = result.TextFontSize
                 };
-            }
             if (!isLastRow)
-            {
                 result = new TableStylePart
                 {
                     BackgroundColor = result.BackgroundColor,
                     BorderTopColor = result.BorderTopColor,
-                    BorderBottomColor = result.InsideHColor,
+                    BorderBottomColor = result.BorderBottomColor,
                     BorderLeftColor = result.BorderLeftColor,
                     BorderRightColor = result.BorderRightColor,
                     BorderTopWidth = result.BorderTopWidth,
-                    BorderBottomWidth = result.InsideHWidth,
+                    BorderBottomWidth = result.BorderBottomWidth,
                     BorderLeftWidth = result.BorderLeftWidth,
                     BorderRightWidth = result.BorderRightWidth,
                     BorderTopNone = result.BorderTopNone,
-                    BorderBottomNone = result.BorderInsideHNone,
+                    BorderBottomNone = true,
                     BorderLeftNone = result.BorderLeftNone,
                     BorderRightNone = result.BorderRightNone,
                     BorderInsideHNone = result.BorderInsideHNone,
                     BorderInsideVNone = result.BorderInsideVNone,
-                    InsideHColor = result.InsideHColor,
-                    InsideHWidth = result.InsideHWidth,
-                    InsideVColor = result.InsideVColor,
-                    InsideVWidth = result.InsideVWidth,
                     TextBold = result.TextBold,
                     TextItalic = result.TextItalic,
                     TextColor = result.TextColor,
                     TextFontSize = result.TextFontSize
                 };
-            }
         }
 
         return result;
@@ -3953,21 +3609,6 @@ public sealed class PptxToTypstConverter : IDisposable
     private static double EmuToPt(long emu)
     {
         return emu / 12700.0;
-    }
-
-    /// <summary>
-    /// Safely extracts an attribute value from an OpenXml element by reading raw XML.
-    /// Avoids KeyNotFoundException thrown by GetAttribute on typed elements when the attribute is absent.
-    /// </summary>
-    private static string? GetAttributeValue(OpenXmlElement? element, string attributeName)
-    {
-        if (element == null) return null;
-        var outerXml = element.OuterXml;
-        var tagEndIndex = outerXml.IndexOf('>');
-        if (tagEndIndex < 0) return null;
-        var openingTag = outerXml[..tagEndIndex];
-        var match = System.Text.RegularExpressions.Regex.Match(openingTag, $@"\b{attributeName}\s*=\s*""([^""]*)""");
-        return match.Success ? match.Groups[1].Value : null;
     }
 
     private static string FormatPt(double pt)
