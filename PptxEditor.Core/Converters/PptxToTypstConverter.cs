@@ -25,7 +25,7 @@ public sealed class PptxToTypstConverter : IDisposable
     {
         "Arial", "Helvetica", "Liberation Sans", "Liberation Serif", "DejaVu Sans", "DejaVu Serif",
         "Times New Roman", "Courier New", "Georgia", "Verdana", "Trebuchet MS", "Palatino",
-        "Garamond", "Bookman", "Comic Sans MS", "Impact", "Candara", "Calibri", "Cambria",
+        "Garamond", "Bookman", "Comic Sans MS", "Impact", "Candara", "Calibri", "Carlito", "Cambria",
         "Constantia", "Corbel", "Franklin Gothic", "Gabriola", "Segoe UI"
     };
     private HashSet<string> _availableSystemFonts = new(StringComparer.OrdinalIgnoreCase);
@@ -98,7 +98,7 @@ public sealed class PptxToTypstConverter : IDisposable
 
         // Font setup with fallback chain
         // Extracted fonts will be loaded from the font-path directory
-        var fontFamilies = new List<string> { "Arial", "Helvetica", "Liberation Sans" };
+        var fontFamilies = new List<string> { "Carlito", "Arial", "Helvetica", "Liberation Sans" };
         
         var fontList = string.Join(", ", fontFamilies.Select(f => $"\"{f}\""));
         sb.AppendLine($"#set text(font: ({fontList}))");
@@ -574,7 +574,7 @@ public sealed class PptxToTypstConverter : IDisposable
         if (!string.IsNullOrEmpty(fmt.Color) && fmt.Color != "#000000")
             parameters.Add($"fill: rgb(\"{fmt.Color}\")");
 
-        var fontFamily = ResolveThemeFont(fmt.FontFamily);
+        var fontFamily = SubstituteUnavailableFont(ResolveThemeFont(fmt.FontFamily), availableFonts);
         if (!string.IsNullOrEmpty(fontFamily) && fontFamily != "Arial" && availableFonts.Contains(fontFamily))
         {
             parameters.Add($"font: \"{fontFamily}\"");
@@ -3638,6 +3638,21 @@ public sealed class PptxToTypstConverter : IDisposable
             return resolvedFont;
         
         return fontRef;
+    }
+
+    private static string SubstituteUnavailableFont(string fontFamily, HashSet<string> availableFonts)
+    {
+        if (availableFonts.Contains(fontFamily))
+            return fontFamily;
+
+        if ((fontFamily.StartsWith("Aptos", StringComparison.OrdinalIgnoreCase)
+            || fontFamily.Equals("Calibri", StringComparison.OrdinalIgnoreCase))
+            && availableFonts.Contains("Carlito"))
+        {
+            return "Carlito";
+        }
+
+        return fontFamily;
     }
 
     private static string EscapeTypstText(string text)
