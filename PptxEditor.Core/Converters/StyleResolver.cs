@@ -2,6 +2,7 @@ using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Presentation;
 using Drawing = DocumentFormat.OpenXml.Drawing;
+using PptxEditor.Core.Models;
 
 namespace PptxEditor.Core.Converters;
 
@@ -252,69 +253,37 @@ public sealed class StyleResolver
         return null;
     }
 
-    public DefaultTextStyle GetLayoutPlaceholderLstStyle(int? idx, int level)
+    public DefaultTextStyle GetLayoutPlaceholderLstStyle(int? idx, PlaceholderValues? type, int level)
     {
-        if (_layoutPart?.SlideLayout?.CommonSlideData?.ShapeTree == null || !idx.HasValue)
-            return new DefaultTextStyle();
-
-        foreach (var layoutShape in _layoutPart.SlideLayout.CommonSlideData.ShapeTree.ChildElements.OfType<Shape>())
-        {
-            var shapeIdx = GetPlaceholderIdx(layoutShape);
-            if (shapeIdx == idx.Value)
-            {
-                return ExtractLstStyleDefRPr(layoutShape.TextBody, level);
-            }
-        }
+        var shape = FindLayoutPlaceholder(idx, type);
+        if (shape != null)
+            return ExtractLstStyleDefRPr(shape.TextBody, level);
         return new DefaultTextStyle();
     }
 
-    public DefaultTextStyle GetMasterPlaceholderLstStyle(int? idx, int level)
+    public DefaultTextStyle GetMasterPlaceholderLstStyle(int? idx, PlaceholderValues? type, int level)
     {
-        if (_masterPart?.SlideMaster?.CommonSlideData?.ShapeTree == null || !idx.HasValue)
-            return new DefaultTextStyle();
-
-        foreach (var masterShape in _masterPart.SlideMaster.CommonSlideData.ShapeTree.ChildElements.OfType<Shape>())
-        {
-            var shapeIdx = GetPlaceholderIdx(masterShape);
-            if (shapeIdx == idx.Value)
-            {
-                return ExtractLstStyleDefRPr(masterShape.TextBody, level);
-            }
-        }
+        var shape = FindMasterPlaceholder(idx, type);
+        if (shape != null)
+            return ExtractLstStyleDefRPr(shape.TextBody, level);
         return new DefaultTextStyle();
     }
 
     #region Bullet Resolution
 
-    public (string? BulletChar, string? AutoNumberType, bool HasBullet, bool HasBulletNone) GetLayoutPlaceholderBulletInfo(int? idx, int level)
+    public (string? BulletChar, string? AutoNumberType, bool HasBullet, bool HasBulletNone) GetLayoutPlaceholderBulletInfo(int? idx, PlaceholderValues? type, int level)
     {
-        if (_layoutPart?.SlideLayout?.CommonSlideData?.ShapeTree == null || !idx.HasValue)
-            return (null, null, false, false);
-
-        foreach (var layoutShape in _layoutPart.SlideLayout.CommonSlideData.ShapeTree.ChildElements.OfType<Shape>())
-        {
-            var shapeIdx = GetPlaceholderIdx(layoutShape);
-            if (shapeIdx == idx.Value)
-            {
-                return ExtractBulletInfoFromTextBodyLstStyle(layoutShape.TextBody, level);
-            }
-        }
+        var shape = FindLayoutPlaceholder(idx, type);
+        if (shape != null)
+            return ExtractBulletInfoFromTextBodyLstStyle(shape.TextBody, level);
         return (null, null, false, false);
     }
 
-    public (string? BulletChar, string? AutoNumberType, bool HasBullet, bool HasBulletNone) GetMasterPlaceholderBulletInfo(int? idx, int level)
+    public (string? BulletChar, string? AutoNumberType, bool HasBullet, bool HasBulletNone) GetMasterPlaceholderBulletInfo(int? idx, PlaceholderValues? type, int level)
     {
-        if (_masterPart?.SlideMaster?.CommonSlideData?.ShapeTree == null || !idx.HasValue)
-            return (null, null, false, false);
-
-        foreach (var masterShape in _masterPart.SlideMaster.CommonSlideData.ShapeTree.ChildElements.OfType<Shape>())
-        {
-            var shapeIdx = GetPlaceholderIdx(masterShape);
-            if (shapeIdx == idx.Value)
-            {
-                return ExtractBulletInfoFromTextBodyLstStyle(masterShape.TextBody, level);
-            }
-        }
+        var shape = FindMasterPlaceholder(idx, type);
+        if (shape != null)
+            return ExtractBulletInfoFromTextBodyLstStyle(shape.TextBody, level);
         return (null, null, false, false);
     }
 
@@ -400,39 +369,23 @@ public sealed class StyleResolver
 
     #region Line Spacing Resolution
 
-    public double? GetLayoutPlaceholderLineSpacing(int? idx, int level)
+    public TextSpacing? GetLayoutPlaceholderLineSpacing(int? idx, PlaceholderValues? type, int level)
     {
-        if (_layoutPart?.SlideLayout?.CommonSlideData?.ShapeTree == null || !idx.HasValue)
-            return null;
-
-        foreach (var layoutShape in _layoutPart.SlideLayout.CommonSlideData.ShapeTree.ChildElements.OfType<Shape>())
-        {
-            var shapeIdx = GetPlaceholderIdx(layoutShape);
-            if (shapeIdx == idx.Value)
-            {
-                return ExtractLineSpacingFromTextBodyLstStyle(layoutShape.TextBody, level);
-            }
-        }
+        var shape = FindLayoutPlaceholder(idx, type);
+        if (shape != null)
+            return ExtractLineSpacingFromTextBodyLstStyle(shape.TextBody, level);
         return null;
     }
 
-    public double? GetMasterPlaceholderLineSpacing(int? idx, int level)
+    public TextSpacing? GetMasterPlaceholderLineSpacing(int? idx, PlaceholderValues? type, int level)
     {
-        if (_masterPart?.SlideMaster?.CommonSlideData?.ShapeTree == null || !idx.HasValue)
-            return null;
-
-        foreach (var masterShape in _masterPart.SlideMaster.CommonSlideData.ShapeTree.ChildElements.OfType<Shape>())
-        {
-            var shapeIdx = GetPlaceholderIdx(masterShape);
-            if (shapeIdx == idx.Value)
-            {
-                return ExtractLineSpacingFromTextBodyLstStyle(masterShape.TextBody, level);
-            }
-        }
+        var shape = FindMasterPlaceholder(idx, type);
+        if (shape != null)
+            return ExtractLineSpacingFromTextBodyLstStyle(shape.TextBody, level);
         return null;
     }
 
-    public double? GetMasterTxStyleLineSpacing(PlaceholderValues? placeholderType, int level)
+    public TextSpacing? GetMasterTxStyleLineSpacing(PlaceholderValues? placeholderType, int level)
     {
         // Shapes without placeholders should NOT inherit body style line spacing
         if (placeholderType == null)
@@ -469,7 +422,130 @@ public sealed class StyleResolver
         return ExtractLineSpacingFromElement(lvlPpr);
     }
 
-    private static double? ExtractLineSpacingFromTextBodyLstStyle(OpenXmlElement? textBody, int level)
+    #endregion
+
+    #region Paragraph Spacing Resolution
+
+    public (TextSpacing? SpaceBefore, TextSpacing? SpaceAfter) GetLayoutPlaceholderSpacing(int? idx, PlaceholderValues? type, int level)
+    {
+        var shape = FindLayoutPlaceholder(idx, type);
+        if (shape != null)
+            return ExtractSpacingFromTextBodyLstStyle(shape.TextBody, level);
+        return (null, null);
+    }
+
+    public (TextSpacing? SpaceBefore, TextSpacing? SpaceAfter) GetMasterPlaceholderSpacing(int? idx, PlaceholderValues? type, int level)
+    {
+        var shape = FindMasterPlaceholder(idx, type);
+        if (shape != null)
+            return ExtractSpacingFromTextBodyLstStyle(shape.TextBody, level);
+        return (null, null);
+    }
+
+    public (TextSpacing? SpaceBefore, TextSpacing? SpaceAfter) GetMasterTxStyleSpacing(PlaceholderValues? placeholderType, int level)
+    {
+        // Shapes without placeholders should NOT inherit body style spacing
+        if (placeholderType == null)
+            return (null, null);
+
+        string key;
+        if (placeholderType == PlaceholderValues.Title || placeholderType == PlaceholderValues.CenteredTitle)
+            key = "Title";
+        else if (placeholderType == PlaceholderValues.Body)
+            key = "Body";
+        else if (placeholderType == PlaceholderValues.SubTitle)
+            key = "Body";
+        else if (placeholderType == PlaceholderValues.Object)
+            key = "Other";
+        else
+            return (null, null);
+
+        OpenXmlElement? styleList = key switch
+        {
+            "Title" => _masterPart?.SlideMaster?.TextStyles?.TitleStyle,
+            "Body" => _masterPart?.SlideMaster?.TextStyles?.BodyStyle,
+            "Other" => _masterPart?.SlideMaster?.TextStyles?.OtherStyle,
+            _ => null
+        };
+
+        if (styleList == null)
+            return (null, null);
+
+        var levelName = $"lvl{level + 1}pPr";
+        var lvlPpr = styleList.ChildElements.FirstOrDefault(e => e.LocalName == levelName);
+        if (lvlPpr == null)
+            return (null, null);
+
+        return ExtractSpacingFromElement(lvlPpr);
+    }
+
+    private static (TextSpacing? SpaceBefore, TextSpacing? SpaceAfter) ExtractSpacingFromTextBodyLstStyle(OpenXmlElement? textBody, int level)
+    {
+        if (textBody == null) return (null, null);
+
+        var lstStyle = textBody.ChildElements.FirstOrDefault(e => e.LocalName == "lstStyle");
+        if (lstStyle == null) return (null, null);
+
+        var levelName = $"lvl{level + 1}pPr";
+        var lvlPpr = lstStyle.ChildElements.FirstOrDefault(e => e.LocalName == levelName);
+        if (lvlPpr == null) return (null, null);
+
+        return ExtractSpacingFromElement(lvlPpr);
+    }
+
+    private static (TextSpacing? SpaceBefore, TextSpacing? SpaceAfter) ExtractSpacingFromElement(OpenXmlElement? element)
+    {
+        if (element == null) return (null, null);
+
+        TextSpacing? spcBef = null;
+        TextSpacing? spcAft = null;
+
+        var spcBefEl = element.ChildElements.FirstOrDefault(e => e.LocalName == "spcBef");
+        if (spcBefEl != null)
+        {
+            var spcPts = spcBefEl.ChildElements.FirstOrDefault(e => e.LocalName == "spcPts");
+            if (spcPts != null)
+            {
+                var valAttr = spcPts.GetAttribute("val", "");
+                if (int.TryParse(valAttr.Value, out var ptsHundredths))
+                    spcBef = new TextSpacing(TextSpacingKind.Points, ptsHundredths / 100.0);
+            }
+            var spcPct = spcBefEl.ChildElements.FirstOrDefault(e => e.LocalName == "spcPct");
+            if (spcPct != null)
+            {
+                var valAttr = spcPct.GetAttribute("val", "");
+                if (int.TryParse(valAttr.Value, out var pct))
+                    spcBef = new TextSpacing(TextSpacingKind.Percent, pct / 100000.0);
+            }
+        }
+
+        var spcAftEl = element.ChildElements.FirstOrDefault(e => e.LocalName == "spcAft");
+        if (spcAftEl != null)
+        {
+            var spcPts = spcAftEl.ChildElements.FirstOrDefault(e => e.LocalName == "spcPts");
+            if (spcPts != null)
+            {
+                var valAttr = spcPts.GetAttribute("val", "");
+                if (int.TryParse(valAttr.Value, out var ptsHundredths))
+                    spcAft = new TextSpacing(TextSpacingKind.Points, ptsHundredths / 100.0);
+            }
+            var spcPct = spcAftEl.ChildElements.FirstOrDefault(e => e.LocalName == "spcPct");
+            if (spcPct != null)
+            {
+                var valAttr = spcPct.GetAttribute("val", "");
+                if (int.TryParse(valAttr.Value, out var pct))
+                    spcAft = new TextSpacing(TextSpacingKind.Percent, pct / 100000.0);
+            }
+        }
+
+        return (spcBef, spcAft);
+    }
+
+    #endregion
+
+    #region Line Spacing Helpers
+
+    private static TextSpacing? ExtractLineSpacingFromTextBodyLstStyle(OpenXmlElement? textBody, int level)
     {
         if (textBody == null) return null;
 
@@ -483,7 +559,7 @@ public sealed class StyleResolver
         return ExtractLineSpacingFromElement(lvlPpr);
     }
 
-    private static double? ExtractLineSpacingFromElement(OpenXmlElement? element)
+    private static TextSpacing? ExtractLineSpacingFromElement(OpenXmlElement? element)
     {
         if (element == null) return null;
 
@@ -496,7 +572,7 @@ public sealed class StyleResolver
         {
             var valAttr = spcPts.GetAttribute("val", "");
             if (int.TryParse(valAttr.Value, out var value))
-                return value / 100.0;
+                return new TextSpacing(TextSpacingKind.Points, value / 100.0);
         }
 
         // Try spcPct (percentage of line height)
@@ -505,7 +581,7 @@ public sealed class StyleResolver
         {
             var valAttr = spcPct.GetAttribute("val", "");
             if (int.TryParse(valAttr.Value, out var value))
-                return value / 100000.0; // spcPct is in 1/1000ths of a percent (100000 = 100% = 1.0)
+                return new TextSpacing(TextSpacingKind.Percent, value / 100000.0); // spcPct is in 1/1000ths of a percent (100000 = 100% = 1.0)
         }
 
         return null;
@@ -566,6 +642,127 @@ public sealed class StyleResolver
         return style;
     }
 
+    private static PlaceholderValues? GetPlaceholderType(Shape shape)
+    {
+        var nvSpPr = shape.NonVisualShapeProperties;
+        if (nvSpPr == null) return null;
+
+        PlaceholderShape? ph = nvSpPr.Elements<PlaceholderShape>().FirstOrDefault();
+        if (ph == null)
+        {
+            var appProps = nvSpPr.ApplicationNonVisualDrawingProperties;
+            ph = appProps?.Elements<PlaceholderShape>().FirstOrDefault();
+        }
+        if (ph == null) return null;
+
+        var outerXml = ph.OuterXml;
+        var match = System.Text.RegularExpressions.Regex.Match(outerXml, @"type\s*=\s*""([^""]*)""");
+        if (match.Success)
+        {
+            return match.Groups[1].Value switch
+            {
+                "title" => PlaceholderValues.Title,
+                "ctrTitle" => PlaceholderValues.CenteredTitle,
+                "subTitle" => PlaceholderValues.SubTitle,
+                "body" => PlaceholderValues.Body,
+                "pic" => PlaceholderValues.Picture,
+                "chart" => PlaceholderValues.Chart,
+                "tbl" => PlaceholderValues.Table,
+                "sldNum" => PlaceholderValues.SlideNumber,
+                "ftr" => PlaceholderValues.Footer,
+                "hdr" => PlaceholderValues.Header,
+                "obj" => PlaceholderValues.Object,
+                "dt" => PlaceholderValues.DateAndTime,
+                _ => null
+            };
+        }
+        return null;
+    }
+
+    private Shape? FindLayoutPlaceholder(int? idx, PlaceholderValues? type)
+    {
+        if (_layoutPart?.SlideLayout?.CommonSlideData?.ShapeTree == null)
+            return null;
+
+        if (idx.HasValue)
+        {
+            foreach (var layoutShape in _layoutPart.SlideLayout.CommonSlideData.ShapeTree.ChildElements.OfType<Shape>())
+            {
+                var shapeIdx = GetPlaceholderIdx(layoutShape);
+                if (shapeIdx == idx.Value)
+                {
+                    if (type.HasValue)
+                    {
+                        var shapeType = GetPlaceholderType(layoutShape);
+                        if (shapeType.HasValue && shapeType.Value != type.Value)
+                            continue;
+                    }
+                    return layoutShape;
+                }
+            }
+        }
+
+        if (type.HasValue)
+        {
+            foreach (var layoutShape in _layoutPart.SlideLayout.CommonSlideData.ShapeTree.ChildElements.OfType<Shape>())
+            {
+                var shapeType = GetPlaceholderType(layoutShape);
+                if (shapeType == type.Value)
+                    return layoutShape;
+            }
+        }
+
+        return null;
+    }
+
+    private Shape? FindMasterPlaceholder(int? idx, PlaceholderValues? type)
+    {
+        if (_masterPart?.SlideMaster?.CommonSlideData?.ShapeTree == null)
+            return null;
+
+        if (idx.HasValue)
+        {
+            foreach (var masterShape in _masterPart.SlideMaster.CommonSlideData.ShapeTree.ChildElements.OfType<Shape>())
+            {
+                var shapeIdx = GetPlaceholderIdx(masterShape);
+                if (shapeIdx == idx.Value)
+                {
+                    if (type.HasValue)
+                    {
+                        var shapeType = GetPlaceholderType(masterShape);
+                        if (shapeType.HasValue && shapeType.Value != type.Value)
+                            continue;
+                    }
+                    return masterShape;
+                }
+            }
+        }
+
+        if (type.HasValue)
+        {
+            foreach (var masterShape in _masterPart.SlideMaster.CommonSlideData.ShapeTree.ChildElements.OfType<Shape>())
+            {
+                var shapeType = GetPlaceholderType(masterShape);
+                if (shapeType == type.Value)
+                    return masterShape;
+            }
+        }
+
+        return null;
+    }
+
+    public Drawing.BodyProperties? GetLayoutPlaceholderBodyPr(int? idx, PlaceholderValues? type)
+    {
+        var shape = FindLayoutPlaceholder(idx, type);
+        return shape?.TextBody?.Elements<Drawing.BodyProperties>().FirstOrDefault();
+    }
+
+    public Drawing.BodyProperties? GetMasterPlaceholderBodyPr(int? idx, PlaceholderValues? type)
+    {
+        var shape = FindMasterPlaceholder(idx, type);
+        return shape?.TextBody?.Elements<Drawing.BodyProperties>().FirstOrDefault();
+    }
+
     #endregion
 
     #region Theme/Scheme Color Resolution
@@ -597,7 +794,7 @@ public sealed class StyleResolver
             if (folHlink != null)
                 AddSchemeColor(colors, "folHlink", folHlink);
         }
-        catch { }
+        catch { /* folHlink may be absent in some themes */ }
 
         return colors;
     }

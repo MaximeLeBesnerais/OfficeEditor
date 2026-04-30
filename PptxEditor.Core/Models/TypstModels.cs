@@ -55,15 +55,31 @@ public sealed class TypstElement
     public TypstShapeElement? Shape { get; init; }
 }
 
+public sealed class TypstTextRun
+{
+    public string Content { get; set; } = "";
+    public TypstTextFormatting Formatting { get; set; } = new();
+    public bool IsLineBreak { get; set; }
+}
+
+public enum TextSpacingKind { Points, Percent }
+
+public sealed record TextSpacing(TextSpacingKind Kind, double Value);
+
 public sealed class TypstParagraph
 {
     public string Content { get; set; } = "";
+    public List<TypstTextRun> Runs { get; set; } = new();
     public TypstTextFormatting Formatting { get; set; } = new();
     public int Level { get; set; }
     public string? BulletChar { get; set; }
     public string? AutoNumberType { get; set; }
     public bool HasBullet { get; set; }
-    public double? LineSpacing { get; set; }
+    public TextSpacing? LineSpacing { get; set; }
+    public TextSpacing? SpaceBefore { get; set; }
+    public TextSpacing? SpaceAfter { get; set; }
+    public double? MarginLeft { get; set; }
+    public double? Indent { get; set; }
 }
 
 public sealed class TypstTextElement
@@ -76,10 +92,13 @@ public sealed class TypstTextElement
     public double PaddingTop { get; init; }
     public double PaddingRight { get; init; }
     public double PaddingBottom { get; init; }
-    public double? LineSpacing { get; init; }
+    public TextSpacing? LineSpacing { get; init; }
     public string VerticalAlign { get; init; } = "top";
     public int ParagraphCount { get; init; } = 1;
     public bool HasExplicitLineBreaks { get; init; }
+    public double TextBoxHeight { get; set; }
+    public double? FontScale { get; init; }
+    public double? LineSpacingReduction { get; init; }
 }
 
 public sealed record TypstTextFormatting
@@ -117,6 +136,7 @@ public sealed class TypstTableCell
     public string? BackgroundColor { get; init; }
     public int RowSpan { get; init; } = 1;
     public int ColSpan { get; init; } = 1;
+    public TableStylePart? StylePart { get; init; }
 }
 
 public sealed class TypstShapeElement
@@ -137,9 +157,35 @@ public sealed class TableStyleDefinition
 
 public sealed class TableStylePart
 {
+    // Existing
     public string? BackgroundColor { get; init; }
     public string? BorderTopColor { get; init; }
     public string? BorderBottomColor { get; init; }
     public string? BorderLeftColor { get; init; }
     public string? BorderRightColor { get; init; }
+
+    // NEW: Text formatting
+    public bool? TextBold { get; init; }
+    public bool? TextItalic { get; init; }
+    public string? TextColor { get; init; }
+    public double? TextFontSize { get; init; } // in points
+
+    // NEW: Border widths (in points)
+    public double? BorderTopWidth { get; init; }
+    public double? BorderBottomWidth { get; init; }
+    public double? BorderLeftWidth { get; init; }
+    public double? BorderRightWidth { get; init; }
+
+    // NEW: Border presence
+    public bool BorderTopNone { get; init; }
+    public bool BorderBottomNone { get; init; }
+    public bool BorderLeftNone { get; init; }
+    public bool BorderRightNone { get; init; }
+    public bool BorderInsideHNone { get; init; }
+    public bool BorderInsideVNone { get; init; }
+
+    public string? InsideHColor { get; init; }
+    public double? InsideHWidth { get; init; }
+    public string? InsideVColor { get; init; }
+    public double? InsideVWidth { get; init; }
 }
