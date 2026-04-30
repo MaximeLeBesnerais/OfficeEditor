@@ -62,10 +62,6 @@ public sealed class TypstTextRun
     public bool IsLineBreak { get; set; }
 }
 
-public enum TextSpacingKind { Points, Percent }
-
-public sealed record TextSpacing(TextSpacingKind Kind, double Value);
-
 public sealed class TypstParagraph
 {
     public string Content { get; set; } = "";
@@ -75,9 +71,9 @@ public sealed class TypstParagraph
     public string? BulletChar { get; set; }
     public string? AutoNumberType { get; set; }
     public bool HasBullet { get; set; }
-    public TextSpacing? LineSpacing { get; set; }
-    public TextSpacing? SpaceBefore { get; set; }
-    public TextSpacing? SpaceAfter { get; set; }
+    public double? LineSpacing { get; set; }
+    public double? SpaceBefore { get; set; }
+    public double? SpaceAfter { get; set; }
     public double? MarginLeft { get; set; }
     public double? Indent { get; set; }
 }
@@ -92,13 +88,11 @@ public sealed class TypstTextElement
     public double PaddingTop { get; init; }
     public double PaddingRight { get; init; }
     public double PaddingBottom { get; init; }
-    public TextSpacing? LineSpacing { get; init; }
+    public double? LineSpacing { get; init; }
     public string VerticalAlign { get; init; } = "top";
     public int ParagraphCount { get; init; } = 1;
     public bool HasExplicitLineBreaks { get; init; }
     public double TextBoxHeight { get; set; }
-    public double? FontScale { get; init; }
-    public double? LineSpacingReduction { get; init; }
 }
 
 public sealed record TypstTextFormatting
@@ -183,9 +177,4 @@ public sealed class TableStylePart
     public bool BorderRightNone { get; init; }
     public bool BorderInsideHNone { get; init; }
     public bool BorderInsideVNone { get; init; }
-
-    public string? InsideHColor { get; init; }
-    public double? InsideHWidth { get; init; }
-    public string? InsideVColor { get; init; }
-    public double? InsideVWidth { get; init; }
 }
