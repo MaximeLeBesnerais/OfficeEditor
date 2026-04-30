@@ -2,7 +2,6 @@ using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Presentation;
 using Drawing = DocumentFormat.OpenXml.Drawing;
-using PptxEditor.Core.Models;
 
 namespace PptxEditor.Core.Converters;
 
@@ -369,7 +368,7 @@ public sealed class StyleResolver
 
     #region Line Spacing Resolution
 
-    public TextSpacing? GetLayoutPlaceholderLineSpacing(int? idx, PlaceholderValues? type, int level)
+    public double? GetLayoutPlaceholderLineSpacing(int? idx, PlaceholderValues? type, int level)
     {
         var shape = FindLayoutPlaceholder(idx, type);
         if (shape != null)
@@ -377,7 +376,7 @@ public sealed class StyleResolver
         return null;
     }
 
-    public TextSpacing? GetMasterPlaceholderLineSpacing(int? idx, PlaceholderValues? type, int level)
+    public double? GetMasterPlaceholderLineSpacing(int? idx, PlaceholderValues? type, int level)
     {
         var shape = FindMasterPlaceholder(idx, type);
         if (shape != null)
@@ -385,7 +384,7 @@ public sealed class StyleResolver
         return null;
     }
 
-    public TextSpacing? GetMasterTxStyleLineSpacing(PlaceholderValues? placeholderType, int level)
+    public double? GetMasterTxStyleLineSpacing(PlaceholderValues? placeholderType, int level)
     {
         // Shapes without placeholders should NOT inherit body style line spacing
         if (placeholderType == null)
@@ -426,7 +425,7 @@ public sealed class StyleResolver
 
     #region Paragraph Spacing Resolution
 
-    public (TextSpacing? SpaceBefore, TextSpacing? SpaceAfter) GetLayoutPlaceholderSpacing(int? idx, PlaceholderValues? type, int level)
+    public (double? SpaceBefore, double? SpaceAfter) GetLayoutPlaceholderSpacing(int? idx, PlaceholderValues? type, int level)
     {
         var shape = FindLayoutPlaceholder(idx, type);
         if (shape != null)
@@ -434,7 +433,7 @@ public sealed class StyleResolver
         return (null, null);
     }
 
-    public (TextSpacing? SpaceBefore, TextSpacing? SpaceAfter) GetMasterPlaceholderSpacing(int? idx, PlaceholderValues? type, int level)
+    public (double? SpaceBefore, double? SpaceAfter) GetMasterPlaceholderSpacing(int? idx, PlaceholderValues? type, int level)
     {
         var shape = FindMasterPlaceholder(idx, type);
         if (shape != null)
@@ -442,7 +441,7 @@ public sealed class StyleResolver
         return (null, null);
     }
 
-    public (TextSpacing? SpaceBefore, TextSpacing? SpaceAfter) GetMasterTxStyleSpacing(PlaceholderValues? placeholderType, int level)
+    public (double? SpaceBefore, double? SpaceAfter) GetMasterTxStyleSpacing(PlaceholderValues? placeholderType, int level)
     {
         // Shapes without placeholders should NOT inherit body style spacing
         if (placeholderType == null)
@@ -479,7 +478,7 @@ public sealed class StyleResolver
         return ExtractSpacingFromElement(lvlPpr);
     }
 
-    private static (TextSpacing? SpaceBefore, TextSpacing? SpaceAfter) ExtractSpacingFromTextBodyLstStyle(OpenXmlElement? textBody, int level)
+    private static (double? SpaceBefore, double? SpaceAfter) ExtractSpacingFromTextBodyLstStyle(OpenXmlElement? textBody, int level)
     {
         if (textBody == null) return (null, null);
 
@@ -493,12 +492,12 @@ public sealed class StyleResolver
         return ExtractSpacingFromElement(lvlPpr);
     }
 
-    private static (TextSpacing? SpaceBefore, TextSpacing? SpaceAfter) ExtractSpacingFromElement(OpenXmlElement? element)
+    private static (double? SpaceBefore, double? SpaceAfter) ExtractSpacingFromElement(OpenXmlElement? element)
     {
         if (element == null) return (null, null);
 
-        TextSpacing? spcBef = null;
-        TextSpacing? spcAft = null;
+        double? spcBef = null;
+        double? spcAft = null;
 
         var spcBefEl = element.ChildElements.FirstOrDefault(e => e.LocalName == "spcBef");
         if (spcBefEl != null)
@@ -508,14 +507,14 @@ public sealed class StyleResolver
             {
                 var valAttr = spcPts.GetAttribute("val", "");
                 if (int.TryParse(valAttr.Value, out var ptsHundredths))
-                    spcBef = new TextSpacing(TextSpacingKind.Points, ptsHundredths / 100.0);
+                    spcBef = ptsHundredths / 100.0;
             }
             var spcPct = spcBefEl.ChildElements.FirstOrDefault(e => e.LocalName == "spcPct");
             if (spcPct != null)
             {
                 var valAttr = spcPct.GetAttribute("val", "");
                 if (int.TryParse(valAttr.Value, out var pct))
-                    spcBef = new TextSpacing(TextSpacingKind.Percent, pct / 100000.0);
+                    spcBef = pct / 100000.0;
             }
         }
 
@@ -527,14 +526,14 @@ public sealed class StyleResolver
             {
                 var valAttr = spcPts.GetAttribute("val", "");
                 if (int.TryParse(valAttr.Value, out var ptsHundredths))
-                    spcAft = new TextSpacing(TextSpacingKind.Points, ptsHundredths / 100.0);
+                    spcAft = ptsHundredths / 100.0;
             }
             var spcPct = spcAftEl.ChildElements.FirstOrDefault(e => e.LocalName == "spcPct");
             if (spcPct != null)
             {
                 var valAttr = spcPct.GetAttribute("val", "");
                 if (int.TryParse(valAttr.Value, out var pct))
-                    spcAft = new TextSpacing(TextSpacingKind.Percent, pct / 100000.0);
+                    spcAft = pct / 100000.0;
             }
         }
 
@@ -545,7 +544,7 @@ public sealed class StyleResolver
 
     #region Line Spacing Helpers
 
-    private static TextSpacing? ExtractLineSpacingFromTextBodyLstStyle(OpenXmlElement? textBody, int level)
+    private static double? ExtractLineSpacingFromTextBodyLstStyle(OpenXmlElement? textBody, int level)
     {
         if (textBody == null) return null;
 
@@ -559,7 +558,7 @@ public sealed class StyleResolver
         return ExtractLineSpacingFromElement(lvlPpr);
     }
 
-    private static TextSpacing? ExtractLineSpacingFromElement(OpenXmlElement? element)
+    private static double? ExtractLineSpacingFromElement(OpenXmlElement? element)
     {
         if (element == null) return null;
 
@@ -572,7 +571,7 @@ public sealed class StyleResolver
         {
             var valAttr = spcPts.GetAttribute("val", "");
             if (int.TryParse(valAttr.Value, out var value))
-                return new TextSpacing(TextSpacingKind.Points, value / 100.0);
+                return value / 100.0;
         }
 
         // Try spcPct (percentage of line height)
@@ -581,7 +580,7 @@ public sealed class StyleResolver
         {
             var valAttr = spcPct.GetAttribute("val", "");
             if (int.TryParse(valAttr.Value, out var value))
-                return new TextSpacing(TextSpacingKind.Percent, value / 100000.0); // spcPct is in 1/1000ths of a percent (100000 = 100% = 1.0)
+                return value / 100000.0; // spcPct is in 1/1000ths of a percent (100000 = 100% = 1.0)
         }
 
         return null;
