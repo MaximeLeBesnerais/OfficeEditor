@@ -148,7 +148,7 @@ public sealed class TypstCompilerService : IDisposable
                 args.Add($"--ppi {options.Ppi.ToString(CultureInfo.InvariantCulture)}");
             }
 
-            if (!string.IsNullOrEmpty(options.FontDirectory) && Directory.Exists(options.FontDirectory))
+            if (!string.IsNullOrEmpty(options.FontDirectory))
             {
                 args.Add($"--font-path \"{options.FontDirectory}\"");
             }
