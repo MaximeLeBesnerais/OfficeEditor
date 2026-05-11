@@ -239,7 +239,7 @@ public class PresentationBuilder : IPresentationBuilder
         else
         {
             var targetSlideId = slideIdList.ChildElements.OfType<SlideId>().ElementAt(targetIndex);
-            slideIdList.InsertAfter(targetSlideId, slideId);
+            slideIdList.InsertAfter(slideId, targetSlideId);
         }
 
         if (_currentSlideIndex == fromIndex)
