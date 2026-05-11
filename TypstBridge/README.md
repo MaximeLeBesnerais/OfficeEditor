@@ -21,12 +21,37 @@ TypstBridge/
 │   └── abi.md
 ├── native/      # Future Rust cdylib project
 ├── managed/     # Future C# P/Invoke wrapper
-├── packaging/   # Future native build and runtime asset scripts
+├── packaging/   # Native build and runtime asset scripts
 └── tests/       # Future Rust, ABI, and managed tests
 ```
 
 ## Status
 
-Planning only. Do not remove `typstsharp` until the native bridge supports PDF, PNG, and SVG end-to-end and passes reference PPTX conversion checks.
+Foundation work only. Do not remove `typstsharp` until the native bridge supports PDF, PNG, and SVG end-to-end and passes reference PPTX conversion checks.
+
+The first native implementation may only expose ABI/probe functionality while the full compile surface is built out.
+
+## Packaging
+
+Native runtime asset helpers live in [`packaging/`](packaging/):
+
+```bash
+TypstBridge/packaging/build-native.sh linux-x64
+TypstBridge/packaging/pack-runtime-assets.sh linux-x64
+```
+
+On Windows:
+
+```powershell
+TypstBridge\packaging\build-native.ps1 -Rid win-x64
+```
+
+Scripts build or copy the Rust cdylib from `TypstBridge/native` into the .NET runtime asset layout:
+
+```text
+TypstBridge/runtimes/<rid>/native/<native-library>
+```
+
+Linux builds must use a non-executable stack (`-C link-arg=-Wl,-z,noexecstack`) so the bridge can load on hardened kernels.
 
 See `docs/implementation-plan.md` for the full migration plan.
