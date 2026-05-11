@@ -4,9 +4,9 @@ This directory contains build helpers for packaging the TypstBridge native Rust
 library as .NET runtime assets.
 
 The scripts prepare the native runtime layout consumed by the managed P/Invoke
-wrapper and managed tests. They do not wire TypstBridge into
-OfficeEditor/PptxEditor, remove `typstsharp`, or replace the external Typst CLI
-fallback used by the future integration layer.
+wrapper, managed tests, and OfficeEditor.Core through its `TypstBridge.Managed`
+reference. They do not fully wire TypstBridge into PptxEditor, remove
+`typstsharp`, or replace the external Typst CLI fallback.
 
 TypstBridge currently renders PDF, SVG, and PNG through the native Rust cdylib.
 The platform/package matrix is still preliminary; these scripts define the
@@ -41,6 +41,8 @@ automatically runs `packaging/build-native.sh linux-x64` when
 `TypstBridge/runtimes/linux-x64/native/libtypst_bridge.so` is missing. Other
 platforms currently skip this automatic build and continue to rely on the
 managed probe/fallback behavior unless their runtime asset is prepared manually.
+Clean Linux x64 source builds therefore require Rust and `cargo` when the native
+runtime asset is not already present.
 
 ## Build native library
 
