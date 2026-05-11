@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
+using TypstBridge.Managed;
+using TypstBridge.Managed.Models;
 
 namespace OfficeEditor.Core.Services;
 
@@ -58,12 +60,136 @@ public sealed class TypstCompilerService : IDisposable
     {
         options ??= new CompileOptions();
 
-        if (_nativeAvailable && options.Format == OutputFormat.Pdf && string.IsNullOrEmpty(options.FontDirectory))
+        var bridgeResult = CompileBridge(source, options);
+        if (bridgeResult.Success)
         {
-            return CompileNative(source, options);
+            return bridgeResult;
         }
 
-        return CompileCli(source, options);
+        var fallbackResult = _nativeAvailable && options.Format == OutputFormat.Pdf && string.IsNullOrEmpty(options.FontDirectory)
+            ? CompileNative(source, options)
+            : CompileCli(source, options);
+
+        if (!fallbackResult.Success)
+        {
+            return fallbackResult with
+            {
+                ErrorMessage = CombineErrors(bridgeResult.ErrorMessage, fallbackResult.ErrorMessage)
+            };
+        }
+
+        return fallbackResult;
+    }
+
+    private static CompileResult CompileBridge(string source, CompileOptions options)
+    {
+        try
+        {
+            var compiler = new TypstBridgeCompiler();
+            if (!compiler.Probe())
+            {
+                return Failure("TypstBridge native library is unavailable.");
+            }
+
+            var request = new TypstCompileRequest(
+                source,
+                GetBridgeWorkingDirectory(options),
+                fontPaths: GetBridgeFontPaths(options),
+                outputFormat: MapOutputFormat(options.Format),
+                ppi: options.Ppi);
+
+            var result = compiler.Compile(request);
+            if (!result.Success)
+            {
+                return Failure(CreateBridgeErrorMessage(result));
+            }
+
+            var pages = result.Outputs
+                .OrderBy(output => output.PageIndex)
+                .Select(output => output.Data)
+                .ToArray();
+
+            if (pages.Length == 0)
+            {
+                return Failure("TypstBridge produced no output.");
+            }
+
+            return new CompileResult
+            {
+                Pages = pages,
+                Success = true
+            };
+        }
+        catch (Exception ex)
+        {
+            return Failure($"TypstBridge compilation failed: {ex.Message}");
+        }
+    }
+
+    private static TypstOutputFormat MapOutputFormat(OutputFormat format) => format switch
+    {
+        OutputFormat.Png => TypstOutputFormat.Png,
+        OutputFormat.Svg => TypstOutputFormat.Svg,
+        OutputFormat.Pdf => TypstOutputFormat.Pdf,
+        _ => TypstOutputFormat.Pdf
+    };
+
+    private static string GetBridgeWorkingDirectory(CompileOptions options)
+    {
+        if (!string.IsNullOrWhiteSpace(options.WorkingDirectory))
+        {
+            return options.WorkingDirectory;
+        }
+
+        var currentDirectory = Directory.GetCurrentDirectory();
+        return string.IsNullOrWhiteSpace(currentDirectory) ? Path.GetTempPath() : currentDirectory;
+    }
+
+    private static IReadOnlyList<string> GetBridgeFontPaths(CompileOptions options)
+    {
+        return string.IsNullOrWhiteSpace(options.FontDirectory)
+            ? Array.Empty<string>()
+            : options.FontDirectory
+                .Split(Path.PathSeparator)
+                .Select(path => path.Trim())
+                .Where(path => path.Length > 0)
+                .ToArray();
+    }
+
+    private static CompileResult Failure(string errorMessage) => new()
+    {
+        Pages = Array.Empty<byte[]>(),
+        Success = false,
+        ErrorMessage = errorMessage
+    };
+
+    private static string CreateBridgeErrorMessage(TypstCompileResult result)
+    {
+        var diagnostics = result.Diagnostics.Select(diagnostic =>
+            $"{diagnostic.Severity}: {diagnostic.Message} ({diagnostic.File ?? "<source>"}:{diagnostic.Line}:{diagnostic.Column})");
+        var diagnosticText = string.Join(Environment.NewLine, diagnostics);
+
+        if (string.IsNullOrWhiteSpace(diagnosticText))
+        {
+            return $"TypstBridge exited with status {result.Status}. {result.Message}".Trim();
+        }
+
+        return $"TypstBridge exited with status {result.Status}. {result.Message}{Environment.NewLine}{diagnosticText}".Trim();
+    }
+
+    private static string CombineErrors(string? bridgeError, string? fallbackError)
+    {
+        if (string.IsNullOrWhiteSpace(bridgeError))
+        {
+            return fallbackError ?? string.Empty;
+        }
+
+        if (string.IsNullOrWhiteSpace(fallbackError))
+        {
+            return bridgeError;
+        }
+
+        return $"{fallbackError}{Environment.NewLine}TypstBridge error: {bridgeError}";
     }
 
     private CompileResult CompileNative(string source, CompileOptions options)

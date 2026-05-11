@@ -36,6 +36,12 @@ Generated files under `TypstBridge/runtimes/` are local build outputs for test
 and package validation. Do not commit them unless the packaging policy is
 explicitly changed.
 
+On Linux x64, building `TypstBridge.Managed` (or a project that references it)
+automatically runs `packaging/build-native.sh linux-x64` when
+`TypstBridge/runtimes/linux-x64/native/libtypst_bridge.so` is missing. Other
+platforms currently skip this automatic build and continue to rely on the
+managed probe/fallback behavior unless their runtime asset is prepared manually.
+
 ## Build native library
 
 From the repository root or any other directory:

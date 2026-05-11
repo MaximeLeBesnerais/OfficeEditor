@@ -4,6 +4,8 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>12</LangVersion>
+    <TypstBridgeLinuxX64NativeLibrary>$(MSBuildThisFileDirectory)../runtimes/linux-x64/native/libtypst_bridge.so</TypstBridgeLinuxX64NativeLibrary>
+    <TypstBridgeCanBuildLinuxX64NativeAsset Condition="'$(OS)' == 'Unix' and '$([System.OperatingSystem]::IsLinux())' == 'true' and '$([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture)' == 'X64' and ('$(RuntimeIdentifier)' == '' or '$(RuntimeIdentifier)' == 'linux-x64')">true</TypstBridgeCanBuildLinuxX64NativeAsset>
   </PropertyGroup>
 
   <ItemGroup>
@@ -13,5 +15,21 @@
           CopyToOutputDirectory="PreserveNewest"
           Pack="true"
           PackagePath="runtimes/%(RecursiveDir)%(Filename)%(Extension)" />
+    <None Include="$(TypstBridgeLinuxX64NativeLibrary)"
+          Condition="'$(TypstBridgeCanBuildLinuxX64NativeAsset)' == 'true' and !Exists('$(TypstBridgeLinuxX64NativeLibrary)')"
+          Link="runtimes/linux-x64/native/libtypst_bridge.so"
+          TargetPath="runtimes/linux-x64/native/libtypst_bridge.so"
+          CopyToOutputDirectory="PreserveNewest"
+          Pack="true"
+          PackagePath="runtimes/linux-x64/native/libtypst_bridge.so" />
   </ItemGroup>
+
+  <Target Name="EnsureTypstBridgeLinuxX64NativeAsset"
+          BeforeTargets="AssignTargetPaths;GetCopyToOutputDirectoryItems;GenerateNuspec"
+          Condition="'$(TypstBridgeCanBuildLinuxX64NativeAsset)' == 'true'
+                     and !Exists('$(TypstBridgeLinuxX64NativeLibrary)')">
+    <Message Importance="high" Text="TypstBridge linux-x64 native asset is missing; building it locally." />
+    <Exec Command="bash &quot;$(MSBuildThisFileDirectory)../packaging/build-native.sh&quot; linux-x64"
+          WorkingDirectory="$(MSBuildThisFileDirectory).." />
+  </Target>
 </Project>
