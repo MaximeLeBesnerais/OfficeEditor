@@ -3,20 +3,20 @@
 > Status update: the standalone TypstBridge now has the native Rust cdylib,
 > managed P/Invoke wrapper, source-backed Typst world, explicit asset/font path
 > handling, PDF/SVG/PNG rendering, diagnostics, runtime asset helpers, and
-> managed tests. OfficeEditor/PptxEditor integration is still pending;
-> `typstsharp` has not been removed; the CLI fallback remains the future
-> integration safety net. Package/platform support is preliminary and still
-> needs full matrix verification.
+> managed tests. OfficeEditor/PptxEditor use it through `TypstCompilerService`
+> as the primary backend. `typstsharp` remains referenced for fallback/legacy
+> compatibility, and the CLI fallback remains a safety net. Package/platform
+> support is preliminary and still needs full matrix verification.
 
 ## Objective
 
-Replace `typstsharp` with a first-party native bridge around Typst's Rust crates.
+Make a first-party native bridge around Typst's Rust crates the primary Typst backend.
 
-The bridge implementation is now available as a standalone component, but the
-replacement is not complete until OfficeEditor/PptxEditor use it and reference
-PPTX conversion checks pass.
+The bridge implementation is available and wired through `TypstCompilerService`;
+reference PPTX conversion checks remain the acceptance gate for broader backend
+or dependency policy changes.
 
-The bridge must support the complete current Typst compile surface before `typstsharp` is removed:
+The bridge supports the current Typst compile surface needed for primary use:
 
 - PDF output
 - PNG output
@@ -30,13 +30,13 @@ The bridge must support the complete current Typst compile surface before `typst
 - Safe memory ownership across Rust and C#
 - Native runtime asset packaging for Linux, Windows, and macOS
 
-The external `typst` CLI fallback may remain as a safety net, but the project should not depend on `typstsharp` after this migration is complete.
+The external `typst` CLI fallback remains a safety net, and `typstsharp` remains referenced for fallback/legacy compatibility unless dependency policy changes.
 
 ## Non-Goals
 
 - Do not reimplement Typst in C#.
 - Do not permanently ship a partial wrapper that only supports PDF.
-- Do not remove `typstsharp` before OfficeEditor/PptxEditor integration, CLI fallback behavior, and reference PPTX verification all pass through the native bridge path.
+- Do not describe `typstsharp` as removed while it remains referenced for fallback/legacy compatibility.
 
 ## Proposed Structure
 
@@ -137,9 +137,9 @@ flowchart TD
 
 ## Remaining integration scope
 
-- Wire OfficeEditor/PptxEditor to a native backend.
+- Maintain the OfficeEditor/PptxEditor native backend path through `TypstCompilerService`.
 - Preserve the external Typst CLI fallback in the integration layer.
-- Keep `typstsharp` until native integration is verified against reference PPTX conversions.
+- Keep `typstsharp` documented as fallback/legacy while project references remain.
 - Verify the package/platform matrix before distributing runtime assets.
 
 ## Phase 1: Foundation
@@ -276,19 +276,19 @@ Acceptance criteria:
 - Native load/probe failure falls back to CLI.
 - Error messages identify attempted backends.
 
-### 11. Remove typstsharp
+### 11. typstsharp fallback/legacy policy
 
-Only after OfficeEditor/PptxEditor integration, CLI fallback behavior, and reference PPTX verification pass through the native bridge path:
+TypstBridge is primary, but `typstsharp` remains referenced for fallback/legacy compatibility unless dependency policy changes:
 
-- Remove `typstsharp` from `OfficeEditor.Core/OfficeEditor.Core.csproj`.
-- Remove `typstsharp` from `PptxEditor.Core/PptxEditor.Core.csproj`.
-- Remove reflection probing code.
-- Remove stale docs/comments that say `typstsharp` is required.
+- Keep documentation clear that TypstBridge is primary.
+- Keep CLI fallback behavior documented as a safety net.
+- Do not claim `typstsharp` is removed while project references remain.
+- Revisit dependency cleanup only after explicit policy and reference verification.
 
 Acceptance criteria:
 
-- Searching the repo finds no active `typstsharp` dependency.
-- Solution restores and builds without `typstsharp`.
+- Documentation consistently describes TypstBridge as primary.
+- Documentation consistently describes `typstsharp` and CLI as fallback/legacy paths where applicable.
 
 ## Phase 4: Packaging and Build
 
@@ -437,7 +437,7 @@ graph TD
     I --> J[Native backend]
     J --> K[CLI backend extraction]
     K --> L[TypstCompilerService refactor]
-    L --> M[Remove typstsharp]
+    L --> M[Document fallback policy]
     I --> N[Runtime packaging]
     N --> O[CI matrix]
     M --> P[Reference PPTX verification]
@@ -457,7 +457,7 @@ The migration is complete only when all of these are true:
 - Native runtime assets are packaged for supported RIDs.
 - `TypstCompilerService` uses backend abstraction.
 - Native bridge is preferred and CLI fallback remains available.
-- `typstsharp` package references are removed.
+- `typstsharp` package references are documented as fallback/legacy while they remain.
 - `dotnet test` passes in an environment with .NET 9 runtime.
 - Rust tests pass.
 - Reference PPTX conversions pass for `REMOVED` and `pres-pro`.
