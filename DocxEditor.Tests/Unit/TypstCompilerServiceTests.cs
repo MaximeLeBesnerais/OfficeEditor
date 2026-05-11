@@ -1,3 +1,4 @@
+using System.Reflection;
 using OfficeEditor.Core.Services;
 using Xunit;
 
@@ -148,6 +149,22 @@ public class TypstCompilerServiceTests : IDisposable
         Assert.True(result150.Success);
         Assert.Single(result72.Pages);
         Assert.Single(result150.Pages);
+    }
+
+    [Fact]
+    public void GetBridgeFontPaths_SplitsCombinedFontDirectory()
+    {
+        var options = new CompileOptions
+        {
+            FontDirectory = string.Join(Path.PathSeparator, "/fonts/embedded", " ", "/fonts/system ")
+        };
+
+        var method = typeof(TypstCompilerService).GetMethod("GetBridgeFontPaths", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+
+        var fontPaths = Assert.IsAssignableFrom<IReadOnlyList<string>>(method.Invoke(null, new object[] { options }));
+
+        Assert.Equal(new[] { "/fonts/embedded", "/fonts/system" }, fontPaths);
     }
 
     [Fact]
