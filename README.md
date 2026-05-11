@@ -286,6 +286,7 @@ await File.WriteAllTextAsync("presentation.typ", typstSource);
 - Extracts and embeds images
 - Handles tables with borders and cell formatting
 - Extracts embedded fonts from PPTX for accurate rendering
+- Compiles through `TypstCompilerService` using TypstBridge first
 - Automatic font fallback if fonts are missing
 - Positioning via Typst's `#place` function
 
@@ -400,7 +401,8 @@ Each format has its own Core project that references OfficeEditor.Core:
 - **Markdig** - Markdown parser (DOCX only)
 - **YamlDotNet** - YAML parser
 - **Spectre.Console** - CLI output (optional)
-- **typstsharp** - Typst compiler for PDF export (PPTX only)
+- **TypstBridge.Managed** - Primary in-process Typst compiler bridge for PPTX PDF/SVG/PNG export
+- **typstsharp** - Legacy/fallback Typst compiler reference for PPTX export
 
 ## Testing
 
@@ -422,25 +424,11 @@ dotnet test
   - Typst source generation
   - Font extraction and fallback
 
-## TODO
+## Typst Compilation Backend
 
-### Build Native Typst Wrapper from Source
+`TypstCompilerService` uses TypstBridge as the primary in-process backend for PPTX exports. TypstBridge supports PDF, SVG, PNG, multi-page outputs, working-directory assets, explicit font paths, PNG PPI, and diagnostics.
 
-**Status:** Currently using CLI fallback (`typst` binary in PATH). Native library loading works on Windows and some Linux distros, but fails on hardened kernels (e.g., Artix/Arch) due to the bundled `libtypst_core.so` missing the `-z noexecstack` linker flag.
-
-**Plan:** Build our own .NET-native wrapper around Typst's C API (`libtypst`) compiled from source with proper flags:
-```bash
-# Rust build with correct stack flags
-RUSTFLAGS="-C link-arg=-z -C link-arg=noexecstack" cargo build --release
-```
-
-**Why this matters:**
-- CLI fallback adds ~500ms-2s per compilation (process spawn overhead)
-- Native wrapper would be near-instant (in-process)
-- Removes the external `typst` dependency for end users
-- Works on all Linux distros regardless of kernel hardening
-
-**Current workaround:** `TypstCompilerService` automatically falls back to the `typst` CLI when the native library fails to load. Install `typst` via your package manager and everything works.
+`typstsharp` remains referenced for fallback/legacy compatibility, and the external `typst` CLI remains a safety net when native compilation is unavailable. Install the `typst` binary if you need CLI fallback support in your environment.
 
 ## License
 

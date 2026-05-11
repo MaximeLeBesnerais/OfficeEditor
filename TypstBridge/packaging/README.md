@@ -5,13 +5,14 @@ library as .NET runtime assets.
 
 The scripts prepare the native runtime layout consumed by the managed P/Invoke
 wrapper, managed tests, and OfficeEditor.Core through its `TypstBridge.Managed`
-reference. They do not fully wire TypstBridge into PptxEditor, remove
-`typstsharp`, or replace the external Typst CLI fallback.
+reference. They do not remove `typstsharp`, provide full platform packaging, or
+replace the external Typst CLI fallback.
 
-TypstBridge currently renders PDF, SVG, and PNG through the native Rust cdylib.
-The platform/package matrix is still preliminary; these scripts define the
-expected layout and support the currently targeted RIDs, but each platform still
-needs explicit build and publish verification.
+TypstBridge renders PDF, SVG, and PNG through the native Rust cdylib and is the
+primary backend for OfficeEditor.Core's `TypstCompilerService`. The
+platform/package matrix is still preliminary; these scripts define the expected
+layout and support the currently targeted RIDs, but each non-Linux-x64 platform
+still needs explicit build and publish verification.
 
 ## Runtime asset layout
 
@@ -103,8 +104,8 @@ Linux builds must not request an executable stack. The Bash build script adds:
 ```
 
 This is required for hardened Linux kernels and avoids reproducing the native
-loading failure that motivated replacing `typstsharp`. When available, verify a
-Linux artifact with:
+loading failure that affected `typstsharp`. When available, verify a Linux
+artifact with:
 
 ```bash
 readelf -W -l TypstBridge/runtimes/linux-x64/native/libtypst_bridge.so
