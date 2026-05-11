@@ -7,7 +7,7 @@ pub const TYPST_BRIDGE_DIAG_WARNING: u32 = 2;
 #[allow(dead_code)]
 pub const TYPST_BRIDGE_DIAG_INFO: u32 = 3;
 
-#[repr(C)]
+#[repr(u32)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TypstBridgeStatus {
     Ok = 0,
@@ -20,7 +20,7 @@ pub enum TypstBridgeStatus {
     Internal = 255,
 }
 
-#[repr(C)]
+#[repr(u32)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TypstBridgeOutputFormat {
     Pdf = 1,
