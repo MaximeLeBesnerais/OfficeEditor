@@ -4,6 +4,7 @@ mod diagnostics;
 mod fonts;
 mod memory;
 mod render_pdf;
+mod render_png;
 mod render_svg;
 mod world;
 
