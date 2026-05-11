@@ -1,3 +1,4 @@
+using System.Text;
 using System.Reflection;
 using OfficeEditor.Core.Services;
 using Xunit;
@@ -55,31 +56,30 @@ public class TypstCompilerServiceTests : IDisposable
     [Fact]
     public void Compile_SimpleDocument_ReturnsPng()
     {
-        // Note: typstsharp only supports PDF output. PNG/SVG are not supported.
         var source = CreateSimpleTypstDocument();
         
         using var compiler = new TypstCompilerService();
         var result = compiler.Compile(source, new CompileOptions { Format = OutputFormat.Png, Ppi = 72 });
         
-        // Should fall back to PDF since PNG is not supported
         Assert.True(result.Success);
         Assert.Single(result.Pages);
-        Assert.True(result.Pages[0].Length > 0);
+        byte[] pngSignature = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+        Assert.True(result.Pages[0].Length >= pngSignature.Length);
+        Assert.True(result.Pages[0].AsSpan(0, pngSignature.Length).SequenceEqual(pngSignature));
     }
 
     [Fact]
     public void Compile_SimpleDocument_ReturnsSvg()
     {
-        // Note: typstsharp only supports PDF output. SVG is not supported.
         var source = CreateSimpleTypstDocument();
         
         using var compiler = new TypstCompilerService();
         var result = compiler.Compile(source, new CompileOptions { Format = OutputFormat.Svg });
         
-        // Should fall back to PDF since SVG is not supported
         Assert.True(result.Success);
         Assert.Single(result.Pages);
         Assert.True(result.Pages[0].Length > 0);
+        Assert.Contains("<svg", Encoding.UTF8.GetString(result.Pages[0]), StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -136,7 +136,6 @@ public class TypstCompilerServiceTests : IDisposable
     [Fact]
     public void Compile_WithDifferentPpi_ReturnsSuccess()
     {
-        // Note: typstsharp doesn't support PPI settings - it always compiles to PDF
         var source = CreateSimpleTypstDocument();
         
         using var compiler = new TypstCompilerService();
