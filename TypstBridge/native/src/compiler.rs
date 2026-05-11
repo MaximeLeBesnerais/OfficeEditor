@@ -12,11 +12,9 @@ use crate::diagnostics;
 use crate::fonts;
 use crate::memory::{into_raw_string, into_raw_vec, output_item};
 use crate::render_pdf;
+use crate::render_png;
 use crate::render_svg;
 use crate::world::BridgeWorld;
-
-const COMPILED_NOT_RENDERED_MESSAGE: &str =
-    "Typst compilation succeeded; rendering is not implemented yet";
 
 pub fn compile(request: *const TypstBridgeCompileRequest) -> *mut TypstBridgeCompileResult {
     let result = match validate_request(request) {
@@ -53,11 +51,9 @@ fn compile_valid(request: ValidRequest) -> TypstBridgeCompileResult {
                     render_pdf_result(&world, &request.root_file_name, &document, diagnostics)
                 }
                 TypstBridgeOutputFormat::Svg => render_svg_result(&document, diagnostics),
-                TypstBridgeOutputFormat::Png => result_with_diagnostics(
-                    TypstBridgeStatus::Unsupported,
-                    COMPILED_NOT_RENDERED_MESSAGE,
-                    diagnostics,
-                ),
+                TypstBridgeOutputFormat::Png => {
+                    render_png_result(&document, request.ppi, diagnostics)
+                }
             }
         }
         Err(errors) => {
@@ -83,6 +79,32 @@ fn render_svg_result(
 
 fn svg_file_name(page_index: u32) -> String {
     format!("page-{:03}.svg", page_index + 1)
+}
+
+fn render_png_result(
+    document: &PagedDocument,
+    ppi: f64,
+    diagnostics: Vec<crate::abi::TypstBridgeDiagnostic>,
+) -> TypstBridgeCompileResult {
+    match render_png::render(document, ppi) {
+        Ok(outputs) => {
+            let outputs = outputs
+                .into_iter()
+                .map(|(page_index, data)| output_item(page_index, &png_file_name(page_index), data))
+                .collect();
+
+            result_with_outputs(TypstBridgeStatus::Ok, "", outputs, diagnostics)
+        }
+        Err(message) => {
+            let mut diagnostics = diagnostics;
+            diagnostics.push(diagnostics::error(&message));
+            result_with_diagnostics(TypstBridgeStatus::Render, &message, diagnostics)
+        }
+    }
+}
+
+fn png_file_name(page_index: u32) -> String {
+    format!("page-{:03}.png", page_index + 1)
 }
 
 fn render_pdf_result(
@@ -214,6 +236,7 @@ struct ValidRequest {
     root_file_name: String,
     font_paths: Vec<String>,
     output_format: TypstBridgeOutputFormat,
+    ppi: f64,
 }
 
 fn validate_request(request: *const TypstBridgeCompileRequest) -> Result<ValidRequest, String> {
@@ -283,6 +306,7 @@ fn validate_request(request: *const TypstBridgeCompileRequest) -> Result<ValidRe
         root_file_name,
         font_paths,
         output_format,
+        ppi: request.ppi,
     })
 }
 
@@ -524,7 +548,7 @@ mod tests {
     }
 
     #[test]
-    fn png_reaches_unsupported_after_successful_compile() {
+    fn single_page_png_returns_one_png_output() {
         let source = CString::new("Hello").unwrap();
         let mut request = valid_request(&source);
         request.output_format = TypstBridgeOutputFormat::Png as u32;
@@ -532,10 +556,97 @@ mod tests {
 
         let result = compile(&request);
         unsafe {
-            assert_eq!((*result).status, TypstBridgeStatus::Unsupported);
-            assert_eq!((*result).outputs_count, 0);
+            assert_eq!((*result).status, TypstBridgeStatus::Ok);
+            assert_eq!((*result).outputs_count, 1);
+
+            let output = &*(*result).outputs;
+            assert_eq!(output.page_index, 0);
+
+            let file_name =
+                slice::from_raw_parts(output.file_name_utf8.cast::<u8>(), output.file_name_len);
+            assert_eq!(str::from_utf8(file_name).unwrap(), "page-001.png");
+
+            let data = slice::from_raw_parts(output.data, output.data_len);
+            assert_eq!(&data[..8], b"\x89PNG\r\n\x1a\n");
             free_result(result);
         }
+    }
+
+    #[test]
+    fn multi_page_png_returns_outputs_in_page_order() {
+        let source = CString::new("First page\n#pagebreak()\nSecond page").unwrap();
+        let mut request = valid_request(&source);
+        request.output_format = TypstBridgeOutputFormat::Png as u32;
+        request.ppi = 96.0;
+
+        let result = compile(&request);
+        unsafe {
+            assert_eq!((*result).status, TypstBridgeStatus::Ok);
+            assert_eq!((*result).outputs_count, 2);
+
+            let outputs = slice::from_raw_parts((*result).outputs, (*result).outputs_count);
+            for (index, output) in outputs.iter().enumerate() {
+                assert_eq!(output.page_index, index as u32);
+                let file_name =
+                    slice::from_raw_parts(output.file_name_utf8.cast::<u8>(), output.file_name_len);
+                assert_eq!(
+                    str::from_utf8(file_name).unwrap(),
+                    format!("page-{:03}.png", index + 1)
+                );
+            }
+
+            free_result(result);
+        }
+    }
+
+    #[test]
+    fn invalid_zero_png_ppi_returns_invalid_argument() {
+        let source = CString::new("Hello").unwrap();
+        let mut request = valid_request(&source);
+        request.output_format = TypstBridgeOutputFormat::Png as u32;
+        request.ppi = 0.0;
+
+        let result = compile(&request);
+        unsafe {
+            assert_eq!((*result).status, TypstBridgeStatus::InvalidArgument);
+            free_result(result);
+        }
+    }
+
+    #[test]
+    fn png_ppi_changes_output_dimensions() {
+        let source = CString::new("#set page(width: 1in, height: 1in)\nHello").unwrap();
+        let mut request = valid_request(&source);
+        request.output_format = TypstBridgeOutputFormat::Png as u32;
+
+        request.ppi = 72.0;
+        let low_ppi = compile(&request);
+        request.ppi = 144.0;
+        let high_ppi = compile(&request);
+
+        unsafe {
+            assert_eq!((*low_ppi).status, TypstBridgeStatus::Ok);
+            assert_eq!((*high_ppi).status, TypstBridgeStatus::Ok);
+
+            let low_output = &*(*low_ppi).outputs;
+            let high_output = &*(*high_ppi).outputs;
+            let low_data = slice::from_raw_parts(low_output.data, low_output.data_len);
+            let high_data = slice::from_raw_parts(high_output.data, high_output.data_len);
+
+            assert_eq!(png_dimensions(low_data), (72, 72));
+            assert_eq!(png_dimensions(high_data), (144, 144));
+            assert_ne!(low_data, high_data);
+
+            free_result(low_ppi);
+            free_result(high_ppi);
+        }
+    }
+
+    fn png_dimensions(data: &[u8]) -> (u32, u32) {
+        assert_eq!(&data[..8], b"\x89PNG\r\n\x1a\n");
+        let width = u32::from_be_bytes(data[16..20].try_into().unwrap());
+        let height = u32::from_be_bytes(data[20..24].try_into().unwrap());
+        (width, height)
     }
 
     #[test]
