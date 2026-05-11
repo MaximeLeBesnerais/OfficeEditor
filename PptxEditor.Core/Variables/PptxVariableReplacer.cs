@@ -51,6 +51,38 @@ public class PptxVariableReplacer
                     run.Text.Text = ReplaceVariablesInText(run.Text.Text, data);
                 }
             }
+
+            ReplaceVariablesAcrossRuns(paragraph, data);
+        }
+    }
+
+    private void ReplaceVariablesAcrossRuns(Drawing.Paragraph paragraph, Dictionary<string, string> data)
+    {
+        var texts = paragraph.Elements<Drawing.Run>()
+            .Where(r => r.Text?.Text != null)
+            .Select(r => r.Text!)
+            .ToList();
+        if (texts.Count <= 1)
+        {
+            return;
+        }
+
+        var combinedText = string.Concat(texts.Select(t => t.Text));
+        if (!combinedText.Contains("{{"))
+        {
+            return;
+        }
+
+        var replacedText = ReplaceVariablesInText(combinedText, data);
+        if (replacedText == combinedText)
+        {
+            return;
+        }
+
+        texts[0].Text = replacedText;
+        foreach (var text in texts.Skip(1))
+        {
+            text.Text = string.Empty;
         }
     }
 
@@ -66,7 +98,7 @@ public class PptxVariableReplacer
                 return value;
             }
             
-            if (!string.IsNullOrEmpty(defaultValue))
+            if (defaultValue != null)
             {
                 return defaultValue;
             }

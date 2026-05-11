@@ -67,6 +67,36 @@ public class DocxVariableReplacer
                     }
                 }
             }
+
+            ReplaceVariablesAcrossRuns(paragraph, data);
+        }
+    }
+
+    private void ReplaceVariablesAcrossRuns(Paragraph paragraph, Dictionary<string, string> data)
+    {
+        var texts = paragraph.Descendants<Text>().ToList();
+        if (texts.Count <= 1)
+        {
+            return;
+        }
+
+        var combinedText = string.Concat(texts.Select(t => t.Text));
+        if (!combinedText.Contains("{{"))
+        {
+            return;
+        }
+
+        var replacedText = ReplaceVariablesInText(combinedText, data);
+        if (replacedText == combinedText)
+        {
+            return;
+        }
+
+        texts[0].Text = replacedText;
+        texts[0].Space = SpaceProcessingModeValues.Preserve;
+        foreach (var text in texts.Skip(1))
+        {
+            text.Text = string.Empty;
         }
     }
 
@@ -83,7 +113,7 @@ public class DocxVariableReplacer
             }
             
             // If no data provided, use default value if available
-            if (!string.IsNullOrEmpty(defaultValue))
+            if (defaultValue != null)
             {
                 return defaultValue;
             }
