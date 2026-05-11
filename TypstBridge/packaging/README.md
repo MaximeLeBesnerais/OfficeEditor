@@ -3,10 +3,15 @@
 This directory contains build helpers for packaging the TypstBridge native Rust
 library as .NET runtime assets.
 
-The scripts only prepare the native runtime layout. They do not replace
-`typstsharp`, modify the managed wrapper, or implement Typst compilation by
-themselves. Early native builds may provide only the ABI/probe foundation until
-the full compile surface is implemented.
+The scripts prepare the native runtime layout consumed by the managed P/Invoke
+wrapper and managed tests. They do not wire TypstBridge into
+OfficeEditor/PptxEditor, remove `typstsharp`, or replace the external Typst CLI
+fallback used by the future integration layer.
+
+TypstBridge currently renders PDF, SVG, and PNG through the native Rust cdylib.
+The platform/package matrix is still preliminary; these scripts define the
+expected layout and support the currently targeted RIDs, but each platform still
+needs explicit build and publish verification.
 
 ## Runtime asset layout
 
@@ -26,6 +31,10 @@ The Bash build script supports `linux-x64` and `linux-arm64`; the PowerShell
 build script supports `win-x64` and `win-arm64`. Other RIDs are called out
 explicitly so cross-compilation support can be added without changing the
 expected layout.
+
+Generated files under `TypstBridge/runtimes/` are local build outputs for test
+and package validation. Do not commit them unless the packaging policy is
+explicitly changed.
 
 ## Build native library
 
@@ -55,9 +64,15 @@ This maps the RID to an explicit Rust target (`x86_64-pc-windows-msvc` or
 `TypstBridge\runtimes\<rid>\native\`.
 
 Both build scripts fail with clear messages if `cargo` is not available, if the
-native crate has not been created yet, or if the expected artifact is missing.
-The required Rust target and linker toolchain must be installed for the selected
-RID.
+expected native crate is missing, or if the expected artifact is missing. The
+required Rust target and linker toolchain must be installed for the selected RID.
+
+After building the runtime asset for the current RID, run managed verification
+with:
+
+```bash
+dotnet test TypstBridge/tests/TypstBridge.Managed.Tests/TypstBridge.Managed.Tests.csproj
+```
 
 ## Pack an existing artifact
 

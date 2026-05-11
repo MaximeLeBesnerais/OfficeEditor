@@ -1,17 +1,30 @@
 # TypstBridge
 
-TypstBridge is the planned replacement for the current `typstsharp` dependency.
+TypstBridge is a first-party native bridge around Typst's Rust crates, exposed to .NET through a stable C ABI and a managed P/Invoke wrapper.
 
-The goal is to provide a controlled native bridge around Typst's Rust crates, exposed through a stable C ABI and consumed from .NET through P/Invoke. This is not a C# reimplementation of Typst.
+It is not a C# reimplementation of Typst. The bridge currently exists as a standalone component under `TypstBridge/`; OfficeEditor/PptxEditor integration is still pending.
 
-## Goals
+## Current status
 
-- Replace `typstsharp` with a bridge we can build, package, debug, and harden ourselves.
-- Support the complete existing compile surface: PDF, PNG, SVG, multi-page output, working directories, asset paths, font paths, PNG PPI, diagnostics, and safe memory ownership.
-- Keep the external `typst` CLI fallback as a safety net.
-- Compile Linux binaries with non-executable stack flags so the bridge works on hardened kernels.
+- Native Rust `cdylib` implemented under [`native/`](native/).
+- Managed .NET 9 P/Invoke wrapper implemented under [`managed/`](managed/).
+- Native rendering is implemented for PDF, SVG, and PNG.
+- Source strings are compiled through a native Typst world.
+- Relative assets resolve from the request working directory.
+- Explicit font file/directory paths are supported.
+- PDF returns one output; SVG and PNG return one output per page.
+- PNG rendering accepts a PPI value.
+- Diagnostics and error messages are exposed through the ABI and managed wrapper.
+- Managed tests cover native loading, PDF/SVG/PNG rendering, multi-page outputs, PPI, and diagnostics. Asset/font behavior and repeated compile/free stability are covered by native-side checks or remain future managed-test coverage where gaps exist.
 
-## Planned Layout
+Not yet done:
+
+- OfficeEditor/PptxEditor are not wired to TypstBridge yet.
+- `typstsharp` has not been removed.
+- The external Typst CLI fallback remains the future integration safety net.
+- Package/platform support is preliminary; the runtime asset layout exists, but the full platform matrix still needs verification.
+
+## Layout
 
 ```text
 TypstBridge/
@@ -19,17 +32,75 @@ TypstBridge/
 ├── docs/
 │   ├── implementation-plan.md
 │   └── abi.md
-├── native/      # Future Rust cdylib project
-├── managed/     # Future C# P/Invoke wrapper
+├── native/      # Rust cdylib project
+├── managed/     # C# P/Invoke wrapper
 ├── packaging/   # Native build and runtime asset scripts
-└── tests/       # Future Rust, ABI, and managed tests
+└── tests/       # Managed bridge tests and fixtures
 ```
 
-## Status
+## Build native runtime asset
 
-Foundation work only. Do not remove `typstsharp` until the native bridge supports PDF, PNG, and SVG end-to-end and passes reference PPTX conversion checks.
+From the repository root, build and copy the native library into the .NET runtime asset layout:
 
-The first native implementation may only expose ABI/probe functionality while the full compile surface is built out.
+```bash
+TypstBridge/packaging/build-native.sh linux-x64
+```
+
+On Windows:
+
+```powershell
+TypstBridge\packaging\build-native.ps1 -Rid win-x64
+```
+
+The generated asset is copied to:
+
+```text
+TypstBridge/runtimes/<rid>/native/<native-library>
+```
+
+For Linux x64 this is:
+
+```text
+TypstBridge/runtimes/linux-x64/native/libtypst_bridge.so
+```
+
+Linux builds use `-C link-arg=-Wl,-z,noexecstack` so the bridge can load on hardened kernels.
+
+If the native library has already been built, copy it without rebuilding:
+
+```bash
+TypstBridge/packaging/pack-runtime-assets.sh linux-x64
+```
+
+Generated runtime assets under `TypstBridge/runtimes/` are build outputs for local test/package validation and should not be committed unless a packaging decision explicitly changes that policy.
+
+## Run managed tests
+
+Build the native runtime asset for your RID first, then run:
+
+```bash
+dotnet test TypstBridge/tests/TypstBridge.Managed.Tests/TypstBridge.Managed.Tests.csproj
+```
+
+The managed project includes `TypstBridge/runtimes/**/*` as runtime assets, so tests should load the native library without manually setting `LD_LIBRARY_PATH` when the asset exists for the current RID.
+
+## Supported compile request surface
+
+- `source`: Typst source string.
+- `workingDirectory`: base directory for relative imports/assets such as `assets/...`.
+- `rootFileName`: virtual root file name used by the source-backed world.
+- `fontPaths`: explicit font files or directories.
+- `outputFormat`: `Pdf`, `Svg`, or `Png`.
+- `ppi`: PNG rasterization density.
+- diagnostics: structured diagnostics plus human-readable messages.
+
+Expected outputs:
+
+| Format | Output behavior |
+| --- | --- |
+| PDF | One output item containing the PDF bytes. |
+| SVG | One output item per page, ordered by page index. |
+| PNG | One output item per page, ordered by page index, rendered at the requested PPI. |
 
 ## Packaging
 
@@ -40,18 +111,4 @@ TypstBridge/packaging/build-native.sh linux-x64
 TypstBridge/packaging/pack-runtime-assets.sh linux-x64
 ```
 
-On Windows:
-
-```powershell
-TypstBridge\packaging\build-native.ps1 -Rid win-x64
-```
-
-Scripts build or copy the Rust cdylib from `TypstBridge/native` into the .NET runtime asset layout:
-
-```text
-TypstBridge/runtimes/<rid>/native/<native-library>
-```
-
-Linux builds must use a non-executable stack (`-C link-arg=-Wl,-z,noexecstack`) so the bridge can load on hardened kernels.
-
-See `docs/implementation-plan.md` for the full migration plan.
+See [`packaging/README.md`](packaging/README.md) for script details and the preliminary RID matrix. See [`docs/abi.md`](docs/abi.md) for the C ABI shape.
