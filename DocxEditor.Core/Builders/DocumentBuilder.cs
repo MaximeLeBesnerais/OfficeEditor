@@ -1,3 +1,4 @@
+using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using DocxEditor.Core.Content;
@@ -341,10 +342,11 @@ public class DocumentBuilder : IDocumentBuilder
             var tempBody = new Body();
             renderer.Render(tempBody, blocks);
             
-            // Insert all rendered elements after target paragraph
+            // Insert after the last inserted node so block order is preserved.
+            OpenXmlElement insertAfter = targetParagraph;
             foreach (var element in tempBody.Elements().ToList())
             {
-                parent.InsertAfter(element.CloneNode(true), targetParagraph);
+                insertAfter = parent.InsertAfter(element.CloneNode(true), insertAfter)!;
             }
             
             targetParagraph.Remove();
