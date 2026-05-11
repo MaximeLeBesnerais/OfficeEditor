@@ -1,6 +1,6 @@
-# TypstBridge ABI Draft
+# TypstBridge ABI
 
-This document defines the planned C ABI between the Rust Typst bridge and .NET.
+This document defines the C ABI between the Rust Typst bridge and .NET managed wrapper.
 
 The ABI is intentionally C-compatible. Rust-owned memory must always be released by Rust-provided free functions. C# must never free Rust allocations directly.
 
@@ -11,6 +11,10 @@ The ABI is intentionally C-compatible. Rust-owned memory must always be released
 - The caller must release returned results with `typst_bridge_free_result`.
 - Panics must never cross the FFI boundary.
 - Compile results must support one output item for PDF and one output item per page for PNG/SVG.
+
+## Implemented compile surface
+
+The current native bridge uses this ABI for source-string compilation with working-directory asset resolution, explicit font paths, PDF output, per-page SVG/PNG outputs, PNG PPI, and diagnostics. OfficeEditor/PptxEditor integration is pending and `typstsharp` remains in the wider application for now.
 
 ## Status Codes
 
@@ -73,7 +77,7 @@ typedef struct typst_bridge_compile_request {
 `working_dir_utf8` is required for PPTX-generated sources because the converter emits relative asset paths such as `assets/...`.
 
 Font paths use the same explicit pointer + length string rule as scalar strings.
-When `font_paths_count > 0`, `font_paths` must point to an array of `font_paths_count` items. Each `value_utf8`/`value_len` pair must be valid UTF-8; zero-length font paths are allowed and may use a null pointer.
+When `font_paths_count > 0`, `font_paths` must point to an array of `font_paths_count` items. Each `value_utf8`/`value_len` pair must be valid UTF-8 and must identify a file or directory path. Do not supply zero-length font path entries; they are reserved/invalid until the implementation gives them explicit semantics. Current implementations may treat an empty path like `working_dir`, so callers should omit such entries instead.
 
 ## Output Item
 

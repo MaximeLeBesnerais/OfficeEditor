@@ -1,8 +1,20 @@
 # TypstBridge Implementation Plan
 
+> Status update: the standalone TypstBridge now has the native Rust cdylib,
+> managed P/Invoke wrapper, source-backed Typst world, explicit asset/font path
+> handling, PDF/SVG/PNG rendering, diagnostics, runtime asset helpers, and
+> managed tests. OfficeEditor/PptxEditor integration is still pending;
+> `typstsharp` has not been removed; the CLI fallback remains the future
+> integration safety net. Package/platform support is preliminary and still
+> needs full matrix verification.
+
 ## Objective
 
 Replace `typstsharp` with a first-party native bridge around Typst's Rust crates.
+
+The bridge implementation is now available as a standalone component, but the
+replacement is not complete until OfficeEditor/PptxEditor use it and reference
+PPTX conversion checks pass.
 
 The bridge must support the complete current Typst compile surface before `typstsharp` is removed:
 
@@ -24,7 +36,7 @@ The external `typst` CLI fallback may remain as a safety net, but the project sh
 
 - Do not reimplement Typst in C#.
 - Do not permanently ship a partial wrapper that only supports PDF.
-- Do not remove `typstsharp` before native PDF, PNG, and SVG are working through the bridge.
+- Do not remove `typstsharp` before OfficeEditor/PptxEditor integration, CLI fallback behavior, and reference PPTX verification all pass through the native bridge path.
 
 ## Proposed Structure
 
@@ -110,6 +122,25 @@ flowchart TD
     H --> M[PNG Renderer]
     H --> N[SVG Renderer]
 ```
+
+## Completed standalone bridge scope
+
+- Native skeleton, ABI, memory ownership, and panic guards.
+- Source-string Typst world with working-directory asset resolution.
+- Explicit font file/directory loading.
+- PDF rendering with one output item.
+- SVG and PNG rendering with one output item per page.
+- PNG PPI support.
+- Diagnostics mapping to native and managed results.
+- Managed .NET 9 wrapper and managed tests.
+- Runtime asset build/copy scripts for the preliminary RID layout.
+
+## Remaining integration scope
+
+- Wire OfficeEditor/PptxEditor to a native backend.
+- Preserve the external Typst CLI fallback in the integration layer.
+- Keep `typstsharp` until native integration is verified against reference PPTX conversions.
+- Verify the package/platform matrix before distributing runtime assets.
 
 ## Phase 1: Foundation
 
@@ -247,7 +278,7 @@ Acceptance criteria:
 
 ### 11. Remove typstsharp
 
-Only after native PDF, PNG, and SVG are verified:
+Only after OfficeEditor/PptxEditor integration, CLI fallback behavior, and reference PPTX verification pass through the native bridge path:
 
 - Remove `typstsharp` from `OfficeEditor.Core/OfficeEditor.Core.csproj`.
 - Remove `typstsharp` from `PptxEditor.Core/PptxEditor.Core.csproj`.
