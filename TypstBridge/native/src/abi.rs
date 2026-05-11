@@ -3,6 +3,9 @@ use std::ffi::{c_char, c_uchar};
 pub const TYPST_BRIDGE_ABI_VERSION: u32 = 2;
 
 pub const TYPST_BRIDGE_DIAG_ERROR: u32 = 1;
+pub const TYPST_BRIDGE_DIAG_WARNING: u32 = 2;
+#[allow(dead_code)]
+pub const TYPST_BRIDGE_DIAG_INFO: u32 = 3;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -100,6 +103,9 @@ mod tests {
         assert_eq!(TypstBridgeStatus::Ok as u32, 0);
         assert_eq!(TypstBridgeStatus::Unsupported as u32, 6);
         assert_eq!(TypstBridgeStatus::Internal as u32, 255);
+        assert_eq!(TYPST_BRIDGE_DIAG_ERROR, 1);
+        assert_eq!(TYPST_BRIDGE_DIAG_WARNING, 2);
+        assert_eq!(TYPST_BRIDGE_DIAG_INFO, 3);
         assert_eq!(TypstBridgeOutputFormat::Pdf as u32, 1);
         assert_eq!(TypstBridgeOutputFormat::Png as u32, 2);
         assert_eq!(TypstBridgeOutputFormat::Svg as u32, 3);
