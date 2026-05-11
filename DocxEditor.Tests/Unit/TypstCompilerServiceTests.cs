@@ -85,7 +85,7 @@ public class TypstCompilerServiceTests : IDisposable
     [Fact]
     public void Compile_MultipageDocument_ReturnsMultiplePages()
     {
-        // Note: typstsharp returns a single PDF buffer regardless of page count
+        // PDF output is returned as one buffer regardless of page count; PNG/SVG may be per-page.
         var source = @"
 #set page(width: 200pt, height: 100pt, margin: 10pt)
 #text(size: 12pt)[Page 1]
@@ -97,7 +97,7 @@ public class TypstCompilerServiceTests : IDisposable
         var result = compiler.Compile(source, new CompileOptions { Format = OutputFormat.Pdf });
         
         Assert.True(result.Success);
-        // typstsharp returns a single PDF buffer
+        // PDF output is a single buffer.
         Assert.Single(result.Pages);
         Assert.True(result.Pages[0].Length > 0);
     }
@@ -143,7 +143,7 @@ public class TypstCompilerServiceTests : IDisposable
         var result72 = compiler.Compile(source, new CompileOptions { Format = OutputFormat.Pdf, Ppi = 72 });
         var result150 = compiler.Compile(source, new CompileOptions { Format = OutputFormat.Pdf, Ppi = 150 });
         
-        // Both should succeed (PPI is ignored for PDF output)
+        // Both should succeed; PPI applies to raster output, not PDF buffers.
         Assert.True(result72.Success);
         Assert.True(result150.Success);
         Assert.Single(result72.Pages);
