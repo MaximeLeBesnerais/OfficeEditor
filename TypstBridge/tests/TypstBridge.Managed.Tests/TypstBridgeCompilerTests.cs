@@ -57,16 +57,53 @@ public sealed class TypstBridgeCompilerTests
         Assert.False(string.IsNullOrWhiteSpace(diagnostic.Message));
     }
 
-    [Theory]
-    [InlineData(TypstOutputFormat.Png)]
-    [InlineData(TypstOutputFormat.Svg)]
-    public void RasterAndSvgFormatsReturnUnsupportedAfterSuccessfulCompilation(TypstOutputFormat outputFormat)
+    [Fact]
+    public void SinglePageSvgCompileReturnsSingleSvgOutput()
     {
         TypstBridgeCompiler compiler = CreateAvailableCompiler();
         TypstCompileRequest request = new(
             source: "Hello from TypstBridge",
             workingDirectory: Environment.CurrentDirectory,
-            outputFormat: outputFormat,
+            outputFormat: TypstOutputFormat.Svg);
+
+        TypstCompileResult result = compiler.Compile(request);
+
+        Assert.Equal(Ok, result.Status);
+        Assert.True(result.Success);
+        TypstOutputFile output = Assert.Single(result.Outputs);
+        AssertSvgOutput(output, 0u, "page-001.svg");
+    }
+
+    [Fact]
+    public void MultiPageSvgCompileReturnsOutputsInPageOrder()
+    {
+        TypstBridgeCompiler compiler = CreateAvailableCompiler();
+        TypstCompileRequest request = new(
+            source: "First page\n#pagebreak()\nSecond page",
+            workingDirectory: Environment.CurrentDirectory,
+            outputFormat: TypstOutputFormat.Svg);
+
+        TypstCompileResult result = compiler.Compile(request);
+
+        Assert.Equal(Ok, result.Status);
+        Assert.True(result.Success);
+        Assert.Equal(2, result.Outputs.Count);
+
+        for (int index = 0; index < result.Outputs.Count; index++)
+        {
+            uint pageIndex = (uint)index;
+            AssertSvgOutput(result.Outputs[index], pageIndex, $"page-{index + 1:000}.svg");
+        }
+    }
+
+    [Fact]
+    public void PngFormatReturnsUnsupportedAfterSuccessfulCompilation()
+    {
+        TypstBridgeCompiler compiler = CreateAvailableCompiler();
+        TypstCompileRequest request = new(
+            source: "Hello from TypstBridge",
+            workingDirectory: Environment.CurrentDirectory,
+            outputFormat: TypstOutputFormat.Png,
             ppi: 96.0);
 
         TypstCompileResult result = compiler.Compile(request);
@@ -75,6 +112,19 @@ public sealed class TypstBridgeCompilerTests
         Assert.False(result.Success);
         Assert.Empty(result.Outputs);
         Assert.Contains("not implemented", result.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void AssertSvgOutput(TypstOutputFile output, uint pageIndex, string fileName)
+    {
+        Assert.Equal(pageIndex, output.PageIndex);
+        Assert.Equal(fileName, output.FileName);
+        Assert.EndsWith(".svg", output.FileName, StringComparison.OrdinalIgnoreCase);
+
+        string svg = System.Text.Encoding.UTF8.GetString(output.Data);
+        Assert.True(
+            svg.Contains("<svg", StringComparison.OrdinalIgnoreCase) ||
+            svg.Contains("<?xml", StringComparison.OrdinalIgnoreCase),
+            "SVG output should decode as UTF-8 and contain an SVG marker.");
     }
 
     private static TypstBridgeCompiler CreateAvailableCompiler()
