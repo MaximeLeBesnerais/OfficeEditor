@@ -73,6 +73,7 @@ public class WorksheetBuilder : IWorksheetBuilder
     public IWorksheetBuilder AddHeaderRow(List<string> values, int rowIndex = 1)
     {
         var row = GetOrCreateRow(rowIndex);
+        var headerStyleIndex = _workbookBuilder.EnsureHeaderStyleIndex();
         
         for (int i = 0; i < values.Count; i++)
         {
@@ -82,8 +83,7 @@ public class WorksheetBuilder : IWorksheetBuilder
             cell.CellValue = new CellValue(sharedStringIndex.ToString());
             cell.DataType = CellValues.SharedString;
             
-            // Make header bold (would need style part for full implementation)
-            cell.StyleIndex = 1; // Bold style index
+            cell.StyleIndex = headerStyleIndex;
         }
 
         return this;
@@ -120,32 +120,49 @@ public class WorksheetBuilder : IWorksheetBuilder
 
     public IWorksheetBuilder AddTable(string startCell, string endCell, string tableName)
     {
-        // For V1, we'll create a simple table definition
-        // Full table implementation would require TableDefinitionPart
         var tablePart = _worksheetPart.AddNewPart<TableDefinitionPart>();
+        var relationshipId = _worksheetPart.GetIdOfPart(tablePart);
+        var columnCount = GetColumnIndex(endCell) - GetColumnIndex(startCell) + 1;
         var table = new Table
         {
-            Id = 1,
+            Id = (uint)(_worksheetPart.TableDefinitionParts.Count() + 1),
             Name = tableName,
             DisplayName = tableName,
             Reference = $"{startCell}:{endCell}"
         };
         
         table.Append(new AutoFilter { Reference = $"{startCell}:{endCell}" });
+        var tableColumns = new TableColumns { Count = (uint)columnCount };
+        for (uint i = 1; i <= columnCount; i++)
+        {
+            tableColumns.Append(new TableColumn { Id = i, Name = $"Column{i}" });
+        }
+        table.Append(tableColumns);
+        table.Append(new TableStyleInfo
+        {
+            Name = "TableStyleMedium2",
+            ShowFirstColumn = false,
+            ShowLastColumn = false,
+            ShowRowStripes = true,
+            ShowColumnStripes = false
+        });
         tablePart.Table = table;
+
+        var tableParts = _worksheet.Elements<TableParts>().FirstOrDefault();
+        if (tableParts == null)
+        {
+            tableParts = new TableParts();
+            _worksheet.Append(tableParts);
+        }
+        tableParts.Append(new TablePart { Id = relationshipId });
+        tableParts.Count = (uint)tableParts.Elements<TablePart>().Count();
 
         return this;
     }
 
     public IWorksheetBuilder AddChart(ChartType type, string dataRange)
     {
-        // For V1, create a simple chart placeholder
-        // Full chart implementation would require DocumentFormat.OpenXml.Drawing
-        // This is a simplified placeholder that creates the drawing part structure
-        var drawingsPart = _worksheetPart.AddNewPart<DrawingsPart>();
-        drawingsPart.WorksheetDrawing = new DocumentFormat.OpenXml.Drawing.Spreadsheet.WorksheetDrawing();
-
-        return this;
+        throw new NotSupportedException("Chart creation is not implemented yet.");
     }
 
     private Cell GetOrCreateCell(string cellReference)
@@ -208,5 +225,21 @@ public class WorksheetBuilder : IWorksheetBuilder
         }
         
         return int.Parse(rowPart);
+    }
+
+    private static int GetColumnIndex(string cellReference)
+    {
+        var result = 0;
+        foreach (var c in cellReference)
+        {
+            if (!char.IsLetter(c))
+            {
+                break;
+            }
+
+            result = result * 26 + char.ToUpperInvariant(c) - 'A' + 1;
+        }
+
+        return result;
     }
 }
