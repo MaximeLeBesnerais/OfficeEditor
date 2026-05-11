@@ -10,6 +10,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 typst = "=0.14.2"
 typst-kit = { version = "=0.14.2", default-features = false, features = ["fonts", "embed-fonts"] }
+typst-pdf = "=0.14.2"
 typst-utils = "=0.14.2"
 
 [profile.release]
