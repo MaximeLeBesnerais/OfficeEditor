@@ -1,0 +1,13 @@
+[package]
+name = "typst_bridge"
+version = "0.1.0"
+edition = "2021"
+build = "build.rs"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = "symbols"
