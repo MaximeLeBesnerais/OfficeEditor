@@ -37,6 +37,15 @@ typedef enum typst_bridge_output_format {
 } typst_bridge_output_format;
 ```
 
+## Input String
+
+```c
+typedef struct typst_bridge_string {
+    const char* value_utf8;
+    uintptr_t value_len;
+} typst_bridge_string;
+```
+
 ## Compile Request
 
 ```c
@@ -52,7 +61,7 @@ typedef struct typst_bridge_compile_request {
     const char* root_file_name_utf8;
     uintptr_t root_file_name_len;
 
-    const char** font_paths_utf8;
+    const typst_bridge_string* font_paths;
     uintptr_t font_paths_count;
 
     typst_bridge_output_format output_format;
@@ -62,6 +71,9 @@ typedef struct typst_bridge_compile_request {
 ```
 
 `working_dir_utf8` is required for PPTX-generated sources because the converter emits relative asset paths such as `assets/...`.
+
+Font paths use the same explicit pointer + length string rule as scalar strings.
+When `font_paths_count > 0`, `font_paths` must point to an array of `font_paths_count` items. Each `value_utf8`/`value_len` pair must be valid UTF-8; zero-length font paths are allowed and may use a null pointer.
 
 ## Output Item
 

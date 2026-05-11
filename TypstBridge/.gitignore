@@ -1,0 +1,4 @@
+managed/bin/
+managed/obj/
+native/target/
+runtimes/
