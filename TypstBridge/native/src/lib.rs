@@ -1,7 +1,9 @@
 mod abi;
 mod compiler;
 mod diagnostics;
+mod fonts;
 mod memory;
+mod world;
 
 use std::cell::RefCell;
 use std::ffi::{c_char, CString};
