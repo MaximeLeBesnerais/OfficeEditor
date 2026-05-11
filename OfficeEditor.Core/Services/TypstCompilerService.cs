@@ -16,6 +16,7 @@ public sealed record CompileOptions
     public float Ppi { get; init; } = 150;
     public string? FontDirectory { get; init; }
     public string? WorkingDirectory { get; init; }
+    public TimeSpan ProcessTimeout { get; init; } = TimeSpan.FromMinutes(2);
 }
 
 public sealed record CompileResult
@@ -57,7 +58,7 @@ public sealed class TypstCompilerService : IDisposable
     {
         options ??= new CompileOptions();
 
-        if (_nativeAvailable)
+        if (_nativeAvailable && options.Format == OutputFormat.Pdf && string.IsNullOrEmpty(options.FontDirectory))
         {
             return CompileNative(source, options);
         }
@@ -74,6 +75,11 @@ public sealed class TypstCompilerService : IDisposable
 
             var fromSource = compilerType.GetMethod("FromSource", new[] { typeof(string) })
                 ?? throw new InvalidOperationException("FromSource method not found");
+
+            if (_compiler is IDisposable previousCompiler)
+            {
+                previousCompiler.Dispose();
+            }
 
             _compiler = fromSource.Invoke(null, new object[] { source });
 
@@ -107,10 +113,11 @@ public sealed class TypstCompilerService : IDisposable
     private static CompileResult CompileCli(string source, CompileOptions options)
     {
         var useProvidedDir = !string.IsNullOrEmpty(options.WorkingDirectory) && Directory.Exists(options.WorkingDirectory);
+        var compileId = Guid.NewGuid().ToString("N");
         var tempDir = useProvidedDir
             ? options.WorkingDirectory!
-            : Path.Combine(Path.GetTempPath(), $"typst_compile_{Guid.NewGuid():N}");
-        
+            : Path.Combine(Path.GetTempPath(), $"typst_compile_{compileId}");
+
         if (!useProvidedDir)
         {
             Directory.CreateDirectory(tempDir);
@@ -118,42 +125,25 @@ public sealed class TypstCompilerService : IDisposable
 
         try
         {
-            var typstFile = Path.Combine(tempDir, "input.typ");
+            var typstFile = Path.Combine(tempDir, $"input_{compileId}.typ");
             File.WriteAllText(typstFile, source);
 
             string outputPattern;
             switch (options.Format)
             {
                 case OutputFormat.Png:
-                    outputPattern = Path.Combine(tempDir, "page_{p}.png");
+                    outputPattern = Path.Combine(tempDir, $"page_{compileId}_{{p}}.png");
                     break;
                 case OutputFormat.Svg:
-                    outputPattern = Path.Combine(tempDir, "page_{p}.svg");
+                    outputPattern = Path.Combine(tempDir, $"page_{compileId}_{{p}}.svg");
                     break;
                 case OutputFormat.Pdf:
                 default:
-                    outputPattern = Path.Combine(tempDir, "output.pdf");
+                    outputPattern = Path.Combine(tempDir, $"output_{compileId}.pdf");
                     break;
             }
 
-            var args = new List<string>
-            {
-                "compile",
-                $"\"{typstFile}\"",
-                $"\"{outputPattern}\""
-            };
-
-            if (options.Format == OutputFormat.Png)
-            {
-                args.Add($"--ppi {options.Ppi.ToString(CultureInfo.InvariantCulture)}");
-            }
-
-            if (!string.IsNullOrEmpty(options.FontDirectory))
-            {
-                args.Add($"--font-path \"{options.FontDirectory}\"");
-            }
-
-            var psi = new ProcessStartInfo("typst", string.Join(" ", args))
+            var psi = new ProcessStartInfo("typst")
             {
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -161,6 +151,21 @@ public sealed class TypstCompilerService : IDisposable
                 CreateNoWindow = true,
                 WorkingDirectory = tempDir
             };
+            psi.ArgumentList.Add("compile");
+            psi.ArgumentList.Add(typstFile);
+            psi.ArgumentList.Add(outputPattern);
+
+            if (options.Format == OutputFormat.Png)
+            {
+                psi.ArgumentList.Add("--ppi");
+                psi.ArgumentList.Add(options.Ppi.ToString(CultureInfo.InvariantCulture));
+            }
+
+            if (!string.IsNullOrEmpty(options.FontDirectory))
+            {
+                psi.ArgumentList.Add("--font-path");
+                psi.ArgumentList.Add(options.FontDirectory);
+            }
 
             using var process = Process.Start(psi);
             if (process == null)
@@ -173,9 +178,31 @@ public sealed class TypstCompilerService : IDisposable
                 };
             }
 
-            process.WaitForExit();
-            var stderr = process.StandardError.ReadToEnd();
-            var stdout = process.StandardOutput.ReadToEnd();
+            var stderrTask = process.StandardError.ReadToEndAsync();
+            var stdoutTask = process.StandardOutput.ReadToEndAsync();
+            var waitTask = process.WaitForExitAsync();
+
+            if (!waitTask.Wait(options.ProcessTimeout))
+            {
+                try
+                {
+                    process.Kill(entireProcessTree: true);
+                }
+                catch
+                {
+                    // Best effort termination before reporting timeout.
+                }
+
+                return new CompileResult
+                {
+                    Pages = Array.Empty<byte[]>(),
+                    Success = false,
+                    ErrorMessage = $"Typst CLI timed out after {options.ProcessTimeout.TotalSeconds.ToString("F0", CultureInfo.InvariantCulture)} seconds."
+                };
+            }
+
+            var stderr = stderrTask.GetAwaiter().GetResult();
+            var stdout = stdoutTask.GetAwaiter().GetResult();
 
             if (process.ExitCode != 0)
             {
@@ -192,7 +219,7 @@ public sealed class TypstCompilerService : IDisposable
 
             if (options.Format == OutputFormat.Pdf)
             {
-                var pdfPath = Path.Combine(tempDir, "output.pdf");
+                var pdfPath = Path.Combine(tempDir, $"output_{compileId}.pdf");
                 if (File.Exists(pdfPath))
                 {
                     pages.Add(File.ReadAllBytes(pdfPath));
@@ -202,8 +229,8 @@ public sealed class TypstCompilerService : IDisposable
             {
                 // PNG or SVG: collect page files
                 var ext = options.Format == OutputFormat.Png ? "png" : "svg";
-                var pageFiles = Directory.GetFiles(tempDir, $"page_*.{ext}")
-                    .OrderBy(f => f, StringComparer.Ordinal);
+                var pageFiles = Directory.GetFiles(tempDir, $"page_{compileId}_*.{ext}")
+                    .OrderBy(GetTypstPageNumber);
 
                 foreach (var pageFile in pageFiles)
                 {
@@ -238,18 +265,37 @@ public sealed class TypstCompilerService : IDisposable
         }
         finally
         {
-            if (!useProvidedDir)
+            try
             {
-                try
+                if (useProvidedDir)
+                {
+                    foreach (var file in Directory.GetFiles(tempDir, $"*_{compileId}*"))
+                    {
+                        File.Delete(file);
+                    }
+                }
+                else
                 {
                     Directory.Delete(tempDir, true);
                 }
-                catch
-                {
-                    // Best effort cleanup
-                }
+            }
+            catch
+            {
+                // Best effort cleanup
             }
         }
+    }
+
+    private static int GetTypstPageNumber(string path)
+    {
+        var fileName = Path.GetFileNameWithoutExtension(path);
+        var markerIndex = fileName.LastIndexOf('_');
+        if (markerIndex >= 0 && int.TryParse(fileName[(markerIndex + 1)..], NumberStyles.Integer, CultureInfo.InvariantCulture, out var pageNumber))
+        {
+            return pageNumber;
+        }
+
+        return int.MaxValue;
     }
 
     public void Dispose()
