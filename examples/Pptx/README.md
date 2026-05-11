@@ -188,7 +188,7 @@ await File.WriteAllBytesAsync("04-export.pdf", pdfBytes);
 
 **Output:** `output/pptx/04-export.pdf` (2-page PDF)
 
-> Converts PPTX slides → Typst source → compiles to PDF via `typstsharp`
+> Converts PPTX slides → Typst source → compiles to PDF through `TypstCompilerService` with TypstBridge as the primary backend.
 
 ---
 
@@ -296,5 +296,6 @@ dotnet run
 ```
 
 **Prerequisites for Typst features:**
-- `typstsharp` NuGet package (included)
-- Native `libtypst_core.so` (Linux) or `typst_core.dll` (Windows) — auto-copied on build
+- TypstBridge native runtime asset for your RID (built/copied by the project where supported)
+- Optional `typst` CLI in `PATH` for the external CLI fallback
+- `typstsharp` remains referenced for fallback/legacy compatibility
