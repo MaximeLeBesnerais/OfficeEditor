@@ -2457,6 +2457,7 @@ dependencies = [
  "typst",
  "typst-kit",
  "typst-pdf",
+ "typst-svg",
  "typst-utils",
 ]
 
