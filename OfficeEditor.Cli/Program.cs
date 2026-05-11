@@ -9,12 +9,12 @@ namespace OfficeEditor.Cli;
 
 class Program
 {
-    static void Main(string[] args)
+    static int Main(string[] args)
     {
         if (args.Length == 0)
         {
             ShowHelp();
-            return;
+            return 1;
         }
 
         var command = args[0].ToLowerInvariant();
@@ -24,32 +24,28 @@ class Program
             switch (command)
             {
                 case "create":
-                    HandleCreate(args);
-                    break;
+                    return HandleCreate(args) ? 0 : 1;
                 case "edit":
-                    HandleEdit(args);
-                    break;
+                    return HandleEdit(args) ? 0 : 1;
                 case "detect":
-                    HandleDetect(args);
-                    break;
+                    return HandleDetect(args) ? 0 : 1;
                 case "merge":
-                    HandleMerge(args);
-                    break;
+                    return HandleMerge(args) ? 0 : 1;
                 case "help":
                 case "--help":
                 case "-h":
                     ShowHelp();
-                    break;
+                    return 0;
                 default:
                     AnsiConsole.MarkupLine("[red]Unknown command.[/]");
                     ShowHelp();
-                    break;
+                    return 1;
             }
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[red]Error: {ex.Message}[/]");
-            Environment.Exit(1);
+            AnsiConsole.MarkupLine($"[red]Error: {Markup.Escape(ex.Message)}[/]");
+            return 1;
         }
     }
 
@@ -67,12 +63,12 @@ class Program
         AnsiConsole.WriteLine("Format is auto-detected from file extension.");
     }
 
-    static void HandleCreate(string[] args)
+    static bool HandleCreate(string[] args)
     {
         if (args.Length < 2)
         {
             AnsiConsole.MarkupLine("[red]Output file path is required.[/]");
-            return;
+            return false;
         }
 
         var outputPath = args[1];
@@ -81,7 +77,7 @@ class Program
         if (format == DocumentFormat.Unknown)
         {
             AnsiConsole.MarkupLine("[red]Unsupported file format. Use .docx, .pptx, or .xlsx[/]");
-            return;
+            return false;
         }
 
         AnsiConsole.Status()
@@ -101,7 +97,8 @@ class Program
                 }
             });
 
-        AnsiConsole.MarkupLine($"[green]Document created: {outputPath}[/]");
+        AnsiConsole.MarkupLine($"[green]Document created: {Markup.Escape(outputPath)}[/]");
+        return true;
     }
 
     static void CreateDocx(string path, string[] args)
@@ -133,12 +130,12 @@ class Program
         builder.Save();
     }
 
-    static void HandleEdit(string[] args)
+    static bool HandleEdit(string[] args)
     {
         if (args.Length < 4)
         {
             AnsiConsole.MarkupLine("[red]Input file and instructions file are required.[/]");
-            return;
+            return false;
         }
 
         var inputPath = args[1];
@@ -148,7 +145,7 @@ class Program
         if (string.IsNullOrEmpty(instructionsPath))
         {
             AnsiConsole.MarkupLine("[red]--instructions parameter is required.[/]");
-            return;
+            return false;
         }
 
         AnsiConsole.Status()
@@ -158,14 +155,15 @@ class Program
                 // Full implementation would parse and execute instructions
                 AnsiConsole.MarkupLine($"[yellow]Edit not yet implemented for {format}[/]");
             });
+        return false;
     }
 
-    static void HandleDetect(string[] args)
+    static bool HandleDetect(string[] args)
     {
         if (args.Length < 2)
         {
             AnsiConsole.MarkupLine("[red]Document path is required.[/]");
-            return;
+            return false;
         }
 
         var documentPath = args[1];
@@ -174,7 +172,7 @@ class Program
         if (format == DocumentFormat.Unknown)
         {
             AnsiConsole.MarkupLine("[red]Unsupported file format.[/]");
-            return;
+            return false;
         }
 
         AnsiConsole.Status()
@@ -212,6 +210,7 @@ class Program
 
                 AnsiConsole.Write(table);
             });
+        return true;
     }
 
     static List<VariableInfo> DetectDocxVariables(string path)
@@ -232,18 +231,23 @@ class Program
         return builder.DetectVariables();
     }
 
-    static void HandleMerge(string[] args)
+    static bool HandleMerge(string[] args)
     {
         if (args.Length < 4)
         {
             AnsiConsole.MarkupLine("[red]Template file, data file, and output file are required.[/]");
-            return;
+            return false;
         }
 
         var templatePath = args[1];
         var dataPath = args[2];
         var outputPath = args[3];
         var format = DetectFormat(templatePath);
+        if (format == DocumentFormat.Unknown)
+        {
+            AnsiConsole.MarkupLine("[red]Unsupported file format.[/]");
+            return false;
+        }
 
         var json = File.ReadAllText(dataPath);
         var data = JsonSerializer.Deserialize<Dictionary<string, string>>(json);
@@ -251,7 +255,7 @@ class Program
         if (data == null)
         {
             AnsiConsole.MarkupLine("[red]Invalid data file.[/]");
-            return;
+            return false;
         }
 
         AnsiConsole.Status()
@@ -284,8 +288,9 @@ class Program
                         break;
                 }
 
-                AnsiConsole.MarkupLine($"[green]Document merged: {outputPath}[/]");
+                AnsiConsole.MarkupLine($"[green]Document merged: {Markup.Escape(outputPath)}[/]");
             });
+        return true;
     }
 
     static DocumentFormat DetectFormat(string path)
