@@ -367,6 +367,10 @@ mod tests {
 
         let output = &*(*result).outputs;
         assert_eq!(output.page_index, 0);
+        assert_eq!(output.file_name_len, "output.pdf".len());
+        let file_name =
+            slice::from_raw_parts(output.file_name_utf8.cast::<u8>(), output.file_name_len);
+        assert_eq!(str::from_utf8(file_name).unwrap(), "output.pdf");
         assert!(output.data_len > 4);
 
         let data = slice::from_raw_parts(output.data, output.data_len);
@@ -381,6 +385,27 @@ mod tests {
         let result = compile(&request);
         unsafe {
             assert_pdf_result(result);
+            free_result(result);
+        }
+    }
+
+    #[test]
+    fn pdf_output_file_name_uses_root_file_stem() {
+        let source = CString::new("Hello").unwrap();
+        let root_file_name = CString::new("deck.typ").unwrap();
+        let mut request = valid_request(&source);
+        request.root_file_name_utf8 = root_file_name.as_ptr();
+        request.root_file_name_len = root_file_name.as_bytes().len();
+
+        let result = compile(&request);
+        unsafe {
+            assert_eq!((*result).status, TypstBridgeStatus::Ok);
+            assert_eq!((*result).outputs_count, 1);
+
+            let output = &*(*result).outputs;
+            let file_name =
+                slice::from_raw_parts(output.file_name_utf8.cast::<u8>(), output.file_name_len);
+            assert_eq!(str::from_utf8(file_name).unwrap(), "deck.pdf");
             free_result(result);
         }
     }
@@ -436,6 +461,20 @@ mod tests {
         let mut request = valid_request(&source);
         request.output_format = TypstBridgeOutputFormat::Png as u32;
         request.ppi = 96.0;
+
+        let result = compile(&request);
+        unsafe {
+            assert_eq!((*result).status, TypstBridgeStatus::Unsupported);
+            assert_eq!((*result).outputs_count, 0);
+            free_result(result);
+        }
+    }
+
+    #[test]
+    fn svg_reaches_unsupported_after_successful_compile() {
+        let source = CString::new("Hello").unwrap();
+        let mut request = valid_request(&source);
+        request.output_format = TypstBridgeOutputFormat::Svg as u32;
 
         let result = compile(&request);
         unsafe {
