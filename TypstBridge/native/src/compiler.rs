@@ -12,6 +12,7 @@ use crate::diagnostics;
 use crate::fonts;
 use crate::memory::{into_raw_string, into_raw_vec, output_item};
 use crate::render_pdf;
+use crate::render_svg;
 use crate::world::BridgeWorld;
 
 const COMPILED_NOT_RENDERED_MESSAGE: &str =
@@ -51,13 +52,12 @@ fn compile_valid(request: ValidRequest) -> TypstBridgeCompileResult {
                 TypstBridgeOutputFormat::Pdf => {
                     render_pdf_result(&world, &request.root_file_name, &document, diagnostics)
                 }
-                TypstBridgeOutputFormat::Png | TypstBridgeOutputFormat::Svg => {
-                    result_with_diagnostics(
-                        TypstBridgeStatus::Unsupported,
-                        COMPILED_NOT_RENDERED_MESSAGE,
-                        diagnostics,
-                    )
-                }
+                TypstBridgeOutputFormat::Svg => render_svg_result(&document, diagnostics),
+                TypstBridgeOutputFormat::Png => result_with_diagnostics(
+                    TypstBridgeStatus::Unsupported,
+                    COMPILED_NOT_RENDERED_MESSAGE,
+                    diagnostics,
+                ),
             }
         }
         Err(errors) => {
@@ -67,6 +67,22 @@ fn compile_valid(request: ValidRequest) -> TypstBridgeCompileResult {
             result_with_diagnostics(TypstBridgeStatus::Compile, &message, diagnostics)
         }
     }
+}
+
+fn render_svg_result(
+    document: &PagedDocument,
+    diagnostics: Vec<crate::abi::TypstBridgeDiagnostic>,
+) -> TypstBridgeCompileResult {
+    let outputs = render_svg::render(document)
+        .into_iter()
+        .map(|(page_index, data)| output_item(page_index, &svg_file_name(page_index), data))
+        .collect();
+
+    result_with_outputs(TypstBridgeStatus::Ok, "", outputs, diagnostics)
+}
+
+fn svg_file_name(page_index: u32) -> String {
+    format!("page-{:03}.svg", page_index + 1)
 }
 
 fn render_pdf_result(
@@ -423,6 +439,58 @@ mod tests {
     }
 
     #[test]
+    fn single_page_svg_returns_one_svg_output() {
+        let source = CString::new("Hello").unwrap();
+        let mut request = valid_request(&source);
+        request.output_format = TypstBridgeOutputFormat::Svg as u32;
+
+        let result = compile(&request);
+        unsafe {
+            assert_eq!((*result).status, TypstBridgeStatus::Ok);
+            assert_eq!((*result).outputs_count, 1);
+
+            let output = &*(*result).outputs;
+            assert_eq!(output.page_index, 0);
+
+            let file_name =
+                slice::from_raw_parts(output.file_name_utf8.cast::<u8>(), output.file_name_len);
+            assert_eq!(str::from_utf8(file_name).unwrap(), "page-001.svg");
+
+            let data = slice::from_raw_parts(output.data, output.data_len);
+            let svg = str::from_utf8(data).unwrap();
+            assert!(svg.contains("<svg") || svg.contains("<?xml"));
+
+            free_result(result);
+        }
+    }
+
+    #[test]
+    fn multi_page_svg_returns_outputs_in_page_order() {
+        let source = CString::new("First page\n#pagebreak()\nSecond page").unwrap();
+        let mut request = valid_request(&source);
+        request.output_format = TypstBridgeOutputFormat::Svg as u32;
+
+        let result = compile(&request);
+        unsafe {
+            assert_eq!((*result).status, TypstBridgeStatus::Ok);
+            assert_eq!((*result).outputs_count, 2);
+
+            let outputs = slice::from_raw_parts((*result).outputs, (*result).outputs_count);
+            for (index, output) in outputs.iter().enumerate() {
+                assert_eq!(output.page_index, index as u32);
+                let file_name =
+                    slice::from_raw_parts(output.file_name_utf8.cast::<u8>(), output.file_name_len);
+                assert_eq!(
+                    str::from_utf8(file_name).unwrap(),
+                    format!("page-{:03}.svg", index + 1)
+                );
+            }
+
+            free_result(result);
+        }
+    }
+
+    #[test]
     fn invalid_typst_returns_compile() {
         let source = CString::new("#let =").unwrap();
         let request = valid_request(&source);
@@ -461,20 +529,6 @@ mod tests {
         let mut request = valid_request(&source);
         request.output_format = TypstBridgeOutputFormat::Png as u32;
         request.ppi = 96.0;
-
-        let result = compile(&request);
-        unsafe {
-            assert_eq!((*result).status, TypstBridgeStatus::Unsupported);
-            assert_eq!((*result).outputs_count, 0);
-            free_result(result);
-        }
-    }
-
-    #[test]
-    fn svg_reaches_unsupported_after_successful_compile() {
-        let source = CString::new("Hello").unwrap();
-        let mut request = valid_request(&source);
-        request.output_format = TypstBridgeOutputFormat::Svg as u32;
 
         let result = compile(&request);
         unsafe {
