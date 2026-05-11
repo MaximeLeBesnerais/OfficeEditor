@@ -42,15 +42,17 @@ public enum ChartType
 public class WorkbookBuilder : IWorkbookBuilder
 {
     private readonly SpreadsheetDocument _document;
+    private readonly string _path;
     private readonly bool _isNewDocument;
     private readonly Dictionary<string, WorksheetBuilder> _worksheets = new();
     private WorkbookPart _workbookPart;
     private SharedStringTablePart? _sharedStringPart;
     private uint _nextSheetId = 1;
 
-    private WorkbookBuilder(SpreadsheetDocument document, bool isNew)
+    private WorkbookBuilder(SpreadsheetDocument document, string path, bool isNew)
     {
         _document = document;
+        _path = path;
         _isNewDocument = isNew;
         _workbookPart = document.WorkbookPart!;
         
@@ -69,13 +71,13 @@ public class WorkbookBuilder : IWorkbookBuilder
         var document = SpreadsheetDocument.Create(path, SpreadsheetDocumentType.Workbook);
         var workbookPart = document.AddWorkbookPart();
         workbookPart.Workbook = new Workbook();
-        return new WorkbookBuilder(document, true);
+        return new WorkbookBuilder(document, path, true);
     }
 
     public static IWorkbookBuilder Open(string path)
     {
         var document = SpreadsheetDocument.Open(path, true);
-        return new WorkbookBuilder(document, false);
+        return new WorkbookBuilder(document, path, false);
     }
 
     public IWorksheetBuilder AddWorksheet(string name)
@@ -167,6 +169,16 @@ public class WorkbookBuilder : IWorkbookBuilder
     public void Save(string? path = null)
     {
         _document.Save();
+        if (!string.IsNullOrEmpty(path))
+        {
+            if (Path.GetFullPath(path) == Path.GetFullPath(_path))
+            {
+                return;
+            }
+
+            using var clone = _document.Clone(path, true);
+            clone.Save();
+        }
     }
 
     public void Dispose()
@@ -225,6 +237,33 @@ public class WorkbookBuilder : IWorkbookBuilder
         var newItem = new SharedStringItem(new Text(text));
         sharedStringTable.Append(newItem);
         return index;
+    }
+
+    internal uint EnsureHeaderStyleIndex()
+    {
+        var stylesPart = _workbookPart.WorkbookStylesPart ?? _workbookPart.AddNewPart<WorkbookStylesPart>();
+        stylesPart.Stylesheet ??= new Stylesheet();
+        var stylesheet = stylesPart.Stylesheet;
+
+        stylesheet.Fonts ??= new Fonts(new Font()) { Count = 1 };
+        stylesheet.Fills ??= new Fills(
+            new Fill(new PatternFill { PatternType = PatternValues.None }),
+            new Fill(new PatternFill { PatternType = PatternValues.Gray125 })
+        ) { Count = 2 };
+        stylesheet.Borders ??= new Borders(new Border()) { Count = 1 };
+        stylesheet.CellStyleFormats ??= new CellStyleFormats(new CellFormat()) { Count = 1 };
+        stylesheet.CellFormats ??= new CellFormats(new CellFormat()) { Count = 1 };
+
+        var fontId = stylesheet.Fonts.Count?.Value ?? (uint)stylesheet.Fonts.Elements<Font>().Count();
+        stylesheet.Fonts.Append(new Font(new Bold()));
+        stylesheet.Fonts.Count = fontId + 1;
+
+        var styleIndex = stylesheet.CellFormats.Count?.Value ?? (uint)stylesheet.CellFormats.Elements<CellFormat>().Count();
+        stylesheet.CellFormats.Append(new CellFormat { FontId = fontId, FillId = 0, BorderId = 0, ApplyFont = true });
+        stylesheet.CellFormats.Count = styleIndex + 1;
+
+        stylesPart.Stylesheet.Save();
+        return styleIndex;
     }
 
     private void InitializeNewWorkbook()
