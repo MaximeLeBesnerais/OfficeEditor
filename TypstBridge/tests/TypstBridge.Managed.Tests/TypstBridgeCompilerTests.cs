@@ -15,6 +15,7 @@ public sealed class TypstBridgeCompilerTests
         TypstBridgeCompiler compiler = CreateAvailableCompiler();
 
         Assert.True(compiler.Probe());
+        Assert.Equal(2u, TypstBridgeCompiler.SupportedAbiVersion);
         Assert.Equal(2u, compiler.AbiVersion);
         Assert.False(string.IsNullOrWhiteSpace(compiler.Version));
     }

@@ -10,6 +10,11 @@ namespace TypstBridge.Managed;
 /// </summary>
 public sealed class TypstBridgeCompiler
 {
+    /// <summary>
+    /// ABI version supported by this managed wrapper.
+    /// </summary>
+    public const uint SupportedAbiVersion = 2;
+
     static TypstBridgeCompiler()
     {
         NativeLibraryResolver.Register();
@@ -68,8 +73,8 @@ public sealed class TypstBridgeCompiler
 
         try
         {
-            uint abiVersion = CallNative(TypstBridgeNative.AbiVersion, "read the Typst bridge ABI version");
-            NativeCompileRequest nativeRequest = CreateNativeRequest(request, abiVersion, allocations);
+            EnsureSupportedAbiVersion();
+            NativeCompileRequest nativeRequest = CreateNativeRequest(request, allocations);
             resultPtr = CallNative(() => TypstBridgeNative.Compile(ref nativeRequest), "compile Typst source");
 
             if (resultPtr == IntPtr.Zero)
@@ -93,7 +98,17 @@ public sealed class TypstBridgeCompiler
         }
     }
 
-    private static NativeCompileRequest CreateNativeRequest(TypstCompileRequest request, uint abiVersion, List<IntPtr> allocations)
+    private static void EnsureSupportedAbiVersion()
+    {
+        uint nativeAbiVersion = CallNative(TypstBridgeNative.AbiVersion, "read the Typst bridge ABI version");
+        if (nativeAbiVersion != SupportedAbiVersion)
+        {
+            throw new TypstBridgeException(
+                $"Unsupported Typst bridge ABI version {nativeAbiVersion}. This managed wrapper supports ABI version {SupportedAbiVersion}.");
+        }
+    }
+
+    private static NativeCompileRequest CreateNativeRequest(TypstCompileRequest request, List<IntPtr> allocations)
     {
         IntPtr source = AllocateUtf8(request.Source, nullTerminated: false, allocations, out int sourceLength);
         IntPtr workingDirectory = AllocateUtf8(request.WorkingDirectory, nullTerminated: false, allocations, out int workingDirectoryLength);
@@ -102,7 +117,7 @@ public sealed class TypstBridgeCompiler
 
         return new NativeCompileRequest
         {
-            AbiVersion = abiVersion,
+            AbiVersion = SupportedAbiVersion,
             SourceUtf8 = source,
             SourceLen = (UIntPtr)sourceLength,
             WorkingDirUtf8 = workingDirectory,
