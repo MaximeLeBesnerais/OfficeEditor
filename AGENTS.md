@@ -82,7 +82,7 @@ DocxEditor/
 The project has grown beyond DOCX to include:
 - **PPTX → Typst → PDF conversion pipeline** (primary active work)
 - **XLSX support** (basic read/write)
-- **Typst integration** via CLI fallback (`TypstCompilerService`)
+- **Typst integration** via TypstBridge-first `TypstCompilerService`, with `typstsharp`/Typst CLI fallback paths retained
 - **Reference files in `examples/REF/`** for visual regression testing
 
 ## PPTX→Typst Conversion Critical Rules
@@ -105,7 +105,7 @@ The project has grown beyond DOCX to include:
 - Run conversions sequentially (parallel `dotnet run` causes build file locks)
 
 ## Common Pitfalls
-- Native TypstSharp fails on hardened Linux → use Typst CLI fallback
+- Legacy TypstSharp can fail on hardened Linux; TypstBridge is the primary backend and Typst CLI remains the safety-net fallback
 - `PlaceholderValues` and `SchemeColorValues` parsing via SDK is unreliable → regex fallback
 - Table styles: start with header bold/white, avoid complex partial per-cell strokes initially
 
