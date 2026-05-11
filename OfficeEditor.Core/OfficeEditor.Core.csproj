@@ -13,4 +13,8 @@
     <PackageReference Include="YamlDotNet" Version="17.0.1" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\TypstBridge\managed\TypstBridge.Managed.csproj" />
+  </ItemGroup>
+
 </Project>
