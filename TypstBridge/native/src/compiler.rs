@@ -1,23 +1,24 @@
 use std::ffi::c_char;
-use std::slice;
-use std::str;
+use std::path::PathBuf;
+use std::{slice, str};
+
+use typst::layout::PagedDocument;
 
 use crate::abi::{
     TypstBridgeCompileRequest, TypstBridgeCompileResult, TypstBridgeOutputFormat,
     TypstBridgeStatus, TYPST_BRIDGE_ABI_VERSION,
 };
 use crate::diagnostics;
+use crate::fonts;
 use crate::memory::{into_raw_string, into_raw_vec};
+use crate::world::BridgeWorld;
 
-const NOT_IMPLEMENTED_MESSAGE: &str = "Typst rendering is not implemented yet";
+const COMPILED_NOT_RENDERED_MESSAGE: &str =
+    "Typst compilation succeeded; rendering is not implemented yet";
 
 pub fn compile(request: *const TypstBridgeCompileRequest) -> *mut TypstBridgeCompileResult {
     let result = match validate_request(request) {
-        Ok(()) => result(
-            TypstBridgeStatus::Unsupported,
-            NOT_IMPLEMENTED_MESSAGE,
-            true,
-        ),
+        Ok(request) => compile_valid(request),
         Err(message) => result(TypstBridgeStatus::InvalidArgument, &message, true),
     };
 
@@ -26,6 +27,38 @@ pub fn compile(request: *const TypstBridgeCompileRequest) -> *mut TypstBridgeCom
 
 pub fn panic_result(message: &str) -> *mut TypstBridgeCompileResult {
     Box::into_raw(Box::new(result(TypstBridgeStatus::Panic, message, true)))
+}
+
+fn compile_valid(request: ValidRequest) -> TypstBridgeCompileResult {
+    let fonts = match fonts::load_font_paths(&request.font_paths, &request.working_dir) {
+        Ok(fonts) => fonts,
+        Err(message) => return result(TypstBridgeStatus::InvalidArgument, &message, true),
+    };
+
+    let world = BridgeWorld::new(
+        request.source,
+        request.working_dir,
+        &request.root_file_name,
+        fonts,
+    );
+
+    let compiled = typst::compile::<PagedDocument>(&world);
+    match compiled.output {
+        Ok(_) => {
+            let diagnostics = diagnostics::from_typst_many(&world, compiled.warnings);
+            result_with_diagnostics(
+                TypstBridgeStatus::Unsupported,
+                COMPILED_NOT_RENDERED_MESSAGE,
+                diagnostics,
+            )
+        }
+        Err(errors) => {
+            let diagnostics =
+                diagnostics::from_typst_many(&world, errors.into_iter().chain(compiled.warnings));
+            let message = diagnostics_message(&diagnostics, "Typst compilation failed");
+            result_with_diagnostics(TypstBridgeStatus::Compile, &message, diagnostics)
+        }
+    }
 }
 
 fn result(
@@ -52,7 +85,54 @@ fn result(
     }
 }
 
-fn validate_request(request: *const TypstBridgeCompileRequest) -> Result<(), String> {
+fn result_with_diagnostics(
+    status: TypstBridgeStatus,
+    message: &str,
+    diagnostics: Vec<crate::abi::TypstBridgeDiagnostic>,
+) -> TypstBridgeCompileResult {
+    let (message_utf8, message_len) = into_raw_string(message);
+    let (diagnostics, diagnostics_count) = into_raw_vec(diagnostics);
+
+    TypstBridgeCompileResult {
+        status,
+        outputs: std::ptr::null_mut(),
+        outputs_count: 0,
+        diagnostics,
+        diagnostics_count,
+        message_utf8,
+        message_len,
+    }
+}
+
+fn diagnostics_message(
+    diagnostics: &[crate::abi::TypstBridgeDiagnostic],
+    fallback: &str,
+) -> String {
+    if diagnostics.is_empty() {
+        return fallback.to_owned();
+    }
+
+    let first = &diagnostics[0];
+    if first.message_utf8.is_null() || first.message_len == 0 {
+        return fallback.to_owned();
+    }
+
+    let message =
+        unsafe { slice::from_raw_parts(first.message_utf8.cast::<u8>(), first.message_len) };
+    match str::from_utf8(message) {
+        Ok(message) => format!("{fallback}: {message}"),
+        Err(_) => fallback.to_owned(),
+    }
+}
+
+struct ValidRequest {
+    source: String,
+    working_dir: PathBuf,
+    root_file_name: String,
+    font_paths: Vec<String>,
+}
+
+fn validate_request(request: *const TypstBridgeCompileRequest) -> Result<ValidRequest, String> {
     if request.is_null() {
         return Err("Compile request pointer must not be null".to_owned());
     }
@@ -66,23 +146,25 @@ fn validate_request(request: *const TypstBridgeCompileRequest) -> Result<(), Str
         ));
     }
 
-    read_utf8(request.source_utf8, request.source_len, "source")?;
-    read_utf8(
+    let source = read_utf8(request.source_utf8, request.source_len, "source")?.to_owned();
+    let working_dir = read_utf8(
         request.working_dir_utf8,
         request.working_dir_len,
         "working_dir",
     )?;
-    read_utf8(
+    let root_file_name = read_utf8(
         request.root_file_name_utf8,
         request.root_file_name_len,
         "root_file_name",
-    )?;
+    )?
+    .to_owned();
 
     let output_format = TypstBridgeOutputFormat::from_raw(request.output_format)
         .ok_or_else(|| format!("Unsupported output format {}", request.output_format))?;
 
     validate_ppi(output_format, request.ppi)?;
 
+    let mut font_paths = Vec::new();
     if request.font_paths_count > 0 {
         if request.font_paths.is_null() {
             return Err(
@@ -90,18 +172,33 @@ fn validate_request(request: *const TypstBridgeCompileRequest) -> Result<(), Str
             );
         }
 
-        let font_paths =
+        let raw_font_paths =
             unsafe { slice::from_raw_parts(request.font_paths, request.font_paths_count) };
-        for (index, font_path) in font_paths.iter().enumerate() {
-            read_utf8(
-                font_path.value_utf8,
-                font_path.value_len,
-                &format!("font_paths[{index}].value"),
-            )?;
+        for (index, font_path) in raw_font_paths.iter().enumerate() {
+            font_paths.push(
+                read_utf8(
+                    font_path.value_utf8,
+                    font_path.value_len,
+                    &format!("font_paths[{index}].value"),
+                )?
+                .to_owned(),
+            );
         }
     }
 
-    Ok(())
+    let working_dir = if working_dir.is_empty() {
+        std::env::current_dir()
+            .map_err(|error| format!("Failed to get current directory: {error}"))?
+    } else {
+        PathBuf::from(working_dir)
+    };
+
+    Ok(ValidRequest {
+        source,
+        working_dir,
+        root_file_name,
+        font_paths,
+    })
 }
 
 fn read_utf8<'a>(ptr: *const c_char, len: usize, name: &str) -> Result<&'a str, String> {
@@ -138,6 +235,8 @@ fn validate_ppi(output_format: TypstBridgeOutputFormat, ppi: f64) -> Result<(), 
 #[cfg(test)]
 mod tests {
     use std::ffi::CString;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::*;
     use crate::abi::TypstBridgeString;
@@ -158,6 +257,16 @@ mod tests {
             ppi: 0.0,
             flags: 0,
         }
+    }
+
+    fn temp_dir(name: &str) -> std::path::PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("typst-bridge-{name}-{unique}"));
+        fs::create_dir(&dir).unwrap();
+        dir
     }
 
     #[test]
@@ -184,7 +293,7 @@ mod tests {
     }
 
     #[test]
-    fn valid_compile_returns_unsupported() {
+    fn minimal_valid_source_reaches_unsupported_after_compile() {
         let source = CString::new("Hello").unwrap();
         let request = valid_request(&source);
 
@@ -192,6 +301,58 @@ mod tests {
         unsafe {
             assert_eq!((*result).status, TypstBridgeStatus::Unsupported);
             assert_eq!((*result).outputs_count, 0);
+            free_result(result);
+        }
+    }
+
+    #[test]
+    fn invalid_typst_returns_compile() {
+        let source = CString::new("#let =").unwrap();
+        let request = valid_request(&source);
+
+        let result = compile(&request);
+        unsafe {
+            assert_eq!((*result).status, TypstBridgeStatus::Compile);
+            assert!((*result).diagnostics_count >= 1);
+            free_result(result);
+        }
+    }
+
+    #[test]
+    fn asset_resolution_is_relative_to_working_dir() {
+        let dir = temp_dir("asset");
+        fs::write(dir.join("data.txt"), "from asset").unwrap();
+
+        let source = CString::new("#read(\"data.txt\")").unwrap();
+        let working_dir = CString::new(dir.to_string_lossy().as_bytes()).unwrap();
+        let mut request = valid_request(&source);
+        request.working_dir_utf8 = working_dir.as_ptr();
+        request.working_dir_len = working_dir.as_bytes().len();
+
+        let result = compile(&request);
+        unsafe {
+            assert_eq!((*result).status, TypstBridgeStatus::Unsupported);
+            free_result(result);
+        }
+
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn invalid_font_path_returns_invalid_argument() {
+        let source = CString::new("Hello").unwrap();
+        let missing_font = CString::new("/definitely/missing/font.ttf").unwrap();
+        let font_paths = [TypstBridgeString {
+            value_utf8: missing_font.as_ptr(),
+            value_len: missing_font.as_bytes().len(),
+        }];
+        let mut request = valid_request(&source);
+        request.font_paths = font_paths.as_ptr();
+        request.font_paths_count = font_paths.len();
+
+        let result = compile(&request);
+        unsafe {
+            assert_eq!((*result).status, TypstBridgeStatus::InvalidArgument);
             assert_eq!((*result).diagnostics_count, 1);
             free_result(result);
         }
