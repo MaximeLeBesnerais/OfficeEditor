@@ -21,9 +21,9 @@ Implemented in the standalone bridge:
 
 ## Scope boundaries
 
-- OfficeEditor/PptxEditor integration is still pending.
-- Keep the external Typst CLI fallback as the safety net until native parity is demonstrated in the integration layer.
-- Do not remove `typstsharp` until native integration passes reference PPTX conversion checks.
+- OfficeEditor/PptxEditor now use TypstBridge through `TypstCompilerService` as the primary Typst backend.
+- Keep the external Typst CLI fallback as a safety net when native compilation is unavailable.
+- Keep `typstsharp` documented as fallback/legacy unless dependency policy changes.
 - Treat the package/platform matrix as preliminary until each RID is built and verified.
 - Generated runtime assets under `TypstBridge/runtimes/` are local build outputs and should not be committed unless packaging policy changes.
 - Do not commit unless explicitly requested by the user.
@@ -57,23 +57,21 @@ cargo test --manifest-path TypstBridge/native/Cargo.toml
 - Review font discovery and font precedence behavior for PPTX-generated Typst.
 - Review diagnostics and fallback expectations before touching OfficeEditor/PptxEditor.
 
-### 2. OfficeEditor/PptxEditor backend plan
+### 2. OfficeEditor/PptxEditor backend follow-up
 
-- Design backend selection for `TypstCompilerService`.
+- Maintain backend selection in `TypstCompilerService`.
 - Prefer TypstBridge when the native library loads and probes successfully.
 - Preserve the external Typst CLI fallback.
 - Define error messages that identify attempted backends.
 - Keep existing callers unchanged.
 
-### 3. Integration implementation and reference verification
+### 3. Reference verification
 
-- Wire the managed bridge into the OfficeEditor/PptxEditor compile path.
-- Do not remove `typstsharp` during initial integration.
 - Run reference conversions for `examples/REF/Presentation1.pptx` and `examples/REF/pres-pro.pptx`.
-- Verify PDF and PNG outputs before considering dependency removal.
+- Verify PDF and PNG outputs through the TypstBridge-primary path before changing fallback/dependency policy.
 
 ### 4. Dependency and packaging cleanup
 
-- Remove `typstsharp` only after native integration is accepted.
+- Keep `typstsharp` as fallback/legacy unless dependency policy changes.
 - Verify publish output includes the correct native runtime asset.
 - Expand and confirm the platform matrix before distributing packages.

@@ -14,7 +14,7 @@ The ABI is intentionally C-compatible. Rust-owned memory must always be released
 
 ## Implemented compile surface
 
-The current native bridge uses this ABI for source-string compilation with working-directory asset resolution, explicit font paths, PDF output, per-page SVG/PNG outputs, PNG PPI, and diagnostics. OfficeEditor/PptxEditor integration is pending and `typstsharp` remains in the wider application for now.
+The current native bridge uses this ABI for source-string compilation with working-directory asset resolution, explicit font paths, PDF output, per-page SVG/PNG outputs, PNG PPI, and diagnostics. OfficeEditor.Core's `TypstCompilerService` now uses TypstBridge as its primary backend. `typstsharp` remains in the wider application as a legacy fallback path, and the external Typst CLI remains the safety-net fallback.
 
 ## Status Codes
 
