@@ -10,7 +10,8 @@ use crate::abi::{
 };
 use crate::diagnostics;
 use crate::fonts;
-use crate::memory::{into_raw_string, into_raw_vec};
+use crate::memory::{into_raw_string, into_raw_vec, output_item};
+use crate::render_pdf;
 use crate::world::BridgeWorld;
 
 const COMPILED_NOT_RENDERED_MESSAGE: &str =
@@ -44,13 +45,20 @@ fn compile_valid(request: ValidRequest) -> TypstBridgeCompileResult {
 
     let compiled = typst::compile::<PagedDocument>(&world);
     match compiled.output {
-        Ok(_) => {
+        Ok(document) => {
             let diagnostics = diagnostics::from_typst_many(&world, compiled.warnings);
-            result_with_diagnostics(
-                TypstBridgeStatus::Unsupported,
-                COMPILED_NOT_RENDERED_MESSAGE,
-                diagnostics,
-            )
+            match request.output_format {
+                TypstBridgeOutputFormat::Pdf => {
+                    render_pdf_result(&world, &request.root_file_name, &document, diagnostics)
+                }
+                TypstBridgeOutputFormat::Png | TypstBridgeOutputFormat::Svg => {
+                    result_with_diagnostics(
+                        TypstBridgeStatus::Unsupported,
+                        COMPILED_NOT_RENDERED_MESSAGE,
+                        diagnostics,
+                    )
+                }
+            }
         }
         Err(errors) => {
             let diagnostics =
@@ -59,6 +67,44 @@ fn compile_valid(request: ValidRequest) -> TypstBridgeCompileResult {
             result_with_diagnostics(TypstBridgeStatus::Compile, &message, diagnostics)
         }
     }
+}
+
+fn render_pdf_result(
+    world: &BridgeWorld,
+    root_file_name: &str,
+    document: &PagedDocument,
+    diagnostics: Vec<crate::abi::TypstBridgeDiagnostic>,
+) -> TypstBridgeCompileResult {
+    match render_pdf::render(document) {
+        Ok(data) => result_with_outputs(
+            TypstBridgeStatus::Ok,
+            "",
+            vec![output_item(0, &pdf_file_name(root_file_name), data)],
+            diagnostics,
+        ),
+        Err(errors) => {
+            let mut diagnostics = diagnostics;
+            diagnostics.extend(diagnostics::from_typst_many(world, errors));
+            let message = diagnostics_message(&diagnostics, "Typst PDF export failed");
+            result_with_diagnostics(TypstBridgeStatus::Render, &message, diagnostics)
+        }
+    }
+}
+
+fn pdf_file_name(root_file_name: &str) -> String {
+    let trimmed = root_file_name.trim();
+    if trimmed.is_empty() {
+        return "output.pdf".to_owned();
+    }
+
+    let path = std::path::Path::new(trimmed);
+    let stem = path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .filter(|stem| !stem.is_empty())
+        .unwrap_or("output");
+
+    format!("{stem}.pdf")
 }
 
 fn result(
@@ -104,6 +150,27 @@ fn result_with_diagnostics(
     }
 }
 
+fn result_with_outputs(
+    status: TypstBridgeStatus,
+    message: &str,
+    outputs: Vec<crate::abi::TypstBridgeOutputItem>,
+    diagnostics: Vec<crate::abi::TypstBridgeDiagnostic>,
+) -> TypstBridgeCompileResult {
+    let (message_utf8, message_len) = into_raw_string(message);
+    let (outputs, outputs_count) = into_raw_vec(outputs);
+    let (diagnostics, diagnostics_count) = into_raw_vec(diagnostics);
+
+    TypstBridgeCompileResult {
+        status,
+        outputs,
+        outputs_count,
+        diagnostics,
+        diagnostics_count,
+        message_utf8,
+        message_len,
+    }
+}
+
 fn diagnostics_message(
     diagnostics: &[crate::abi::TypstBridgeDiagnostic],
     fallback: &str,
@@ -130,6 +197,7 @@ struct ValidRequest {
     working_dir: PathBuf,
     root_file_name: String,
     font_paths: Vec<String>,
+    output_format: TypstBridgeOutputFormat,
 }
 
 fn validate_request(request: *const TypstBridgeCompileRequest) -> Result<ValidRequest, String> {
@@ -198,6 +266,7 @@ fn validate_request(request: *const TypstBridgeCompileRequest) -> Result<ValidRe
         working_dir,
         root_file_name,
         font_paths,
+        output_format,
     })
 }
 
@@ -292,15 +361,38 @@ mod tests {
         }
     }
 
+    unsafe fn assert_pdf_result(result: *mut TypstBridgeCompileResult) {
+        assert_eq!((*result).status, TypstBridgeStatus::Ok);
+        assert_eq!((*result).outputs_count, 1);
+
+        let output = &*(*result).outputs;
+        assert_eq!(output.page_index, 0);
+        assert!(output.data_len > 4);
+
+        let data = slice::from_raw_parts(output.data, output.data_len);
+        assert_eq!(&data[..4], b"%PDF");
+    }
+
     #[test]
-    fn minimal_valid_source_reaches_unsupported_after_compile() {
+    fn minimal_pdf_returns_one_pdf_output() {
         let source = CString::new("Hello").unwrap();
         let request = valid_request(&source);
 
         let result = compile(&request);
         unsafe {
-            assert_eq!((*result).status, TypstBridgeStatus::Unsupported);
-            assert_eq!((*result).outputs_count, 0);
+            assert_pdf_result(result);
+            free_result(result);
+        }
+    }
+
+    #[test]
+    fn multi_page_pdf_returns_one_pdf_output() {
+        let source = CString::new("First page\n#pagebreak()\nSecond page").unwrap();
+        let request = valid_request(&source);
+
+        let result = compile(&request);
+        unsafe {
+            assert_pdf_result(result);
             free_result(result);
         }
     }
@@ -331,11 +423,26 @@ mod tests {
 
         let result = compile(&request);
         unsafe {
-            assert_eq!((*result).status, TypstBridgeStatus::Unsupported);
+            assert_pdf_result(result);
             free_result(result);
         }
 
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn png_reaches_unsupported_after_successful_compile() {
+        let source = CString::new("Hello").unwrap();
+        let mut request = valid_request(&source);
+        request.output_format = TypstBridgeOutputFormat::Png as u32;
+        request.ppi = 96.0;
+
+        let result = compile(&request);
+        unsafe {
+            assert_eq!((*result).status, TypstBridgeStatus::Unsupported);
+            assert_eq!((*result).outputs_count, 0);
+            free_result(result);
+        }
     }
 
     #[test]
@@ -397,6 +504,20 @@ mod tests {
         for _ in 0..32 {
             let result = compile(std::ptr::null());
             unsafe { free_result(result) };
+        }
+    }
+
+    #[test]
+    fn repeated_pdf_compile_free_cycles_are_safe() {
+        let source = CString::new("Hello").unwrap();
+
+        for _ in 0..8 {
+            let request = valid_request(&source);
+            let result = compile(&request);
+            unsafe {
+                assert_pdf_result(result);
+                free_result(result);
+            }
         }
     }
 }

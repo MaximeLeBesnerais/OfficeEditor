@@ -3,6 +3,7 @@ mod compiler;
 mod diagnostics;
 mod fonts;
 mod memory;
+mod render_pdf;
 mod world;
 
 use std::cell::RefCell;
