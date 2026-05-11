@@ -81,6 +81,15 @@ public sealed class StyleResolver
     /// </summary>
     public string? ResolveSchemeColor(string schemeColorName)
     {
+        schemeColorName = schemeColorName switch
+        {
+            "bg1" => "lt1",
+            "tx1" => "dk1",
+            "bg2" => "lt2",
+            "tx2" => "dk2",
+            _ => schemeColorName
+        };
+
         if (_schemeColors.TryGetValue(schemeColorName, out var rgb))
             return rgb;
         return null;
@@ -344,17 +353,17 @@ public sealed class StyleResolver
         var buChar = element.ChildElements.FirstOrDefault(e => e.LocalName == "buChar");
         if (buChar != null)
         {
-            var charAttr = buChar.GetAttribute("char", "");
-            if (!string.IsNullOrEmpty(charAttr.Value))
-                return (charAttr.Value, null, true, false);
+            var charAttr = GetAttributeValue(buChar, "char");
+            if (!string.IsNullOrEmpty(charAttr))
+                return (charAttr, null, true, false);
         }
 
         var buAutoNum = element.ChildElements.FirstOrDefault(e => e.LocalName == "buAutoNum");
         if (buAutoNum != null)
         {
-            var typeAttr = buAutoNum.GetAttribute("type", "");
-            if (!string.IsNullOrEmpty(typeAttr.Value))
-                return (null, typeAttr.Value, true, false);
+            var typeAttr = GetAttributeValue(buAutoNum, "type");
+            if (!string.IsNullOrEmpty(typeAttr))
+                return (null, typeAttr, true, false);
         }
 
         var buNone = element.ChildElements.FirstOrDefault(e => e.LocalName == "buNone");
@@ -505,15 +514,15 @@ public sealed class StyleResolver
             var spcPts = spcBefEl.ChildElements.FirstOrDefault(e => e.LocalName == "spcPts");
             if (spcPts != null)
             {
-                var valAttr = spcPts.GetAttribute("val", "");
-                if (int.TryParse(valAttr.Value, out var ptsHundredths))
+                var valAttr = GetAttributeValue(spcPts, "val");
+                if (int.TryParse(valAttr, out var ptsHundredths))
                     spcBef = ptsHundredths / 100.0;
             }
             var spcPct = spcBefEl.ChildElements.FirstOrDefault(e => e.LocalName == "spcPct");
             if (spcPct != null)
             {
-                var valAttr = spcPct.GetAttribute("val", "");
-                if (int.TryParse(valAttr.Value, out var pct))
+                var valAttr = GetAttributeValue(spcPct, "val");
+                if (int.TryParse(valAttr, out var pct))
                     spcBef = pct / 100000.0;
             }
         }
@@ -524,15 +533,15 @@ public sealed class StyleResolver
             var spcPts = spcAftEl.ChildElements.FirstOrDefault(e => e.LocalName == "spcPts");
             if (spcPts != null)
             {
-                var valAttr = spcPts.GetAttribute("val", "");
-                if (int.TryParse(valAttr.Value, out var ptsHundredths))
+                var valAttr = GetAttributeValue(spcPts, "val");
+                if (int.TryParse(valAttr, out var ptsHundredths))
                     spcAft = ptsHundredths / 100.0;
             }
             var spcPct = spcAftEl.ChildElements.FirstOrDefault(e => e.LocalName == "spcPct");
             if (spcPct != null)
             {
-                var valAttr = spcPct.GetAttribute("val", "");
-                if (int.TryParse(valAttr.Value, out var pct))
+                var valAttr = GetAttributeValue(spcPct, "val");
+                if (int.TryParse(valAttr, out var pct))
                     spcAft = pct / 100000.0;
             }
         }
@@ -569,8 +578,8 @@ public sealed class StyleResolver
         var spcPts = lnSpc.ChildElements.FirstOrDefault(e => e.LocalName == "spcPts");
         if (spcPts != null)
         {
-            var valAttr = spcPts.GetAttribute("val", "");
-            if (int.TryParse(valAttr.Value, out var value))
+            var valAttr = GetAttributeValue(spcPts, "val");
+            if (int.TryParse(valAttr, out var value))
                 return value / 100.0;
         }
 
@@ -578,8 +587,8 @@ public sealed class StyleResolver
         var spcPct = lnSpc.ChildElements.FirstOrDefault(e => e.LocalName == "spcPct");
         if (spcPct != null)
         {
-            var valAttr = spcPct.GetAttribute("val", "");
-            if (int.TryParse(valAttr.Value, out var value))
+            var valAttr = GetAttributeValue(spcPct, "val");
+            if (int.TryParse(valAttr, out var value))
                 return value / 100000.0; // spcPct is in 1/1000ths of a percent (100000 = 100% = 1.0)
         }
 
@@ -835,6 +844,18 @@ public sealed class StyleResolver
     {
         // Use the SDK's built-in property which correctly resolves the layout relationship
         return _slidePart.SlideLayoutPart;
+    }
+
+    private static string? GetAttributeValue(OpenXmlElement? element, string attributeName)
+    {
+        if (element == null)
+            return null;
+
+        var match = System.Text.RegularExpressions.Regex.Match(
+            element.OuterXml,
+            $@"\b{System.Text.RegularExpressions.Regex.Escape(attributeName)}\s*=\s*""([^""]*)""");
+
+        return match.Success ? match.Groups[1].Value : null;
     }
 
     #endregion

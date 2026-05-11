@@ -346,7 +346,8 @@ public sealed class PptxToTypstConverter : IDisposable
                     {
                         var paramStr = BuildTextParameters(paragraph.Formatting, availableFonts);
                         var escapedContent = EscapeTypstText(content);
-                        sb.Append($"#enum(start: 1)[{paramStr}[{escapedContent}]]");
+                        var enumParams = BuildEnumParams(1, paragraph);
+                        sb.Append($"#enum{enumParams}[{paramStr}[{escapedContent}]]");
                     }
                     else if (effectiveHasBullet)
                     {
@@ -451,15 +452,14 @@ public sealed class PptxToTypstConverter : IDisposable
                     }
                 }
 
-                var startParam = startNum > 1 ? $"(start: {startNum})" : "";
-                var listIndent = BuildListIndentParams(paragraph);
+                var enumParams = BuildEnumParams(startNum, paragraph);
                 
                 if (!string.IsNullOrEmpty(groupParamStr))
                 {
                     sb.Append(groupParamStr);
                     sb.Append("[");
                 }
-                sb.Append($"#enum{startParam}{listIndent}");
+                sb.Append($"#enum{enumParams}");
 
                 for (int k = i; k <= groupEnd; k++)
                 {
@@ -554,6 +554,29 @@ public sealed class PptxToTypstConverter : IDisposable
         return parts.Count > 0 ? ", " + string.Join(", ", parts) : "";
     }
 
+    private static string BuildEnumParams(int start, TypstParagraph paragraph)
+    {
+        var parts = new List<string>();
+        if (start > 1)
+        {
+            parts.Add($"start: {start}");
+        }
+        if (paragraph.MarginLeft.HasValue && paragraph.MarginLeft.Value > 0.01)
+        {
+            parts.Add($"indent: {FormatPtStatic(paragraph.MarginLeft.Value)}");
+        }
+        if (paragraph.Indent.HasValue)
+        {
+            var bodyIndent = Math.Abs(paragraph.Indent.Value);
+            if (bodyIndent > 0.01)
+            {
+                parts.Add($"body-indent: {FormatPtStatic(bodyIndent)}");
+            }
+        }
+
+        return parts.Count > 0 ? "(" + string.Join(", ", parts) + ")" : "";
+    }
+
     private static string FormatPtStatic(double pt)
     {
         return pt.ToString("F2", CultureInfo.InvariantCulture) + "pt";
@@ -605,7 +628,7 @@ public sealed class PptxToTypstConverter : IDisposable
         return true;
     }
 
-    private TypstTextFormatting MergeRunWithParagraphDefaults(TypstTextFormatting paragraphDefault, Drawing.Run run)
+    private TypstTextFormatting MergeRunWithParagraphDefaults(TypstTextFormatting paragraphDefault, Drawing.Run run, StyleResolver? styleResolver)
     {
         var runProps = run.RunProperties;
         if (runProps == null) return paragraphDefault;
@@ -624,7 +647,7 @@ public sealed class PptxToTypstConverter : IDisposable
         if (runProps.Underline?.Value != null && runProps.Underline.Value != Drawing.TextUnderlineValues.None)
             result = result with { Underline = true };
 
-        var color = ExtractRunColor(runProps);
+        var color = ExtractRunColor(runProps, styleResolver);
         if (!string.IsNullOrEmpty(color))
             result = result with { Color = color };
 
@@ -1926,7 +1949,7 @@ public sealed class PptxToTypstConverter : IDisposable
             {
                 if (isRun && run != null)
                 {
-                    var runFormatting = MergeRunWithParagraphDefaults(formatting, run);
+                    var runFormatting = MergeRunWithParagraphDefaults(formatting, run, styleResolver);
                     runs.Add(new TypstTextRun { Content = text, Formatting = runFormatting });
                 }
                 else
@@ -2264,7 +2287,7 @@ public sealed class PptxToTypstConverter : IDisposable
                 if (runProps.Italic?.Value != null)
                     fmt = fmt with { Italic = runProps.Italic.Value };
 
-                var color = ExtractRunColor(runProps);
+                var color = ExtractRunColor(runProps, styleResolver);
                 if (!string.IsNullOrEmpty(color))
                     fmt = fmt with { Color = color };
 
@@ -2617,18 +2640,18 @@ public sealed class PptxToTypstConverter : IDisposable
         return null;
     }
 
-    private string? ExtractRunColor(Drawing.RunProperties runProps)
+    private string? ExtractRunColor(Drawing.RunProperties runProps, StyleResolver? styleResolver = null)
     {
         var solidFill = runProps.Elements<Drawing.SolidFill>().FirstOrDefault();
         if (solidFill != null)
         {
-            return ExtractColor(solidFill);
+            return ExtractColor(solidFill, styleResolver);
         }
 
         return null;
     }
 
-    private string? ExtractColor(Drawing.SolidFill solidFill)
+    private string? ExtractColor(Drawing.SolidFill solidFill, StyleResolver? styleResolver = null)
     {
         var rgb = solidFill.RgbColorModelHex;
         if (rgb?.Val != null)
@@ -2637,10 +2660,13 @@ public sealed class PptxToTypstConverter : IDisposable
         }
 
         var schemeColor = solidFill.SchemeColor;
-        if (schemeColor?.Val != null)
+        if (schemeColor != null)
         {
-            // Map scheme colors - for now return a default
-            return "#000000";
+            var schemeColorName = GetAttributeValue(schemeColor, "val") ?? schemeColor.Val?.Value.ToString();
+            if (!string.IsNullOrEmpty(schemeColorName))
+            {
+                return styleResolver?.ResolveSchemeColor(schemeColorName);
+            }
         }
 
         return null;
