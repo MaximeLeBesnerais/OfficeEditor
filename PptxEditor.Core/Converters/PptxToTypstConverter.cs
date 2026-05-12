@@ -942,11 +942,7 @@ public sealed class PptxToTypstConverter : IDisposable
             : string.Join(", ", Enumerable.Repeat("1fr", cols));
 
         // Determine if we need per-cell border control
-        bool hasComplexBorders = table.Rows.Any(row =>
-            row.Any(cell => cell.StylePart != null && (
-                cell.StylePart.BorderTopNone || cell.StylePart.BorderBottomNone ||
-                cell.StylePart.BorderLeftNone || cell.StylePart.BorderRightNone ||
-                cell.StylePart.BorderInsideHNone || cell.StylePart.BorderInsideVNone)));
+        bool hasComplexBorders = table.Rows.Any(row => row.Any(cell => HasExplicitCellBorderState(cell.StylePart)));
 
         if (hasComplexBorders)
         {
@@ -977,7 +973,7 @@ public sealed class PptxToTypstConverter : IDisposable
                 if (!string.IsNullOrEmpty(cellStroke))
                     cellParams.Add($"stroke: {cellStroke}");
                 else if (hasComplexBorders)
-                    cellParams.Add($"stroke: {FormatPt(table.BorderWidth)} + rgb(\"{table.BorderColor ?? "#000000"}\")");
+                    cellParams.Add("stroke: none");
 
                 if (cellParams.Count > 0)
                 {
@@ -1025,23 +1021,36 @@ public sealed class PptxToTypstConverter : IDisposable
         var sp = cell.StylePart;
         if (sp == null) return null;
 
-        if (sp.BorderTopNone) parts.Add("top: none");
-        else if (sp.BorderTopWidth.HasValue || sp.BorderTopColor != defaultColor)
-            parts.Add($"top: {FormatPt(sp.BorderTopWidth ?? defaultWidth)} + rgb(\"{sp.BorderTopColor ?? defaultColor}\")");
-
-        if (sp.BorderBottomNone) parts.Add("bottom: none");
-        else if (sp.BorderBottomWidth.HasValue || sp.BorderBottomColor != defaultColor)
-            parts.Add($"bottom: {FormatPt(sp.BorderBottomWidth ?? defaultWidth)} + rgb(\"{sp.BorderBottomColor ?? defaultColor}\")");
-
-        if (sp.BorderLeftNone) parts.Add("left: none");
-        else if (sp.BorderLeftWidth.HasValue || sp.BorderLeftColor != defaultColor)
-            parts.Add($"left: {FormatPt(sp.BorderLeftWidth ?? defaultWidth)} + rgb(\"{sp.BorderLeftColor ?? defaultColor}\")");
-
-        if (sp.BorderRightNone) parts.Add("right: none");
-        else if (sp.BorderRightWidth.HasValue || sp.BorderRightColor != defaultColor)
-            parts.Add($"right: {FormatPt(sp.BorderRightWidth ?? defaultWidth)} + rgb(\"{sp.BorderRightColor ?? defaultColor}\")");
+        AddStrokeSide(parts, "top", sp.BorderTopState, sp.BorderTopWidth, sp.BorderTopColor, defaultWidth, defaultColor);
+        AddStrokeSide(parts, "bottom", sp.BorderBottomState, sp.BorderBottomWidth, sp.BorderBottomColor, defaultWidth, defaultColor);
+        AddStrokeSide(parts, "left", sp.BorderLeftState, sp.BorderLeftWidth, sp.BorderLeftColor, defaultWidth, defaultColor);
+        AddStrokeSide(parts, "right", sp.BorderRightState, sp.BorderRightWidth, sp.BorderRightColor, defaultWidth, defaultColor);
 
         return parts.Count > 0 ? $"({string.Join(", ", parts)})" : null;
+    }
+
+    private static bool HasExplicitCellBorderState(TableStylePart? stylePart)
+    {
+        if (stylePart == null) return false;
+
+        return stylePart.BorderTopState is TableBorderState.Visible or TableBorderState.None
+            || stylePart.BorderBottomState is TableBorderState.Visible or TableBorderState.None
+            || stylePart.BorderLeftState is TableBorderState.Visible or TableBorderState.None
+            || stylePart.BorderRightState is TableBorderState.Visible or TableBorderState.None;
+    }
+
+    private static void AddStrokeSide(List<string> parts, string side, TableBorderState state, double? width, string? color, double defaultWidth, string? defaultColor)
+    {
+        if (state == TableBorderState.None)
+        {
+            parts.Add($"{side}: none");
+            return;
+        }
+
+        if (state == TableBorderState.Visible)
+        {
+            parts.Add($"{side}: {FormatPt(width ?? defaultWidth)} + rgb(\"{color ?? defaultColor ?? "#000000"}\")");
+        }
     }
 
     private TypstSlide ConvertSlide(SlidePart slidePart, Slide slide, int slideIndex)
@@ -2833,13 +2842,11 @@ public sealed class PptxToTypstConverter : IDisposable
                 // Merge explicit cell borders with style part
                 stylePart = MergeExplicitCellBorders(cell, stylePart, styleResolver);
 
-                // Apply interior border suppression from wholeTbl
-                stylePart = ApplyInteriorBorderLogic(stylePart, rowIndex, colIndex, totalRows, totalCols, wholeTblPart);
+                stylePart = ApplyTableGridBorders(stylePart, rowIndex, colIndex, totalRows, totalCols);
 
-                var cellFormatting = ExtractCellFormatting(cell, stylePart);
+                var cellFormatting = ExtractCellFormatting(cell, stylePart, styleResolver);
                 var explicitBg = ExtractCellBackground(cell);
-                var styleBg = ResolveCellBackgroundColor(rowIndex, colIndex, totalRows, totalCols, tableStyle, firstRowFlag, bandRowFlag, firstColFlag, lastColFlag, lastRowFlag);
-                var bgColor = explicitBg ?? styleBg;
+                var bgColor = explicitBg.Specified ? explicitBg.Color : (stylePart?.BackgroundCleared == true ? null : stylePart?.BackgroundColor);
 
                 rowCells.Add(new TypstTableCell
                 {
@@ -2882,54 +2889,70 @@ public sealed class PptxToTypstConverter : IDisposable
         return sb.ToString().Trim();
     }
 
-    private TypstTextFormatting ExtractCellFormatting(Drawing.TableCell cell, TableStylePart? stylePart)
+    private TypstTextFormatting ExtractCellFormatting(Drawing.TableCell cell, TableStylePart? stylePart, StyleResolver? styleResolver)
     {
         var formatting = new TypstTextFormatting();
 
-        // Get explicit cell formatting from first run
-        var textBody = cell.TextBody;
-        if (textBody != null)
-        {
-            foreach (var paragraph in textBody.Elements<Drawing.Paragraph>())
-            {
-                foreach (var run in paragraph.Elements<Drawing.Run>())
-                {
-                    formatting = ExtractTextFormatting(run);
-                    break;
-                }
-                if (formatting.FontSize != 18.0 || formatting.Bold || formatting.Italic || formatting.Color != "#000000")
-                    break;
-            }
-        }
-
-        // Merge table style text properties (style overrides if cell doesn't specify)
+        // Apply inherited table style first; direct run properties override below.
         if (stylePart != null)
         {
-            if (stylePart.TextBold.HasValue && !formatting.Bold)
+            if (stylePart.TextBold.HasValue)
                 formatting = formatting with { Bold = stylePart.TextBold.Value };
-            if (stylePart.TextItalic.HasValue && !formatting.Italic)
+            if (stylePart.TextItalic.HasValue)
                 formatting = formatting with { Italic = stylePart.TextItalic.Value };
-            if (!string.IsNullOrEmpty(stylePart.TextColor) && formatting.Color == "#000000")
+            if (!string.IsNullOrEmpty(stylePart.TextColor))
                 formatting = formatting with { Color = stylePart.TextColor };
-            if (stylePart.TextFontSize.HasValue && formatting.FontSize == 18.0)
+            if (stylePart.TextFontSize.HasValue)
                 formatting = formatting with { FontSize = stylePart.TextFontSize.Value };
+        }
+
+        var firstRun = cell.TextBody?
+            .Elements<Drawing.Paragraph>()
+            .SelectMany(p => p.Elements<Drawing.Run>())
+            .FirstOrDefault(r => r.RunProperties != null);
+        if (firstRun?.RunProperties != null)
+        {
+            formatting = ApplyDirectRunFormatting(formatting, firstRun.RunProperties, styleResolver);
         }
 
         return formatting;
     }
 
-    private string? ExtractCellBackground(Drawing.TableCell cell)
+    private TypstTextFormatting ApplyDirectRunFormatting(TypstTextFormatting formatting, Drawing.RunProperties runProps, StyleResolver? styleResolver)
+    {
+        if (runProps.FontSize?.Value != null)
+            formatting = formatting with { FontSize = runProps.FontSize.Value / 100.0 };
+        if (runProps.Bold?.Value != null)
+            formatting = formatting with { Bold = runProps.Bold.Value };
+        if (runProps.Italic?.Value != null)
+            formatting = formatting with { Italic = runProps.Italic.Value };
+
+        var color = ExtractRunColor(runProps, styleResolver);
+        if (!string.IsNullOrEmpty(color))
+            formatting = formatting with { Color = color };
+
+        var latinFont = runProps.Elements<Drawing.LatinFont>().FirstOrDefault();
+        if (latinFont?.Typeface != null)
+            formatting = formatting with { FontFamily = latinFont.Typeface.Value ?? formatting.FontFamily };
+
+        return formatting;
+    }
+
+    private (bool Specified, string? Color) ExtractCellBackground(Drawing.TableCell cell)
     {
         var cellProps = cell.TableCellProperties;
-        if (cellProps == null) return null;
+        if (cellProps == null) return (false, null);
+
+        if (cellProps.Elements<Drawing.NoFill>().Any())
+            return (true, null);
 
         var fill = cellProps.Elements<Drawing.SolidFill>().FirstOrDefault();
         if (fill != null)
         {
-            return ExtractColor(fill);
+            return (true, ExtractColor(fill));
         }
 
-        return null;
+        return (false, null);
     }
 
     private void LoadTableStyles(StyleResolver? styleResolver)
@@ -2963,9 +2986,11 @@ public sealed class PptxToTypstConverter : IDisposable
         if (tcStyle == null) return;
 
         string? bgColor = null;
+        bool backgroundCleared = false;
         var fill = tcStyle.Elements<Drawing.FillProperties>().FirstOrDefault();
         if (fill != null)
         {
+            backgroundCleared = fill.Elements<Drawing.NoFill>().Any();
             var solidFill = fill.Elements<Drawing.SolidFill>().FirstOrDefault();
             if (solidFill != null)
             {
@@ -2978,6 +3003,8 @@ public sealed class PptxToTypstConverter : IDisposable
         var (borderBottom, borderBottomWidth, borderBottomNone) = ExtractBorderInfo(borders?.BottomBorder, styleResolver);
         var (borderLeft, borderLeftWidth, borderLeftNone) = ExtractBorderInfo(borders?.LeftBorder, styleResolver);
         var (borderRight, borderRightWidth, borderRightNone) = ExtractBorderInfo(borders?.RightBorder, styleResolver);
+        var (borderInsideH, borderInsideHWidth, borderInsideHNone) = ExtractBorderInfo(GetTableBorderByLocalName(borders, "insideH"), styleResolver);
+        var (borderInsideV, borderInsideVWidth, borderInsideVNone) = ExtractBorderInfo(GetTableBorderByLocalName(borders, "insideV"), styleResolver);
 
         // Parse text style
         var tcTxStyle = part.TableCellTextStyle;
@@ -2999,28 +3026,37 @@ public sealed class PptxToTypstConverter : IDisposable
                 if (solidFill != null)
                     textColor = ExtractSolidFillColor(solidFill, styleResolver);
             }
+            ApplyDirectTableTextStyle(tcTxStyle, styleResolver, ref textBold, ref textItalic, ref textColor, ref textFontSize);
         }
-
-        bool borderInsideHNone = borderTopNone && borderBottomNone;
-        bool borderInsideVNone = borderLeftNone && borderRightNone;
 
         definition.Parts[key] = new TableStylePart
         {
             BackgroundColor = bgColor,
+            BackgroundCleared = backgroundCleared,
             BorderTopColor = borderTop,
             BorderBottomColor = borderBottom,
             BorderLeftColor = borderLeft,
             BorderRightColor = borderRight,
+            BorderInsideHColor = borderInsideH,
+            BorderInsideVColor = borderInsideV,
             BorderTopWidth = borderTopWidth,
             BorderBottomWidth = borderBottomWidth,
             BorderLeftWidth = borderLeftWidth,
             BorderRightWidth = borderRightWidth,
+            BorderInsideHWidth = borderInsideHWidth,
+            BorderInsideVWidth = borderInsideVWidth,
             BorderTopNone = borderTopNone,
             BorderBottomNone = borderBottomNone,
             BorderLeftNone = borderLeftNone,
             BorderRightNone = borderRightNone,
             BorderInsideHNone = borderInsideHNone,
             BorderInsideVNone = borderInsideVNone,
+            BorderTopState = ToBorderState(borderTop, borderTopWidth, borderTopNone),
+            BorderBottomState = ToBorderState(borderBottom, borderBottomWidth, borderBottomNone),
+            BorderLeftState = ToBorderState(borderLeft, borderLeftWidth, borderLeftNone),
+            BorderRightState = ToBorderState(borderRight, borderRightWidth, borderRightNone),
+            BorderInsideHState = ToBorderState(borderInsideH, borderInsideHWidth, borderInsideHNone),
+            BorderInsideVState = ToBorderState(borderInsideV, borderInsideVWidth, borderInsideVNone),
             TextBold = textBold,
             TextItalic = textItalic,
             TextColor = textColor,
@@ -3054,10 +3090,10 @@ public sealed class PptxToTypstConverter : IDisposable
 
     private (string? Color, double? Width, bool IsNone) ExtractBorderInfo(OpenXmlElement? border, StyleResolver? styleResolver)
     {
-        if (border == null) return (null, null, true);
+        if (border == null) return (null, null, false);
 
         var outline = border.GetFirstChild<Drawing.Outline>();
-        if (outline == null) return (null, null, true);
+        if (outline == null) return (null, null, false);
 
         // Check for noFill
         var noFill = outline.Elements<Drawing.NoFill>().FirstOrDefault();
@@ -3068,6 +3104,48 @@ public sealed class PptxToTypstConverter : IDisposable
 
         return (color, width, false);
     }
+
+    private static OpenXmlElement? GetTableBorderByLocalName(Drawing.TableCellBorders? borders, string localName)
+        => borders?.ChildElements.FirstOrDefault(e => string.Equals(e.LocalName, localName, StringComparison.OrdinalIgnoreCase));
+
+    private static TableBorderState ToBorderState(string? color, double? width, bool isNone)
+        => isNone ? TableBorderState.None : (color != null || width.HasValue ? TableBorderState.Visible : TableBorderState.Inherit);
+
+    private static void ApplyDirectTableTextStyle(
+        OpenXmlElement tcTxStyle,
+        StyleResolver? styleResolver,
+        ref bool? textBold,
+        ref bool? textItalic,
+        ref string? textColor,
+        ref double? textFontSize)
+    {
+        var xml = tcTxStyle.OuterXml;
+        var b = System.Text.RegularExpressions.Regex.Match(xml, @"\sb=""([01]|true|false)""");
+        if (b.Success) textBold = ParseOnOff(b.Groups[1].Value);
+        var i = System.Text.RegularExpressions.Regex.Match(xml, @"\si=""([01]|true|false)""");
+        if (i.Success) textItalic = ParseOnOff(i.Groups[1].Value);
+        var sz = System.Text.RegularExpressions.Regex.Match(xml, @"\ssz=""(\d+)""");
+        if (sz.Success && int.TryParse(sz.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var szValue))
+            textFontSize = szValue / 100.0;
+
+        var srgb = System.Text.RegularExpressions.Regex.Match(xml, @"<[^>]*srgbClr[^>]*\sval=""([0-9A-Fa-f]{6})""");
+        if (srgb.Success)
+        {
+            textColor = "#" + srgb.Groups[1].Value.ToUpperInvariant();
+            return;
+        }
+
+        var scheme = System.Text.RegularExpressions.Regex.Match(xml, @"<[^>]*schemeClr[^>]*\sval=""([^""\s/>]+)""");
+        if (scheme.Success)
+        {
+            var resolved = styleResolver?.ResolveSchemeColor(scheme.Groups[1].Value);
+            if (!string.IsNullOrEmpty(resolved))
+                textColor = resolved.StartsWith('#') ? resolved : "#" + resolved;
+        }
+    }
+
+    private static bool ParseOnOff(string value)
+        => value == "1" || value.Equals("true", StringComparison.OrdinalIgnoreCase);
 
     private static string? ExtractBorderColorFromOutline(Drawing.Outline outline, StyleResolver? styleResolver)
     {
@@ -3118,37 +3196,85 @@ public sealed class PptxToTypstConverter : IDisposable
         return null;
     }
 
-    private static string? ResolveCellBackgroundColor(int row, int col, int rowCount, int colCount, TableStyleDefinition? style, bool firstRowFlag, bool bandRowFlag, bool firstColFlag, bool lastColFlag, bool lastRowFlag)
-    {
-        if (style == null) return null;
-
-        var part = ResolveCellStylePart(row, col, rowCount, colCount, style, firstRowFlag, bandRowFlag, firstColFlag, lastColFlag, lastRowFlag);
-        return part?.BackgroundColor;
-    }
-
     private static TableStylePart? ResolveCellStylePart(int row, int col, int rowCount, int colCount, TableStyleDefinition? style, bool firstRowFlag, bool bandRowFlag, bool firstColFlag, bool lastColFlag, bool lastRowFlag)
     {
         if (style == null) return null;
+        TableStylePart? result = null;
 
-        string partKey;
-        if (row == 0 && firstRowFlag)
-            partKey = "firstRow";
-        else if (row == rowCount - 1 && lastRowFlag)
-            partKey = "lastRow";
-        else if (col == 0 && firstColFlag)
-            partKey = "firstCol";
-        else if (col == colCount - 1 && lastColFlag)
-            partKey = "lastCol";
-        else if (bandRowFlag)
-            partKey = (row % 2 == 1) ? "band1H" : "band2H";
-        else
-            partKey = "wholeTbl";
+        if (style.Parts.TryGetValue("wholeTbl", out var wholeTbl))
+            result = OverlayTableStylePart(result, wholeTbl);
 
-        if (style.Parts.TryGetValue(partKey, out var part))
-            return part;
+        if (bandRowFlag)
+        {
+            var bandKey = (row % 2 == 1) ? "band1H" : "band2H";
+            if (style.Parts.TryGetValue(bandKey, out var bandPart))
+                result = OverlayTableStylePart(result, bandPart);
+        }
 
-        return null;
+        if (firstRowFlag && row == 0 && style.Parts.TryGetValue("firstRow", out var firstRow))
+            result = OverlayTableStylePart(result, firstRow);
+        if (lastRowFlag && row == rowCount - 1 && style.Parts.TryGetValue("lastRow", out var lastRow))
+            result = OverlayTableStylePart(result, lastRow);
+        if (firstColFlag && col == 0 && style.Parts.TryGetValue("firstCol", out var firstCol))
+            result = OverlayTableStylePart(result, firstCol);
+        if (lastColFlag && col == colCount - 1 && style.Parts.TryGetValue("lastCol", out var lastCol))
+            result = OverlayTableStylePart(result, lastCol);
+
+        return result;
     }
+
+    private static TableStylePart OverlayTableStylePart(TableStylePart? basePart, TableStylePart overlay)
+    {
+        if (basePart == null) return overlay;
+
+        return new TableStylePart
+        {
+            BackgroundColor = overlay.BackgroundCleared ? null : (overlay.BackgroundColor ?? basePart.BackgroundColor),
+            BackgroundCleared = overlay.BackgroundCleared || (basePart.BackgroundCleared && overlay.BackgroundColor == null),
+            BorderTopColor = Overlay(overlay.BorderTopState, overlay.BorderTopColor, basePart.BorderTopColor),
+            BorderBottomColor = Overlay(overlay.BorderBottomState, overlay.BorderBottomColor, basePart.BorderBottomColor),
+            BorderLeftColor = Overlay(overlay.BorderLeftState, overlay.BorderLeftColor, basePart.BorderLeftColor),
+            BorderRightColor = Overlay(overlay.BorderRightState, overlay.BorderRightColor, basePart.BorderRightColor),
+            BorderInsideHColor = Overlay(overlay.BorderInsideHState, overlay.BorderInsideHColor, basePart.BorderInsideHColor),
+            BorderInsideVColor = Overlay(overlay.BorderInsideVState, overlay.BorderInsideVColor, basePart.BorderInsideVColor),
+            BorderTopWidth = Overlay(overlay.BorderTopState, overlay.BorderTopWidth, basePart.BorderTopWidth),
+            BorderBottomWidth = Overlay(overlay.BorderBottomState, overlay.BorderBottomWidth, basePart.BorderBottomWidth),
+            BorderLeftWidth = Overlay(overlay.BorderLeftState, overlay.BorderLeftWidth, basePart.BorderLeftWidth),
+            BorderRightWidth = Overlay(overlay.BorderRightState, overlay.BorderRightWidth, basePart.BorderRightWidth),
+            BorderInsideHWidth = Overlay(overlay.BorderInsideHState, overlay.BorderInsideHWidth, basePart.BorderInsideHWidth),
+            BorderInsideVWidth = Overlay(overlay.BorderInsideVState, overlay.BorderInsideVWidth, basePart.BorderInsideVWidth),
+            BorderTopState = OverlayState(basePart.BorderTopState, overlay.BorderTopState),
+            BorderBottomState = OverlayState(basePart.BorderBottomState, overlay.BorderBottomState),
+            BorderLeftState = OverlayState(basePart.BorderLeftState, overlay.BorderLeftState),
+            BorderRightState = OverlayState(basePart.BorderRightState, overlay.BorderRightState),
+            BorderTopExplicit = basePart.BorderTopExplicit || overlay.BorderTopExplicit,
+            BorderBottomExplicit = basePart.BorderBottomExplicit || overlay.BorderBottomExplicit,
+            BorderLeftExplicit = basePart.BorderLeftExplicit || overlay.BorderLeftExplicit,
+            BorderRightExplicit = basePart.BorderRightExplicit || overlay.BorderRightExplicit,
+            BorderInsideHState = OverlayState(basePart.BorderInsideHState, overlay.BorderInsideHState),
+            BorderInsideVState = OverlayState(basePart.BorderInsideVState, overlay.BorderInsideVState),
+            BorderTopNone = OverlayState(basePart.BorderTopState, overlay.BorderTopState) == TableBorderState.None,
+            BorderBottomNone = OverlayState(basePart.BorderBottomState, overlay.BorderBottomState) == TableBorderState.None,
+            BorderLeftNone = OverlayState(basePart.BorderLeftState, overlay.BorderLeftState) == TableBorderState.None,
+            BorderRightNone = OverlayState(basePart.BorderRightState, overlay.BorderRightState) == TableBorderState.None,
+            BorderInsideHNone = OverlayState(basePart.BorderInsideHState, overlay.BorderInsideHState) == TableBorderState.None,
+            BorderInsideVNone = OverlayState(basePart.BorderInsideVState, overlay.BorderInsideVState) == TableBorderState.None,
+            TextBold = overlay.TextBold ?? basePart.TextBold,
+            TextItalic = overlay.TextItalic ?? basePart.TextItalic,
+            TextColor = overlay.TextColor ?? basePart.TextColor,
+            TextFontSize = overlay.TextFontSize ?? basePart.TextFontSize
+        };
+    }
+
+    private static T? Overlay<T>(TableBorderState overlayState, T? overlay, T? inherited)
+        where T : struct
+        => overlayState == TableBorderState.Inherit ? inherited : overlay;
+
+    private static string? Overlay(TableBorderState overlayState, string? overlay, string? inherited)
+        => overlayState == TableBorderState.Inherit ? inherited : overlay;
+
+    private static TableBorderState OverlayState(TableBorderState inherited, TableBorderState overlay)
+        => overlay == TableBorderState.Inherit ? inherited : overlay;
 
     private TableStylePart? MergeExplicitCellBorders(Drawing.TableCell cell, TableStylePart? stylePart, StyleResolver? styleResolver)
     {
@@ -3162,29 +3288,51 @@ public sealed class PptxToTypstConverter : IDisposable
         var explicitBottom = ExtractBorderInfo(borders.BottomBorder, styleResolver);
         var explicitLeft = ExtractBorderInfo(borders.LeftBorder, styleResolver);
         var explicitRight = ExtractBorderInfo(borders.RightBorder, styleResolver);
+        var explicitTopState = ToBorderState(explicitTop.Color, explicitTop.Width, explicitTop.IsNone);
+        var explicitBottomState = ToBorderState(explicitBottom.Color, explicitBottom.Width, explicitBottom.IsNone);
+        var explicitLeftState = ToBorderState(explicitLeft.Color, explicitLeft.Width, explicitLeft.IsNone);
+        var explicitRightState = ToBorderState(explicitRight.Color, explicitRight.Width, explicitRight.IsNone);
 
-        // If no explicit borders at all, return style part as-is
-        if (explicitTop.IsNone && explicitTop.Color == null &&
-            explicitBottom.IsNone && explicitBottom.Color == null &&
-            explicitLeft.IsNone && explicitLeft.Color == null &&
-            explicitRight.IsNone && explicitRight.Color == null)
+        // If no explicit borders at all, return style part as-is. Missing/empty tcBdr
+        // sides must remain inherited and must not synthesize per-cell stroke state.
+        if (explicitTopState == TableBorderState.Inherit &&
+            explicitBottomState == TableBorderState.Inherit &&
+            explicitLeftState == TableBorderState.Inherit &&
+            explicitRightState == TableBorderState.Inherit)
             return stylePart;
 
         return new TableStylePart
         {
             BackgroundColor = stylePart?.BackgroundColor,
+            BackgroundCleared = stylePart?.BackgroundCleared ?? false,
             BorderTopColor = explicitTop.IsNone ? null : (explicitTop.Color ?? stylePart?.BorderTopColor),
             BorderBottomColor = explicitBottom.IsNone ? null : (explicitBottom.Color ?? stylePart?.BorderBottomColor),
             BorderLeftColor = explicitLeft.IsNone ? null : (explicitLeft.Color ?? stylePart?.BorderLeftColor),
             BorderRightColor = explicitRight.IsNone ? null : (explicitRight.Color ?? stylePart?.BorderRightColor),
+            BorderInsideHColor = stylePart?.BorderInsideHColor,
+            BorderInsideVColor = stylePart?.BorderInsideVColor,
             BorderTopWidth = explicitTop.IsNone ? null : (explicitTop.Width ?? stylePart?.BorderTopWidth),
             BorderBottomWidth = explicitBottom.IsNone ? null : (explicitBottom.Width ?? stylePart?.BorderBottomWidth),
             BorderLeftWidth = explicitLeft.IsNone ? null : (explicitLeft.Width ?? stylePart?.BorderLeftWidth),
             BorderRightWidth = explicitRight.IsNone ? null : (explicitRight.Width ?? stylePart?.BorderRightWidth),
-            BorderTopNone = explicitTop.IsNone || (stylePart?.BorderTopNone ?? false),
-            BorderBottomNone = explicitBottom.IsNone || (stylePart?.BorderBottomNone ?? false),
-            BorderLeftNone = explicitLeft.IsNone || (stylePart?.BorderLeftNone ?? false),
-            BorderRightNone = explicitRight.IsNone || (stylePart?.BorderRightNone ?? false),
+            BorderInsideHWidth = stylePart?.BorderInsideHWidth,
+            BorderInsideVWidth = stylePart?.BorderInsideVWidth,
+            BorderTopState = explicitTopState == TableBorderState.Inherit ? stylePart?.BorderTopState ?? TableBorderState.Inherit : explicitTopState,
+            BorderBottomState = explicitBottomState == TableBorderState.Inherit ? stylePart?.BorderBottomState ?? TableBorderState.Inherit : explicitBottomState,
+            BorderLeftState = explicitLeftState == TableBorderState.Inherit ? stylePart?.BorderLeftState ?? TableBorderState.Inherit : explicitLeftState,
+            BorderRightState = explicitRightState == TableBorderState.Inherit ? stylePart?.BorderRightState ?? TableBorderState.Inherit : explicitRightState,
+            BorderTopExplicit = explicitTopState != TableBorderState.Inherit,
+            BorderBottomExplicit = explicitBottomState != TableBorderState.Inherit,
+            BorderLeftExplicit = explicitLeftState != TableBorderState.Inherit,
+            BorderRightExplicit = explicitRightState != TableBorderState.Inherit,
+            BorderInsideHState = stylePart?.BorderInsideHState ?? TableBorderState.Inherit,
+            BorderInsideVState = stylePart?.BorderInsideVState ?? TableBorderState.Inherit,
+            BorderTopNone = (explicitTopState == TableBorderState.Inherit ? stylePart?.BorderTopState ?? TableBorderState.Inherit : explicitTopState) == TableBorderState.None,
+            BorderBottomNone = (explicitBottomState == TableBorderState.Inherit ? stylePart?.BorderBottomState ?? TableBorderState.Inherit : explicitBottomState) == TableBorderState.None,
+            BorderLeftNone = (explicitLeftState == TableBorderState.Inherit ? stylePart?.BorderLeftState ?? TableBorderState.Inherit : explicitLeftState) == TableBorderState.None,
+            BorderRightNone = (explicitRightState == TableBorderState.Inherit ? stylePart?.BorderRightState ?? TableBorderState.Inherit : explicitRightState) == TableBorderState.None,
+            BorderInsideHNone = stylePart?.BorderInsideHNone ?? false,
+            BorderInsideVNone = stylePart?.BorderInsideVNone ?? false,
             TextBold = stylePart?.TextBold,
             TextItalic = stylePart?.TextItalic,
             TextColor = stylePart?.TextColor,
@@ -3192,121 +3340,56 @@ public sealed class PptxToTypstConverter : IDisposable
         };
     }
 
-    private static TableStylePart ApplyInteriorBorderLogic(TableStylePart? stylePart, int row, int col, int rowCount, int colCount, TableStylePart? wholeTblPart)
+    private static TableStylePart? ApplyTableGridBorders(TableStylePart? stylePart, int row, int col, int rowCount, int colCount)
     {
-        if (stylePart == null) return new TableStylePart();
+        if (stylePart == null) return null;
 
-        var result = stylePart;
+        if (stylePart.BorderTopState == TableBorderState.Inherit &&
+            stylePart.BorderBottomState == TableBorderState.Inherit &&
+            stylePart.BorderLeftState == TableBorderState.Inherit &&
+            stylePart.BorderRightState == TableBorderState.Inherit &&
+            stylePart.BorderInsideHState == TableBorderState.Inherit &&
+            stylePart.BorderInsideVState == TableBorderState.Inherit)
+            return stylePart;
 
-        // If wholeTbl indicates no interior vertical borders, suppress left/right on interior cells
-        if (wholeTblPart?.BorderInsideVNone == true)
+        var topState = stylePart.BorderTopExplicit ? stylePart.BorderTopState : (row == 0 ? stylePart.BorderTopState : TableBorderState.None);
+        var bottomState = stylePart.BorderBottomExplicit ? stylePart.BorderBottomState : (row == rowCount - 1 ? stylePart.BorderBottomState : stylePart.BorderInsideHState);
+        var leftState = stylePart.BorderLeftExplicit ? stylePart.BorderLeftState : (col == 0 ? stylePart.BorderLeftState : TableBorderState.None);
+        var rightState = stylePart.BorderRightExplicit ? stylePart.BorderRightState : (col == colCount - 1 ? stylePart.BorderRightState : stylePart.BorderInsideVState);
+
+        return new TableStylePart
         {
-            bool isFirstCol = col == 0;
-            bool isLastCol = col == colCount - 1;
-
-            if (!isFirstCol)
-                result = new TableStylePart
-                {
-                    BackgroundColor = result.BackgroundColor,
-                    BorderTopColor = result.BorderTopColor,
-                    BorderBottomColor = result.BorderBottomColor,
-                    BorderLeftColor = result.BorderLeftColor,
-                    BorderRightColor = result.BorderRightColor,
-                    BorderTopWidth = result.BorderTopWidth,
-                    BorderBottomWidth = result.BorderBottomWidth,
-                    BorderLeftWidth = result.BorderLeftWidth,
-                    BorderRightWidth = result.BorderRightWidth,
-                    BorderTopNone = result.BorderTopNone,
-                    BorderBottomNone = result.BorderBottomNone,
-                    BorderLeftNone = true,
-                    BorderRightNone = result.BorderRightNone,
-                    BorderInsideHNone = result.BorderInsideHNone,
-                    BorderInsideVNone = result.BorderInsideVNone,
-                    TextBold = result.TextBold,
-                    TextItalic = result.TextItalic,
-                    TextColor = result.TextColor,
-                    TextFontSize = result.TextFontSize
-                };
-            if (!isLastCol)
-                result = new TableStylePart
-                {
-                    BackgroundColor = result.BackgroundColor,
-                    BorderTopColor = result.BorderTopColor,
-                    BorderBottomColor = result.BorderBottomColor,
-                    BorderLeftColor = result.BorderLeftColor,
-                    BorderRightColor = result.BorderRightColor,
-                    BorderTopWidth = result.BorderTopWidth,
-                    BorderBottomWidth = result.BorderBottomWidth,
-                    BorderLeftWidth = result.BorderLeftWidth,
-                    BorderRightWidth = result.BorderRightWidth,
-                    BorderTopNone = result.BorderTopNone,
-                    BorderBottomNone = result.BorderBottomNone,
-                    BorderLeftNone = result.BorderLeftNone,
-                    BorderRightNone = true,
-                    BorderInsideHNone = result.BorderInsideHNone,
-                    BorderInsideVNone = result.BorderInsideVNone,
-                    TextBold = result.TextBold,
-                    TextItalic = result.TextItalic,
-                    TextColor = result.TextColor,
-                    TextFontSize = result.TextFontSize
-                };
-        }
-
-        // If wholeTbl indicates no interior horizontal borders, suppress top/bottom on interior cells
-        if (wholeTblPart?.BorderInsideHNone == true)
-        {
-            bool isFirstRow = row == 0;
-            bool isLastRow = row == rowCount - 1;
-
-            if (!isFirstRow)
-                result = new TableStylePart
-                {
-                    BackgroundColor = result.BackgroundColor,
-                    BorderTopColor = result.BorderTopColor,
-                    BorderBottomColor = result.BorderBottomColor,
-                    BorderLeftColor = result.BorderLeftColor,
-                    BorderRightColor = result.BorderRightColor,
-                    BorderTopWidth = result.BorderTopWidth,
-                    BorderBottomWidth = result.BorderBottomWidth,
-                    BorderLeftWidth = result.BorderLeftWidth,
-                    BorderRightWidth = result.BorderRightWidth,
-                    BorderTopNone = true,
-                    BorderBottomNone = result.BorderBottomNone,
-                    BorderLeftNone = result.BorderLeftNone,
-                    BorderRightNone = result.BorderRightNone,
-                    BorderInsideHNone = result.BorderInsideHNone,
-                    BorderInsideVNone = result.BorderInsideVNone,
-                    TextBold = result.TextBold,
-                    TextItalic = result.TextItalic,
-                    TextColor = result.TextColor,
-                    TextFontSize = result.TextFontSize
-                };
-            if (!isLastRow)
-                result = new TableStylePart
-                {
-                    BackgroundColor = result.BackgroundColor,
-                    BorderTopColor = result.BorderTopColor,
-                    BorderBottomColor = result.BorderBottomColor,
-                    BorderLeftColor = result.BorderLeftColor,
-                    BorderRightColor = result.BorderRightColor,
-                    BorderTopWidth = result.BorderTopWidth,
-                    BorderBottomWidth = result.BorderBottomWidth,
-                    BorderLeftWidth = result.BorderLeftWidth,
-                    BorderRightWidth = result.BorderRightWidth,
-                    BorderTopNone = result.BorderTopNone,
-                    BorderBottomNone = true,
-                    BorderLeftNone = result.BorderLeftNone,
-                    BorderRightNone = result.BorderRightNone,
-                    BorderInsideHNone = result.BorderInsideHNone,
-                    BorderInsideVNone = result.BorderInsideVNone,
-                    TextBold = result.TextBold,
-                    TextItalic = result.TextItalic,
-                    TextColor = result.TextColor,
-                    TextFontSize = result.TextFontSize
-                };
-        }
-
-        return result;
+            BackgroundColor = stylePart.BackgroundColor,
+            BackgroundCleared = stylePart.BackgroundCleared,
+            BorderTopColor = stylePart.BorderTopColor,
+            BorderBottomColor = stylePart.BorderBottomExplicit ? stylePart.BorderBottomColor : (row == rowCount - 1 ? stylePart.BorderBottomColor : stylePart.BorderInsideHColor),
+            BorderLeftColor = stylePart.BorderLeftColor,
+            BorderRightColor = stylePart.BorderRightExplicit ? stylePart.BorderRightColor : (col == colCount - 1 ? stylePart.BorderRightColor : stylePart.BorderInsideVColor),
+            BorderTopWidth = stylePart.BorderTopWidth,
+            BorderBottomWidth = stylePart.BorderBottomExplicit ? stylePart.BorderBottomWidth : (row == rowCount - 1 ? stylePart.BorderBottomWidth : stylePart.BorderInsideHWidth),
+            BorderLeftWidth = stylePart.BorderLeftWidth,
+            BorderRightWidth = stylePart.BorderRightExplicit ? stylePart.BorderRightWidth : (col == colCount - 1 ? stylePart.BorderRightWidth : stylePart.BorderInsideVWidth),
+            BorderTopState = topState,
+            BorderBottomState = bottomState,
+            BorderLeftState = leftState,
+            BorderRightState = rightState,
+            BorderTopExplicit = stylePart.BorderTopExplicit,
+            BorderBottomExplicit = stylePart.BorderBottomExplicit,
+            BorderLeftExplicit = stylePart.BorderLeftExplicit,
+            BorderRightExplicit = stylePart.BorderRightExplicit,
+            BorderInsideHState = stylePart.BorderInsideHState,
+            BorderInsideVState = stylePart.BorderInsideVState,
+            BorderTopNone = topState == TableBorderState.None,
+            BorderBottomNone = bottomState == TableBorderState.None,
+            BorderLeftNone = leftState == TableBorderState.None,
+            BorderRightNone = rightState == TableBorderState.None,
+            BorderInsideHNone = stylePart.BorderInsideHNone,
+            BorderInsideVNone = stylePart.BorderInsideVNone,
+            TextBold = stylePart.TextBold,
+            TextItalic = stylePart.TextItalic,
+            TextColor = stylePart.TextColor,
+            TextFontSize = stylePart.TextFontSize
+        };
     }
 
     private static (byte R, byte G, byte B) ParseHexColor(string hex)
