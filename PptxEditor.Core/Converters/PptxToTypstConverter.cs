@@ -3701,12 +3701,22 @@ public sealed class PptxToTypstConverter : IDisposable
 
     private static (byte R, byte G, byte B) ApplyTint((byte R, byte G, byte B) color, int tint)
     {
-        double t = tint / 100000.0;
+        // DrawingML tint values specify how much of the source color to keep;
+        // the remainder is blended toward white. Blend in linear light so very
+        // light tints match PowerPoint's rendered colors more closely.
+        double sourceWeight = Math.Clamp(tint / 100000.0, 0.0, 1.0);
         return (
-            (byte)(color.R + (255 - color.R) * t),
-            (byte)(color.G + (255 - color.G) * t),
-            (byte)(color.B + (255 - color.B) * t)
+            ApplyTintChannel(color.R, sourceWeight),
+            ApplyTintChannel(color.G, sourceWeight),
+            ApplyTintChannel(color.B, sourceWeight)
         );
+    }
+
+    private static byte ApplyTintChannel(byte channel, double sourceWeight)
+    {
+        var linear = Math.Pow(channel / 255.0, 2.2);
+        var tinted = linear * sourceWeight + (1.0 - sourceWeight);
+        return (byte)Math.Round(Math.Pow(tinted, 1.0 / 2.2) * 255.0, MidpointRounding.AwayFromZero);
     }
 
     private static byte ApplyAlpha(int alpha)
@@ -3722,16 +3732,26 @@ public sealed class PptxToTypstConverter : IDisposable
             switch (mod.LocalName)
             {
                 case "tint":
-                    if (int.TryParse(mod.GetAttribute("val", "").Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var tintVal))
+                    if (TryGetOoxmlVal(mod, out var tintVal))
                         color = ApplyTint(color, tintVal);
                     break;
                 case "alpha":
-                    if (int.TryParse(mod.GetAttribute("val", "").Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var alphaVal))
+                    if (TryGetOoxmlVal(mod, out var alphaVal))
                         alpha = ApplyAlpha(alphaVal);
                     break;
             }
         }
         return FormatHexColor(color, alpha);
+    }
+
+    private static bool TryGetOoxmlVal(OpenXmlElement element, out int value)
+    {
+        var match = Regex.Match(element.OuterXml, @"\bval=""(-?\d+)""");
+        return int.TryParse(
+            match.Success ? match.Groups[1].Value : null,
+            NumberStyles.Integer,
+            CultureInfo.InvariantCulture,
+            out value);
     }
 
     private (double X, double Y, double Width, double Height, double Rotation) GetElementPosition(ShapeProperties? shapeProperties)
