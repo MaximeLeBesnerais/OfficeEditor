@@ -907,6 +907,146 @@ public class PptxToTypstConverterTests : IDisposable
     }
 
     [Fact]
+    public void GenerateTypstSource_TableGeometry_EmitsRowsInsetsAndVerticalAlign()
+    {
+        var path = CreateSimplePptx();
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = new TypstPresentation
+        {
+            Slides =
+            [
+                new TypstSlide
+                {
+                    Layout = new PptxEditor.Core.Models.SlideLayout { Width = 720, Height = 540 },
+                    Elements =
+                    [
+                        new TypstElement
+                        {
+                            Type = "Table",
+                            Width = 200,
+                            Height = 100,
+                            Table = new TypstTableElement
+                            {
+                                ColumnWidths = [100],
+                                RowHeights = [59.396, 71.07],
+                                Rows =
+                                [
+                                    [
+                                        new TypstTableCell
+                                        {
+                                            Content = "A",
+                                            Insets = new TypstTableCellInsets
+                                            {
+                                                Left = 14.4,
+                                                Right = 10.8,
+                                                Top = 10.8,
+                                                Bottom = 10.8
+                                            },
+                                            VerticalAlign = "center"
+                                        }
+                                    ],
+                                    [new TypstTableCell { Content = "B" }]
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var source = converter.GenerateTypstSource(presentation);
+
+        Assert.Contains("rows: (59.40pt, 71.07pt)", source);
+        Assert.Contains("inset: (left: 14.40pt, right: 10.80pt, top: 10.80pt, bottom: 10.80pt)", source);
+        Assert.Contains("align: left + horizon", source);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_TableGeometry_SkipsRowsWhenAnyHeightIsZero()
+    {
+        var path = CreateSimplePptx();
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = new TypstPresentation
+        {
+            Slides =
+            [
+                new TypstSlide
+                {
+                    Layout = new PptxEditor.Core.Models.SlideLayout { Width = 720, Height = 540 },
+                    Elements =
+                    [
+                        new TypstElement
+                        {
+                            Type = "Table",
+                            Width = 200,
+                            Height = 100,
+                            Table = new TypstTableElement
+                            {
+                                ColumnWidths = [100],
+                                RowHeights = [59.396, 0],
+                                Rows =
+                                [
+                                    [new TypstTableCell { Content = "A" }],
+                                    [new TypstTableCell { Content = "B" }]
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var source = converter.GenerateTypstSource(presentation);
+
+        Assert.DoesNotContain("rows:", source);
+    }
+
+    [Fact]
+    public void ExtractTableCellGeometry_ReadsMarginsAndAnchorFromTcPrOuterXml()
+    {
+        var path = CreateSimplePptx();
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var tcPr = new Drawing.TableCellProperties();
+        tcPr.SetAttribute(new OpenXmlAttribute("", "marL", "", "182880"));
+        tcPr.SetAttribute(new OpenXmlAttribute("", "marR", "", "137160"));
+        tcPr.SetAttribute(new OpenXmlAttribute("", "marT", "", "137160"));
+        tcPr.SetAttribute(new OpenXmlAttribute("", "marB", "", "137160"));
+        tcPr.SetAttribute(new OpenXmlAttribute("", "anchor", "", "ctr"));
+
+        var cell = new Drawing.TableCell(
+            tcPr,
+            new Drawing.TextBody(
+                new Drawing.BodyProperties(),
+                new Drawing.ListStyle(),
+                new Drawing.Paragraph(new Drawing.Run(new Drawing.Text { Text = "Cell" }))));
+
+        var extractInsets = typeof(PptxToTypstConverter).GetMethod(
+            "ExtractCellInsets",
+            System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+        var extractAlign = typeof(PptxToTypstConverter).GetMethod(
+            "ExtractCellVerticalAlign",
+            System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+
+        var insets = Assert.IsType<TypstTableCellInsets>(extractInsets!.Invoke(converter, [cell]));
+        var verticalAlign = Assert.IsType<string>(extractAlign!.Invoke(converter, [cell]));
+
+        Assert.Equal(14.4, insets.Left!.Value, 3);
+        Assert.Equal(10.8, insets.Right!.Value, 3);
+        Assert.Equal(10.8, insets.Top!.Value, 3);
+        Assert.Equal(10.8, insets.Bottom!.Value, 3);
+        Assert.Equal("center", verticalAlign);
+    }
+
+    [Fact]
     public void Dispose_CleansUpTempDirectory()
     {
         var path = CreateSimplePptx();

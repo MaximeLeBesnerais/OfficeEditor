@@ -128,9 +128,19 @@ public sealed class TypstTableCell
     public string Content { get; init; } = string.Empty;
     public TypstTextFormatting Formatting { get; init; } = new();
     public string? BackgroundColor { get; init; }
+    public TypstTableCellInsets? Insets { get; init; }
+    public string? VerticalAlign { get; init; }
     public int RowSpan { get; init; } = 1;
     public int ColSpan { get; init; } = 1;
     public TableStylePart? StylePart { get; init; }
+}
+
+public sealed class TypstTableCellInsets
+{
+    public double? Left { get; init; }
+    public double? Right { get; init; }
+    public double? Top { get; init; }
+    public double? Bottom { get; init; }
 }
 
 public sealed class TypstShapeElement
