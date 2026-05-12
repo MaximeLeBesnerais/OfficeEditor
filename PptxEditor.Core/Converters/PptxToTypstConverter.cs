@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.IO.Compression;
 using System.Text;
+using System.Text.RegularExpressions;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Presentation;
@@ -630,6 +631,26 @@ public sealed class PptxToTypstConverter : IDisposable
         return true;
     }
 
+    private static bool AllNonLineBreakRunsHaveSameFormatting(List<TypstTextRun> runs)
+    {
+        var textRuns = runs.Where(run => !run.IsLineBreak).ToList();
+        if (textRuns.Count <= 1) return true;
+
+        var first = textRuns[0].Formatting;
+        for (int i = 1; i < textRuns.Count; i++)
+        {
+            if (!AreFormattingEqual(first, textRuns[i].Formatting))
+                return false;
+        }
+
+        return true;
+    }
+
+    private static TypstTextFormatting GetCollapsedRunFormatting(TypstParagraph paragraph)
+    {
+        return paragraph.Runs.FirstOrDefault(run => !run.IsLineBreak)?.Formatting ?? paragraph.Formatting;
+    }
+
     private TypstTextFormatting MergeRunWithParagraphDefaults(TypstTextFormatting paragraphDefault, Drawing.Run run, StyleResolver? styleResolver)
     {
         var runProps = run.RunProperties;
@@ -670,7 +691,7 @@ public sealed class PptxToTypstConverter : IDisposable
 
     private void AppendParagraphContent(StringBuilder sb, TypstParagraph paragraph, string? overrideContent, HashSet<string> availableFonts)
     {
-        if (paragraph.Runs.Count <= 1 || AllRunsHaveSameFormatting(paragraph.Runs))
+        if (paragraph.Runs.Count <= 1 || AllNonLineBreakRunsHaveSameFormatting(paragraph.Runs))
         {
             var paramStr = BuildTextParameters(paragraph.Formatting, availableFonts);
             var content = overrideContent ?? paragraph.Content;
@@ -1009,15 +1030,19 @@ public sealed class PptxToTypstConverter : IDisposable
                 if (!string.IsNullOrEmpty(fmt.Color) && fmt.Color != "#000000")
                     textParams.Add($"fill: rgb(\"{fmt.Color}\")");
 
-                if (textParams.Count > 0)
+                if (cell.Paragraphs.Count > 0)
+                {
+                    AppendTableCellParagraphs(sb, cell);
+                }
+                else if (textParams.Count > 0)
                 {
                     sb.Append($"#text({string.Join(", ", textParams)})[");
-                    sb.Append(EscapeTypstText(cell.Content));
+                    AppendEscapedContentWithBreaks(sb, cell.Content);
                     sb.Append("]");
                 }
                 else
                 {
-                    sb.Append(EscapeTypstText(cell.Content));
+                    AppendEscapedContentWithBreaks(sb, cell.Content);
                 }
 
                 sb.Append("], ");
@@ -1025,6 +1050,77 @@ public sealed class PptxToTypstConverter : IDisposable
         }
 
         sb.Append(")");
+    }
+
+    private void AppendTableCellParagraphs(StringBuilder sb, TypstTableCell cell)
+    {
+        for (int i = 0; i < cell.Paragraphs.Count; i++)
+        {
+            if (i > 0)
+                sb.Append("\n\n");
+
+            var paragraph = cell.Paragraphs[i];
+            var align = paragraph.Formatting.Align;
+            var hasExplicitAlign = !string.IsNullOrEmpty(align) && align != "left";
+            if (hasExplicitAlign)
+                sb.Append($"#align({align})[");
+
+            AppendTableParagraphContent(sb, paragraph);
+
+            if (hasExplicitAlign)
+                sb.Append("]");
+        }
+    }
+
+    private static void AppendTableParagraphContent(StringBuilder sb, TypstParagraph paragraph)
+    {
+        if (paragraph.Runs.Count <= 1 || AllRunsHaveSameFormatting(paragraph.Runs))
+        {
+            var textParams = BuildTableTextParameters(GetCollapsedRunFormatting(paragraph));
+            if (textParams.Count > 0)
+                sb.Append($"#text({string.Join(", ", textParams)})[");
+
+            AppendEscapedContentWithBreaks(sb, paragraph.Content);
+
+            if (textParams.Count > 0)
+                sb.Append("]");
+
+            return;
+        }
+
+        foreach (var run in paragraph.Runs)
+        {
+            if (run.IsLineBreak)
+            {
+                sb.Append(" #linebreak() ");
+                continue;
+            }
+
+            var textParams = BuildTableTextParameters(run.Formatting);
+            if (textParams.Count > 0)
+                sb.Append($"#text({string.Join(", ", textParams)})[");
+
+            sb.Append(EscapeTypstText(run.Content));
+
+            if (textParams.Count > 0)
+                sb.Append("]");
+        }
+    }
+
+    private static List<string> BuildTableTextParameters(TypstTextFormatting fmt)
+    {
+        var textParams = new List<string>();
+
+        if (fmt.FontSize != 18.0)
+            textParams.Add($"size: {FormatPt(fmt.FontSize)}");
+        if (fmt.Bold)
+            textParams.Add("weight: \"bold\"");
+        if (fmt.Italic)
+            textParams.Add("style: \"italic\"");
+        if (!string.IsNullOrEmpty(fmt.Color) && fmt.Color != "#000000")
+            textParams.Add($"fill: rgb(\"{fmt.Color}\")");
+
+        return textParams;
     }
 
     private static string? BuildCellStroke(TypstTableCell cell, double defaultWidth, string? defaultColor)
@@ -2848,7 +2944,6 @@ public sealed class PptxToTypstConverter : IDisposable
             for (int colIndex = 0; colIndex < cells.Count; colIndex++)
             {
                 var cell = cells[colIndex];
-                var cellText = ExtractCellText(cell);
                 var stylePart = ResolveCellStylePart(rowIndex, colIndex, totalRows, totalCols, tableStyle, firstRowFlag, bandRowFlag, firstColFlag, lastColFlag, lastRowFlag);
 
                 // Merge explicit cell borders with style part
@@ -2857,12 +2952,17 @@ public sealed class PptxToTypstConverter : IDisposable
                 stylePart = ApplyTableGridBorders(stylePart, rowIndex, colIndex, totalRows, totalCols);
 
                 var cellFormatting = ExtractCellFormatting(cell, stylePart, styleResolver);
+                var paragraphs = ExtractCellParagraphs(cell, cellFormatting, styleResolver);
+                var cellText = paragraphs.Count > 0
+                    ? string.Join("\n\n", paragraphs.Select(p => p.Content)).Trim()
+                    : ExtractCellText(cell);
                 var explicitBg = ExtractCellBackground(cell);
                 var bgColor = explicitBg.Specified ? explicitBg.Color : (stylePart?.BackgroundCleared == true ? null : stylePart?.BackgroundColor);
 
                 rowCells.Add(new TypstTableCell
                 {
                     Content = cellText,
+                    Paragraphs = paragraphs,
                     Formatting = cellFormatting,
                     BackgroundColor = bgColor,
                     Insets = ExtractCellInsets(cell),
@@ -2891,16 +2991,91 @@ public sealed class PptxToTypstConverter : IDisposable
 
         foreach (var paragraph in textBody.Elements<Drawing.Paragraph>())
         {
-            foreach (var run in paragraph.Elements<Drawing.Run>())
+            if (sb.Length > 0)
+                sb.Append("\n\n");
+
+            foreach (var child in paragraph.ChildElements)
             {
-                if (run.Text?.Text != null)
+                if (child is Drawing.Run run && run.Text?.Text != null)
                 {
                     sb.Append(run.Text.Text);
+                }
+                else if (child.LocalName == "br")
+                {
+                    sb.Append('\n');
                 }
             }
         }
 
         return sb.ToString().Trim();
+    }
+
+    private List<TypstParagraph> ExtractCellParagraphs(Drawing.TableCell cell, TypstTextFormatting cellFormatting, StyleResolver? styleResolver)
+    {
+        var paragraphs = new List<TypstParagraph>();
+        var textBody = cell.TextBody;
+        if (textBody == null) return paragraphs;
+
+        foreach (var paragraph in textBody.Elements<Drawing.Paragraph>())
+        {
+            var align = ExtractTableParagraphAlignment(paragraph) ?? "left";
+            var paragraphFormatting = cellFormatting with { Align = align };
+            var runs = new List<TypstTextRun>();
+            var content = new StringBuilder();
+
+            foreach (var child in paragraph.ChildElements)
+            {
+                if (child is Drawing.Run run)
+                {
+                    var runText = run.Text?.Text;
+                    if (string.IsNullOrEmpty(runText))
+                        continue;
+
+                    var runFormatting = MergeRunWithParagraphDefaults(paragraphFormatting, run, styleResolver);
+                    content.Append(runText);
+                    runs.Add(new TypstTextRun
+                    {
+                        Content = runText,
+                        Formatting = runFormatting
+                    });
+                }
+                else if (child.LocalName == "br")
+                {
+                    content.Append('\n');
+                    runs.Add(new TypstTextRun
+                    {
+                        IsLineBreak = true,
+                        Formatting = paragraphFormatting
+                    });
+                }
+            }
+
+            paragraphs.Add(new TypstParagraph
+            {
+                Content = content.ToString(),
+                Runs = runs,
+                Formatting = paragraphFormatting
+            });
+        }
+
+        return paragraphs;
+    }
+
+    private static string? ExtractTableParagraphAlignment(Drawing.Paragraph paragraph)
+    {
+        var pPr = paragraph.Elements<Drawing.ParagraphProperties>().FirstOrDefault();
+        if (pPr == null) return null;
+
+        var match = Regex.Match(pPr.OuterXml, "\\balgn=\"(?<value>[^\"]+)\"");
+        if (!match.Success) return null;
+
+        return match.Groups["value"].Value switch
+        {
+            "ctr" => "center",
+            "r" => "right",
+            "just" => "left",
+            _ => "left"
+        };
     }
 
     private static string? BuildCellInset(TypstTableCellInsets? insets)
