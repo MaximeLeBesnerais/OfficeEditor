@@ -190,6 +190,12 @@ await File.WriteAllBytesAsync("04-export.pdf", pdfBytes);
 
 > Converts PPTX slides → Typst source → compiles to PDF through `TypstCompilerService` with TypstBridge as the primary backend.
 
+> **Font fidelity note:** for closest results, install the same fonts used by the
+> source presentation, such as Microsoft Aptos for modern Office decks. Installed
+> fonts improve matching, but exact PowerPoint parity is not guaranteed because
+> Typst, PowerPoint, and platform font engines can differ in font metrics, line
+> wrapping, hinting, and layout behavior.
+
 ---
 
 ## 5. PPTX → Typst Source
