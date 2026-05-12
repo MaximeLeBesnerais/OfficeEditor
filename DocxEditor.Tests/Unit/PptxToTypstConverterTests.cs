@@ -1855,6 +1855,104 @@ public class PptxToTypstConverterTests : IDisposable
     }
 
     [Fact]
+    public void SubstituteUnavailableFont_AptosVariantFallsBackToAptosBeforeCarlito()
+    {
+        var method = typeof(PptxToTypstConverter).GetMethod(
+            "SubstituteUnavailableFont",
+            System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic,
+            null,
+            [typeof(string), typeof(HashSet<string>)],
+            null);
+
+        var availableFonts = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Aptos", "Carlito" };
+
+        var result = method!.Invoke(null, ["Aptos Light", availableFonts]);
+
+        Assert.Equal("Aptos", result);
+    }
+
+    [Fact]
+    public void SubstituteUnavailableFont_AptosVariantFallsBackToCarlitoWhenAptosUnavailable()
+    {
+        var method = typeof(PptxToTypstConverter).GetMethod(
+            "SubstituteUnavailableFont",
+            System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic,
+            null,
+            [typeof(string), typeof(HashSet<string>)],
+            null);
+
+        var availableFonts = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Carlito" };
+
+        var result = method!.Invoke(null, ["Aptos Display", availableFonts]);
+
+        Assert.Equal("Carlito", result);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_GlobalFontStackPrefersAvailableThemeMinorFontBeforeCarlito()
+    {
+        var path = CreateSimplePptx();
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var availableSystemFontsField = typeof(PptxToTypstConverter).GetField(
+            "_availableSystemFonts",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        availableSystemFontsField!.SetValue(converter, new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Aptos", "Carlito" });
+
+        var presentation = new TypstPresentation
+        {
+            ThemeFonts = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["+mn-lt"] = "Aptos"
+            }
+        };
+
+        var source = converter.GenerateTypstSource(presentation);
+
+        Assert.Contains("#set text(font: (\"Aptos\", \"Carlito\"", source);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_UsesAptosAliasWhenDiscoveredAsAvailable()
+    {
+        var path = CreateSimplePptx();
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var availableSystemFontsField = typeof(PptxToTypstConverter).GetField(
+            "_availableSystemFonts",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        availableSystemFontsField!.SetValue(converter, new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Aptos Light", "Carlito" });
+
+        var presentation = CreateTextPresentation(new TypstTextElement
+        {
+            Paragraphs =
+            [
+                new TypstParagraph
+                {
+                    Content = "Theme title",
+                    Formatting = new TypstTextFormatting { FontFamily = "+mj-lt", FontSize = 24 }
+                }
+            ]
+        });
+        presentation.ThemeFonts["+mj-lt"] = "Aptos Light";
+        presentation.ThemeFonts["+mn-lt"] = "Aptos";
+
+        var themeFontsField = typeof(PptxToTypstConverter).GetField(
+            "_themeFonts",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        themeFontsField!.SetValue(converter, presentation.ThemeFonts);
+
+        var source = converter.GenerateTypstSource(presentation);
+
+        Assert.Contains("font: \"Aptos Light\"", source);
+        Assert.DoesNotContain("font: \"Carlito\"", source);
+    }
+
+    [Fact]
     public void GetFontMetrics_EmbeddedFont_ReturnsCachedValue()
     {
         var path = CreateSimplePptx();
