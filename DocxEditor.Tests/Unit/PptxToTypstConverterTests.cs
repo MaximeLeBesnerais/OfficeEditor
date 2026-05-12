@@ -2139,4 +2139,170 @@ public class PptxToTypstConverterTests : IDisposable
         Assert.Equal(TableBorderState.Visible, mapped.BorderRightState);
         Assert.Equal("#000000", mapped.BorderRightColor);
     }
+
+    [Fact]
+    public void ExtractCellText_PreservesParagraphsAndLineBreaks()
+    {
+        var path = CreateSimplePptx();
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var extractCellText = typeof(PptxToTypstConverter).GetMethod(
+            "ExtractCellText",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic,
+            null,
+            [typeof(Drawing.TableCell)],
+            null);
+
+        var cell = new Drawing.TableCell(
+            new Drawing.TextBody(
+                new Drawing.BodyProperties(),
+                new Drawing.ListStyle(),
+                new Drawing.Paragraph(
+                    new Drawing.Run(new Drawing.Text { Text = "Line 1" }),
+                    new Drawing.Break(),
+                    new Drawing.Run(new Drawing.Text { Text = "Line 2" })),
+                new Drawing.Paragraph(
+                    new Drawing.Run(new Drawing.Text { Text = "Next paragraph" }))));
+
+        var result = Assert.IsType<string>(extractCellText!.Invoke(converter, [cell]));
+
+        Assert.Equal("Line 1\nLine 2\n\nNext paragraph", result);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_TableCell_PreservesParagraphBreaksLineBreaksAndAlignment()
+    {
+        var path = CreateSimplePptx();
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = new TypstPresentation
+        {
+            Slides =
+            [
+                new TypstSlide
+                {
+                    Layout = new PptxEditor.Core.Models.SlideLayout { Width = 720, Height = 540 },
+                    Elements =
+                    [
+                        new TypstElement
+                        {
+                            Type = "Table",
+                            X = 10,
+                            Y = 10,
+                            Width = 200,
+                            Height = 80,
+                            Table = new TypstTableElement
+                            {
+                                ColumnWidths = [200],
+                                Rows =
+                                [
+                                    new List<TypstTableCell>
+                                    {
+                                        new()
+                                        {
+                                            Formatting = new TypstTextFormatting(),
+                                            Paragraphs =
+                                            [
+                                                new TypstParagraph
+                                                {
+                                                    Content = "First\nSecond",
+                                                    Formatting = new TypstTextFormatting { Align = "center" },
+                                                    Runs =
+                                                    [
+                                                        new TypstTextRun { Content = "First", Formatting = new TypstTextFormatting { Align = "center" } },
+                                                        new TypstTextRun { IsLineBreak = true, Formatting = new TypstTextFormatting { Align = "center" } },
+                                                        new TypstTextRun { Content = "Second", Formatting = new TypstTextFormatting { Align = "center" } }
+                                                    ]
+                                                },
+                                                new TypstParagraph
+                                                {
+                                                    Content = "Third",
+                                                    Formatting = new TypstTextFormatting()
+                                                }
+                                            ]
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var source = converter.GenerateTypstSource(presentation);
+
+        Assert.Contains("#align(center)[", source);
+        Assert.Contains("First #linebreak() Second", source);
+        Assert.Contains("Second]\n\nThird", source);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_TableCell_UsesIdenticalRunFormattingWhenCollapsingRuns()
+    {
+        var path = CreateSimplePptx();
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var directRunFormatting = new TypstTextFormatting
+        {
+            Bold = true,
+            Color = "#FF0000"
+        };
+
+        var presentation = new TypstPresentation
+        {
+            Slides =
+            [
+                new TypstSlide
+                {
+                    Layout = new PptxEditor.Core.Models.SlideLayout { Width = 720, Height = 540 },
+                    Elements =
+                    [
+                        new TypstElement
+                        {
+                            Type = "Table",
+                            X = 10,
+                            Y = 10,
+                            Width = 200,
+                            Height = 80,
+                            Table = new TypstTableElement
+                            {
+                                ColumnWidths = [200],
+                                Rows =
+                                [
+                                    new List<TypstTableCell>
+                                    {
+                                        new()
+                                        {
+                                            Formatting = new TypstTextFormatting(),
+                                            Paragraphs =
+                                            [
+                                                new TypstParagraph
+                                                {
+                                                    Content = "Hello world",
+                                                    Formatting = new TypstTextFormatting(),
+                                                    Runs =
+                                                    [
+                                                        new TypstTextRun { Content = "Hello ", Formatting = directRunFormatting },
+                                                        new TypstTextRun { Content = "world", Formatting = directRunFormatting }
+                                                    ]
+                                                }
+                                            ]
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var source = converter.GenerateTypstSource(presentation);
+
+        Assert.Contains("#text(weight: \"bold\", fill: rgb(\"#FF0000\"))[Hello world]", source);
+    }
 }
