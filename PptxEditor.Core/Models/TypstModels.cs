@@ -177,4 +177,27 @@ public sealed class TableStylePart
     public bool BorderRightNone { get; init; }
     public bool BorderInsideHNone { get; init; }
     public bool BorderInsideVNone { get; init; }
+
+    public TableBorderState BorderTopState { get; init; } = TableBorderState.Inherit;
+    public TableBorderState BorderBottomState { get; init; } = TableBorderState.Inherit;
+    public TableBorderState BorderLeftState { get; init; } = TableBorderState.Inherit;
+    public TableBorderState BorderRightState { get; init; } = TableBorderState.Inherit;
+    public bool BorderTopExplicit { get; init; }
+    public bool BorderBottomExplicit { get; init; }
+    public bool BorderLeftExplicit { get; init; }
+    public bool BorderRightExplicit { get; init; }
+    public TableBorderState BorderInsideHState { get; init; } = TableBorderState.Inherit;
+    public TableBorderState BorderInsideVState { get; init; } = TableBorderState.Inherit;
+    public string? BorderInsideHColor { get; init; }
+    public string? BorderInsideVColor { get; init; }
+    public double? BorderInsideHWidth { get; init; }
+    public double? BorderInsideVWidth { get; init; }
+    public bool BackgroundCleared { get; init; }
+}
+
+public enum TableBorderState
+{
+    Inherit,
+    Visible,
+    None
 }
