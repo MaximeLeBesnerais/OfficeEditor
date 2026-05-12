@@ -2274,6 +2274,28 @@ public class PptxToTypstConverterTests : IDisposable
     }
 
     [Fact]
+    public void ExtractSolidFillColor_TintKeepsSourceColorFractionAndBlendsTowardWhite()
+    {
+        var extractSolidFillColor = typeof(PptxToTypstConverter).GetMethod(
+            "ExtractSolidFillColorStatic",
+            System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic,
+            null,
+            [typeof(Drawing.SolidFill), typeof(StyleResolver)],
+            null);
+
+        var solidFill = new Drawing.SolidFill(
+            new Drawing.RgbColorModelHex(
+                new Drawing.Tint { Val = 20000 })
+            {
+                Val = "CEBA80"
+            });
+
+        var result = Assert.IsType<string>(extractSolidFillColor!.Invoke(null, [solidFill, null]));
+
+        Assert.Equal("#F6F3EC", result);
+    }
+
+    [Fact]
     public void ApplyTableGridBorders_PreservesExplicitInteriorCellBorder()
     {
         var path = CreateSimplePptx();
