@@ -415,7 +415,7 @@ This is a **bold** proposal for a new *innovative* project.
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"   Note: PDF export requires typstsharp native library.");
+                Console.WriteLine($"   Note: PDF export uses TypstBridge first, with legacy typstsharp/Typst CLI fallback.");
                 Console.WriteLine($"   Error: {ex.Message}");
             }
         }
@@ -442,7 +442,7 @@ This is a **bold** proposal for a new *innovative* project.
                 .AddText("1. Extract PPTX content")
                 .AddText("2. Convert to Typst elements")
                 .AddText("3. Generate Typst source")
-                .AddText("4. Compile with typstsharp");
+                .AddText("4. Compile with TypstBridge");
             
             builder.Save();
         }
