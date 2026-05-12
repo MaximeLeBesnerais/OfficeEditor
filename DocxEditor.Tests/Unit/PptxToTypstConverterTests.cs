@@ -791,6 +791,122 @@ public class PptxToTypstConverterTests : IDisposable
     }
 
     [Fact]
+    public void GenerateTypstSource_TableCellStrokes_DistinguishesVisibleAndExplicitNone()
+    {
+        var path = CreateSimplePptx();
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = new TypstPresentation
+        {
+            Slides =
+            [
+                new TypstSlide
+                {
+                    Layout = new PptxEditor.Core.Models.SlideLayout { Width = 720, Height = 540 },
+                    Elements =
+                    [
+                        new TypstElement
+                        {
+                            Type = "Table",
+                            Width = 200,
+                            Height = 100,
+                            Table = new TypstTableElement
+                            {
+                                ColumnWidths = [100, 100],
+                                Rows =
+                                [
+                                    [
+                                        new TypstTableCell
+                                        {
+                                            Content = "A",
+                                            StylePart = new TableStylePart
+                                            {
+                                                BorderRightState = TableBorderState.None,
+                                                BorderBottomState = TableBorderState.Visible,
+                                                BorderBottomColor = "#CEBA80",
+                                                BorderBottomWidth = 1
+                                            }
+                                        },
+                                        new TypstTableCell
+                                        {
+                                            Content = "B",
+                                            StylePart = new TableStylePart
+                                            {
+                                                BorderLeftState = TableBorderState.None,
+                                                BorderBottomState = TableBorderState.Visible,
+                                                BorderBottomColor = "#CEBA80",
+                                                BorderBottomWidth = 1
+                                            }
+                                        }
+                                    ]
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var source = converter.GenerateTypstSource(presentation);
+
+        Assert.Contains("right: none", source);
+        Assert.Contains("left: none", source);
+        Assert.Contains("bottom: 1.00pt + rgb(\"#CEBA80\")", source);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_TableWithEmptyStylePart_KeepsGlobalStroke()
+    {
+        var path = CreateSimplePptx();
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = new TypstPresentation
+        {
+            Slides =
+            [
+                new TypstSlide
+                {
+                    Layout = new PptxEditor.Core.Models.SlideLayout { Width = 720, Height = 540 },
+                    Elements =
+                    [
+                        new TypstElement
+                        {
+                            Type = "Table",
+                            Width = 200,
+                            Height = 100,
+                            Table = new TypstTableElement
+                            {
+                                BorderWidth = 1,
+                                BorderColor = "#000000",
+                                ColumnWidths = [100],
+                                Rows =
+                                [
+                                    [
+                                        new TypstTableCell
+                                        {
+                                            Content = "A",
+                                            StylePart = new TableStylePart()
+                                        }
+                                    ]
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var source = converter.GenerateTypstSource(presentation);
+
+        Assert.Contains("#table(columns: (100.00pt), stroke: 1.00pt + rgb(\"#000000\")", source);
+        Assert.DoesNotContain("stroke: none", source);
+    }
+
+    [Fact]
     public void Dispose_CleansUpTempDirectory()
     {
         var path = CreateSimplePptx();
@@ -1702,7 +1818,7 @@ public class PptxToTypstConverterTests : IDisposable
             "ExtractCellFormatting",
             System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic,
             null,
-            [typeof(Drawing.TableCell), typeof(TableStylePart)],
+            [typeof(Drawing.TableCell), typeof(TableStylePart), typeof(StyleResolver)],
             null);
 
         // Create a table cell with empty text body (no explicit formatting)
@@ -1718,7 +1834,7 @@ public class PptxToTypstConverterTests : IDisposable
 
         var stylePart = new TableStylePart { TextBold = true, TextColor = "#FFFFFF" };
 
-        var result = extractCellFormatting!.Invoke(converter, [cell, stylePart]);
+        var result = extractCellFormatting!.Invoke(converter, [cell, stylePart, null]);
         var formatting = Assert.IsType<TypstTextFormatting>(result);
 
         Assert.True(formatting.Bold);
@@ -1815,7 +1931,9 @@ public class PptxToTypstConverterTests : IDisposable
             StylePart = new TableStylePart
             {
                 BorderLeftNone = true,
-                BorderRightNone = true
+                BorderRightNone = true,
+                BorderLeftState = TableBorderState.None,
+                BorderRightState = TableBorderState.None
             }
         };
 
@@ -1824,5 +1942,61 @@ public class PptxToTypstConverterTests : IDisposable
 
         Assert.Contains("left: none", stroke);
         Assert.Contains("right: none", stroke);
+    }
+
+    [Fact]
+    public void ApplyTableGridBorders_PreservesExplicitInteriorCellBorder()
+    {
+        var path = CreateSimplePptx();
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var mergeExplicitCellBorders = typeof(PptxToTypstConverter).GetMethod(
+            "MergeExplicitCellBorders",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic,
+            null,
+            [typeof(Drawing.TableCell), typeof(TableStylePart), typeof(StyleResolver)],
+            null);
+        var applyTableGridBorders = typeof(PptxToTypstConverter).GetMethod(
+            "ApplyTableGridBorders",
+            System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic,
+            null,
+            [typeof(TableStylePart), typeof(int), typeof(int), typeof(int), typeof(int)],
+            null);
+
+        var cell = new Drawing.TableCell(
+            new Drawing.TableCellProperties(
+                new Drawing.TableCellBorders(
+                    new Drawing.TopBorder(
+                        new Drawing.Outline(
+                            new Drawing.SolidFill(new Drawing.RgbColorModelHex { Val = "FF0000" }))
+                        {
+                            Width = 25400
+                        }))),
+            new Drawing.TextBody(new Drawing.BodyProperties(), new Drawing.ListStyle(), new Drawing.Paragraph()));
+
+        var inheritedStylePart = new TableStylePart
+        {
+            BorderInsideHState = TableBorderState.Visible,
+            BorderInsideHColor = "#0000FF",
+            BorderInsideHWidth = 1.0,
+            BorderInsideVState = TableBorderState.Visible,
+            BorderInsideVColor = "#000000",
+            BorderInsideVWidth = 1.0
+        };
+
+        var merged = mergeExplicitCellBorders!.Invoke(converter, [cell, inheritedStylePart, null]);
+        var result = applyTableGridBorders!.Invoke(null, [merged, 1, 1, 3, 3]);
+        var mapped = Assert.IsType<TableStylePart>(result);
+
+        Assert.Equal(TableBorderState.Visible, mapped.BorderTopState);
+        Assert.Equal("#FF0000", mapped.BorderTopColor);
+        Assert.Equal(2.0, mapped.BorderTopWidth);
+        Assert.True(mapped.BorderTopExplicit);
+        Assert.Equal(TableBorderState.Visible, mapped.BorderBottomState);
+        Assert.Equal("#0000FF", mapped.BorderBottomColor);
+        Assert.Equal(TableBorderState.None, mapped.BorderLeftState);
+        Assert.Equal(TableBorderState.Visible, mapped.BorderRightState);
+        Assert.Equal("#000000", mapped.BorderRightColor);
     }
 }
