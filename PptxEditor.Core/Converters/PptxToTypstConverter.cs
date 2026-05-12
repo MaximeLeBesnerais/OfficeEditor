@@ -435,9 +435,10 @@ public sealed class PptxToTypstConverter : IDisposable
             }
 
             // Emit space before first list item if present
-            if (paragraphs[i].SpaceBefore > 0.01)
+            var listSpaceBefore = paragraphs[i].SpaceBefore;
+            if (listSpaceBefore > 0.01)
             {
-                sb.Append($"#v({FormatPt(paragraphs[i].SpaceBefore.Value)})");
+                sb.Append($"#v({FormatPt(listSpaceBefore.Value)})");
             }
 
             if (isNumbered)
@@ -525,9 +526,10 @@ public sealed class PptxToTypstConverter : IDisposable
             }
 
             // Emit space after last list item if present
-            if (paragraphs[groupEnd].SpaceAfter > 0.01)
+            var listSpaceAfter = paragraphs[groupEnd].SpaceAfter;
+            if (listSpaceAfter > 0.01)
             {
-                sb.Append($"#v({FormatPt(paragraphs[groupEnd].SpaceAfter.Value)})");
+                sb.Append($"#v({FormatPt(listSpaceAfter.Value)})");
             }
 
             i = groupEnd + 1;
