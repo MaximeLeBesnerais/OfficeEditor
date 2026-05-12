@@ -941,6 +941,10 @@ public sealed class PptxToTypstConverter : IDisposable
             ? string.Join(", ", table.ColumnWidths.Select(w => FormatPt(w)))
             : string.Join(", ", Enumerable.Repeat("1fr", cols));
 
+        var rowHeights = table.RowHeights.Count == table.Rows.Count && table.RowHeights.All(h => h > 0)
+            ? string.Join(", ", table.RowHeights.Select(h => FormatPt(h)))
+            : null;
+
         // Determine if we need per-cell border control
         bool hasComplexBorders = table.Rows.Any(row => row.Any(cell => HasExplicitCellBorderState(cell.StylePart)));
 
@@ -955,6 +959,9 @@ public sealed class PptxToTypstConverter : IDisposable
             sb.Append($"#table(columns: ({colWidths}), stroke: {FormatPt(table.BorderWidth)} + rgb(\"{table.BorderColor ?? "#000000"}\"), ");
         }
 
+        if (rowHeights != null)
+            sb.Append($"rows: ({rowHeights}), ");
+
         // Generate cells
         foreach (var row in table.Rows)
         {
@@ -968,6 +975,11 @@ public sealed class PptxToTypstConverter : IDisposable
                     cellParams.Add($"colspan: {cell.ColSpan}");
                 if (!string.IsNullOrEmpty(cell.BackgroundColor))
                     cellParams.Add($"fill: rgb(\"{cell.BackgroundColor}\")");
+                var inset = BuildCellInset(cell.Insets);
+                if (!string.IsNullOrEmpty(inset))
+                    cellParams.Add($"inset: {inset}");
+                if (cell.VerticalAlign == "center")
+                    cellParams.Add("align: left + horizon");
 
                 var cellStroke = BuildCellStroke(cell, table.BorderWidth, table.BorderColor);
                 if (!string.IsNullOrEmpty(cellStroke))
@@ -2853,6 +2865,8 @@ public sealed class PptxToTypstConverter : IDisposable
                     Content = cellText,
                     Formatting = cellFormatting,
                     BackgroundColor = bgColor,
+                    Insets = ExtractCellInsets(cell),
+                    VerticalAlign = ExtractCellVerticalAlign(cell),
                     StylePart = stylePart
                 });
             }
@@ -2887,6 +2901,59 @@ public sealed class PptxToTypstConverter : IDisposable
         }
 
         return sb.ToString().Trim();
+    }
+
+    private static string? BuildCellInset(TypstTableCellInsets? insets)
+    {
+        if (insets == null)
+            return null;
+
+        var parts = new List<string>();
+        if (insets.Left.HasValue)
+            parts.Add($"left: {FormatPt(insets.Left.Value)}");
+        if (insets.Right.HasValue)
+            parts.Add($"right: {FormatPt(insets.Right.Value)}");
+        if (insets.Top.HasValue)
+            parts.Add($"top: {FormatPt(insets.Top.Value)}");
+        if (insets.Bottom.HasValue)
+            parts.Add($"bottom: {FormatPt(insets.Bottom.Value)}");
+
+        return parts.Count > 0 ? $"({string.Join(", ", parts)})" : null;
+    }
+
+    private static TypstTableCellInsets? ExtractCellInsets(Drawing.TableCell cell)
+    {
+        var tcPr = cell.TableCellProperties;
+        if (tcPr == null)
+            return null;
+
+        var left = GetEmuAttributeAsPt(tcPr, "marL");
+        var right = GetEmuAttributeAsPt(tcPr, "marR");
+        var top = GetEmuAttributeAsPt(tcPr, "marT");
+        var bottom = GetEmuAttributeAsPt(tcPr, "marB");
+
+        if (!left.HasValue && !right.HasValue && !top.HasValue && !bottom.HasValue)
+            return null;
+
+        return new TypstTableCellInsets
+        {
+            Left = left,
+            Right = right,
+            Top = top,
+            Bottom = bottom
+        };
+    }
+
+    private static string? ExtractCellVerticalAlign(Drawing.TableCell cell)
+    {
+        var anchor = GetAttributeValue(cell.TableCellProperties, "anchor");
+        return anchor == "ctr" ? "center" : null;
+    }
+
+    private static double? GetEmuAttributeAsPt(OpenXmlElement element, string attributeName)
+    {
+        var value = GetAttributeValue(element, attributeName);
+        return long.TryParse(value, CultureInfo.InvariantCulture, out var emu) ? EmuToPt(emu) : null;
     }
 
     private TypstTextFormatting ExtractCellFormatting(Drawing.TableCell cell, TableStylePart? stylePart, StyleResolver? styleResolver)
