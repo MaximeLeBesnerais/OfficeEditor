@@ -651,7 +651,7 @@ public sealed class PptxToTypstConverter : IDisposable
         return paragraph.Runs.FirstOrDefault(run => !run.IsLineBreak)?.Formatting ?? paragraph.Formatting;
     }
 
-    private TypstTextFormatting MergeRunWithParagraphDefaults(TypstTextFormatting paragraphDefault, Drawing.Run run, StyleResolver? styleResolver)
+    private TypstTextFormatting MergeRunWithParagraphDefaults(TypstTextFormatting paragraphDefault, Drawing.Run run, StyleResolver? styleResolver, bool requireExplicitOnOff = false)
     {
         var runProps = run.RunProperties;
         if (runProps == null) return paragraphDefault;
@@ -661,11 +661,13 @@ public sealed class PptxToTypstConverter : IDisposable
         if (runProps.FontSize?.Value != null)
             result = result with { FontSize = runProps.FontSize.Value / 100.0 };
 
-        if (runProps.Bold?.Value != null)
-            result = result with { Bold = runProps.Bold.Value };
+        var bold = GetOnOffValue(runProps, runProps.Bold, "b", requireExplicitOnOff);
+        if (bold.HasValue)
+            result = result with { Bold = bold.Value };
 
-        if (runProps.Italic?.Value != null)
-            result = result with { Italic = runProps.Italic.Value };
+        var italic = GetOnOffValue(runProps, runProps.Italic, "i", requireExplicitOnOff);
+        if (italic.HasValue)
+            result = result with { Italic = italic.Value };
 
         if (runProps.Underline?.Value != null && runProps.Underline.Value != Drawing.TextUnderlineValues.None)
             result = result with { Underline = true };
@@ -687,6 +689,36 @@ public sealed class PptxToTypstConverter : IDisposable
         }
 
         return result;
+    }
+
+    private static bool? GetOnOffValue(OpenXmlElement element, BooleanValue? value, string attributeName, bool requireExplicit)
+        => requireExplicit ? GetExplicitOnOffAttribute(element, attributeName) : value?.Value;
+
+    private static bool? GetExplicitOnOffAttribute(OpenXmlElement element, string attributeName)
+    {
+        var match = Regex.Match(element.OuterXml, $@"\s{Regex.Escape(attributeName)}=""([01]|true|false|on|off)""", RegexOptions.IgnoreCase);
+        return match.Success ? ParseOnOff(match.Groups[1].Value) : null;
+    }
+
+    private static void TrimTrailingTabs(StringBuilder content, List<TypstTextRun> runs)
+    {
+        while (content.Length > 0 && content[^1] == '\t')
+            content.Length--;
+
+        for (int i = runs.Count - 1; i >= 0; i--)
+        {
+            var run = runs[i];
+            if (run.IsLineBreak)
+                break;
+
+            var trimmed = run.Content.TrimEnd('\t');
+            if (trimmed.Length == run.Content.Length)
+                break;
+
+            run.Content = trimmed;
+            if (trimmed.Length > 0)
+                break;
+        }
     }
 
     private void AppendParagraphContent(StringBuilder sb, TypstParagraph paragraph, string? overrideContent, HashSet<string> availableFonts)
@@ -3031,7 +3063,7 @@ public sealed class PptxToTypstConverter : IDisposable
                     if (string.IsNullOrEmpty(runText))
                         continue;
 
-                    var runFormatting = MergeRunWithParagraphDefaults(paragraphFormatting, run, styleResolver);
+                    var runFormatting = MergeRunWithParagraphDefaults(paragraphFormatting, run, styleResolver, requireExplicitOnOff: true);
                     content.Append(runText);
                     runs.Add(new TypstTextRun
                     {
@@ -3049,6 +3081,8 @@ public sealed class PptxToTypstConverter : IDisposable
                     });
                 }
             }
+
+            TrimTrailingTabs(content, runs);
 
             paragraphs.Add(new TypstParagraph
             {
@@ -3164,10 +3198,12 @@ public sealed class PptxToTypstConverter : IDisposable
     {
         if (runProps.FontSize?.Value != null)
             formatting = formatting with { FontSize = runProps.FontSize.Value / 100.0 };
-        if (runProps.Bold?.Value != null)
-            formatting = formatting with { Bold = runProps.Bold.Value };
-        if (runProps.Italic?.Value != null)
-            formatting = formatting with { Italic = runProps.Italic.Value };
+        var bold = GetExplicitOnOffAttribute(runProps, "b");
+        if (bold.HasValue)
+            formatting = formatting with { Bold = bold.Value };
+        var italic = GetExplicitOnOffAttribute(runProps, "i");
+        if (italic.HasValue)
+            formatting = formatting with { Italic = italic.Value };
 
         var color = ExtractRunColor(runProps, styleResolver);
         if (!string.IsNullOrEmpty(color))
@@ -3362,9 +3398,9 @@ public sealed class PptxToTypstConverter : IDisposable
         ref double? textFontSize)
     {
         var xml = tcTxStyle.OuterXml;
-        var b = System.Text.RegularExpressions.Regex.Match(xml, @"\sb=""([01]|true|false)""");
+        var b = System.Text.RegularExpressions.Regex.Match(xml, @"\sb=""([01]|true|false|on|off)""", RegexOptions.IgnoreCase);
         if (b.Success) textBold = ParseOnOff(b.Groups[1].Value);
-        var i = System.Text.RegularExpressions.Regex.Match(xml, @"\si=""([01]|true|false)""");
+        var i = System.Text.RegularExpressions.Regex.Match(xml, @"\si=""([01]|true|false|on|off)""", RegexOptions.IgnoreCase);
         if (i.Success) textItalic = ParseOnOff(i.Groups[1].Value);
         var sz = System.Text.RegularExpressions.Regex.Match(xml, @"\ssz=""(\d+)""");
         if (sz.Success && int.TryParse(sz.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var szValue))
@@ -3387,7 +3423,9 @@ public sealed class PptxToTypstConverter : IDisposable
     }
 
     private static bool ParseOnOff(string value)
-        => value == "1" || value.Equals("true", StringComparison.OrdinalIgnoreCase);
+        => value == "1"
+            || value.Equals("true", StringComparison.OrdinalIgnoreCase)
+            || value.Equals("on", StringComparison.OrdinalIgnoreCase);
 
     private static string? ExtractBorderColorFromOutline(Drawing.Outline outline, StyleResolver? styleResolver)
     {
