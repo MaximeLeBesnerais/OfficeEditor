@@ -1926,7 +1926,8 @@ public class PptxToTypstConverterTests : IDisposable
 
         // Build a TablePartStyleType with tcTxStyle containing bold and white color
         var tcTxStyle = new Drawing.TableCellTextStyle();
-        var defRPr = new Drawing.DefaultRunProperties { Bold = new BooleanValue(true) };
+        tcTxStyle.SetAttribute(new OpenXmlAttribute("b", string.Empty, "on"));
+        var defRPr = new Drawing.DefaultRunProperties();
         defRPr.Append(new Drawing.SolidFill(new Drawing.RgbColorModelHex { Val = "FFFFFF" }));
         tcTxStyle.Append(defRPr);
 
@@ -1979,6 +1980,132 @@ public class PptxToTypstConverterTests : IDisposable
 
         Assert.True(formatting.Bold);
         Assert.Equal("#FFFFFF", formatting.Color);
+    }
+
+    [Fact]
+    public void ExtractCellParagraphs_InheritsStyleBoldWhenRunOnlyOverridesColor()
+    {
+        var path = CreateSimplePptx();
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var extractCellFormatting = typeof(PptxToTypstConverter).GetMethod(
+            "ExtractCellFormatting",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic,
+            null,
+            [typeof(Drawing.TableCell), typeof(TableStylePart), typeof(StyleResolver)],
+            null);
+        var extractCellParagraphs = typeof(PptxToTypstConverter).GetMethod(
+            "ExtractCellParagraphs",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic,
+            null,
+            [typeof(Drawing.TableCell), typeof(TypstTextFormatting), typeof(StyleResolver)],
+            null);
+
+        var cell = new Drawing.TableCell(
+            new Drawing.TextBody(
+                new Drawing.BodyProperties(),
+                new Drawing.ListStyle(),
+                new Drawing.Paragraph(
+                    new Drawing.Run(
+                        new Drawing.RunProperties(
+                            new Drawing.SolidFill(new Drawing.RgbColorModelHex { Val = "000000" }))
+                        {
+                            FontSize = new Int32Value(1400)
+                        },
+                        new Drawing.Text { Text = "Plan name\t" }))));
+
+        var stylePart = new TableStylePart
+        {
+            TextBold = true,
+            TextItalic = true,
+            TextColor = "#FFFFFF"
+        };
+
+        var formatting = Assert.IsType<TypstTextFormatting>(extractCellFormatting!.Invoke(converter, [cell, stylePart, null]));
+        var paragraphs = Assert.IsType<List<TypstParagraph>>(extractCellParagraphs!.Invoke(converter, [cell, formatting, null]));
+
+        Assert.True(formatting.Bold);
+        Assert.True(formatting.Italic);
+        Assert.Equal("#000000", formatting.Color);
+        Assert.Equal(14.0, formatting.FontSize);
+
+        var paragraph = Assert.Single(paragraphs);
+        var run = Assert.Single(paragraph.Runs);
+        Assert.Equal("Plan name", paragraph.Content);
+        Assert.Equal("Plan name", run.Content);
+        Assert.True(run.Formatting.Bold);
+        Assert.True(run.Formatting.Italic);
+        Assert.Equal("#000000", run.Formatting.Color);
+        Assert.Equal(14.0, run.Formatting.FontSize);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_TableHeader_InheritedBoldWithDirectBlackColor()
+    {
+        var path = CreateSimplePptx();
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = new TypstPresentation
+        {
+            Slides =
+            [
+                new TypstSlide
+                {
+                    Layout = new PptxEditor.Core.Models.SlideLayout { Width = 720, Height = 540 },
+                    Elements =
+                    [
+                        new TypstElement
+                        {
+                            Type = "Table",
+                            Width = 200,
+                            Height = 80,
+                            Table = new TypstTableElement
+                            {
+                                ColumnWidths = [200],
+                                Rows =
+                                [
+                                    new List<TypstTableCell>
+                                    {
+                                        new()
+                                        {
+                                            Paragraphs =
+                                            [
+                                                new TypstParagraph
+                                                {
+                                                    Content = "Plan name",
+                                                    Runs =
+                                                    [
+                                                        new TypstTextRun
+                                                        {
+                                                            Content = "Plan name",
+                                                            Formatting = new TypstTextFormatting
+                                                            {
+                                                                Bold = true,
+                                                                Color = "#000000",
+                                                                FontSize = 14
+                                                            }
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var source = converter.GenerateTypstSource(presentation);
+
+        Assert.Contains("#text(size: 14.00pt, weight: \"bold\")[Plan name]", source);
+        Assert.DoesNotContain("Plan name\t", source);
     }
 
     [Fact]
