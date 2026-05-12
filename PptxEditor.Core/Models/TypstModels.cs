@@ -126,6 +126,7 @@ public sealed class TypstTableElement
 public sealed class TypstTableCell
 {
     public string Content { get; init; } = string.Empty;
+    public List<TypstParagraph> Paragraphs { get; init; } = new();
     public TypstTextFormatting Formatting { get; init; } = new();
     public string? BackgroundColor { get; init; }
     public TypstTableCellInsets? Insets { get; init; }
