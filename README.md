@@ -290,6 +290,12 @@ await File.WriteAllTextAsync("presentation.typ", typstSource);
 - Automatic font fallback if fonts are missing
 - Positioning via Typst's `#place` function
 
+> **Font fidelity note:** installing Microsoft Office fonts such as Aptos can improve
+> PPTX rendering fidelity, and the converter will use installed fonts when it can
+> resolve them. Exact PowerPoint/PDF parity is still not guaranteed: PowerPoint,
+> Typst, and platform font engines can differ in font metrics, line breaking,
+> hinting, and layout behavior even when the same font family is installed.
+
 ### Template Logic
 
 Use conditionals and loops in templates:
