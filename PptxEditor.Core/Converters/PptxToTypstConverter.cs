@@ -1038,7 +1038,7 @@ public sealed class PptxToTypstConverter : IDisposable
                 if (!string.IsNullOrEmpty(cellStroke))
                     cellParams.Add($"stroke: {cellStroke}");
                 else if (hasComplexBorders)
-                    cellParams.Add("stroke: none");
+                    cellParams.Add($"stroke: {BuildDefaultCellStroke(table.BorderWidth, table.BorderColor)}");
 
                 if (cellParams.Count > 0)
                 {
@@ -1167,6 +1167,12 @@ public sealed class PptxToTypstConverter : IDisposable
         AddStrokeSide(parts, "right", sp.BorderRightState, sp.BorderRightWidth, sp.BorderRightColor, defaultWidth, defaultColor);
 
         return parts.Count > 0 ? $"({string.Join(", ", parts)})" : null;
+    }
+
+    private static string BuildDefaultCellStroke(double defaultWidth, string? defaultColor)
+    {
+        var stroke = $"{FormatPt(defaultWidth)} + rgb(\"{defaultColor ?? "#000000"}\")";
+        return $"(top: {stroke}, bottom: {stroke}, left: {stroke}, right: {stroke})";
     }
 
     private static bool HasExplicitCellBorderState(TableStylePart? stylePart)

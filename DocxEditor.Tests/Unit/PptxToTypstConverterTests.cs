@@ -907,6 +907,68 @@ public class PptxToTypstConverterTests : IDisposable
     }
 
     [Fact]
+    public void GenerateTypstSource_ComplexTableWithDefaultCell_UsesDefaultCellStroke()
+    {
+        var path = CreateSimplePptx();
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = new TypstPresentation
+        {
+            Slides =
+            [
+                new TypstSlide
+                {
+                    Layout = new PptxEditor.Core.Models.SlideLayout { Width = 720, Height = 540 },
+                    Elements =
+                    [
+                        new TypstElement
+                        {
+                            Type = "Table",
+                            Width = 200,
+                            Height = 100,
+                            Table = new TypstTableElement
+                            {
+                                BorderWidth = 1,
+                                BorderColor = "#000000",
+                                ColumnWidths = [100, 100],
+                                Rows =
+                                [
+                                    [
+                                        new TypstTableCell
+                                        {
+                                            Content = "Explicit",
+                                            StylePart = new TableStylePart
+                                            {
+                                                BorderRightState = TableBorderState.Visible,
+                                                BorderRightColor = "#FF0000",
+                                                BorderRightWidth = 2
+                                            }
+                                        },
+                                        new TypstTableCell
+                                        {
+                                            Content = "Default"
+                                        }
+                                    ]
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var source = converter.GenerateTypstSource(presentation);
+
+        Assert.Contains("#table(columns: (100.00pt, 100.00pt), ", source);
+        Assert.DoesNotContain("#table(columns: (100.00pt, 100.00pt), stroke:", source);
+        Assert.DoesNotContain("stroke: none", source);
+        Assert.Contains("stroke: (right: 2.00pt + rgb(\"#FF0000\"))", source);
+        Assert.Contains("stroke: (top: 1.00pt + rgb(\"#000000\"), bottom: 1.00pt + rgb(\"#000000\"), left: 1.00pt + rgb(\"#000000\"), right: 1.00pt + rgb(\"#000000\"))", source);
+    }
+
+    [Fact]
     public void GenerateTypstSource_TableGeometry_EmitsRowsInsetsAndVerticalAlign()
     {
         var path = CreateSimplePptx();
