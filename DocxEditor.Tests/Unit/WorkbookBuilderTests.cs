@@ -7,6 +7,7 @@ namespace DocxEditor.Tests.Unit;
 public class WorkbookBuilderTests : IDisposable
 {
     private readonly string _testFilePath = Path.Combine(Path.GetTempPath(), $"test_xlsx_{Guid.NewGuid()}.xlsx");
+    private readonly List<string> _additionalFiles = new();
 
     [Fact]
     public void Create_ShouldCreateNewWorkbook()
@@ -189,11 +190,176 @@ public class WorkbookBuilderTests : IDisposable
         Assert.NotNull(cell.CellValue);
     }
 
+    [Fact]
+    public void WorksheetLookupAndRemoval_ShouldHandleSuccessAndMissingSheets()
+    {
+        // Arrange
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var first = builder.AddWorksheet("First");
+        builder.AddWorksheet("Second");
+
+        // Act & Assert
+        Assert.Same(first, builder.GetWorksheet("First"));
+        Assert.Equal(new List<string> { "First", "Second" }, builder.GetWorksheetNames());
+
+        builder.RemoveWorksheet("Second");
+        Assert.Equal(new List<string> { "First" }, builder.GetWorksheetNames());
+
+        var getException = Assert.Throws<ArgumentException>(() => builder.GetWorksheet("Second"));
+        var removeException = Assert.Throws<ArgumentException>(() => builder.RemoveWorksheet("Second"));
+        Assert.Contains("Second", getException.Message);
+        Assert.Contains("Second", removeException.Message);
+    }
+
+    [Fact]
+    public void OpenExistingWorkbook_ShouldLoadWorksheetNamesAndAllowEditing()
+    {
+        // Arrange
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            builder.AddWorksheet("Existing").AddCell("A1", "Before");
+            builder.Save();
+        }
+
+        // Act
+        using (var builder = WorkbookBuilder.Open(_testFilePath))
+        {
+            Assert.Equal(new List<string> { "Existing" }, builder.GetWorksheetNames());
+            builder.GetWorksheet("Existing").AddCell("B2", "After");
+            builder.Save();
+        }
+
+        // Assert
+        using var doc = SpreadsheetDocument.Open(_testFilePath, false);
+        var cells = doc.WorkbookPart!.WorksheetParts.First().Worksheet.GetFirstChild<SheetData>()!
+            .Elements<Row>()
+            .SelectMany(r => r.Elements<Cell>())
+            .Select(c => c.CellReference?.Value)
+            .ToList();
+        Assert.Contains("A1", cells);
+        Assert.Contains("B2", cells);
+    }
+
+    [Fact]
+    public void Save_ShouldSupportSamePathAndClonePath()
+    {
+        // Arrange
+        var clonePath = Path.Combine(Path.GetTempPath(), $"test_xlsx_clone_{Guid.NewGuid()}.xlsx");
+        _additionalFiles.Add(clonePath);
+
+        // Act
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            builder.AddWorksheet("Sheet1").AddCell("A1", "Clone me");
+            builder.Save(_testFilePath);
+            builder.Save(clonePath);
+        }
+
+        // Assert
+        Assert.True(File.Exists(_testFilePath));
+        Assert.True(File.Exists(clonePath));
+        using var doc = SpreadsheetDocument.Open(clonePath, false);
+        Assert.Single(doc.WorkbookPart!.Workbook.Sheets!.Elements<Sheet>());
+    }
+
+    [Fact]
+    public void AddCellOverloads_ShouldHandleNumbersStringsFormulaFalseAndStyle()
+    {
+        // Act
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            var worksheet = builder.AddWorksheet("Sheet1");
+            worksheet.AddCell("A1", "42.5");
+            worksheet.AddCell("B1", "Text");
+            worksheet.AddCell("C1", "Not a formula", false);
+            worksheet.AddCell("D1", "7", "0");
+            builder.Save();
+        }
+
+        // Assert
+        using var doc = SpreadsheetDocument.Open(_testFilePath, false);
+        var cells = doc.WorkbookPart!.WorksheetParts.First().Worksheet.GetFirstChild<SheetData>()!
+            .Elements<Row>().First().Elements<Cell>().ToDictionary(c => c.CellReference!.Value!);
+        Assert.Equal(CellValues.Number, cells["A1"].DataType?.Value);
+        Assert.Equal(CellValues.SharedString, cells["B1"].DataType?.Value);
+        Assert.Equal(CellValues.String, cells["C1"].DataType?.Value);
+        Assert.Equal("Not a formula", cells["C1"].CellValue?.Text);
+        Assert.Equal(0U, cells["D1"].StyleIndex?.Value);
+    }
+
+    [Fact]
+    public void AddFormulaRow_ShouldSkipEmptyFormulasAndUseColumnNamesBeyondZ()
+    {
+        // Arrange
+        var formulas = Enumerable.Range(0, 28).Select(i => i == 1 ? string.Empty : $"A{i + 1}").ToList();
+
+        // Act
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            builder.AddWorksheet("Sheet1").AddFormulaRow(formulas, 3);
+            builder.Save();
+        }
+
+        // Assert
+        using var doc = SpreadsheetDocument.Open(_testFilePath, false);
+        var cells = doc.WorkbookPart!.WorksheetParts.First().Worksheet.GetFirstChild<SheetData>()!
+            .Elements<Row>().Single().Elements<Cell>().ToList();
+        Assert.Equal(27, cells.Count);
+        Assert.DoesNotContain(cells, c => c.CellReference?.Value == "B3");
+        Assert.Contains(cells, c => c.CellReference?.Value == "AA3");
+        Assert.Contains(cells, c => c.CellReference?.Value == "AB3");
+        Assert.All(cells, c => Assert.NotNull(c.CellFormula));
+    }
+
+    [Fact]
+    public void AddTable_ShouldCreateTablePartsAndAppendAdditionalTables()
+    {
+        // Act
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            var worksheet = builder.AddWorksheet("Sheet1");
+            worksheet.AddHeaderRow(new List<string> { "A", "B", "C" });
+            worksheet.AddDataRow(new List<string> { "1", "2", "3" }, 2);
+            worksheet.AddTable("A1", "C2", "FirstTable");
+            worksheet.AddTable("A1", "B2", "SecondTable");
+            builder.Save();
+        }
+
+        // Assert
+        using var doc = SpreadsheetDocument.Open(_testFilePath, false);
+        var worksheetPart = doc.WorkbookPart!.WorksheetParts.First();
+        var tableParts = worksheetPart.Worksheet.Elements<TableParts>().Single();
+        Assert.Equal(2U, tableParts.Count?.Value);
+        Assert.Equal(2, worksheetPart.TableDefinitionParts.Count());
+        Assert.Contains(worksheetPart.TableDefinitionParts, p => p.Table?.DisplayName?.Value == "FirstTable");
+        Assert.Contains(worksheetPart.TableDefinitionParts, p => p.Table?.DisplayName?.Value == "SecondTable");
+    }
+
+    [Fact]
+    public void WorksheetEdgeCases_ShouldThrowForUnsupportedChartAndInvalidCellReference()
+    {
+        // Arrange
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var worksheet = builder.AddWorksheet("Sheet1");
+
+        // Act & Assert
+        Assert.Throws<NotSupportedException>(() => worksheet.AddChart(ChartType.Pie, "A1:B2"));
+        Assert.Throws<FormatException>(() => worksheet.AddCell("A", "Missing row"));
+    }
+
     public void Dispose()
     {
         if (File.Exists(_testFilePath))
         {
             File.Delete(_testFilePath);
+        }
+
+        foreach (var file in _additionalFiles)
+        {
+            if (File.Exists(file))
+            {
+                File.Delete(file);
+            }
         }
     }
 }
