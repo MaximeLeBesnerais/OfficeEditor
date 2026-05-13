@@ -104,6 +104,92 @@ public class PresentationBuilderTests : IDisposable
     }
 
     [Fact]
+    public void CurrentSlide_BeforeAddingSlide_ShouldThrow()
+    {
+        using var builder = PresentationBuilder.Create(_testFilePath);
+
+        Assert.Throws<InvalidOperationException>(() => builder.CurrentSlide);
+    }
+
+    [Fact]
+    public void GetSlide_AndRemoveSlide_ShouldValidateIndexes()
+    {
+        using var builder = PresentationBuilder.Create(_testFilePath);
+        builder.AddSlide().AddSlide();
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => builder.GetSlide(-1));
+        Assert.Throws<ArgumentOutOfRangeException>(() => builder.GetSlide(2));
+        Assert.Throws<ArgumentOutOfRangeException>(() => builder.RemoveSlide(2));
+
+        builder.RemoveSlide(1);
+
+        Assert.Equal(1, builder.SlideCount);
+    }
+
+    [Fact]
+    public void ReorderSlide_ShouldMoveSlideIdsAndValidateBounds()
+    {
+        using (var builder = PresentationBuilder.Create(_testFilePath))
+        {
+            builder.AddSlide();
+            builder.CurrentSlide.AddTitle("First");
+            builder.AddSlide();
+            builder.CurrentSlide.AddTitle("Second");
+
+            Assert.Throws<ArgumentOutOfRangeException>(() => builder.ReorderSlide(0, 2));
+
+            builder.ReorderSlide(0, 1);
+            builder.Save();
+        }
+
+        using var doc = PresentationDocument.Open(_testFilePath, false);
+        var slideIds = doc.PresentationPart!.Presentation.SlideIdList!.ChildElements.OfType<SlideId>().ToList();
+        var firstSlide = (SlidePart)doc.PresentationPart.GetPartById(slideIds[0].RelationshipId!);
+
+        Assert.Contains("Second", firstSlide.Slide!.InnerText);
+    }
+
+    [Fact]
+    public void AddSlide_WithMissingLayoutName_ShouldFallBackToFirstLayout()
+    {
+        using (var builder = PresentationBuilder.Create(_testFilePath))
+        {
+            builder.AddSlide("does-not-exist");
+            builder.CurrentSlide.AddTitle("Fallback layout");
+            builder.Save();
+        }
+
+        using var doc = PresentationDocument.Open(_testFilePath, false);
+        var slidePart = doc.PresentationPart!.SlideParts.Single();
+        Assert.NotNull(slidePart.SlideLayoutPart);
+        Assert.Contains("Fallback layout", slidePart.Slide!.InnerText);
+    }
+
+    [Fact]
+    public void SlideBuilder_EasyErrorAndContentBranches_ShouldBeDeterministic()
+    {
+        using (var builder = PresentationBuilder.Create(_testFilePath))
+        {
+            builder.AddSlide();
+            var slide = builder.CurrentSlide;
+
+            Assert.Throws<FileNotFoundException>(() => slide.AddImage(Path.Combine(Path.GetTempPath(), "missing-image.png")));
+            Assert.Throws<ArgumentException>(() => slide.AddTable([]));
+
+            slide.AddSubtitle("Subtitle")
+                .AddNumberedList(["One", "Two"])
+                .AddChart(ChartType.Pie, new Dictionary<string, int> { ["A"] = 1, ["B"] = 2 });
+            builder.Save();
+        }
+
+        using var doc = PresentationDocument.Open(_testFilePath, false);
+        var text = doc.PresentationPart!.SlideParts.Single().Slide!.InnerText;
+        Assert.Contains("Subtitle", text);
+        Assert.Contains("One", text);
+        Assert.Contains("[Pie Chart: A=1, B=2]", text);
+    }
+
+    [Fact]
     public void AddSlide_WithTable_ShouldAddTable()
     {
         // Act
@@ -151,6 +237,25 @@ public class PresentationBuilderTests : IDisposable
     }
 
     [Fact]
+    public void DetectVariables_ShouldTrimDefaultsAndDeduplicateWithinShapeLocation()
+    {
+        using (var builder = PresentationBuilder.Create(_testFilePath))
+        {
+            builder.AddSlide();
+            builder.CurrentSlide.AddTitle("Hello {{ name |Guest}} and {{name|Ignored}}");
+            builder.Save();
+        }
+
+        using var opened = PresentationBuilder.Open(_testFilePath);
+        var variables = opened.DetectVariables();
+
+        var variable = Assert.Single(variables);
+        Assert.Equal("name", variable.Name);
+        Assert.Equal("Guest", variable.DefaultValue);
+        Assert.Contains("slide:1:shape:Title", variable.Location);
+    }
+
+    [Fact]
     public void MergeVariables_ShouldReplaceVariables()
     {
         // Arrange
@@ -177,6 +282,27 @@ public class PresentationBuilderTests : IDisposable
         var text = slidePart.Slide!.InnerText;
         Assert.Contains("Hello World", text);
         Assert.DoesNotContain("{{name}}", text);
+    }
+
+    [Fact]
+    public void MergeVariables_ShouldUseDefaultsAndLeaveUnprovidedVariables()
+    {
+        using (var builder = PresentationBuilder.Create(_testFilePath))
+        {
+            builder.AddSlide();
+            builder.CurrentSlide.AddTitle("{{known}} {{missing|Fallback}} {{unprovided}}");
+            builder.Save();
+        }
+
+        using (var builder = PresentationBuilder.Open(_testFilePath))
+        {
+            builder.MergeVariables(new Dictionary<string, string> { ["known"] = "Value" });
+            builder.Save();
+        }
+
+        using var doc = PresentationDocument.Open(_testFilePath, false);
+        var text = doc.PresentationPart!.SlideParts.First().Slide!.InnerText;
+        Assert.Contains("Value Fallback {{unprovided}}", text);
     }
 
     public void Dispose()
