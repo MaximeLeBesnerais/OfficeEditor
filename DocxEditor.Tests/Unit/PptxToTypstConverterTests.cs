@@ -219,6 +219,263 @@ public class PptxToTypstConverterTests : IDisposable
         return path;
     }
 
+    private const long EmusPerPoint = 12700;
+
+    private string CreateGroupShapePptx(string fileName, params OpenXmlElement[] slideElements)
+    {
+        var path = Path.Combine(_tempDir, fileName);
+
+        using (var document = PresentationDocument.Create(path, PresentationDocumentType.Presentation))
+        {
+            var presentationPart = document.AddPresentationPart();
+            presentationPart.Presentation = new Presentation
+            {
+                SlideMasterIdList = new SlideMasterIdList(),
+                SlideIdList = new SlideIdList(),
+                SlideSize = new SlideSize { Cx = (int)Pt(720), Cy = (int)Pt(540), Type = SlideSizeValues.Screen4x3 }
+            };
+
+            var slideMasterPart = presentationPart.AddNewPart<SlideMasterPart>();
+            slideMasterPart.SlideMaster = new SlideMaster(
+                new CommonSlideData(CreateShapeTree()),
+                new ColorMap
+                {
+                    Background1 = Drawing.ColorSchemeIndexValues.Light1,
+                    Text1 = Drawing.ColorSchemeIndexValues.Dark1,
+                    Background2 = Drawing.ColorSchemeIndexValues.Light2,
+                    Text2 = Drawing.ColorSchemeIndexValues.Dark2,
+                    Accent1 = Drawing.ColorSchemeIndexValues.Accent1,
+                    Accent2 = Drawing.ColorSchemeIndexValues.Accent2,
+                    Accent3 = Drawing.ColorSchemeIndexValues.Accent3,
+                    Accent4 = Drawing.ColorSchemeIndexValues.Accent4,
+                    Accent5 = Drawing.ColorSchemeIndexValues.Accent5,
+                    Accent6 = Drawing.ColorSchemeIndexValues.Accent6,
+                    Hyperlink = Drawing.ColorSchemeIndexValues.Hyperlink,
+                    FollowedHyperlink = Drawing.ColorSchemeIndexValues.FollowedHyperlink
+                },
+                new SlideLayoutIdList());
+
+            var slideLayoutPart = slideMasterPart.AddNewPart<SlideLayoutPart>();
+            slideLayoutPart.SlideLayout = new P.SlideLayout(new CommonSlideData(CreateShapeTree()));
+            slideLayoutPart.AddPart(slideMasterPart);
+            slideMasterPart.SlideMaster.SlideLayoutIdList!.Append(new SlideLayoutId
+            {
+                Id = 2147483649,
+                RelationshipId = slideMasterPart.GetIdOfPart(slideLayoutPart)
+            });
+
+            presentationPart.Presentation.SlideMasterIdList.Append(new SlideMasterId
+            {
+                Id = 2147483648,
+                RelationshipId = presentationPart.GetIdOfPart(slideMasterPart)
+            });
+
+            var slidePart = presentationPart.AddNewPart<SlidePart>();
+            slidePart.Slide = new Slide(new CommonSlideData(CreateShapeTree(slideElements)));
+            slidePart.AddPart(slideLayoutPart);
+
+            presentationPart.Presentation.SlideIdList.Append(new SlideId
+            {
+                Id = 256,
+                RelationshipId = presentationPart.GetIdOfPart(slidePart)
+            });
+        }
+
+        return path;
+    }
+
+    private static ShapeTree CreateShapeTree(params OpenXmlElement[] elements)
+    {
+        var shapeTree = new ShapeTree(
+            new NonVisualGroupShapeProperties(
+                new NonVisualDrawingProperties { Id = 0, Name = "" },
+                new NonVisualGroupShapeDrawingProperties(),
+                new ApplicationNonVisualDrawingProperties()),
+            new GroupShapeProperties(
+                new Drawing.TransformGroup(
+                    new Drawing.Offset { X = 0, Y = 0 },
+                    new Drawing.Extents { Cx = 0, Cy = 0 },
+                    new Drawing.ChildOffset { X = 0, Y = 0 },
+                    new Drawing.ChildExtents { Cx = 0, Cy = 0 })));
+
+        foreach (var element in elements)
+        {
+            shapeTree.Append(element);
+        }
+
+        return shapeTree;
+    }
+
+    private static P.Shape TextShape(uint id, string text, double x, double y, double width, double height)
+    {
+        return new P.Shape(
+            new NonVisualShapeProperties(
+                new NonVisualDrawingProperties { Id = id, Name = $"Text {id}" },
+                new NonVisualShapeDrawingProperties(new Drawing.ShapeLocks { NoGrouping = true }),
+                new ApplicationNonVisualDrawingProperties()),
+            new ShapeProperties(
+                new Drawing.Transform2D(
+                    new Drawing.Offset { X = Pt(x), Y = Pt(y) },
+                    new Drawing.Extents { Cx = Pt(width), Cy = Pt(height) })),
+            new TextBody(
+                new Drawing.BodyProperties { LeftInset = 0, TopInset = 0, RightInset = 0, BottomInset = 0 },
+                new Drawing.ListStyle(),
+                new Drawing.Paragraph(new Drawing.Run(new Drawing.Text { Text = text }))));
+    }
+
+    private static P.GroupShape GroupShape(uint id, Drawing.TransformGroup? transformGroup, params OpenXmlElement[] children)
+    {
+        var groupShape = new P.GroupShape(
+            new NonVisualGroupShapeProperties(
+                new NonVisualDrawingProperties { Id = id, Name = $"Group {id}" },
+                new NonVisualGroupShapeDrawingProperties(),
+                new ApplicationNonVisualDrawingProperties()),
+            transformGroup == null ? new GroupShapeProperties() : new GroupShapeProperties(transformGroup));
+
+        foreach (var child in children)
+        {
+            groupShape.Append(child);
+        }
+
+        return groupShape;
+    }
+
+    private static Drawing.TransformGroup TransformGroup(double x, double y, double width, double height, double childX, double childY, double childWidth, double childHeight)
+    {
+        return new Drawing.TransformGroup(
+            new Drawing.Offset { X = Pt(x), Y = Pt(y) },
+            new Drawing.Extents { Cx = Pt(width), Cy = Pt(height) },
+            new Drawing.ChildOffset { X = Pt(childX), Y = Pt(childY) },
+            new Drawing.ChildExtents { Cx = Pt(childWidth), Cy = Pt(childHeight) });
+    }
+
+    private static P.ConnectionShape UnsupportedConnector(uint id)
+    {
+        return new P.ConnectionShape(
+            new NonVisualConnectionShapeProperties(
+                new NonVisualDrawingProperties { Id = id, Name = $"Connector {id}" },
+                new NonVisualConnectorShapeDrawingProperties(),
+                new ApplicationNonVisualDrawingProperties()),
+            new ShapeProperties(
+                new Drawing.Transform2D(
+                    new Drawing.Offset { X = Pt(1), Y = Pt(1) },
+                    new Drawing.Extents { Cx = Pt(10), Cy = Pt(10) })));
+    }
+
+    private static long Pt(double points) => (long)Math.Round(points * EmusPerPoint);
+
+    private static TypstElement AssertSingleTextElement(TypstPresentation presentation, string expectedText)
+    {
+        var element = Assert.Single(presentation.Slides[0].Elements, e => e.Text?.Content == expectedText);
+        Assert.Equal("Text", element.Type);
+        return element;
+    }
+
+    private static void AssertPosition(TypstElement element, double x, double y, double width, double height)
+    {
+        Assert.Equal(x, element.X, 2);
+        Assert.Equal(y, element.Y, 2);
+        Assert.Equal(width, element.Width, 2);
+        Assert.Equal(height, element.Height, 2);
+    }
+
+    [Fact]
+    public void Convert_GroupShapeWithTransformGroup_AppliesOffsetAndScaleToChildTextShape()
+    {
+        var group = GroupShape(
+            10,
+            TransformGroup(x: 100, y: 50, width: 400, height: 200, childX: 10, childY: 20, childWidth: 200, childHeight: 100),
+            TextShape(11, "Grouped text", x: 20, y: 30, width: 100, height: 40));
+        var path = CreateGroupShapePptx("group-transform.pptx", group);
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = converter.Convert();
+        var element = AssertSingleTextElement(presentation, "Grouped text");
+
+        AssertPosition(element, x: 130, y: 90, width: 200, height: 80);
+    }
+
+    [Fact]
+    public void Convert_GroupShapeWithoutTransformGroup_PreservesParentOffsetAndScale()
+    {
+        var innerGroupWithoutTransform = GroupShape(
+            12,
+            transformGroup: null,
+            TextShape(13, "Inherited transform", x: 20, y: 30, width: 100, height: 40));
+        var outerGroup = GroupShape(
+            10,
+            TransformGroup(x: 100, y: 50, width: 400, height: 200, childX: 10, childY: 20, childWidth: 200, childHeight: 100),
+            innerGroupWithoutTransform);
+        var path = CreateGroupShapePptx("group-without-transform.pptx", outerGroup);
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = converter.Convert();
+        var element = AssertSingleTextElement(presentation, "Inherited transform");
+
+        AssertPosition(element, x: 130, y: 90, width: 200, height: 80);
+    }
+
+    [Fact]
+    public void Convert_NestedGroupShape_ComposesTransformsRecursively()
+    {
+        var innerGroup = GroupShape(
+            12,
+            TransformGroup(x: 10, y: 5, width: 50, height: 50, childX: 0, childY: 0, childWidth: 25, childHeight: 25),
+            TextShape(13, "Nested text", x: 5, y: 5, width: 10, height: 10));
+        var outerGroup = GroupShape(
+            10,
+            TransformGroup(x: 100, y: 50, width: 200, height: 200, childX: 0, childY: 0, childWidth: 100, childHeight: 100),
+            innerGroup);
+        var path = CreateGroupShapePptx("nested-group-transform.pptx", outerGroup);
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = converter.Convert();
+        var element = AssertSingleTextElement(presentation, "Nested text");
+
+        AssertPosition(element, x: 140, y: 80, width: 40, height: 40);
+    }
+
+    [Fact]
+    public void Convert_EmptyGroupShape_YieldsNoElements()
+    {
+        var group = GroupShape(
+            10,
+            TransformGroup(x: 100, y: 50, width: 400, height: 200, childX: 10, childY: 20, childWidth: 200, childHeight: 100));
+        var path = CreateGroupShapePptx("empty-group.pptx", group);
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = converter.Convert();
+
+        Assert.Empty(presentation.Slides[0].Elements);
+    }
+
+    [Fact]
+    public void Convert_GroupShapeWithUnsupportedChild_StillConvertsSupportedSibling()
+    {
+        var group = GroupShape(
+            10,
+            TransformGroup(x: 100, y: 50, width: 400, height: 200, childX: 10, childY: 20, childWidth: 200, childHeight: 100),
+            UnsupportedConnector(11),
+            TextShape(12, "Supported sibling", x: 20, y: 30, width: 100, height: 40));
+        var path = CreateGroupShapePptx("unsupported-child-group.pptx", group);
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = converter.Convert();
+        var element = AssertSingleTextElement(presentation, "Supported sibling");
+
+        AssertPosition(element, x: 130, y: 90, width: 200, height: 80);
+    }
+
     [Fact]
     public void Convert_SimplePptx_CreatesTypstPresentation()
     {
@@ -2613,5 +2870,308 @@ public class PptxToTypstConverterTests : IDisposable
         var source = converter.GenerateTypstSource(presentation);
 
         Assert.Contains("#text(weight: \"bold\", fill: rgb(\"#FF0000\"))[Hello world]", source);
+    }
+
+    [Fact]
+    public void Convert_ShapeWithMissingTransform_UsesDefaultPositionAndConvertsText()
+    {
+        var shape = new P.Shape(
+            new NonVisualShapeProperties(
+                new NonVisualDrawingProperties { Id = 40, Name = "No transform" },
+                new NonVisualShapeDrawingProperties(),
+                new ApplicationNonVisualDrawingProperties()),
+            new ShapeProperties(),
+            new TextBody(
+                new Drawing.BodyProperties(),
+                new Drawing.ListStyle(),
+                new Drawing.Paragraph(new Drawing.Run(new Drawing.Text { Text = "Default positioned" }))));
+        var path = CreateGroupShapePptx("shape-missing-transform.pptx", shape);
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = converter.Convert();
+        var element = AssertSingleTextElement(presentation, "Default positioned");
+
+        AssertPosition(element, x: 0, y: 0, width: 100, height: 50);
+    }
+
+    [Fact]
+    public void Convert_ShapesWithMissingTextBodyOrEmptyParagraphs_YieldNoTextElements()
+    {
+        var noTextBody = new P.Shape(
+            new NonVisualShapeProperties(
+                new NonVisualDrawingProperties { Id = 41, Name = "No text body" },
+                new NonVisualShapeDrawingProperties(),
+                new ApplicationNonVisualDrawingProperties()),
+            new ShapeProperties(new Drawing.Transform2D(
+                new Drawing.Offset { X = Pt(10), Y = Pt(10) },
+                new Drawing.Extents { Cx = Pt(100), Cy = Pt(50) })));
+        var emptyParagraph = new P.Shape(
+            new NonVisualShapeProperties(
+                new NonVisualDrawingProperties { Id = 42, Name = "Empty paragraph" },
+                new NonVisualShapeDrawingProperties(),
+                new ApplicationNonVisualDrawingProperties()),
+            new ShapeProperties(new Drawing.Transform2D(
+                new Drawing.Offset { X = Pt(20), Y = Pt(20) },
+                new Drawing.Extents { Cx = Pt(100), Cy = Pt(50) })),
+            new TextBody(new Drawing.BodyProperties(), new Drawing.ListStyle(), new Drawing.Paragraph()));
+        var path = CreateGroupShapePptx("shape-no-text.pptx", noTextBody, emptyParagraph);
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = converter.Convert();
+
+        Assert.Empty(presentation.Slides[0].Elements.Where(e => e.Type == "Text"));
+    }
+
+    [Fact]
+    public void ExtractTextFromShape_BodyPropertiesParagraphsAndRunOnOffBranches()
+    {
+        var path = CreateSimplePptx();
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+        var slidePart = document.PresentationPart!.SlideParts.First();
+        var styleResolver = new StyleResolver(document, slidePart);
+
+        var bodyPr = new Drawing.BodyProperties
+        {
+            LeftInset = 12700,
+            TopInset = 25400,
+            RightInset = 38100,
+            BottomInset = 50800
+        };
+        bodyPr.SetAttribute(new OpenXmlAttribute("", "anchor", "", "ctr"));
+        bodyPr.SetAttribute(new OpenXmlAttribute("", "wrap", "", "square"));
+        bodyPr.Append(new Drawing.ShapeAutoFit());
+
+        var firstPPr = new Drawing.ParagraphProperties();
+        firstPPr.SetAttribute(new OpenXmlAttribute("", "algn", "", "r"));
+        var shape = new P.Shape(
+            new TextBody(
+                bodyPr,
+                new Drawing.ListStyle(),
+                new Drawing.Paragraph(
+                    firstPPr,
+                    new Drawing.Run(new Drawing.RunProperties { Bold = true }, new Drawing.Text { Text = "Bold" }),
+                    new Drawing.Run(new Drawing.RunProperties { Bold = false, Italic = true }, new Drawing.Text { Text = "Italic" }),
+                    new Drawing.Run(new Drawing.Text { Text = "Plain" })),
+                new Drawing.Paragraph(new Drawing.Run(new Drawing.Text { Text = "Second" }))));
+
+        var text = ExtractTextForTest(converter, shape, styleResolver, slidePart);
+
+        Assert.Equal("BoldItalicPlain\n\nSecond", text.Content);
+        Assert.True(text.AutoFit);
+        Assert.Equal("center", text.VerticalAlign);
+        Assert.Equal(1, text.PaddingLeft);
+        Assert.Equal(2, text.PaddingTop);
+        Assert.Equal(3, text.PaddingRight);
+        Assert.Equal(4, text.PaddingBottom);
+        Assert.Equal("right", text.Paragraphs[0].Formatting.Align);
+        Assert.True(text.Paragraphs[0].Runs[0].Formatting.Bold);
+        Assert.False(text.Paragraphs[0].Runs[1].Formatting.Bold);
+        Assert.True(text.Paragraphs[0].Runs[1].Formatting.Italic);
+        Assert.False(text.Paragraphs[0].Runs[2].Formatting.Bold);
+    }
+
+    [Fact]
+    public void ExtractTextFromShape_RegexFallbackReadsBulletsNumberingNoneLevelsAndIndents()
+    {
+        var path = CreateSimplePptx();
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+        var slidePart = document.PresentationPart!.SlideParts.First();
+        var styleResolver = new StyleResolver(document, slidePart);
+
+        var charPPr = new Drawing.ParagraphProperties { Level = 1 };
+        charPPr.SetAttribute(new OpenXmlAttribute("", "marL", "", "254000"));
+        charPPr.SetAttribute(new OpenXmlAttribute("", "indent", "", "-127000"));
+        charPPr.Append(new Drawing.CharacterBullet { Char = "→" });
+
+        var autoPPr = new Drawing.ParagraphProperties();
+        autoPPr.Append(new Drawing.AutoNumberedBullet { Type = Drawing.TextAutoNumberSchemeValues.ArabicPeriod });
+
+        var nonePPr = new Drawing.ParagraphProperties();
+        nonePPr.Append(new Drawing.NoBullet());
+
+        var shape = new P.Shape(
+            new TextBody(
+                new Drawing.BodyProperties(),
+                new Drawing.ListStyle(),
+                new Drawing.Paragraph(charPPr, new Drawing.Run(new Drawing.Text { Text = "Character bullet" })),
+                new Drawing.Paragraph(autoPPr, new Drawing.Run(new Drawing.Text { Text = "Numbered" })),
+                new Drawing.Paragraph(nonePPr, new Drawing.Run(new Drawing.Text { Text = "No bullet" }))));
+
+        var text = ExtractTextForTest(converter, shape, styleResolver, slidePart);
+
+        Assert.Equal(3, text.Paragraphs.Count);
+        Assert.Equal(1, text.Paragraphs[0].Level);
+        Assert.True(text.Paragraphs[0].HasBullet);
+        Assert.Equal("→", text.Paragraphs[0].BulletChar);
+        Assert.Equal(20.0, text.Paragraphs[0].MarginLeft);
+        Assert.Equal(-10.0, text.Paragraphs[0].Indent);
+        Assert.True(text.Paragraphs[1].HasBullet);
+        Assert.Equal("arabicPeriod", text.Paragraphs[1].AutoNumberType);
+        Assert.False(text.Paragraphs[2].HasBullet);
+        Assert.Null(text.Paragraphs[2].BulletChar);
+    }
+
+    [Fact]
+    public void Convert_GraphicFrameTableDiagramUnsupportedAndMissingGraphicDataBranches()
+    {
+        var tableFrame = TableGraphicFrame(50, "Table frame", x: 30, y: 40, width: 200, height: 80);
+        var diagramFrame = DiagramGraphicFrame(51, "Empty diagram frame");
+        var unsupportedFrame = UnsupportedGraphicFrame(52, "Unsupported frame");
+        var missingGraphicData = new P.GraphicFrame(
+            new NonVisualGraphicFrameProperties(
+                new NonVisualDrawingProperties { Id = 53, Name = "Missing graphic data" },
+                new NonVisualGraphicFrameDrawingProperties(),
+                new ApplicationNonVisualDrawingProperties()));
+        var path = CreateGroupShapePptx("graphic-frame-branches.pptx", tableFrame, diagramFrame, unsupportedFrame, missingGraphicData);
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = converter.Convert();
+
+        var table = Assert.Single(presentation.Slides[0].Elements, e => e.Type == "Table");
+        Assert.Equal("Table frame", table.Name);
+        AssertPosition(table, x: 30, y: 40, width: 200, height: 80);
+        Assert.Equal("Cell", Assert.Single(Assert.Single(table.Table!.Rows)).Content);
+        Assert.DoesNotContain(presentation.Slides[0].Elements, e => e.Name is "Empty diagram frame" or "Unsupported frame" or "Missing graphic data");
+    }
+
+    [Fact]
+    public void Convert_GroupShapeWithZeroChildExtents_DoesNotThrowAndSkipsInfiniteGeometry()
+    {
+        var group = GroupShape(
+            60,
+            TransformGroup(x: 10, y: 10, width: 100, height: 100, childX: 0, childY: 0, childWidth: 0, childHeight: 0),
+            UnsupportedConnector(61));
+        var path = CreateGroupShapePptx("group-zero-extents.pptx", group);
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = converter.Convert();
+
+        Assert.Empty(presentation.Slides[0].Elements);
+    }
+
+    [Fact]
+    public void Convert_PicturesWithMissingBlipOrEmbed_AreIgnored()
+    {
+        var noBlip = new P.Picture(
+            new NonVisualPictureProperties(
+                new NonVisualDrawingProperties { Id = 70, Name = "No blip" },
+                new NonVisualPictureDrawingProperties(),
+                new ApplicationNonVisualDrawingProperties()),
+            new P.BlipFill(),
+            new ShapeProperties(new Drawing.Transform2D(
+                new Drawing.Offset { X = Pt(10), Y = Pt(10) },
+                new Drawing.Extents { Cx = Pt(100), Cy = Pt(50) })));
+        var noEmbed = new P.Picture(
+            new NonVisualPictureProperties(
+                new NonVisualDrawingProperties { Id = 71, Name = "No embed" },
+                new NonVisualPictureDrawingProperties(),
+                new ApplicationNonVisualDrawingProperties()),
+            new P.BlipFill(new Drawing.Blip()),
+            new ShapeProperties(new Drawing.Transform2D(
+                new Drawing.Offset { X = Pt(20), Y = Pt(20) },
+                new Drawing.Extents { Cx = Pt(100), Cy = Pt(50) })));
+        var path = CreateGroupShapePptx("picture-missing-blip.pptx", noBlip, noEmbed);
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = converter.Convert();
+
+        Assert.Empty(presentation.Slides[0].Elements.Where(e => e.Type == "Image"));
+    }
+
+    [Fact]
+    public void Convert_SlideNumberPlaceholderUsesSlideIndexFromRegexPlaceholderType()
+    {
+        var slideNumberShape = new P.Shape(
+            new NonVisualShapeProperties(
+                new NonVisualDrawingProperties { Id = 80, Name = "Slide Number" },
+                new NonVisualShapeDrawingProperties(),
+                new ApplicationNonVisualDrawingProperties(new PlaceholderShape { Type = PlaceholderValues.SlideNumber })),
+            new ShapeProperties(new Drawing.Transform2D(
+                new Drawing.Offset { X = Pt(5), Y = Pt(6) },
+                new Drawing.Extents { Cx = Pt(40), Cy = Pt(20) })),
+            new TextBody(
+                new Drawing.BodyProperties(),
+                new Drawing.ListStyle(),
+                new Drawing.Paragraph(new Drawing.Run(new Drawing.Text { Text = "ignored" }))));
+        var path = CreateGroupShapePptx("slide-number-placeholder.pptx", slideNumberShape);
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = converter.Convert();
+
+        var element = AssertSingleTextElement(presentation, "1");
+        Assert.Equal("Slide Number", element.Name);
+    }
+
+    private static TypstTextElement ExtractTextForTest(PptxToTypstConverter converter, P.Shape shape, StyleResolver styleResolver, SlidePart slidePart)
+    {
+        var method = typeof(PptxToTypstConverter).GetMethod(
+            "ExtractTextFromShape",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic,
+            null,
+            [typeof(P.Shape), typeof(StyleResolver), typeof(SlidePart)],
+            null);
+
+        return Assert.IsType<TypstTextElement>(method!.Invoke(converter, [shape, styleResolver, slidePart]));
+    }
+
+    private static P.GraphicFrame TableGraphicFrame(uint id, string name, double x, double y, double width, double height)
+    {
+        var table = new Drawing.Table(
+            new Drawing.TableProperties { FirstRow = true },
+            new Drawing.TableGrid(new Drawing.GridColumn { Width = Pt(width) }),
+            new Drawing.TableRow(
+                new Drawing.TableCell(
+                    new Drawing.TextBody(
+                        new Drawing.BodyProperties(),
+                        new Drawing.ListStyle(),
+                        new Drawing.Paragraph(new Drawing.Run(new Drawing.Text { Text = "Cell" }))),
+                    new Drawing.TableCellProperties()))
+            {
+                Height = Pt(height)
+            });
+
+        return GraphicFrame(id, name, x, y, width, height, new Drawing.GraphicData(table)
+        {
+            Uri = "http://schemas.openxmlformats.org/drawingml/2006/table"
+        });
+    }
+
+    private static P.GraphicFrame DiagramGraphicFrame(uint id, string name)
+        => GraphicFrame(id, name, 0, 0, 100, 50, new Drawing.GraphicData
+        {
+            Uri = "http://schemas.openxmlformats.org/drawingml/2006/diagram"
+        });
+
+    private static P.GraphicFrame UnsupportedGraphicFrame(uint id, string name)
+        => GraphicFrame(id, name, 0, 0, 100, 50, new Drawing.GraphicData
+        {
+            Uri = "http://example.com/unsupported"
+        });
+
+    private static P.GraphicFrame GraphicFrame(uint id, string name, double x, double y, double width, double height, Drawing.GraphicData graphicData)
+    {
+        return new P.GraphicFrame(
+            new NonVisualGraphicFrameProperties(
+                new NonVisualDrawingProperties { Id = id, Name = name },
+                new NonVisualGraphicFrameDrawingProperties(),
+                new ApplicationNonVisualDrawingProperties()),
+            new Transform(
+                new Drawing.Offset { X = Pt(x), Y = Pt(y) },
+                new Drawing.Extents { Cx = Pt(width), Cy = Pt(height) }),
+            new Drawing.Graphic(graphicData));
     }
 }
