@@ -174,6 +174,16 @@ dotnet tool install OfficeEditor.Cli
 dotnet tool install DocxEditor.Cli
 ```
 
+## Visual PDF Diffs
+
+Use the visual diff helper to compare reference PDFs against generated PDFs as rasterized page images:
+
+```bash
+dotnet run --project tools/visual-diff -- --suite docx
+```
+
+The default report is written to `examples/output/visual-diff/docx/index.html`. See [`tools/visual-diff/README.md`](tools/visual-diff/README.md) for setup, arbitrary PDF pair usage, and how to read RMSE metrics.
+
 ## Project Structure
 
 ```
