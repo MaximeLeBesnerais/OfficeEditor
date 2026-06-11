@@ -114,3 +114,5 @@ The project has grown beyond DOCX to include:
 - Generated outputs: `examples/output/ref/`
 - PNG mode: `--format png` generates per-slide images
 - Smoke tests must pass on `REMOVED.pptx` and `pres-pro.pptx`
+
+@RTK.md
