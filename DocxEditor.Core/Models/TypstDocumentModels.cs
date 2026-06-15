@@ -29,6 +29,8 @@ public sealed record TypstPageSetup
     public double WidthInches { get; init; } = 8.27;
     public double HeightInches { get; init; } = 11.69;
     public TypstMargins Margins { get; init; } = new();
+    public double? HeaderDistanceInches { get; init; }
+    public double? FooterDistanceInches { get; init; }
 }
 
 public sealed record TypstMargins
@@ -44,10 +46,12 @@ public abstract record TypstBlock;
 public sealed record TypstParagraphBlock : TypstBlock
 {
     public List<TypstInline> Inlines { get; init; } = [];
+    public List<TypstImageBlock> ImageBlocks { get; init; } = [];
     public string? Alignment { get; init; }
     public double? SpaceBeforePt { get; init; }
     public double? SpaceAfterPt { get; init; }
     public double? LeadingPt { get; init; }
+    public TypstBorderInfo? BottomBorder { get; init; }
 }
 
 public sealed record TypstPageBreakBlock : TypstBlock;
@@ -87,6 +91,12 @@ public sealed record TypstTableCell
     public string? ShadingColor { get; init; }
 }
 
+public sealed record TypstBorderInfo
+{
+    public string Color { get; init; } = string.Empty;
+    public double SizeEighthPoints { get; init; }
+}
+
 public sealed record TypstImageBlock : TypstBlock
 {
     public string Path { get; init; } = string.Empty;
@@ -95,6 +105,7 @@ public sealed record TypstImageBlock : TypstBlock
     public double? XPt { get; init; }
     public double? YPt { get; init; }
     public bool IsUnsupportedFormat { get; init; }
+    public TypstBorderInfo? TopBorder { get; init; }
 }
 
 public sealed record TypstShapeBlock : TypstBlock
