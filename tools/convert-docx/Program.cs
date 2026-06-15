@@ -66,6 +66,8 @@ if (!File.Exists(inputPath))
     return 1;
 }
 
+string? tempDirectory = null;
+
 try
 {
     Console.WriteLine($"Converting {inputPath}...");
@@ -73,6 +75,7 @@ try
     using var doc = WordprocessingDocument.Open(inputPath, false);
     using var converter = new DocxToTypstConverter(doc);
     var document = converter.Convert();
+    tempDirectory = document.TempDirectory;
     var typstSource = converter.GenerateTypstSource(document);
     foreach (var diagnostic in document.Diagnostics)
     {
@@ -123,6 +126,27 @@ catch (Exception ex)
     Console.WriteLine($"Error: {ex.Message}");
     return 1;
 }
+finally
+{
+    TryDeleteDirectory(tempDirectory);
+}
+
+static void TryDeleteDirectory(string? path)
+{
+    if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
+    {
+        return;
+    }
+
+    try
+    {
+        Directory.Delete(path, recursive: true);
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Warning: Could not delete temp directory '{path}': {ex.Message}");
+    }
+}
 
 static void EnsureDirectory(string path)
 {
@@ -142,6 +166,19 @@ static void CopyAssets(string? sourceAssetsDirectory, string typstPath)
 
     var typstDirectory = Path.GetDirectoryName(typstPath);
     var targetAssetsDirectory = Path.Combine(string.IsNullOrEmpty(typstDirectory) ? "." : typstDirectory, "assets");
+
+    if (Directory.Exists(targetAssetsDirectory))
+    {
+        try
+        {
+            Directory.Delete(targetAssetsDirectory, recursive: true);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Warning: Could not clear existing assets directory '{targetAssetsDirectory}': {ex.Message}");
+        }
+    }
+
     Directory.CreateDirectory(targetAssetsDirectory);
 
     foreach (var sourcePath in Directory.EnumerateFiles(sourceAssetsDirectory))
