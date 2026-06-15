@@ -3,6 +3,8 @@ using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using DocxEditor.Core.Converters;
 using OfficeEditor.Core.Services;
+using System.Globalization;
+using System.Text.RegularExpressions;
 using A = DocumentFormat.OpenXml.Drawing;
 using DW = DocumentFormat.OpenXml.Drawing.Wordprocessing;
 using Pic = DocumentFormat.OpenXml.Drawing.Pictures;
@@ -207,7 +209,7 @@ public sealed class DocxToTypstConverterTests : IDisposable
 
         Assert.DoesNotContain("#par(above", typst);
         Assert.DoesNotContain("#par(below", typst);
-        Assert.Contains("#block(above: 12pt, below: 6pt)[#align(center)[Centered spaced text]]", typst);
+        Assert.Contains("#block(width: 100%, above: 12pt, below: 6pt)[#align(center)[Centered spaced text]]", typst);
         Assert.True(result.Success, result.ErrorMessage);
         Assert.NotEmpty(result.Pages);
     }
@@ -740,6 +742,323 @@ public sealed class DocxToTypstConverterTests : IDisposable
         Assert.True(header > pageBreak);
     }
 
+    [Fact]
+    public void Header_WithMultipleParagraphs_DoesNotEmbedNewlineInContentArray()
+    {
+        string path = CreateDocx("multi-para-header-no-newline.docx", body => body.Append(CreateParagraph("Body")), mainPart =>
+        {
+            HeaderPart headerPart = mainPart.AddNewPart<HeaderPart>();
+            headerPart.Header = new Header(
+                CreateParagraph("Header line A"),
+                CreateParagraph("Header line B"));
+            headerPart.Header.Save();
+
+            mainPart.Document!.Body!.Append(new SectionProperties(
+                new HeaderReference { Type = HeaderFooterValues.Default, Id = mainPart.GetIdOfPart(headerPart) }));
+        });
+
+        string typst = ConvertToTypst(path);
+
+        int setPageStart = typst.IndexOf("#set page(", StringComparison.Ordinal);
+        Assert.True(setPageStart >= 0, "Expected the generated source to start with `#set page(`.");
+        int nextNewline = typst.IndexOf('\n', setPageStart);
+        string setPageLine = nextNewline > setPageStart
+            ? typst[setPageStart..nextNewline]
+            : typst[setPageStart..];
+
+        Assert.DoesNotContain("\n", setPageLine);
+        Assert.DoesNotContain("\r", setPageLine);
+    }
+
+    [Fact]
+    public void Header_WithMultipleParagraphs_JoinsBlocksWithParagraphBreak()
+    {
+        string path = CreateDocx("multi-para-header-wrapped.docx", body => body.Append(CreateParagraph("Body")), mainPart =>
+        {
+            HeaderPart headerPart = mainPart.AddNewPart<HeaderPart>();
+            headerPart.Header = new Header(
+                CreateParagraph("Header line A"),
+                CreateParagraph("Header line B"));
+            headerPart.Header.Save();
+
+            mainPart.Document!.Body!.Append(new SectionProperties(
+                new HeaderReference { Type = HeaderFooterValues.Default, Id = mainPart.GetIdOfPart(headerPart) }));
+        });
+
+        string typst = ConvertToTypst(path);
+
+        Assert.Contains("header: [Header line A#parbreak()Header line B]", typst);
+        Assert.DoesNotContain("[[", typst);
+        Assert.DoesNotContain("]]", typst);
+    }
+
+    [Fact]
+    public void Footer_WithTextAndAnchoredImage_SplitsImageAsDecorativeBottom()
+    {
+        string path = CreateDocx("footer-text-anchored-image.docx", body => body.Append(CreateParagraph("Body")), mainPart =>
+        {
+            FooterPart footerPart = mainPart.AddNewPart<FooterPart>();
+            ImagePart imagePart = footerPart.AddImagePart(ImagePartType.Png);
+            using MemoryStream stream = new(Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="));
+            imagePart.FeedData(stream);
+
+            footerPart.Footer = new Footer(
+                new W.Paragraph(new W.Run(new Text("Footer note"))),
+                new W.Paragraph(new W.Run(CreateAnchorDrawing(footerPart.GetIdOfPart(imagePart)))));
+            footerPart.Footer.Save();
+
+            mainPart.Document!.Body!.Append(new SectionProperties(
+                new FooterReference { Type = HeaderFooterValues.Default, Id = mainPart.GetIdOfPart(footerPart) }));
+        });
+
+        string typst = ConvertToTypst(path);
+
+        Assert.Contains("#place(bottom + center, [#place(dx: 36pt, dy: 18pt)[#image(", typst);
+
+        int setPageStart = typst.IndexOf("#set page(", StringComparison.Ordinal);
+        int nextNewline = typst.IndexOf('\n', setPageStart);
+        string setPageLine = nextNewline > setPageStart
+            ? typst[setPageStart..nextNewline]
+            : typst[setPageStart..];
+
+        Assert.Contains("footer: [", setPageLine);
+        Assert.DoesNotContain("#image(", setPageLine);
+    }
+
+    [Fact]
+    public void Header_WithSingleParagraph_RemainsUnwrappedInContentArray()
+    {
+        string path = CreateDocx("single-para-header.docx", body => body.Append(CreateParagraph("Body")), mainPart =>
+        {
+            HeaderPart headerPart = mainPart.AddNewPart<HeaderPart>();
+            headerPart.Header = new Header(CreateParagraph("Header text"));
+            headerPart.Header.Save();
+
+            mainPart.Document!.Body!.Append(new SectionProperties(
+                new HeaderReference { Type = HeaderFooterValues.Default, Id = mainPart.GetIdOfPart(headerPart) }));
+        });
+
+        string typst = ConvertToTypst(path);
+
+        Assert.Contains("header: [Header text]", typst);
+        Assert.DoesNotContain("[[Header text]]", typst);
+    }
+
+    [Theory]
+    [InlineData("w:before=\"100\" w:after=\"200\" w:afterAutospacing=\"1\"", "above: 5pt", "below: 10pt")]
+    [InlineData("w:before=\"200\" w:after=\"100\"", "above: 10pt", "below: 5pt")]
+    [InlineData("w:after=\"200\" w:afterAutospacing=\"1\"", null, "below: 10pt")]
+    public void Paragraph_WithAfterAutospacing_FallsBackToRawBeforeValue(string spacingAttributes, string? expectedAbove, string expectedBelow)
+    {
+        W.Paragraph paragraph = new();
+        ParagraphProperties pPr = new();
+        pPr.InnerXml = $"<w:spacing xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" {spacingAttributes}/>";
+        paragraph.PrependChild(pPr);
+        paragraph.Append(new W.Run(new Text("Spaced")));
+
+        string path = CreateDocx("spacing-after-autospacing.docx", body => body.Append(paragraph));
+
+        string typst = ConvertToTypst(path);
+
+        if (expectedAbove is not null)
+        {
+            Assert.Contains(expectedAbove, typst);
+        }
+        else
+        {
+            Assert.DoesNotContain("above:", typst);
+        }
+
+        Assert.Contains(expectedBelow, typst);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_WithMultiParagraphHeaderAndFooter_DoesNotContainDoubleBrackets()
+    {
+        string path = CreateDocx("header-footer-no-double-brackets.docx", body => body.Append(CreateParagraph("Body")), mainPart =>
+        {
+            HeaderPart headerPart = mainPart.AddNewPart<HeaderPart>();
+            headerPart.Header = new Header(CreateParagraph("Header line A"), CreateParagraph("Header line B"));
+            headerPart.Header.Save();
+
+            FooterPart footerPart = mainPart.AddNewPart<FooterPart>();
+            footerPart.Footer = new Footer(CreateParagraph("Footer line A"), CreateParagraph("Footer line B"));
+            footerPart.Footer.Save();
+
+            mainPart.Document!.Body!.Append(new SectionProperties(
+                new HeaderReference { Type = HeaderFooterValues.Default, Id = mainPart.GetIdOfPart(headerPart) },
+                new FooterReference { Type = HeaderFooterValues.Default, Id = mainPart.GetIdOfPart(footerPart) }));
+        });
+
+        string typst = ConvertToTypst(path);
+
+        string headerValue = ExtractPageOptionValue(typst, "header");
+        string footerValue = ExtractPageOptionValue(typst, "footer");
+
+        Assert.False(headerValue.Contains("[[", StringComparison.Ordinal), $"Header value contains literal double brackets: {headerValue}");
+        Assert.False(headerValue.Contains("]]", StringComparison.Ordinal), $"Header value contains literal double brackets: {headerValue}");
+        Assert.False(footerValue.Contains("[[", StringComparison.Ordinal), $"Footer value contains literal double brackets: {footerValue}");
+        Assert.False(footerValue.Contains("]]", StringComparison.Ordinal), $"Footer value contains literal double brackets: {footerValue}");
+    }
+
+    [Fact]
+    public void Footer_WithBorderedInlineImage_RendersLineAboveImageInsideFooterContent()
+    {
+        string path = CreateDocx("footer-bordered-inline-image.docx", body => body.Append(CreateParagraph("Body")), mainPart =>
+        {
+            FooterPart footerPart = mainPart.AddNewPart<FooterPart>();
+            ImagePart imagePart = footerPart.AddImagePart(ImagePartType.Png);
+            using MemoryStream stream = new(Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="));
+            imagePart.FeedData(stream);
+
+            W.Paragraph borderedImageParagraph = new(
+                new ParagraphProperties(new ParagraphBorders(new TopBorder { Val = BorderValues.Single, Size = 6, Color = "00257D" })),
+                new W.Run(CreateDrawing(footerPart.GetIdOfPart(imagePart))));
+
+            footerPart.Footer = new Footer(
+                new W.Paragraph(new W.Run(new Text("NOTE text"))),
+                borderedImageParagraph);
+            footerPart.Footer.Save();
+
+            mainPart.Document!.Body!.Append(new SectionProperties(
+                new FooterReference { Type = HeaderFooterValues.Default, Id = mainPart.GetIdOfPart(footerPart) }));
+        });
+
+        string typst = ConvertToTypst(path);
+
+        string footerValue = ExtractPageOptionValue(typst, "footer");
+        Assert.Contains("NOTE text", footerValue);
+        Assert.Contains("#line(length: 100%, stroke: 0.75pt + rgb(\"#00257D\"))#image(", footerValue);
+        Assert.DoesNotContain("[[", footerValue);
+        Assert.DoesNotContain("]]", footerValue);
+        Assert.DoesNotContain("#place(bottom + center", typst);
+    }
+
+    [Fact]
+    public void Footer_WithBorderedAnchoredImage_RendersLineAbovePlacedDecorativeImage()
+    {
+        string path = CreateDocx("footer-bordered-anchored-image.docx", body => body.Append(CreateParagraph("Body")), mainPart =>
+        {
+            FooterPart footerPart = mainPart.AddNewPart<FooterPart>();
+            ImagePart imagePart = footerPart.AddImagePart(ImagePartType.Png);
+            using MemoryStream stream = new(Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="));
+            imagePart.FeedData(stream);
+
+            W.Paragraph borderedImageParagraph = new(
+                new ParagraphProperties(new ParagraphBorders(new TopBorder { Val = BorderValues.Single, Size = 6, Color = "00257D" })),
+                new W.Run(CreateAnchorDrawing(footerPart.GetIdOfPart(imagePart))));
+
+            footerPart.Footer = new Footer(
+                new W.Paragraph(new W.Run(new Text("NOTE text"))),
+                borderedImageParagraph);
+            footerPart.Footer.Save();
+
+            mainPart.Document!.Body!.Append(new SectionProperties(
+                new FooterReference { Type = HeaderFooterValues.Default, Id = mainPart.GetIdOfPart(footerPart) }));
+        });
+
+        string typst = ConvertToTypst(path);
+
+        Assert.Contains("#place(bottom + center, [#line(length: 100%, stroke: 0.75pt + rgb(\"#00257D\")) #place(dx: 36pt, dy: 18pt)[#image(\"assets/image-1.png\", width: 1in, height: 0.5in)]])", typst);
+
+        string footerValue = ExtractPageOptionValue(typst, "footer");
+        Assert.Contains("NOTE text", footerValue);
+        Assert.DoesNotContain("[[", footerValue);
+        Assert.DoesNotContain("]]", footerValue);
+        Assert.DoesNotContain("#image(", footerValue);
+        Assert.DoesNotContain("#line(", footerValue);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_WithImageOnlyParagraph_PreservesStyleAlignmentAndSpacing()
+    {
+        string path = CreateDocx("image-only-paragraph.docx", body => body.Append(new W.Paragraph()), mainPart =>
+        {
+            AddPngImageToDocument(mainPart);
+            W.Paragraph paragraph = mainPart.Document!.Body!.Elements<W.Paragraph>().Single();
+            paragraph.PrependChild(new ParagraphProperties(
+                new Justification { Val = JustificationValues.Center },
+                new SpacingBetweenLines { Before = "480" }));
+        });
+
+        string typst = ConvertToTypst(path);
+
+        Assert.Contains("#align(center)", typst);
+        Assert.Contains("#block(", typst);
+        Assert.Contains("above: 24pt", typst);
+        Assert.Contains("width: 100%", typst);
+        Assert.Contains("#image(", typst);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_WithNormalStyleFontButNoDocDefaults_UsesNormalStyleFontAsDefault()
+    {
+        W.Paragraph paragraph = new(new W.Run(new Text("Sample text")));
+        string path = CreateDocx("normal-style-font.docx", body => body.Append(paragraph), mainPart =>
+        {
+            AddStyles(mainPart, new Style(
+                new StyleRunProperties(new RunFonts { Ascii = "Segoe UI" }))
+            {
+                Type = StyleValues.Paragraph,
+                StyleId = "Normal",
+                Default = true
+            });
+        });
+
+        string typst = ConvertToTypst(path);
+
+        // Segoe UI is mapped to a sans-serif fallback on systems where it is not installed.
+        Assert.Contains("\"Liberation Sans\"", typst);
+        Assert.DoesNotContain("\"Liberation Serif\"", typst);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_WithStyleInheritedBottomBorder_RendersBottomBorderInFooter()
+    {
+        string path = CreateDocx("style-bottom-border.docx", body => body.Append(CreateParagraph("Body text")), mainPart =>
+        {
+            AddStyles(mainPart, new Style(
+                new StyleParagraphProperties(new ParagraphBorders(new BottomBorder { Val = BorderValues.Single, Size = 12, Color = "FF0000" })),
+                new StyleRunProperties(new Bold()))
+            {
+                Type = StyleValues.Paragraph,
+                StyleId = "Bordered"
+            });
+
+            FooterPart footerPart = mainPart.AddNewPart<FooterPart>();
+            footerPart.Footer = new Footer(new W.Paragraph(
+                new ParagraphProperties(new ParagraphStyleId { Val = "Bordered" }),
+                new W.Run(new Text("Footer text"))));
+            footerPart.Footer.Save();
+
+            mainPart.Document!.Body!.Append(new SectionProperties(
+                new FooterReference { Type = HeaderFooterValues.Default, Id = mainPart.GetIdOfPart(footerPart) }));
+        });
+
+        string typst = ConvertToTypst(path);
+
+        string footerValue = ExtractPageOptionValue(typst, "footer");
+        Assert.Contains("#line(", footerValue);
+        Assert.Contains("rgb(\"#FF0000\")", footerValue);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_WithLargeFooterDistance_ReservesFooterSpaceInPageMargin()
+    {
+        string path = CreateDocx("footer-distance.docx", body =>
+        {
+            body.Append(CreateParagraph("Body text"));
+            body.Append(new SectionProperties(
+                new PageSize { Width = 12240, Height = 15840 },
+                new PageMargin { Left = 720, Right = 720, Top = 720, Bottom = 720, Footer = 2880 }));
+        });
+
+        string typst = ConvertToTypst(path);
+
+        double bottomMarginInches = ExtractBottomMarginInches(typst);
+        Assert.True(bottomMarginInches >= 2.0, $"Expected bottom margin >= 2in to reserve footer space, but got {bottomMarginInches}in.");
+    }
+
     private string ConvertToTypst(string path)
     {
         using WordprocessingDocument document = WordprocessingDocument.Open(path, false);
@@ -782,6 +1101,40 @@ public sealed class DocxToTypstConverterTests : IDisposable
         }
 
         return count;
+    }
+
+    private static string ExtractPageOptionValue(string typst, string optionName)
+    {
+        string prefix = $"{optionName}: [";
+        int start = typst.IndexOf(prefix, StringComparison.Ordinal);
+        Assert.True(start >= 0, $"Expected generated Typst source to contain '{prefix}'.");
+        start += prefix.Length - 1;
+        int depth = 0;
+        for (int i = start; i < typst.Length; i++)
+        {
+            if (typst[i] == '[')
+            {
+                depth++;
+            }
+            else if (typst[i] == ']')
+            {
+                depth--;
+            }
+
+            if (depth == 0)
+            {
+                return typst[start..(i + 1)];
+            }
+        }
+
+        throw new InvalidOperationException($"Could not find closing bracket for '{prefix}'.");
+    }
+
+    private static double ExtractBottomMarginInches(string typst)
+    {
+        Match match = Regex.Match(typst, @"#set page\([^)]*bottom:\s*(\d+(?:\.\d+)?)in", RegexOptions.Singleline);
+        Assert.True(match.Success, "Expected generated Typst source to set a bottom page margin.");
+        return double.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);
     }
 
     private static Picture CreateVmlPicture(string innerXml)
