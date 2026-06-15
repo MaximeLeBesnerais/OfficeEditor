@@ -94,14 +94,21 @@ public sealed class DocxToTypstConverter : IDisposable
         TypstPageSetup page = document.PageSetup;
         List<string> pageOptions = BuildPageOptions(page);
         TypstHeaderFooterSet headerFooter = document.HeaderFooter;
-        AddHeaderFooterPageOptions(pageOptions, headerFooter);
+        string? pageAnchored = AddHeaderFooterPageOptions(pageOptions, headerFooter, page);
 
         List<string> lines =
         [
-            $"#set page({string.Join(", ", pageOptions)})",
+            // Belt-and-braces: strip any embedded newlines from the joined page options
+            // so the entire `#set page(...)` call always lives on a single physical line.
+            $"#set page({string.Join(", ", pageOptions).Replace("\n", " ").Replace("\r", " ")})",
             $"#set text(font: {TypstFontValue(document.DefaultFontFamily)}, size: {FormatPt(document.DefaultFontSizePt)})",
             string.Empty
         ];
+
+        if (pageAnchored is not null)
+        {
+            lines.Add(pageAnchored);
+        }
 
         bool defaultHeaderFooterApplied = !headerFooter.ApplyDefaultAfterFirstPageBreak
             || (headerFooter.DefaultHeaderBlocks.Count == 0 && headerFooter.DefaultFooterBlocks.Count == 0);
@@ -115,16 +122,21 @@ public sealed class DocxToTypstConverter : IDisposable
             else if (!defaultHeaderFooterApplied && block is TypstPageBreakBlock)
             {
                 List<string> defaultPageOptions = [];
-                AddHeaderFooterPageOptions(defaultPageOptions, headerFooter with
+                string? defaultAnchored = AddHeaderFooterPageOptions(defaultPageOptions, headerFooter with
                 {
                     FirstHeaderBlocks = [],
                     FirstFooterBlocks = [],
                     HasTitlePage = false,
                     ApplyDefaultAfterFirstPageBreak = false
-                });
+                }, page);
                 if (defaultPageOptions.Count > 0)
                 {
                     lines.Add($"#set page({string.Join(", ", defaultPageOptions)})");
+                }
+
+                if (defaultAnchored is not null)
+                {
+                    lines.Add(defaultAnchored);
                 }
 
                 defaultHeaderFooterApplied = true;
@@ -184,9 +196,12 @@ public sealed class DocxToTypstConverter : IDisposable
         if (inlines.Count > 0)
         {
             blocks.Add(CreateParagraphBlock(paragraph, inlines));
+            blocks.AddRange(images);
         }
-
-        blocks.AddRange(images);
+        else if (images.Count > 0)
+        {
+            blocks.Add(CreateParagraphBlock(paragraph, inlines) with { ImageBlocks = images });
+        }
 
         if (HasPageBreak(paragraph))
         {
@@ -284,9 +299,34 @@ public sealed class DocxToTypstConverter : IDisposable
             }
 
             SpacingBetweenLines? spacing = GetChild<SpacingBetweenLines>(property);
-            before = TwipsToPoints(spacing?.Before?.Value) ?? before;
-            after = TwipsToPoints(spacing?.After?.Value) ?? after;
-            leading = ResolveAutoLineSpacingLeading(spacing, inlines) ?? leading;
+            if (spacing is not null)
+            {
+                // Defensive read: when w:afterAutospacing="1" is set on a <w:spacing> element,
+                // the OpenXml SDK's typed Before/After properties can misread the value and
+                // return the `after` value for `before` (collapsing both to the same number).
+                // We detect this suspicious equality (typed Before == typed After) and fall
+                // back to the raw XML attribute for `before`, which the SDK does not munge.
+                string? beforeRaw = spacing.Before?.Value;
+                string? afterRaw = spacing.After?.Value;
+                if (beforeRaw is null || (afterRaw is not null && beforeRaw == afterRaw))
+                {
+                    beforeRaw = GetSpacingAttributeValue(spacing, "before") ?? beforeRaw;
+                }
+
+                double? beforePt = TwipsToPoints(beforeRaw);
+                double? afterPt = TwipsToPoints(afterRaw);
+                if (beforePt is not null)
+                {
+                    before = beforePt;
+                }
+
+                if (afterPt is not null)
+                {
+                    after = afterPt;
+                }
+
+                leading = ResolveAutoLineSpacingLeading(spacing, inlines) ?? leading;
+            }
         }
 
         return new TypstParagraphBlock
@@ -295,7 +335,8 @@ public sealed class DocxToTypstConverter : IDisposable
             Alignment = alignment,
             SpaceBeforePt = before,
             SpaceAfterPt = after,
-            LeadingPt = leading
+            LeadingPt = leading,
+            BottomBorder = ExtractParagraphBottomBorder(paragraph)
         };
     }
 
@@ -610,6 +651,7 @@ public sealed class DocxToTypstConverter : IDisposable
             DW.Anchor? anchor = blip.Ancestors<DW.Anchor>().FirstOrDefault();
             DW.Extent? extent = blip.Ancestors<DW.Inline>().FirstOrDefault()?.Extent ?? anchor?.Extent;
             (double? xPt, double? yPt) = ExtractAnchorOffset(anchor);
+            Wp.Paragraph? parentParagraph = blip.Ancestors<Wp.Paragraph>().FirstOrDefault();
             images.Add(new TypstImageBlock
             {
                 Path = extracted.TypstPath,
@@ -617,11 +659,89 @@ public sealed class DocxToTypstConverter : IDisposable
                 HeightInches = extent?.Cy is null ? null : extent.Cy.Value / EmusPerInch,
                 XPt = xPt,
                 YPt = yPt,
-                IsUnsupportedFormat = extracted.IsUnsupportedFormat
+                IsUnsupportedFormat = extracted.IsUnsupportedFormat,
+                TopBorder = ExtractParagraphTopBorder(parentParagraph)
             });
         }
 
         return images;
+    }
+
+    private TypstBorderInfo? ExtractParagraphBottomBorder(Wp.Paragraph paragraph)
+    {
+        List<OpenXmlElement?> properties = GetParagraphFormattingProperties(paragraph);
+        properties.Add(paragraph.ParagraphProperties);
+
+        for (int i = properties.Count - 1; i >= 0; i--)
+        {
+            if (properties[i]?.GetFirstChild<ParagraphBorders>()?.BottomBorder is BottomBorder bottomBorder)
+            {
+                return ExtractBorderInfo(bottomBorder);
+            }
+        }
+
+        return null;
+    }
+
+    private static TypstBorderInfo? ExtractBorderInfo(BorderType border)
+    {
+        BorderValues? borderValue = border.Val?.Value;
+        if (borderValue == BorderValues.Nil || borderValue == BorderValues.None)
+        {
+            return null;
+        }
+
+        double sizeEighthPoints = 0;
+        if (border.Size?.Value is uint size)
+        {
+            sizeEighthPoints = size;
+        }
+
+        string color = border.Color?.Value ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(color))
+        {
+            color = "000000";
+        }
+
+        return new TypstBorderInfo
+        {
+            Color = color,
+            SizeEighthPoints = sizeEighthPoints
+        };
+    }
+
+    private static TypstBorderInfo? ExtractParagraphTopBorder(Wp.Paragraph? paragraph)
+    {
+        TopBorder? topBorder = paragraph?.ParagraphProperties?.ParagraphBorders?.TopBorder;
+        if (topBorder is null)
+        {
+            return null;
+        }
+
+        // Ignore borders that are explicitly disabled.
+        BorderValues? borderValue = topBorder.Val?.Value;
+        if (borderValue == BorderValues.Nil || borderValue == BorderValues.None)
+        {
+            return null;
+        }
+
+        double sizeEighthPoints = 0;
+        if (topBorder.Size?.Value is uint size)
+        {
+            sizeEighthPoints = size;
+        }
+
+        string color = topBorder.Color?.Value ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(color))
+        {
+            color = "000000";
+        }
+
+        return new TypstBorderInfo
+        {
+            Color = color,
+            SizeEighthPoints = sizeEighthPoints
+        };
     }
 
     private static (double? XPt, double? YPt) ExtractAnchorOffset(DW.Anchor? anchor)
@@ -851,7 +971,9 @@ public sealed class DocxToTypstConverter : IDisposable
                 RightInches = TwipsToInches(margin?.Right?.Value, fallback.Margins.RightInches),
                 BottomInches = TwipsToInches(margin?.Bottom?.Value, fallback.Margins.BottomInches),
                 LeftInches = TwipsToInches(margin?.Left?.Value, fallback.Margins.LeftInches)
-            }
+            },
+            HeaderDistanceInches = margin?.Header?.Value is uint headerTwips ? headerTwips / TwipsPerInch : fallback.HeaderDistanceInches,
+            FooterDistanceInches = margin?.Footer?.Value is uint footerTwips ? footerTwips / TwipsPerInch : fallback.FooterDistanceInches
         };
     }
 
@@ -869,9 +991,17 @@ public sealed class DocxToTypstConverter : IDisposable
 
     private string RenderParagraph(TypstParagraphBlock paragraph)
     {
-        string content = RenderInlines(paragraph.Inlines);
+        bool hasImages = paragraph.ImageBlocks.Count > 0;
+        string content = hasImages
+            ? string.Join(Environment.NewLine, paragraph.ImageBlocks.Select(RenderImage))
+            : RenderInlines(paragraph.Inlines);
 
-        if (paragraph.Alignment == "justify")
+        if (paragraph.BottomBorder is not null)
+        {
+            content += $"\n#line(length: 100%, stroke: {FormatPt(paragraph.BottomBorder.SizeEighthPoints / 8.0)} + rgb(\"#{paragraph.BottomBorder.Color}\"))";
+        }
+
+        if (paragraph.Alignment == "justify" && !hasImages)
         {
             List<string> parOptions = ["justify: true"];
             if (paragraph.LeadingPt is > 0)
@@ -881,12 +1011,12 @@ public sealed class DocxToTypstConverter : IDisposable
 
             content = $"#par({string.Join(", ", parOptions)})[{content}]";
         }
-        else if (paragraph.Alignment is not null)
+        else if (paragraph.Alignment is not null && !(hasImages && paragraph.Alignment == "justify"))
         {
             content = $"#align({paragraph.Alignment})[{content}]";
         }
 
-        if (paragraph.Alignment != "justify" && paragraph.LeadingPt is > 0)
+        if (paragraph.Alignment != "justify" && paragraph.LeadingPt is > 0 && !hasImages)
         {
             content = $"#par(leading: {FormatPt(paragraph.LeadingPt.Value)})[{content}]";
         }
@@ -902,7 +1032,20 @@ public sealed class DocxToTypstConverter : IDisposable
             spacingOptions.Add($"below: {FormatPt(paragraph.SpaceAfterPt.Value)}");
         }
 
-        return spacingOptions.Count == 0 ? content : $"#block({string.Join(", ", spacingOptions)})[{content}]";
+        if (spacingOptions.Count == 0)
+        {
+            return content;
+        }
+
+        // Without an explicit width, a spacing block shrinks to its content, which makes
+        // inner #align(center)/#par(justify) ineffective. Force full width when alignment
+        // is applied so the paragraph occupies the full body column.
+        if (paragraph.Alignment is not null)
+        {
+            spacingOptions.Insert(0, "width: 100%");
+        }
+
+        return $"#block({string.Join(", ", spacingOptions)})[{content}]";
     }
 
     private string RenderList(TypstListBlock list)
@@ -945,9 +1088,17 @@ public sealed class DocxToTypstConverter : IDisposable
             ? RenderUnsupportedImagePlaceholder(image)
             : RenderSupportedImage(image);
 
-        return image.XPt is not null || image.YPt is not null
-            ? $"#place(dx: {FormatPt(image.XPt ?? 0)}, dy: {FormatPt(image.YPt ?? 0)})[{rendered}]"
-            : rendered;
+        if (image.XPt is not null || image.YPt is not null)
+        {
+            return $"#place(dx: {FormatPt(image.XPt ?? 0)}, dy: {FormatPt(image.YPt ?? 0)})[{rendered}]";
+        }
+
+        if (image.TopBorder is not null)
+        {
+            rendered = $"#line(length: 100%, stroke: {FormatPt(image.TopBorder.SizeEighthPoints / 8.0)} + rgb(\"#{image.TopBorder.Color}\")){rendered}";
+        }
+
+        return rendered;
     }
 
     private string RenderSupportedImage(TypstImageBlock image)
@@ -982,31 +1133,96 @@ public sealed class DocxToTypstConverter : IDisposable
         return $"#rect({string.Join(", ", arguments)})[#align(center + horizon)[#text(size: 8pt, fill: rgb(\"#666666\"))[Exclusive Windows image format]]]";
     }
 
-    private string RenderBlocksAsContent(IEnumerable<TypstBlock> blocks) => string.Join("\n", blocks.Select(RenderBlock).Where(block => !string.IsNullOrWhiteSpace(block)));
+    private string RenderBlocksAsContent(IEnumerable<TypstBlock> blocks)
+    {
+        // Join the rendered blocks into a single string suitable for embedding inside
+        // a Typst content block (e.g. `header: [<content>]` or `footer: [<content>]`).
+        // For a single block, return its rendered text unchanged so the outer `[...]`
+        // added by AddHeaderFooterPageOptions produces a clean `header: [block]` form.
+        // For multiple blocks, concatenate them with an explicit `#parbreak()` so they
+        // render as separate paragraphs. Using `#parbreak()` instead of `\n` keeps the
+        // surrounding `#set page(...)` directive on a single line (avoiding parser
+        // issues with a floating closing delimiter) and guarantees separation even when
+        // a block renders as plain text, which a single newline would collapse into one
+        // paragraph.
+        List<string> rendered = blocks.Select(RenderBlock).Where(b => !string.IsNullOrWhiteSpace(b)).ToList();
+        if (rendered.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        if (rendered.Count == 1)
+        {
+            return rendered[0];
+        }
+
+        return string.Join("#parbreak()", rendered);
+    }
 
     private string RenderPageSettings(TypstPageSettingsBlock settings)
     {
         List<string> pageOptions = BuildPageOptions(settings.PageSetup);
-        AddHeaderFooterPageOptions(pageOptions, settings.HeaderFooter);
+        string? anchored = AddHeaderFooterPageOptions(pageOptions, settings.HeaderFooter, settings.PageSetup);
         string setPage = $"#set page({string.Join(", ", pageOptions)})";
-        return settings.PageBreakBefore ? $"#pagebreak()\n{setPage}" : setPage;
+        string result = settings.PageBreakBefore ? $"#pagebreak()\n{setPage}" : setPage;
+        if (anchored is not null)
+        {
+            result += $"\n{anchored}";
+        }
+
+        return result;
     }
 
     private static List<string> BuildPageOptions(TypstPageSetup page)
     {
         TypstMargins margins = page.Margins;
-        return
+        double topMargin = margins.TopInches;
+        double bottomMargin = margins.BottomInches;
+
+        double? headerDistance = page.HeaderDistanceInches;
+        if (headerDistance is not null && headerDistance.Value > topMargin)
+        {
+            topMargin = headerDistance.Value;
+        }
+
+        double? footerDistance = page.FooterDistanceInches;
+        if (footerDistance is not null && footerDistance.Value > bottomMargin)
+        {
+            bottomMargin = footerDistance.Value;
+        }
+
+        List<string> options =
         [
             $"width: {FormatIn(page.WidthInches)}",
             $"height: {FormatIn(page.HeightInches)}",
-            $"margin: (left: {FormatIn(margins.LeftInches)}, right: {FormatIn(margins.RightInches)}, top: {FormatIn(margins.TopInches)}, bottom: {FormatIn(margins.BottomInches)})"
+            $"margin: (left: {FormatIn(margins.LeftInches)}, right: {FormatIn(margins.RightInches)}, top: {FormatIn(topMargin)}, bottom: {FormatIn(bottomMargin)})"
         ];
+
+        if (headerDistance is not null)
+        {
+            double headerAscent = topMargin - headerDistance.Value;
+            if (headerAscent >= 0)
+            {
+                options.Add($"header-ascent: {FormatIn(headerAscent)}");
+            }
+        }
+
+        if (footerDistance is not null)
+        {
+            double footerDescent = bottomMargin - footerDistance.Value;
+            if (footerDescent >= 0)
+            {
+                options.Add($"footer-descent: {FormatIn(footerDescent)}");
+            }
+        }
+
+        return options;
     }
 
-    private void AddHeaderFooterPageOptions(List<string> pageOptions, TypstHeaderFooterSet headerFooter)
+    private string? AddHeaderFooterPageOptions(List<string> pageOptions, TypstHeaderFooterSet headerFooter, TypstPageSetup pageSetup)
     {
-        string? header = BuildHeaderFooterContent(headerFooter.FirstHeaderBlocks, headerFooter.DefaultHeaderBlocks, headerFooter.HasTitlePage);
-        string? footer = BuildHeaderFooterContent(headerFooter.FirstFooterBlocks, headerFooter.DefaultFooterBlocks, headerFooter.HasTitlePage);
+        (string? header, string? headerAnchored) = BuildHeaderFooterContent(headerFooter.FirstHeaderBlocks, headerFooter.DefaultHeaderBlocks, headerFooter.HasTitlePage, isHeader: true, pageSetup);
+        (string? footer, string? footerAnchored) = BuildHeaderFooterContent(headerFooter.FirstFooterBlocks, headerFooter.DefaultFooterBlocks, headerFooter.HasTitlePage, isHeader: false, pageSetup);
         if (header is not null)
         {
             pageOptions.Add($"header: [{header}]");
@@ -1016,29 +1232,149 @@ public sealed class DocxToTypstConverter : IDisposable
         {
             pageOptions.Add($"footer: [{footer}]");
         }
+
+        // Decorative images (e.g. a bottom chevron anchored to the page bottom) are
+        // emitted as separate `#place(bottom + center, ...)` lines AFTER the
+        // `#set page(...)` call, so they are not constrained by the small footer area.
+        return CombineAnchored(headerAnchored, footerAnchored);
     }
 
-    private string? BuildHeaderFooterContent(List<TypstBlock> firstBlocks, List<TypstBlock> defaultBlocks, bool hasTitlePage)
+    private static string? CombineAnchored(string? headerAnchored, string? footerAnchored)
+    {
+        List<string> parts = [];
+        if (headerAnchored is not null)
+        {
+            parts.Add(headerAnchored);
+        }
+
+        if (footerAnchored is not null)
+        {
+            parts.Add(footerAnchored);
+        }
+
+        return parts.Count == 0 ? null : string.Join("\n", parts);
+    }
+
+    private (string? Content, string? Decorative) BuildHeaderFooterContent(List<TypstBlock> firstBlocks, List<TypstBlock> defaultBlocks, bool hasTitlePage, bool isHeader, TypstPageSetup pageSetup)
     {
         if (!hasTitlePage)
         {
-            string content = RenderBlocksAsContent(defaultBlocks);
-            return string.IsNullOrWhiteSpace(content) ? null : content;
+            (List<TypstBlock> nonDecorative, List<TypstImageBlock> decorativeImages) = SplitDecorativeBlocks(defaultBlocks);
+            string renderedContent = RenderBlocksAsContent(nonDecorative);
+            string? nonTitleContent = string.IsNullOrWhiteSpace(renderedContent) ? null : renderedContent;
+            string? nonTitleDecorative = RenderAnchoredImages(decorativeImages);
+            return (WrapHeaderFooterContent(nonTitleContent, isHeader, pageSetup), nonTitleDecorative);
         }
 
-        string first = RenderBlocksAsContent(firstBlocks);
-        string defaultContent = RenderBlocksAsContent(defaultBlocks);
+        (List<TypstBlock> firstNonDecorative, List<TypstImageBlock> firstDecorativeImages) = SplitDecorativeBlocks(firstBlocks);
+        (List<TypstBlock> defaultNonDecorative, List<TypstImageBlock> defaultDecorativeImages) = SplitDecorativeBlocks(defaultBlocks);
+        string first = RenderBlocksAsContent(firstNonDecorative);
+        string defaultContent = RenderBlocksAsContent(defaultNonDecorative);
+        string? firstDecorative = RenderAnchoredImages(firstDecorativeImages);
+        string? defaultDecorative = RenderAnchoredImages(defaultDecorativeImages);
+        string? resolvedDecorative = firstDecorative ?? defaultDecorative;
         if (string.IsNullOrWhiteSpace(first))
+        {
+            return (null, resolvedDecorative);
+        }
+
+        string? resolvedContent;
+        if (string.IsNullOrWhiteSpace(defaultContent))
+        {
+            resolvedContent = first;
+        }
+        else
+        {
+            resolvedContent = $"#context if counter(page).get().first() == 1 [{first}] else [{defaultContent}]";
+        }
+
+        return (WrapHeaderFooterContent(resolvedContent, isHeader, pageSetup), resolvedDecorative);
+    }
+
+    private string? WrapHeaderFooterContent(string? content, bool isHeader, TypstPageSetup pageSetup)
+    {
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            return content;
+        }
+
+        if (isHeader && pageSetup.HeaderDistanceInches is double headerDistance)
+        {
+            return $"#place(top, dy: {FormatIn(headerDistance)})[#block(width: 100%)[{content}]]";
+        }
+
+        if (!isHeader && pageSetup.FooterDistanceInches is double footerDistance)
+        {
+            return $"#place(bottom, dy: -{FormatIn(footerDistance)})[#block(width: 100%)[{content}]]";
+        }
+
+        return content;
+    }
+
+    // Splits header/footer blocks into (content, decorative). Decorative blocks are
+    // anchored images that should be placed at the page bottom (e.g. a chevron in a
+    // small footer area). Inline images remain in the content flow so they keep their
+    // original vertical order relative to surrounding paragraphs. A single-block
+    // header/footer is never split, so a header that contains only an image still
+    // renders the image inside `header: [...]`.
+    private static (List<TypstBlock> Content, List<TypstImageBlock> Decorative) SplitDecorativeBlocks(List<TypstBlock> blocks)
+    {
+        if (blocks.Count <= 1)
+        {
+            return (blocks, []);
+        }
+
+        List<TypstBlock> content = [];
+        List<TypstImageBlock> decorative = [];
+        foreach (TypstBlock block in blocks)
+        {
+            if (block is TypstParagraphBlock { Inlines.Count: 0 } paragraph && paragraph.ImageBlocks.Count > 0)
+            {
+                List<TypstImageBlock> inlineImages = [];
+                foreach (TypstImageBlock image in paragraph.ImageBlocks)
+                {
+                    if (image.XPt is not null || image.YPt is not null)
+                    {
+                        decorative.Add(image);
+                    }
+                    else
+                    {
+                        inlineImages.Add(image);
+                    }
+                }
+
+                if (inlineImages.Count > 0)
+                {
+                    content.Add(paragraph with { ImageBlocks = inlineImages });
+                }
+            }
+            else if (block is TypstImageBlock image && (image.XPt is not null || image.YPt is not null))
+            {
+                decorative.Add(image);
+            }
+            else
+            {
+                content.Add(block);
+            }
+        }
+
+        return (content, decorative);
+    }
+
+    private string? RenderAnchoredImages(List<TypstImageBlock> images)
+    {
+        if (images.Count == 0)
         {
             return null;
         }
 
-        if (string.IsNullOrWhiteSpace(defaultContent))
+        return string.Concat(images.Select(image =>
         {
-            return first;
-        }
-
-        return $"#context if counter(page).get().first() == 1 [{first}] else [{defaultContent}]";
+            string line = image.TopBorder is not null
+                ? $"#line(length: 100%, stroke: {FormatPt(image.TopBorder.SizeEighthPoints / 8.0)} + rgb(\"#{image.TopBorder.Color}\")) "
+                : string.Empty;
+            return $"#place(bottom + center, [{line}{RenderImage(image)}])";
+        }));
     }
 
     private string RenderShape(TypstShapeBlock shape)
@@ -1391,7 +1727,9 @@ public sealed class DocxToTypstConverter : IDisposable
     private string ExtractDefaultFontFamily()
     {
         RunPropertiesBaseStyle? defaults = document.MainDocumentPart?.StyleDefinitionsPart?.Styles?.DocDefaults?.RunPropertiesDefault?.RunPropertiesBaseStyle;
-        return GetFontFamily(defaults) ?? "Liberation Serif";
+        return GetFontFamily(defaults)
+            ?? GetFontFamily(stylesById.TryGetValue("Normal", out Style? normal) ? normal.StyleRunProperties : null)
+            ?? "Liberation Serif";
     }
 
     private double ExtractDefaultFontSize()
@@ -1474,6 +1812,22 @@ public sealed class DocxToTypstConverter : IDisposable
         }
 
         Match match = Regex.Match(element.OuterXml, $"\\b(?:\\w+:)?{Regex.Escape(localName)}=\"([^\"]+)\"");
+        return match.Success ? match.Groups[1].Value : null;
+    }
+
+    // Defensive fallback for <w:spacing> attributes. The OpenXml SDK's typed
+    // `SpacingBetweenLines.Before`/`After` properties can misread values when
+    // `w:afterAutospacing="1"` is present on the same element (returning the
+    // `after` value for `before`). Reading the raw XML attribute avoids that
+    // SDK bug and gives the true stored value.
+    private static string? GetSpacingAttributeValue(OpenXmlElement? element, string localName)
+    {
+        if (element is null)
+        {
+            return null;
+        }
+
+        Match match = Regex.Match(element.OuterXml, $"\\bw:{Regex.Escape(localName)}=\"([^\"]+)\"");
         return match.Success ? match.Groups[1].Value : null;
     }
 
@@ -1658,12 +2012,10 @@ public sealed class DocxToTypstConverter : IDisposable
 
     private static string[] GetFontFallback(string value)
     {
-        if (value.Equals("Corbel", StringComparison.OrdinalIgnoreCase))
-        {
-            return ["Liberation Sans", "Noto Sans", "Aptos"];
-        }
-
-        if (value.Equals("Calibri", StringComparison.OrdinalIgnoreCase))
+        if (value.Equals("Corbel", StringComparison.OrdinalIgnoreCase)
+            || value.Equals("Calibri", StringComparison.OrdinalIgnoreCase)
+            || value.Equals("Segoe UI", StringComparison.OrdinalIgnoreCase)
+            || value.Equals("Arial", StringComparison.OrdinalIgnoreCase))
         {
             return ["Liberation Sans", "Noto Sans", "Aptos"];
         }
