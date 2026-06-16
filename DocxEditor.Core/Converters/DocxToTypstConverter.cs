@@ -232,7 +232,15 @@ public sealed class DocxToTypstConverter : IDisposable
 
         if (element is SimpleField simpleField)
         {
-            TypstInline? fieldInline = CreateFieldInline(simpleField.Instruction?.Value ?? GetXmlAttribute(simpleField, "instr") ?? string.Empty);
+            RunFormatting formatting = new();
+            Run? firstRun = simpleField.Descendants<Run>().FirstOrDefault();
+            if (firstRun is not null)
+            {
+                List<OpenXmlElement?> styleRunProperties = GetRunStyleProperties(firstRun);
+                formatting = ComputeRunFormatting(firstRun.RunProperties, styleRunProperties, paragraphStyleRunProperties);
+            }
+
+            TypstInline? fieldInline = CreateFieldInline(simpleField.Instruction?.Value ?? GetXmlAttribute(simpleField, "instr") ?? string.Empty, formatting);
             if (fieldInline is not null)
             {
                 inlines.Add(fieldInline);
@@ -255,6 +263,12 @@ public sealed class DocxToTypstConverter : IDisposable
     private void ConvertRunInlines(Run run, List<TypstInline> inlines, List<OpenXmlElement?> paragraphStyleRunProperties, FieldParseState fieldState)
     {
         List<OpenXmlElement?> styleRunProperties = GetRunStyleProperties(run);
+        RunFormatting runFormatting = ComputeRunFormatting(run.RunProperties, styleRunProperties, paragraphStyleRunProperties);
+        if (fieldState.InField)
+        {
+            MergeFieldFormatting(fieldState.FieldFormatting, runFormatting);
+        }
+
         foreach (OpenXmlElement child in run.ChildElements)
         {
             switch (child)
@@ -342,19 +356,7 @@ public sealed class DocxToTypstConverter : IDisposable
 
     private TypstInline CreateTextInline(string text, OpenXmlElement? direct, IEnumerable<OpenXmlElement?> runStyle, IEnumerable<OpenXmlElement?> paragraphStyle)
     {
-        RunFormatting formatting = new();
-        ApplyRunFormatting(formatting, document.MainDocumentPart?.StyleDefinitionsPart?.Styles?.DocDefaults?.RunPropertiesDefault?.RunPropertiesBaseStyle);
-        foreach (OpenXmlElement? property in paragraphStyle)
-        {
-            ApplyRunFormatting(formatting, property);
-        }
-
-        foreach (OpenXmlElement? property in runStyle)
-        {
-            ApplyRunFormatting(formatting, property);
-        }
-
-        ApplyRunFormatting(formatting, direct);
+        RunFormatting formatting = ComputeRunFormatting(direct, runStyle, paragraphStyle);
         string normalizedText = NormalizeSymbolText(text, formatting.FontFamily);
         TypstInline? checkbox = CreateCheckboxInline(normalizedText);
         if (checkbox is not null)
@@ -375,6 +377,24 @@ public sealed class DocxToTypstConverter : IDisposable
         };
     }
 
+    private RunFormatting ComputeRunFormatting(OpenXmlElement? direct, IEnumerable<OpenXmlElement?> runStyle, IEnumerable<OpenXmlElement?> paragraphStyle)
+    {
+        RunFormatting formatting = new();
+        ApplyRunFormatting(formatting, document.MainDocumentPart?.StyleDefinitionsPart?.Styles?.DocDefaults?.RunPropertiesDefault?.RunPropertiesBaseStyle);
+        foreach (OpenXmlElement? property in paragraphStyle)
+        {
+            ApplyRunFormatting(formatting, property);
+        }
+
+        foreach (OpenXmlElement? property in runStyle)
+        {
+            ApplyRunFormatting(formatting, property);
+        }
+
+        ApplyRunFormatting(formatting, direct);
+        return formatting;
+    }
+
     private TypstInline CreateSymbolInline(SymbolChar symbol, OpenXmlElement? direct, IEnumerable<OpenXmlElement?> runStyle, IEnumerable<OpenXmlElement?> paragraphStyle)
     {
         string font = symbol.Font?.Value ?? GetXmlAttribute(symbol, "font") ?? string.Empty;
@@ -388,7 +408,7 @@ public sealed class DocxToTypstConverter : IDisposable
         return CreateTextInline(text, direct, runStyle, paragraphStyle);
     }
 
-    private static void HandleFieldChar(FieldChar fieldChar, FieldParseState fieldState, List<TypstInline> inlines)
+    private void HandleFieldChar(FieldChar fieldChar, FieldParseState fieldState, List<TypstInline> inlines)
     {
         FieldCharValues? type = fieldChar.FieldCharType?.Value;
         if (type == FieldCharValues.Begin)
@@ -396,12 +416,13 @@ public sealed class DocxToTypstConverter : IDisposable
             fieldState.Instruction.Clear();
             fieldState.InField = true;
             fieldState.SuppressResult = false;
+            fieldState.FieldFormatting = new RunFormatting();
             return;
         }
 
         if (type == FieldCharValues.Separate)
         {
-            TypstInline? fieldInline = CreateFieldInline(fieldState.Instruction.ToString());
+            TypstInline? fieldInline = CreateFieldInline(fieldState.Instruction.ToString(), fieldState.FieldFormatting);
             if (fieldInline is not null)
             {
                 inlines.Add(fieldInline);
@@ -419,20 +440,35 @@ public sealed class DocxToTypstConverter : IDisposable
         }
     }
 
-    private static TypstInline? CreateFieldInline(string instruction)
+    private TypstInline? CreateFieldInline(string instruction, RunFormatting? formatting = null)
     {
         string normalized = Regex.Replace(instruction, "\\s+", " ").Trim();
+        string? rawTypst = null;
         if (Regex.IsMatch(normalized, "^PAGE(?:\\s|$)", RegexOptions.IgnoreCase))
         {
-            return new TypstInline { Kind = TypstInlineKind.RawTypst, RawTypst = "#context counter(page).display()" };
+            rawTypst = "#context counter(page).display()";
         }
-
-        if (Regex.IsMatch(normalized, "^NUMPAGES(?:\\s|$)", RegexOptions.IgnoreCase))
+        else if (Regex.IsMatch(normalized, "^NUMPAGES(?:\\s|$)", RegexOptions.IgnoreCase))
         {
-            return new TypstInline { Kind = TypstInlineKind.RawTypst, RawTypst = "#context counter(page).final().at(0)" };
+            rawTypst = "#context counter(page).final().at(0)";
         }
 
-        return null;
+        if (rawTypst is null)
+        {
+            return null;
+        }
+
+        return new TypstInline
+        {
+            Kind = TypstInlineKind.RawTypst,
+            RawTypst = rawTypst,
+            Bold = formatting?.Bold ?? false,
+            Italic = formatting?.Italic ?? false,
+            Underline = formatting?.Underline ?? false,
+            Color = formatting?.Color,
+            FontSizePt = formatting?.FontSizePt,
+            FontFamily = formatting?.FontFamily
+        };
     }
 
     private TypstTableBlock ConvertTable(Wp.Table table)
@@ -1013,10 +1049,16 @@ public sealed class DocxToTypstConverter : IDisposable
         }
         else if (paragraph.Alignment is not null && !(hasImages && paragraph.Alignment == "justify"))
         {
-            content = $"#align({paragraph.Alignment})[{content}]";
+            if (paragraph.LeadingPt is > 0 && !hasImages)
+            {
+                content = $"#align({paragraph.Alignment})[#par(leading: {FormatPt(paragraph.LeadingPt.Value)})[{content}]]";
+            }
+            else
+            {
+                content = $"#align({paragraph.Alignment})[{content}]";
+            }
         }
-
-        if (paragraph.Alignment != "justify" && paragraph.LeadingPt is > 0 && !hasImages)
+        else if (paragraph.LeadingPt is > 0 && !hasImages)
         {
             content = $"#par(leading: {FormatPt(paragraph.LeadingPt.Value)})[{content}]";
         }
@@ -1427,7 +1469,39 @@ public sealed class DocxToTypstConverter : IDisposable
 
         if (inline.Kind == TypstInlineKind.RawTypst)
         {
-            return inline.RawTypst;
+            string rawContent = inline.RawTypst;
+            if (inline.Bold)
+            {
+                rawContent = $"#strong[{rawContent}]";
+            }
+
+            if (inline.Italic)
+            {
+                rawContent = $"#emph[{rawContent}]";
+            }
+
+            if (inline.Underline)
+            {
+                rawContent = $"#underline[{rawContent}]";
+            }
+
+            List<string> rawTextOptions = [];
+            if (inline.Color is not null)
+            {
+                rawTextOptions.Add($"fill: rgb(\"#{inline.Color}\")");
+            }
+
+            if (inline.FontSizePt is > 0)
+            {
+                rawTextOptions.Add($"size: {FormatPt(inline.FontSizePt.Value)}");
+            }
+
+            if (!string.IsNullOrWhiteSpace(inline.FontFamily))
+            {
+                rawTextOptions.Add($"font: {TypstFontValue(inline.FontFamily)}");
+            }
+
+            return rawTextOptions.Count == 0 ? rawContent : $"#text({string.Join(", ", rawTextOptions)})[{rawContent}]";
         }
 
         string content = EscapeTypstContent(inline.Text);
@@ -1858,11 +1932,45 @@ public sealed class DocxToTypstConverter : IDisposable
         public string? FontFamily { get; set; }
     }
 
+    private static void MergeFieldFormatting(RunFormatting target, RunFormatting source)
+    {
+        if (source.Bold)
+        {
+            target.Bold = true;
+        }
+
+        if (source.Italic)
+        {
+            target.Italic = true;
+        }
+
+        if (source.Underline)
+        {
+            target.Underline = true;
+        }
+
+        if (source.Color is not null)
+        {
+            target.Color = source.Color;
+        }
+
+        if (source.FontSizePt is not null)
+        {
+            target.FontSizePt = source.FontSizePt;
+        }
+
+        if (!string.IsNullOrWhiteSpace(source.FontFamily))
+        {
+            target.FontFamily = source.FontFamily;
+        }
+    }
+
     private sealed class FieldParseState
     {
         public bool InField { get; set; }
         public bool SuppressResult { get; set; }
         public StringBuilder Instruction { get; } = new();
+        public RunFormatting FieldFormatting { get; set; } = new();
     }
 
     private sealed record TableFirstRowFormatting(string? ShadingColor, bool Bold, string? TextColor);

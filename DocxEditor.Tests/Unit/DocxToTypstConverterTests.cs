@@ -902,6 +902,55 @@ public sealed class DocxToTypstConverterTests : IDisposable
     }
 
     [Fact]
+    public void Footer_WithRightAlignedParagraphAndLeading_RendersAlignOutsidePar()
+    {
+        string path = CreateDocx("footer-right-align-leading.docx", body => body.Append(CreateParagraph("Body")), mainPart =>
+        {
+            FooterPart footerPart = mainPart.AddNewPart<FooterPart>();
+            W.Paragraph footerParagraph = new(
+                new ParagraphProperties(
+                    new Justification { Val = JustificationValues.Right },
+                    new SpacingBetweenLines { Line = "240", LineRule = LineSpacingRuleValues.Auto }),
+                new W.Run(new Text("Right aligned footer")));
+            footerPart.Footer = new Footer(footerParagraph);
+            footerPart.Footer.Save();
+
+            mainPart.Document!.Body!.Append(new SectionProperties(
+                new FooterReference { Type = HeaderFooterValues.Default, Id = mainPart.GetIdOfPart(footerPart) }));
+        });
+
+        string typst = ConvertToTypst(path);
+
+        string footerValue = ExtractPageOptionValue(typst, "footer");
+        Assert.Contains("#align(right)[#par(leading: 1pt)[Right aligned footer]]", footerValue);
+    }
+
+    [Fact]
+    public void Footer_WithStyledPageFields_RendersCountersWithInheritedFormatting()
+    {
+        string path = CreateDocx("footer-styled-page-fields.docx", body => body.Append(CreateParagraph("Body")), mainPart =>
+        {
+            FooterPart footerPart = mainPart.AddNewPart<FooterPart>();
+            W.Paragraph paragraph = new(new W.Run(new Text("Page ")));
+            paragraph.Append(CreateStyledComplexFieldRun("PAGE", "1", "006EB6", "18"));
+            paragraph.Append(new W.Run(new Text(" of ")));
+            paragraph.Append(CreateStyledComplexFieldRun("NUMPAGES", "5", "006EB6", "18"));
+            footerPart.Footer = new Footer(paragraph);
+            footerPart.Footer.Save();
+
+            mainPart.Document!.Body!.Append(new SectionProperties(
+                new FooterReference { Type = HeaderFooterValues.Default, Id = mainPart.GetIdOfPart(footerPart) }));
+        });
+
+        string typst = ConvertToTypst(path);
+
+        string footerValue = ExtractPageOptionValue(typst, "footer");
+        Assert.Contains(
+            "Page #text(fill: rgb(\"#006EB6\"), size: 9pt)[#context counter(page).display()] of #text(fill: rgb(\"#006EB6\"), size: 9pt)[#context counter(page).final().at(0)]",
+            footerValue);
+    }
+
+    [Fact]
     public void Footer_WithBorderedInlineImage_RendersLineAboveImageInsideFooterContent()
     {
         string path = CreateDocx("footer-bordered-inline-image.docx", body => body.Append(CreateParagraph("Body")), mainPart =>
@@ -1088,6 +1137,15 @@ public sealed class DocxToTypstConverterTests : IDisposable
         new W.Run(new FieldChar { FieldCharType = FieldCharValues.Separate }),
         new W.Run(new Text(cachedValue)),
         new W.Run(new FieldChar { FieldCharType = FieldCharValues.End })
+    ];
+
+    private static W.Run[] CreateStyledComplexFieldRun(string instruction, string cachedValue, string color, string fontSize) =>
+    [
+        new W.Run(new RunProperties(new Color { Val = color }, new FontSize { Val = fontSize }), new FieldChar { FieldCharType = FieldCharValues.Begin }),
+        new W.Run(new RunProperties(new Color { Val = color }, new FontSize { Val = fontSize }), new FieldCode(instruction) { Space = SpaceProcessingModeValues.Preserve }),
+        new W.Run(new RunProperties(new Color { Val = color }, new FontSize { Val = fontSize }), new FieldChar { FieldCharType = FieldCharValues.Separate }),
+        new W.Run(new RunProperties(new Color { Val = color }, new FontSize { Val = fontSize }), new Text(cachedValue)),
+        new W.Run(new RunProperties(new Color { Val = color }, new FontSize { Val = fontSize }), new FieldChar { FieldCharType = FieldCharValues.End })
     ];
 
     private static int CountOccurrences(string value, string search)
