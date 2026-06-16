@@ -366,9 +366,20 @@ public sealed class DocxToTypstConverter : IDisposable
             }
         }
 
+        double? lineBoxLeading = leading;
         if (InsertLeadingLineBreakSpacing(inlines, paragraphFontSizePt))
         {
             leading = null;
+        }
+
+        int trailingLineBreaks = CountTrailingLineBreaks(inlines);
+        if (trailingLineBreaks > 0)
+        {
+            // A manual Word line break at the end of a paragraph still creates an
+            // empty line box before the paragraph mark. Typst keeps the trailing
+            // #linebreak() token in source, but it does not add visible height at
+            // paragraph end, so carry that line-box advance as paragraph after-space.
+            after = (after ?? 0) + (trailingLineBreaks * EstimateLineBoxHeight(paragraphFontSizePt, lineBoxLeading));
         }
 
         return new TypstParagraphBlock
@@ -415,12 +426,23 @@ public sealed class DocxToTypstConverter : IDisposable
         return true;
     }
 
+    private static int CountTrailingLineBreaks(IReadOnlyList<TypstInline> inlines)
+    {
+        int count = 0;
+        for (int i = inlines.Count - 1; i >= 0 && inlines[i].Kind == TypstInlineKind.LineBreak; i--)
+        {
+            count++;
+        }
+
+        return count;
+    }
+
     private static List<TypstInline> CreateEmptyParagraphSpacer(double fontSizePt, double? leadingPt)
     {
         // Empty Word paragraphs still occupy a line box. An empty Typst #par[] has no
         // measurable height, so emit an invisible box with the paragraph's approximate
         // line height to preserve intentional styled spacers.
-        double heightPt = (fontSizePt * 2.0) + (leadingPt ?? fontSizePt * 0.65);
+        double heightPt = fontSizePt + EstimateLineBoxHeight(fontSizePt, leadingPt);
         return
         [
             new TypstInline
@@ -430,6 +452,8 @@ public sealed class DocxToTypstConverter : IDisposable
             }
         ];
     }
+
+    private static double EstimateLineBoxHeight(double fontSizePt, double? leadingPt) => fontSizePt + (leadingPt ?? fontSizePt * 0.65);
 
     private TypstInline CreateTextInline(string text, OpenXmlElement? direct, IEnumerable<OpenXmlElement?> runStyle, IEnumerable<OpenXmlElement?> paragraphStyle)
     {
@@ -1928,10 +1952,19 @@ public sealed class DocxToTypstConverter : IDisposable
         // OpenXML stores `w:line` as 240ths of a line when `w:lineRule="auto"`
         // (for example, 276 means 1.15 lines), not as twips. Typst's absolute
         // `leading` is the gap between line boxes; using only the Word extra
-        // (`fontSize * (multiple - 1)`) makes Office paragraphs visually too tight
-        // with fallback fonts, so keep at least Typst's normal 0.65em line gap.
+        // (`fontSize * (multiple - 1)`) makes 1.15x Office paragraphs visually
+        // too tight with fallback fonts, so keep at least Typst's normal 0.65em
+        // line gap for those common readable-spacing paragraphs. Do not apply
+        // that broad floor to single/near-single spacings: dense templates use
+        // values such as 240-259 to keep pagination compact.
         double lineMultiple = lineValue / 240.0;
         double wordExtraLeading = Math.Max(0, fontSizePt * (lineMultiple - 1.0));
+        if (lineValue < 276.0)
+        {
+            double compactLeading = (lineValue / 20.0) - fontSizePt;
+            return compactLeading > 0 ? Math.Min(compactLeading, 6.0) : null;
+        }
+
         double typstNormalLeading = fontSizePt * 0.65;
         return Math.Max(wordExtraLeading, typstNormalLeading);
     }
