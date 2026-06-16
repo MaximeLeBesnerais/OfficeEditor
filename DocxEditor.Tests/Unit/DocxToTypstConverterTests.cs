@@ -241,6 +241,45 @@ public sealed class DocxToTypstConverterTests : IDisposable
         Assert.Contains("#block(", between);
         Assert.Contains("above: 12pt", between);
         Assert.Contains("below: 6pt", between);
+        Assert.Contains("#box(height:", between);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_WithLeadingManualLineBreaks_AddsWordLineBoxSpacing()
+    {
+        W.Paragraph paragraph = new(
+            new ParagraphProperties(new ParagraphStyleId { Val = "TitleStyle" }),
+            new W.Run(new W.Break()),
+            new W.Run(new W.Break()),
+            new W.Run(new Text("Lower title")));
+        string path = CreateDocx("leading-linebreaks.docx", body => body.Append(paragraph), mainPart =>
+        {
+            AddStyles(mainPart, new Style(
+                new StyleParagraphProperties(new SpacingBetweenLines { Before = "240" }),
+                new StyleRunProperties(new FontSize { Val = "32" }))
+            {
+                Type = StyleValues.Paragraph,
+                StyleId = "TitleStyle"
+            });
+        });
+
+        string typst = ConvertToTypst(path);
+
+        Assert.Contains("#block(above: 12pt)[#v(24pt)#linebreak()#linebreak()", typst);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_WithAutoLineSpacing_UsesReadableTypstLeading()
+    {
+        W.Paragraph paragraph = new(
+            new ParagraphProperties(new SpacingBetweenLines { Line = "276", LineRule = LineSpacingRuleValues.Auto }),
+            new W.Run(new Text("Line one Line two Line three")));
+        string path = CreateDocx("auto-line-spacing.docx", body => body.Append(paragraph));
+
+        string typst = ConvertToTypst(path);
+
+        Assert.Contains("#par(leading: 7.15pt)", typst);
+        Assert.DoesNotContain("leading: 2.8pt", typst);
     }
 
     [Fact]
@@ -951,7 +990,7 @@ public sealed class DocxToTypstConverterTests : IDisposable
         string typst = ConvertToTypst(path);
 
         string footerValue = ExtractPageOptionValue(typst, "footer");
-        Assert.Contains("#align(right)[#par(leading: 1pt)[Right aligned footer]]", footerValue);
+        Assert.Contains("#align(right)[#par(leading: 7.15pt)[Right aligned footer]]", footerValue);
     }
 
     [Fact]

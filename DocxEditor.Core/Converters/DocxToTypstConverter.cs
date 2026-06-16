@@ -205,7 +205,7 @@ public sealed class DocxToTypstConverter : IDisposable
         }
         else if (ShouldPreserveEmptyParagraph(paragraph, block))
         {
-            blocks.Add(block);
+            blocks.Add(block with { Inlines = CreateEmptyParagraphSpacer(ResolveParagraphFontSizePt(paragraph, inlines), block.LeadingPt) });
         }
 
         if (HasPageBreak(paragraph))
@@ -326,6 +326,7 @@ public sealed class DocxToTypstConverter : IDisposable
         double? before = null;
         double? after = null;
         double? leading = null;
+        double paragraphFontSizePt = ResolveParagraphFontSizePt(paragraph, inlines);
         foreach (OpenXmlElement? property in properties)
         {
             Justification? justification = GetChild<Justification>(property);
@@ -361,8 +362,13 @@ public sealed class DocxToTypstConverter : IDisposable
                     after = afterPt;
                 }
 
-                leading = ResolveAutoLineSpacingLeading(spacing, inlines) ?? leading;
+                leading = ResolveAutoLineSpacingLeading(spacing, paragraphFontSizePt) ?? leading;
             }
+        }
+
+        if (InsertLeadingLineBreakSpacing(inlines, paragraphFontSizePt))
+        {
+            leading = null;
         }
 
         return new TypstParagraphBlock
@@ -374,6 +380,55 @@ public sealed class DocxToTypstConverter : IDisposable
             LeadingPt = leading,
             BottomBorder = ExtractParagraphBottomBorder(paragraph)
         };
+    }
+
+    private double ResolveParagraphFontSizePt(Wp.Paragraph paragraph, IReadOnlyList<TypstInline> inlines)
+    {
+        double? inlineSize = inlines.Select(i => i.FontSizePt).FirstOrDefault(s => s is > 0);
+        if (inlineSize is not null)
+        {
+            return inlineSize.Value;
+        }
+
+        RunFormatting paragraphFormatting = ComputeRunFormatting(null, [], GetParagraphStyleRunProperties(paragraph));
+        return paragraphFormatting.FontSizePt ?? ExtractDefaultFontSize();
+    }
+
+    private static bool InsertLeadingLineBreakSpacing(List<TypstInline> inlines, double fontSizePt)
+    {
+        int leadingBreaks = inlines.TakeWhile(i => i.Kind == TypstInlineKind.LineBreak).Count();
+        if (leadingBreaks == 0 || leadingBreaks == inlines.Count)
+        {
+            return false;
+        }
+
+        // Typst preserves leading #linebreak() calls, but they advance less than Word's
+        // empty line boxes at the start of a paragraph. Add the missing line-box advance
+        // before the paragraph content without removing the explicit breaks, so cover/title
+        // paragraphs keep their shape.
+        double extraSpace = leadingBreaks * fontSizePt * 0.75;
+        inlines.Insert(0, new TypstInline
+        {
+            Kind = TypstInlineKind.RawTypst,
+            RawTypst = $"#v({FormatPt(extraSpace)})"
+        });
+        return true;
+    }
+
+    private static List<TypstInline> CreateEmptyParagraphSpacer(double fontSizePt, double? leadingPt)
+    {
+        // Empty Word paragraphs still occupy a line box. An empty Typst #par[] has no
+        // measurable height, so emit an invisible box with the paragraph's approximate
+        // line height to preserve intentional styled spacers.
+        double heightPt = (fontSizePt * 2.0) + (leadingPt ?? fontSizePt * 0.65);
+        return
+        [
+            new TypstInline
+            {
+                Kind = TypstInlineKind.RawTypst,
+                RawTypst = $"#box(height: {FormatPt(heightPt)})"
+            }
+        ];
     }
 
     private TypstInline CreateTextInline(string text, OpenXmlElement? direct, IEnumerable<OpenXmlElement?> runStyle, IEnumerable<OpenXmlElement?> paragraphStyle)
@@ -1852,7 +1907,7 @@ public sealed class DocxToTypstConverter : IDisposable
 
     private static double? TwipsToPoints(string? value) => double.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out double twips) ? twips / 20.0 : null;
 
-    private double? ResolveAutoLineSpacingLeading(SpacingBetweenLines? spacing, IReadOnlyList<TypstInline> inlines)
+    private static double? ResolveAutoLineSpacingLeading(SpacingBetweenLines? spacing, double fontSizePt)
     {
         if (spacing?.Line?.Value is null)
         {
@@ -1865,15 +1920,20 @@ public sealed class DocxToTypstConverter : IDisposable
             return null;
         }
 
-        double? lineHeightPt = TwipsToPoints(spacing.Line.Value);
-        if (lineHeightPt is null)
+        if (!double.TryParse(spacing.Line.Value, NumberStyles.Number, CultureInfo.InvariantCulture, out double lineValue) || lineValue <= 0)
         {
             return null;
         }
 
-        double fontSizePt = inlines.Select(i => i.FontSizePt).FirstOrDefault(s => s is > 0) ?? ExtractDefaultFontSize();
-        double leadingPt = lineHeightPt.Value - fontSizePt;
-        return leadingPt > 0 ? Math.Min(leadingPt, 6.0) : null;
+        // OpenXML stores `w:line` as 240ths of a line when `w:lineRule="auto"`
+        // (for example, 276 means 1.15 lines), not as twips. Typst's absolute
+        // `leading` is the gap between line boxes; using only the Word extra
+        // (`fontSize * (multiple - 1)`) makes Office paragraphs visually too tight
+        // with fallback fonts, so keep at least Typst's normal 0.65em line gap.
+        double lineMultiple = lineValue / 240.0;
+        double wordExtraLeading = Math.Max(0, fontSizePt * (lineMultiple - 1.0));
+        double typstNormalLeading = fontSizePt * 0.65;
+        return Math.Max(wordExtraLeading, typstNormalLeading);
     }
 
     private string? ResolveColor(Color? color) => NormalizeColor(color?.Val?.Value) ?? ResolveThemeColor(color?.ThemeColor?.Value.ToString()) ?? ResolveThemeColor(GetXmlAttribute(color, "themeColor"));
