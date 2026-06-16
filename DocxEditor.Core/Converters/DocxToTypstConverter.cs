@@ -192,21 +192,43 @@ public sealed class DocxToTypstConverter : IDisposable
         blocks.AddRange(ExtractShapes(paragraph, pageSetup));
         List<TypstInline> inlines = ConvertParagraphInlines(paragraph);
         List<TypstImageBlock> images = ExtractImages(paragraph, owningPart);
+        TypstParagraphBlock block = CreateParagraphBlock(paragraph, inlines);
 
         if (inlines.Count > 0)
         {
-            blocks.Add(CreateParagraphBlock(paragraph, inlines));
+            blocks.Add(block);
             blocks.AddRange(images);
         }
         else if (images.Count > 0)
         {
-            blocks.Add(CreateParagraphBlock(paragraph, inlines) with { ImageBlocks = images });
+            blocks.Add(block with { ImageBlocks = images });
+        }
+        else if (ShouldPreserveEmptyParagraph(paragraph, block))
+        {
+            blocks.Add(block);
         }
 
         if (HasPageBreak(paragraph))
         {
             blocks.Add(new TypstPageBreakBlock());
         }
+    }
+
+    private static bool ShouldPreserveEmptyParagraph(Wp.Paragraph paragraph, TypstParagraphBlock block)
+    {
+        ParagraphProperties? properties = paragraph.ParagraphProperties;
+        if (properties is null)
+        {
+            return false;
+        }
+
+        string? styleId = properties.ParagraphStyleId?.Val?.Value;
+        if (!string.IsNullOrEmpty(styleId) && !styleId.Equals("Normal", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return block.SpaceBeforePt is > 0 || block.SpaceAfterPt is > 0;
     }
 
     private List<TypstInline> ConvertParagraphInlines(Wp.Paragraph paragraph)

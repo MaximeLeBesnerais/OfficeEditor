@@ -215,6 +215,35 @@ public sealed class DocxToTypstConverterTests : IDisposable
     }
 
     [Fact]
+    public void GenerateTypstSource_WithEmptyStyledParagraph_PreservesSpacingBetweenHeadings()
+    {
+        string path = CreateDocx("empty-styled-paragraph.docx", body =>
+        {
+            body.Append(new W.Paragraph(
+                new ParagraphProperties(new ParagraphStyleId { Val = "Heading1" }),
+                new W.Run(new Text("Primary Title"))));
+            body.Append(new W.Paragraph(
+                new ParagraphProperties(
+                    new ParagraphStyleId { Val = "Heading2" },
+                    new SpacingBetweenLines { Before = "240", After = "120" })));
+            body.Append(new W.Paragraph(
+                new ParagraphProperties(new ParagraphStyleId { Val = "Heading2" }),
+                new W.Run(new Text("Secondary Title"))));
+        });
+
+        string typst = ConvertToTypst(path);
+
+        int primaryIndex = typst.IndexOf("Primary Title", StringComparison.Ordinal);
+        int secondaryIndex = typst.IndexOf("Secondary Title", StringComparison.Ordinal);
+        Assert.True(primaryIndex >= 0);
+        Assert.True(secondaryIndex > primaryIndex);
+        string between = typst[primaryIndex..secondaryIndex];
+        Assert.Contains("#block(", between);
+        Assert.Contains("above: 12pt", between);
+        Assert.Contains("below: 6pt", between);
+    }
+
+    [Fact]
     public void GenerateTypstSource_WithOrderedAndBulletLists_RendersSeparateListItems()
     {
         string path = CreateDocx("lists.docx", body =>
