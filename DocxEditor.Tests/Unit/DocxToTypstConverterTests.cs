@@ -283,6 +283,24 @@ public sealed class DocxToTypstConverterTests : IDisposable
     }
 
     [Fact]
+    public void GenerateTypstSource_WithTrailingManualLineBreak_AddsEmptyLineAfterParagraph()
+    {
+        W.Paragraph paragraph = new(
+            new ParagraphProperties(new SpacingBetweenLines { After = "200", Line = "276", LineRule = LineSpacingRuleValues.Auto }),
+            new W.Run(new Text("Body")),
+            new W.Run(new W.Break()));
+        string path = CreateDocx("trailing-linebreak.docx", body =>
+        {
+            body.Append(paragraph);
+            body.Append(CreateParagraph("Following"));
+        });
+
+        string typst = ConvertToTypst(path);
+
+        Assert.Contains("#block(below: 28.15pt)[#par(leading: 7.15pt)[Body#linebreak()]]", typst);
+    }
+
+    [Fact]
     public void GenerateTypstSource_WithOrderedAndBulletLists_RendersSeparateListItems()
     {
         string path = CreateDocx("lists.docx", body =>
@@ -990,7 +1008,7 @@ public sealed class DocxToTypstConverterTests : IDisposable
         string typst = ConvertToTypst(path);
 
         string footerValue = ExtractPageOptionValue(typst, "footer");
-        Assert.Contains("#align(right)[#par(leading: 7.15pt)[Right aligned footer]]", footerValue);
+        Assert.Contains("#align(right)[#par(leading: 1pt)[Right aligned footer]]", footerValue);
     }
 
     [Fact]
