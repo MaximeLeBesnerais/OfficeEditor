@@ -1148,6 +1148,53 @@ public sealed class DocxToTypstConverterTests : IDisposable
     }
 
     [Fact]
+    public void GenerateTypstSource_WithStyleInheritedTopBorder_RendersTopBorderInFooter()
+    {
+        string path = CreateDocx("style-top-border.docx", body => body.Append(CreateParagraph("Body text")), mainPart =>
+        {
+            AddStyles(mainPart, new Style(
+                new StyleParagraphProperties(new ParagraphBorders(new TopBorder { Val = BorderValues.Single, Size = 4, Color = "AAAAAA" })),
+                new StyleRunProperties(new Bold()))
+            {
+                Type = StyleValues.Paragraph,
+                StyleId = "Voettekst"
+            });
+
+            FooterPart footerPart = mainPart.AddNewPart<FooterPart>();
+            footerPart.Footer = new Footer(new W.Paragraph(
+                new ParagraphProperties(new ParagraphStyleId { Val = "Voettekst" }),
+                new W.Run(new Text("Footer text"))));
+            footerPart.Footer.Save();
+
+            mainPart.Document!.Body!.Append(new SectionProperties(
+                new FooterReference { Type = HeaderFooterValues.Default, Id = mainPart.GetIdOfPart(footerPart) }));
+        });
+
+        string typst = ConvertToTypst(path);
+
+        string footerValue = ExtractPageOptionValue(typst, "footer");
+        Assert.Contains("#line(", footerValue);
+        Assert.Contains("rgb(\"#AAAAAA\")", footerValue);
+        Assert.Contains("#line(length: 100%, stroke: 0.5pt + rgb(\"#AAAAAA\"))", footerValue);
+        Assert.True(footerValue.IndexOf("#line(", StringComparison.Ordinal) < footerValue.IndexOf("Footer text", StringComparison.Ordinal), "Top border line should appear before footer text.");
+    }
+
+    [Fact]
+    public void GenerateTypstSource_WithDirectTopBorder_RendersTopBorderBeforeContent()
+    {
+        W.Paragraph paragraph = new(
+            new ParagraphProperties(new ParagraphBorders(new TopBorder { Val = BorderValues.Single, Size = 6, Color = "00257D" })),
+            new W.Run(new Text("Bordered paragraph")));
+        string path = CreateDocx("direct-top-border.docx", body => body.Append(paragraph));
+
+        string typst = ConvertToTypst(path);
+
+        Assert.Contains("#line(length: 100%, stroke: 0.75pt + rgb(\"#00257D\"))", typst);
+        Assert.Contains("Bordered paragraph", typst);
+        Assert.True(typst.IndexOf("#line(", StringComparison.Ordinal) < typst.IndexOf("Bordered paragraph", StringComparison.Ordinal), "Top border line should appear before paragraph text.");
+    }
+
+    [Fact]
     public void GenerateTypstSource_WithStyleInheritedBottomBorder_RendersBottomBorderInFooter()
     {
         string path = CreateDocx("style-bottom-border.docx", body => body.Append(CreateParagraph("Body text")), mainPart =>
