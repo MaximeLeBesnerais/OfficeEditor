@@ -1012,6 +1012,91 @@ public sealed class DocxToTypstConverterTests : IDisposable
     }
 
     [Fact]
+    public void GenerateTypstSource_WithIntermediateSectionBreak_InheritsEffectiveHeaderFooterSet()
+    {
+        string path = Path.Combine(tempDirectory, "intermediate-section-inherits.docx");
+        using (WordprocessingDocument document = WordprocessingDocument.Create(path, WordprocessingDocumentType.Document))
+        {
+            MainDocumentPart mainPart = document.AddMainDocumentPart();
+            FooterPart firstFooterPart = mainPart.AddNewPart<FooterPart>();
+            firstFooterPart.Footer = new Footer(CreateParagraph("First footer"));
+            firstFooterPart.Footer.Save();
+
+            FooterPart finalFooterPart = mainPart.AddNewPart<FooterPart>();
+            finalFooterPart.Footer = new Footer(CreateParagraph("Final footer"));
+            finalFooterPart.Footer.Save();
+
+            Body body = new();
+            mainPart.Document = new W.Document(body);
+
+            body.Append(new W.Paragraph(
+                new W.ParagraphProperties(
+                    new SectionProperties(
+                        new FooterReference { Type = HeaderFooterValues.Default, Id = mainPart.GetIdOfPart(firstFooterPart) })),
+                new W.Run(new Text("Section 1"))));
+
+            body.Append(new W.Paragraph(
+                new W.ParagraphProperties(new SectionProperties()),
+                new W.Run(new W.Break { Type = BreakValues.Page })));
+
+            body.Append(CreateParagraph("Section 2"));
+
+            body.Append(new SectionProperties(
+                new FooterReference { Type = HeaderFooterValues.Default, Id = mainPart.GetIdOfPart(finalFooterPart) }));
+
+            mainPart.Document.Save();
+        }
+
+        string typst = ConvertToTypst(path);
+
+        int firstSetPage = typst.IndexOf("#set page(", StringComparison.Ordinal);
+        int firstFooterInFirstSet = typst.IndexOf("footer: [First footer]", firstSetPage, StringComparison.Ordinal);
+        Assert.True(firstFooterInFirstSet >= 0);
+
+        int pageBreak = typst.IndexOf("#pagebreak()", firstSetPage, StringComparison.Ordinal);
+        Assert.True(pageBreak > firstFooterInFirstSet);
+
+        int intermediateSetPage = typst.IndexOf("#set page(", pageBreak, StringComparison.Ordinal);
+        Assert.True(intermediateSetPage > pageBreak);
+        int firstFooterInIntermediateSet = typst.IndexOf("footer: [First footer]", intermediateSetPage, StringComparison.Ordinal);
+        Assert.True(firstFooterInIntermediateSet > intermediateSetPage, "Expected intermediate section to inherit the effective footer.");
+
+        int finalFooterIndex = typst.IndexOf("footer: [Final footer]", StringComparison.Ordinal);
+        Assert.True(finalFooterIndex > firstFooterInIntermediateSet);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_WithFooterFrameHorizontalAlignment_PreservesRightAlignment()
+    {
+        string path = Path.Combine(tempDirectory, "footer-frame-align.docx");
+        using (WordprocessingDocument document = WordprocessingDocument.Create(path, WordprocessingDocumentType.Document))
+        {
+            MainDocumentPart mainPart = document.AddMainDocumentPart();
+            FooterPart footerPart = mainPart.AddNewPart<FooterPart>();
+            ParagraphProperties pPr = new();
+            pPr.InnerXml = "<w:framePr xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:xAlign=\"right\"/>";
+            W.Paragraph paragraph = new(pPr);
+            paragraph.Append(new W.Run(new Text("Page ")));
+            paragraph.Append(new SimpleField(new W.Run(new Text("1"))) { Instruction = "PAGE" });
+            footerPart.Footer = new Footer(paragraph);
+            footerPart.Footer.Save();
+
+            Body body = new();
+            mainPart.Document = new W.Document(body);
+            body.Append(CreateParagraph("Body"));
+            body.Append(new SectionProperties(
+                new FooterReference { Type = HeaderFooterValues.Default, Id = mainPart.GetIdOfPart(footerPart) }));
+            mainPart.Document.Save();
+        }
+
+        string typst = ConvertToTypst(path);
+
+        string footerValue = ExtractPageOptionValue(typst, "footer");
+        Assert.Contains("#align(right)", footerValue);
+        Assert.Contains("counter(page).display()", footerValue);
+    }
+
+    [Fact]
     public void Footer_WithStyledPageFields_RendersCountersWithInheritedFormatting()
     {
         string path = CreateDocx("footer-styled-page-fields.docx", body => body.Append(CreateParagraph("Body")), mainPart =>
