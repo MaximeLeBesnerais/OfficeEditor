@@ -51,7 +51,10 @@ public sealed record TypstParagraphBlock : TypstBlock
     public double? SpaceBeforePt { get; init; }
     public double? SpaceAfterPt { get; init; }
     public double? LeadingPt { get; init; }
+    public TypstBorderInfo? TopBorder { get; init; }
+    public TypstBorderInfo? LeftBorder { get; init; }
     public TypstBorderInfo? BottomBorder { get; init; }
+    public TypstBorderInfo? RightBorder { get; init; }
 }
 
 public sealed record TypstPageBreakBlock : TypstBlock;
