@@ -104,6 +104,10 @@ public sealed record TypstImageBlock : TypstBlock
     public double? HeightInches { get; init; }
     public double? XPt { get; init; }
     public double? YPt { get; init; }
+    public string? HorizontalRelativeFrom { get; init; }
+    public string? VerticalRelativeFrom { get; init; }
+    public string? HorizontalAlignment { get; init; }
+    public string? VerticalAlignment { get; init; }
     public bool IsUnsupportedFormat { get; init; }
     public TypstBorderInfo? TopBorder { get; init; }
 }
