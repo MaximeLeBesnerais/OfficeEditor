@@ -313,8 +313,60 @@ public sealed class DocxToTypstConverterTests : IDisposable
 
         string typst = ConvertToTypst(path);
 
-        Assert.Contains("#enum[First][Second]", typst);
+        Assert.Contains("#enum(numbering: \"1.\")[First][Second]", typst);
         Assert.Contains("#list[Bullet]", typst);
+    }
+
+    [Theory]
+    [MemberData(nameof(GetLetterAndRomanNumberingFormats))]
+    public void GenerateTypstSource_WithLetterOrRomanList_RendersTypstNumberingPattern(NumberFormatValues format, string levelText, string expectedPattern)
+    {
+        string path = CreateDocx($"list-{format}-{levelText}.docx", body =>
+        {
+            body.Append(CreateListParagraph("Alpha", 1));
+            body.Append(CreateListParagraph("Beta", 1));
+        }, mainPart => ConfigureNumberingWithFormat(mainPart, format, levelText));
+
+        string typst = ConvertToTypst(path);
+
+        Assert.Contains($"#enum(numbering: \"{expectedPattern}\")[Alpha][Beta]", typst);
+    }
+
+    public static TheoryData<NumberFormatValues, string, string> GetLetterAndRomanNumberingFormats() => new()
+    {
+        { NumberFormatValues.UpperLetter, "%1.", "A." },
+        { NumberFormatValues.LowerLetter, "%1)", "a)" },
+        { NumberFormatValues.UpperRoman, "%1.", "I." },
+        { NumberFormatValues.LowerRoman, "%1.", "i." }
+    };
+
+    [Fact]
+    public void GenerateTypstSource_WithListStartValue_PassesStartToTypstEnum()
+    {
+        string path = CreateDocx("list-start.docx", body =>
+        {
+            body.Append(CreateListParagraph("First", 1));
+            body.Append(CreateListParagraph("Second", 1));
+        }, mainPart => ConfigureNumberingWithFormat(mainPart, NumberFormatValues.Decimal, "%1.", start: 3));
+
+        string typst = ConvertToTypst(path);
+
+        Assert.Contains("#enum(numbering: \"1.\", start: 3)[First][Second]", typst);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_WithBookmarkOnlyParagraphBetweenListItems_RendersSingleList()
+    {
+        string path = CreateDocx("list-bookmark.docx", body =>
+        {
+            body.Append(CreateListParagraph("Before", 1));
+            body.Append(new W.Paragraph(new BookmarkStart { Id = "1", Name = "bm1" }, new BookmarkEnd { Id = "1" }));
+            body.Append(CreateListParagraph("After", 1));
+        }, ConfigureNumbering);
+
+        string typst = ConvertToTypst(path);
+
+        Assert.Contains("#enum(numbering: \"1.\")[Before][After]", typst);
     }
 
     [Fact]
@@ -1300,6 +1352,19 @@ public sealed class DocxToTypstConverterTests : IDisposable
             new AbstractNum(new Level(new NumberingFormat { Val = NumberFormatValues.Bullet }) { LevelIndex = 0 }) { AbstractNumberId = 2 },
             new NumberingInstance(new AbstractNumId { Val = 1 }) { NumberID = 1 },
             new NumberingInstance(new AbstractNumId { Val = 2 }) { NumberID = 2 });
+        numberingPart.Numbering.Save();
+    }
+
+    private static void ConfigureNumberingWithFormat(MainDocumentPart mainPart, NumberFormatValues format, string levelText, int start = 1)
+    {
+        NumberingDefinitionsPart numberingPart = mainPart.AddNewPart<NumberingDefinitionsPart>();
+        numberingPart.Numbering = new Numbering(
+            new AbstractNum(new Level(
+                new StartNumberingValue { Val = start },
+                new NumberingFormat { Val = format },
+                new LevelText { Val = levelText })
+            { LevelIndex = 0 }) { AbstractNumberId = 1 },
+            new NumberingInstance(new AbstractNumId { Val = 1 }) { NumberID = 1 });
         numberingPart.Numbering.Save();
     }
 
