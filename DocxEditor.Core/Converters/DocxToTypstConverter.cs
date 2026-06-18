@@ -21,7 +21,7 @@ public sealed class DocxToTypstConverter : IDisposable
     private readonly string assetsDirectory;
     private readonly Dictionary<string, string> extractedImages = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Style> stylesById = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, bool> orderedNumberingByNumId = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, NumberingInfo> numberingByNumId = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> themeColors = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<string> diagnostics = [];
     private string? majorThemeFont;
@@ -183,22 +183,112 @@ public sealed class DocxToTypstConverter : IDisposable
     {
         Wp.Paragraph firstParagraph = (Wp.Paragraph)elements[startIndex];
         bool ordered = IsOrderedList(firstParagraph);
+        NumberingLevelInfo? levelInfo = GetNumberingLevelInfo(firstParagraph);
+        string? numberingPattern = ordered ? MapNumberingPattern(levelInfo?.Format, levelInfo?.LevelText) : null;
+        int? start = ordered && levelInfo?.Start != 1 ? levelInfo?.Start : null;
+
         List<TypstListItem> items = [];
         lastListIndex = startIndex;
 
         for (int i = startIndex; i < elements.Count; i++)
         {
             OpenXmlElement element = elements[i];
-            if (element is not Wp.Paragraph paragraph || !IsListParagraph(paragraph))
+            if (element is BookmarkStart || element is BookmarkEnd)
             {
-                break;
+                lastListIndex = i;
+                continue;
             }
 
-            items.Add(new TypstListItem { Inlines = ConvertParagraphInlines(paragraph).Where(i => i.Kind != TypstInlineKind.LineBreak).ToList() });
-            lastListIndex = i;
+            if (element is Wp.Paragraph paragraph)
+            {
+                if (IsListParagraph(paragraph))
+                {
+                    items.Add(new TypstListItem { Inlines = ConvertParagraphInlines(paragraph).Where(i => i.Kind != TypstInlineKind.LineBreak).ToList() });
+                    lastListIndex = i;
+                    continue;
+                }
+
+                if (IsBookmarkOnlyParagraph(paragraph))
+                {
+                    lastListIndex = i;
+                    continue;
+                }
+            }
+
+            break;
         }
 
-        return new TypstListBlock { Ordered = ordered, Items = items };
+        return new TypstListBlock { Ordered = ordered, NumberingPattern = numberingPattern, Start = start, Items = items };
+    }
+
+    private NumberingLevelInfo? GetNumberingLevelInfo(Wp.Paragraph paragraph)
+    {
+        NumberingProperties? numPr = paragraph.ParagraphProperties?.NumberingProperties;
+        string? numId = numPr?.NumberingId?.Val?.Value.ToString(CultureInfo.InvariantCulture);
+        int levelIndex = numPr?.NumberingLevelReference?.Val?.Value ?? 0;
+        if (numId is not null && numberingByNumId.TryGetValue(numId, out NumberingInfo? info) && info.Levels.TryGetValue(levelIndex, out NumberingLevelInfo? levelInfo))
+        {
+            return levelInfo;
+        }
+
+        return null;
+    }
+
+    private static string? MapNumberingPattern(string? format, string? levelText)
+    {
+        if (string.IsNullOrEmpty(format) || format.Equals("bullet", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        string symbol;
+        if (format.Equals("upperLetter", StringComparison.OrdinalIgnoreCase))
+        {
+            symbol = "A";
+        }
+        else if (format.Equals("lowerLetter", StringComparison.OrdinalIgnoreCase))
+        {
+            symbol = "a";
+        }
+        else if (format.Equals("upperRoman", StringComparison.OrdinalIgnoreCase))
+        {
+            symbol = "I";
+        }
+        else if (format.Equals("lowerRoman", StringComparison.OrdinalIgnoreCase))
+        {
+            symbol = "i";
+        }
+        else
+        {
+            symbol = "1";
+        }
+
+        if (string.IsNullOrEmpty(levelText))
+        {
+            return symbol + ".";
+        }
+
+        return levelText.Replace("%1", symbol);
+    }
+
+    private static bool IsBookmarkOnlyParagraph(Wp.Paragraph paragraph)
+    {
+        if (IsListParagraph(paragraph))
+        {
+            return false;
+        }
+
+        foreach (OpenXmlElement child in paragraph.ChildElements)
+        {
+            if (child is ParagraphProperties || child is BookmarkStart || child is BookmarkEnd)
+            {
+                continue;
+            }
+
+            return false;
+        }
+
+        return true;
     }
 
     private void AddParagraphBlocks(List<TypstBlock> blocks, Wp.Paragraph paragraph, OpenXmlPart? owningPart, TypstPageSetup pageSetup)
@@ -1274,8 +1364,24 @@ public sealed class DocxToTypstConverter : IDisposable
 
     private string RenderList(TypstListBlock list)
     {
-        string function = list.Ordered ? "enum" : "list";
-        return $"#{function}" + string.Concat(list.Items.Select(item => $"[{RenderInlines(item.Inlines)}]"));
+        if (!list.Ordered)
+        {
+            return "#list" + string.Concat(list.Items.Select(item => $"[{RenderInlines(item.Inlines)}]"));
+        }
+
+        List<string> options = [];
+        if (!string.IsNullOrEmpty(list.NumberingPattern))
+        {
+            options.Add($"numbering: {TypstString(list.NumberingPattern)}");
+        }
+
+        if (list.Start is not null)
+        {
+            options.Add($"start: {list.Start}");
+        }
+
+        string arguments = options.Count > 0 ? $"({string.Join(", ", options)})" : string.Empty;
+        return $"#enum{arguments}" + string.Concat(list.Items.Select(item => $"[{RenderInlines(item.Inlines)}]"));
     }
 
     private string RenderTable(TypstTableBlock table)
@@ -1799,24 +1905,39 @@ public sealed class DocxToTypstConverter : IDisposable
             return;
         }
 
-        Dictionary<string, bool> abstractOrdered = [];
+        Dictionary<string, Dictionary<int, NumberingLevelInfo>> abstractLevels = [];
         foreach (AbstractNum abstractNum in numbering.Elements<AbstractNum>())
         {
             string? abstractId = abstractNum.AbstractNumberId?.Value.ToString(CultureInfo.InvariantCulture);
-            NumberFormatValues? format = abstractNum.Descendants<NumberingFormat>().FirstOrDefault()?.Val?.Value;
-            if (abstractId is not null)
+            if (abstractId is null)
             {
-                abstractOrdered[abstractId] = format != NumberFormatValues.Bullet;
+                continue;
             }
+
+            Dictionary<int, NumberingLevelInfo> levels = [];
+            foreach (Level level in abstractNum.Elements<Level>())
+            {
+                int levelIndex = level.LevelIndex?.Value ?? 0;
+                string? format = level.GetFirstChild<NumberingFormat>()?.Val?.InnerText;
+                string? levelText = level.GetFirstChild<LevelText>()?.Val?.Value;
+                int start = level.GetFirstChild<StartNumberingValue>()?.Val?.Value ?? 1;
+                if (!string.IsNullOrEmpty(format))
+                {
+                    levels[levelIndex] = new NumberingLevelInfo(format, levelText, start);
+                }
+            }
+
+            abstractLevels[abstractId] = levels;
         }
 
         foreach (NumberingInstance instance in numbering.Elements<NumberingInstance>())
         {
             string? numId = instance.NumberID?.Value.ToString(CultureInfo.InvariantCulture);
             string? abstractId = instance.AbstractNumId?.Val?.Value.ToString(CultureInfo.InvariantCulture);
-            if (numId is not null && abstractId is not null && abstractOrdered.TryGetValue(abstractId, out bool ordered))
+            if (numId is not null && abstractId is not null && abstractLevels.TryGetValue(abstractId, out Dictionary<int, NumberingLevelInfo>? levels))
             {
-                orderedNumberingByNumId[numId] = ordered;
+                bool ordered = levels.TryGetValue(0, out NumberingLevelInfo? level0) && !level0.Format.Equals("bullet", StringComparison.OrdinalIgnoreCase);
+                numberingByNumId[numId] = new NumberingInfo(ordered, levels);
             }
         }
     }
@@ -1994,12 +2115,12 @@ public sealed class DocxToTypstConverter : IDisposable
         return HalfPointsToPoints(size) ?? 11;
     }
 
-    private bool IsListParagraph(Wp.Paragraph paragraph) => paragraph.ParagraphProperties?.NumberingProperties?.NumberingId?.Val is not null;
+    private static bool IsListParagraph(Wp.Paragraph paragraph) => paragraph.ParagraphProperties?.NumberingProperties?.NumberingId?.Val is not null;
 
     private bool IsOrderedList(Wp.Paragraph paragraph)
     {
         string? numId = paragraph.ParagraphProperties?.NumberingProperties?.NumberingId?.Val?.Value.ToString(CultureInfo.InvariantCulture);
-        return numId is null || !orderedNumberingByNumId.TryGetValue(numId, out bool ordered) || ordered;
+        return numId is null || !numberingByNumId.TryGetValue(numId, out NumberingInfo? info) || info.Ordered;
     }
 
     private static bool HasPageBreak(Wp.Paragraph paragraph) => paragraph.Descendants<Break>().Any(b => b.Type?.Value == BreakValues.Page);
@@ -2183,6 +2304,10 @@ public sealed class DocxToTypstConverter : IDisposable
     }
 
     private sealed record TableFirstRowFormatting(string? ShadingColor, bool Bold, string? TextColor);
+
+    private sealed record NumberingInfo(bool Ordered, Dictionary<int, NumberingLevelInfo> Levels);
+
+    private sealed record NumberingLevelInfo(string Format, string? LevelText, int Start);
 
     private sealed record ShapeGeometry(double? XPt, double? YPt, double? WidthPt, double? HeightPt, string? FillColor, string? StrokeColor)
     {
