@@ -970,15 +970,19 @@ public sealed class DocxToTypstConverter : IDisposable
 
             DW.Anchor? anchor = blip.Ancestors<DW.Anchor>().FirstOrDefault();
             DW.Extent? extent = blip.Ancestors<DW.Inline>().FirstOrDefault()?.Extent ?? anchor?.Extent;
-            (double? xPt, double? yPt) = ExtractAnchorOffset(anchor);
+            AnchorPosition position = ExtractAnchorPosition(anchor);
             Wp.Paragraph? parentParagraph = blip.Ancestors<Wp.Paragraph>().FirstOrDefault();
             images.Add(new TypstImageBlock
             {
                 Path = extracted.TypstPath,
                 WidthInches = extent?.Cx is null ? null : extent.Cx.Value / EmusPerInch,
                 HeightInches = extent?.Cy is null ? null : extent.Cy.Value / EmusPerInch,
-                XPt = xPt,
-                YPt = yPt,
+                XPt = position.XPt,
+                YPt = position.YPt,
+                HorizontalRelativeFrom = position.HorizontalRelativeFrom,
+                VerticalRelativeFrom = position.VerticalRelativeFrom,
+                HorizontalAlignment = position.HorizontalAlignment,
+                VerticalAlignment = position.VerticalAlignment,
                 IsUnsupportedFormat = extracted.IsUnsupportedFormat,
                 TopBorder = ExtractParagraphTopBorder(parentParagraph)
             });
@@ -1066,18 +1070,60 @@ public sealed class DocxToTypstConverter : IDisposable
         return null;
     }
 
-    private static (double? XPt, double? YPt) ExtractAnchorOffset(DW.Anchor? anchor)
+    private static AnchorPosition ExtractAnchorPosition(DW.Anchor? anchor)
     {
         if (anchor is null)
         {
-            return (null, null);
+            return new AnchorPosition(null, null, null, null, null, null);
         }
 
-        List<double> offsets = Regex.Matches(anchor.OuterXml, "<wp:posOffset>(-?\\d+)</wp:posOffset>")
-            .Select(match => double.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture) / 12700.0)
-            .ToList();
-        return offsets.Count >= 2 ? (offsets[0], offsets[1]) : (null, null);
+        DW.HorizontalPosition? horizontal = anchor.HorizontalPosition;
+        DW.VerticalPosition? vertical = anchor.VerticalPosition;
+
+        string? horizontalRelativeFrom = GetXmlAttribute(horizontal, "relativeFrom");
+        string? verticalRelativeFrom = GetXmlAttribute(vertical, "relativeFrom");
+
+        double? xPt = EmuToPoints(horizontal?.PositionOffset?.Text);
+        double? yPt = EmuToPoints(vertical?.PositionOffset?.Text);
+
+        string? horizontalAlignment = MapHorizontalAlignment(horizontal?.HorizontalAlignment?.Text);
+        string? verticalAlignment = MapVerticalAlignment(vertical?.VerticalAlignment?.Text);
+
+        return new AnchorPosition(xPt, yPt, horizontalRelativeFrom, verticalRelativeFrom, horizontalAlignment, verticalAlignment);
     }
+
+    private static double? EmuToPoints(string? emus) =>
+        double.TryParse(emus, NumberStyles.Integer, CultureInfo.InvariantCulture, out double value) ? value / 12700.0 : null;
+
+    private static string? MapHorizontalAlignment(string? value) => value?.ToLowerInvariant() switch
+    {
+        "left" => "left",
+        "center" => "center",
+        "right" => "right",
+        "inside" => "left",
+        "outside" => "right",
+        _ => null
+    };
+
+    private static string? MapVerticalAlignment(string? value) => value?.ToLowerInvariant() switch
+    {
+        "top" => "top",
+        "center" => "horizon",
+        "bottom" => "bottom",
+        _ => null
+    };
+
+    private static string? MapHorizontalRelativeFrom(string? relativeFrom) => relativeFrom?.ToLowerInvariant() switch
+    {
+        "rightmargin" => "right",
+        _ => "left"
+    };
+
+    private static string? MapVerticalRelativeFrom(string? relativeFrom) => relativeFrom?.ToLowerInvariant() switch
+    {
+        "bottommargin" => "bottom",
+        _ => "top"
+    };
 
     private List<TypstShapeBlock> ExtractShapes(OpenXmlElement scope, TypstPageSetup pageSetup)
     {
@@ -1474,17 +1520,36 @@ public sealed class DocxToTypstConverter : IDisposable
             ? RenderUnsupportedImagePlaceholder(image)
             : RenderSupportedImage(image);
 
-        if (image.XPt is not null || image.YPt is not null)
-        {
-            return $"#place(dx: {FormatPt(image.XPt ?? 0)}, dy: {FormatPt(image.YPt ?? 0)})[{rendered}]";
-        }
-
         if (image.TopBorder is not null)
         {
             rendered = $"#line(length: 100%, stroke: {FormatPt(image.TopBorder.SizeEighthPoints / 8.0)} + rgb(\"#{image.TopBorder.Color}\")){rendered}";
         }
 
+        if (image.XPt is not null || image.YPt is not null || image.HorizontalAlignment is not null || image.VerticalAlignment is not null)
+        {
+            string alignment = BuildPlacementAlignment(image);
+            List<string> options = [alignment];
+            if (image.XPt is not null)
+            {
+                options.Add($"dx: {FormatPt(image.XPt.Value)}");
+            }
+
+            if (image.YPt is not null)
+            {
+                options.Add($"dy: {FormatPt(image.YPt.Value)}");
+            }
+
+            return $"#place({string.Join(", ", options)})[{rendered}]";
+        }
+
         return rendered;
+    }
+
+    private static string BuildPlacementAlignment(TypstImageBlock image)
+    {
+        string horizontal = image.HorizontalAlignment ?? MapHorizontalRelativeFrom(image.HorizontalRelativeFrom) ?? "left";
+        string vertical = image.VerticalAlignment ?? MapVerticalRelativeFrom(image.VerticalRelativeFrom) ?? "top";
+        return $"{vertical} + {horizontal}";
     }
 
     private string RenderSupportedImage(TypstImageBlock image)
@@ -1698,11 +1763,13 @@ public sealed class DocxToTypstConverter : IDisposable
     }
 
     // Splits header/footer blocks into (content, decorative). Decorative blocks are
-    // anchored images that should be placed at the page bottom (e.g. a chevron in a
-    // small footer area). Inline images remain in the content flow so they keep their
-    // original vertical order relative to surrounding paragraphs. A single-block
-    // header/footer is never split, so a header that contains only an image still
-    // renders the image inside `header: [...]`.
+    // anchored images whose vertical reference is the page or a page margin (e.g. a
+    // bottom chevron anchored to the page bottom). Paragraph-relative anchored images
+    // stay in the content flow so their vertical placement is preserved relative to
+    // the surrounding footer/header paragraphs. Inline images remain in the content
+    // flow so they keep their original vertical order. A single-block header/footer
+    // is never split, so a header that contains only an image still renders the image
+    // inside `header: [...]`.
     private static (List<TypstBlock> Content, List<TypstImageBlock> Decorative) SplitDecorativeBlocks(List<TypstBlock> blocks)
     {
         if (blocks.Count <= 1)
@@ -1719,7 +1786,7 @@ public sealed class DocxToTypstConverter : IDisposable
                 List<TypstImageBlock> inlineImages = [];
                 foreach (TypstImageBlock image in paragraph.ImageBlocks)
                 {
-                    if (image.XPt is not null || image.YPt is not null)
+                    if (IsPageRelativeDecoration(image))
                     {
                         decorative.Add(image);
                     }
@@ -1734,7 +1801,7 @@ public sealed class DocxToTypstConverter : IDisposable
                     content.Add(paragraph with { ImageBlocks = inlineImages });
                 }
             }
-            else if (block is TypstImageBlock image && (image.XPt is not null || image.YPt is not null))
+            else if (block is TypstImageBlock image && IsPageRelativeDecoration(image))
             {
                 decorative.Add(image);
             }
@@ -1747,6 +1814,12 @@ public sealed class DocxToTypstConverter : IDisposable
         return (content, decorative);
     }
 
+    private static bool IsPageRelativeDecoration(TypstImageBlock image) =>
+        image.VerticalRelativeFrom is not null
+            && !image.VerticalRelativeFrom.Equals("Paragraph", StringComparison.OrdinalIgnoreCase)
+            && !image.VerticalRelativeFrom.Equals("Line", StringComparison.OrdinalIgnoreCase)
+            && (image.XPt is not null || image.YPt is not null || image.HorizontalAlignment is not null || image.VerticalAlignment is not null);
+
     private string? RenderAnchoredImages(List<TypstImageBlock> images)
     {
         if (images.Count == 0)
@@ -1754,13 +1827,7 @@ public sealed class DocxToTypstConverter : IDisposable
             return null;
         }
 
-        return string.Concat(images.Select(image =>
-        {
-            string line = image.TopBorder is not null
-                ? $"#line(length: 100%, stroke: {FormatPt(image.TopBorder.SizeEighthPoints / 8.0)} + rgb(\"#{image.TopBorder.Color}\")) "
-                : string.Empty;
-            return $"#place(bottom + center, [{line}{RenderImage(image)}])";
-        }));
+        return string.Concat(images.Select(RenderImage));
     }
 
     private string RenderShape(TypstShapeBlock shape)
@@ -2371,6 +2438,14 @@ public sealed class DocxToTypstConverter : IDisposable
     }
 
     private sealed record ExtractedImage(string TypstPath, bool IsUnsupportedFormat);
+
+    private sealed record AnchorPosition(
+        double? XPt,
+        double? YPt,
+        string? HorizontalRelativeFrom,
+        string? VerticalRelativeFrom,
+        string? HorizontalAlignment,
+        string? VerticalAlignment);
 
     private static string? NormalizeColor(string? value)
     {
