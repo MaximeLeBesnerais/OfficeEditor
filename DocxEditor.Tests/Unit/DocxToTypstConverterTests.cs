@@ -777,7 +777,7 @@ public sealed class DocxToTypstConverterTests : IDisposable
 
         string typst = ConvertToTypst(path);
 
-        Assert.Contains("header: [#place(dx: 36pt, dy: 18pt)[#image(\"assets/image-1.png\", width: 1in, height: 0.5in)]]", typst);
+        Assert.Contains("header: [#place(top + left, dx: 36pt, dy: 18pt)[#image(\"assets/image-1.png\", width: 1in, height: 0.5in)]]", typst);
     }
 
     [Fact]
@@ -899,7 +899,7 @@ public sealed class DocxToTypstConverterTests : IDisposable
 
         string typst = ConvertToTypst(path);
 
-        Assert.Contains("#place(bottom + center, [#place(dx: 36pt, dy: 18pt)[#image(", typst);
+        Assert.Contains("#place(top + left, dx: 36pt, dy: 18pt)[#image(", typst);
 
         int setPageStart = typst.IndexOf("#set page(", StringComparison.Ordinal);
         int nextNewline = typst.IndexOf('\n', setPageStart);
@@ -1094,7 +1094,7 @@ public sealed class DocxToTypstConverterTests : IDisposable
 
         string typst = ConvertToTypst(path);
 
-        Assert.Contains("#place(bottom + center, [#line(length: 100%, stroke: 0.75pt + rgb(\"#00257D\")) #place(dx: 36pt, dy: 18pt)[#image(\"assets/image-1.png\", width: 1in, height: 0.5in)]])", typst);
+        Assert.Contains("#place(top + left, dx: 36pt, dy: 18pt)[#line(length: 100%, stroke: 0.75pt + rgb(\"#00257D\"))#image(\"assets/image-1.png\", width: 1in, height: 0.5in)]", typst);
 
         string footerValue = ExtractPageOptionValue(typst, "footer");
         Assert.Contains("NOTE text", footerValue);
@@ -1102,6 +1102,90 @@ public sealed class DocxToTypstConverterTests : IDisposable
         Assert.DoesNotContain("]]", footerValue);
         Assert.DoesNotContain("#image(", footerValue);
         Assert.DoesNotContain("#line(", footerValue);
+    }
+
+    [Fact]
+    public void Footer_WithColumnParagraphAnchoredImage_KeepsImageInFooterContent()
+    {
+        string path = CreateDocx("footer-column-paragraph-image.docx", body => body.Append(CreateParagraph("Body")), mainPart =>
+        {
+            FooterPart footerPart = mainPart.AddNewPart<FooterPart>();
+            ImagePart imagePart = footerPart.AddImagePart(ImagePartType.Png);
+            using MemoryStream stream = new(Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="));
+            imagePart.FeedData(stream);
+
+            footerPart.Footer = new Footer(
+                new W.Paragraph(new W.Run(new Text("Footer note"))),
+                new W.Paragraph(new W.Run(CreateAnchorDrawing(
+                    footerPart.GetIdOfPart(imagePart),
+                    DW.HorizontalRelativePositionValues.Column,
+                    DW.VerticalRelativePositionValues.Paragraph,
+                    "457200",
+                    "228600"))));
+            footerPart.Footer.Save();
+
+            mainPart.Document!.Body!.Append(new SectionProperties(
+                new FooterReference { Type = HeaderFooterValues.Default, Id = mainPart.GetIdOfPart(footerPart) }));
+        });
+
+        string typst = ConvertToTypst(path);
+
+        string footerValue = ExtractPageOptionValue(typst, "footer");
+        Assert.Contains("Footer note", footerValue);
+        Assert.Contains("#place(top + left, dx: 36pt, dy: 18pt)[#image(\"assets/image-1.png\", width: 1in, height: 0.5in)]", footerValue);
+        Assert.DoesNotContain("#place(bottom + center", typst);
+    }
+
+    [Fact]
+    public void Footer_WithPageBottomAlignedImage_RendersDecorativePlacement()
+    {
+        string path = CreateDocx("footer-page-bottom-aligned-image.docx", body => body.Append(CreateParagraph("Body")), mainPart =>
+        {
+            FooterPart footerPart = mainPart.AddNewPart<FooterPart>();
+            ImagePart imagePart = footerPart.AddImagePart(ImagePartType.Png);
+            using MemoryStream stream = new(Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="));
+            imagePart.FeedData(stream);
+
+            footerPart.Footer = new Footer(
+                new W.Paragraph(new W.Run(new Text("Footer note"))),
+                new W.Paragraph(new W.Run(CreateAlignedAnchorDrawing(
+                    footerPart.GetIdOfPart(imagePart),
+                    DW.HorizontalRelativePositionValues.Page,
+                    DW.VerticalRelativePositionValues.Page,
+                    "center",
+                    "bottom"))));
+            footerPart.Footer.Save();
+
+            mainPart.Document!.Body!.Append(new SectionProperties(
+                new FooterReference { Type = HeaderFooterValues.Default, Id = mainPart.GetIdOfPart(footerPart) }));
+        });
+
+        string typst = ConvertToTypst(path);
+
+        Assert.Contains("#place(bottom + center)[#image(\"assets/image-1.png\", width: 1in, height: 0.5in)]", typst);
+        string footerValue = ExtractPageOptionValue(typst, "footer");
+        Assert.DoesNotContain("#image(", footerValue);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_WithAlignedAnchoredImage_UsesAlignValue()
+    {
+        string path = CreateDocx("aligned-anchor-image.docx", body => body.Append(new W.Paragraph()), mainPart =>
+        {
+            AddPngImageToDocument(mainPart);
+            W.Paragraph paragraph = mainPart.Document!.Body!.Elements<W.Paragraph>().Single();
+            paragraph.RemoveAllChildren<W.Run>();
+            paragraph.Append(new W.Run(CreateAlignedAnchorDrawing(
+                mainPart.GetIdOfPart(mainPart.ImageParts.First()),
+                DW.HorizontalRelativePositionValues.Page,
+                DW.VerticalRelativePositionValues.Page,
+                "right",
+                "top")));
+        });
+
+        string typst = ConvertToTypst(path);
+
+        Assert.Contains("#place(top + right)[#image(\"assets/image-1.png\", width: 1in, height: 0.5in)]", typst);
     }
 
     [Fact]
@@ -1358,11 +1442,53 @@ public sealed class DocxToTypstConverterTests : IDisposable
                     new Pic.ShapeProperties()))
             { Uri = "http://schemas.openxmlformats.org/drawingml/2006/picture" })));
 
-    private static Drawing CreateAnchorDrawing(string relationshipId) => new(
+    private static Drawing CreateAnchorDrawing(string relationshipId) => CreateAnchorDrawing(
+        relationshipId,
+        DW.HorizontalRelativePositionValues.Page,
+        DW.VerticalRelativePositionValues.Page,
+        "457200",
+        "228600");
+
+    private static Drawing CreateAnchorDrawing(
+        string relationshipId,
+        DW.HorizontalRelativePositionValues horizontalFrom,
+        DW.VerticalRelativePositionValues verticalFrom,
+        string horizontalOffset,
+        string verticalOffset) => new(
         new DW.Anchor(
             new DW.SimplePosition { X = 0L, Y = 0L },
-            new DW.HorizontalPosition(new DW.PositionOffset("457200")) { RelativeFrom = DW.HorizontalRelativePositionValues.Page },
-            new DW.VerticalPosition(new DW.PositionOffset("228600")) { RelativeFrom = DW.VerticalRelativePositionValues.Page },
+            new DW.HorizontalPosition(new DW.PositionOffset(horizontalOffset)) { RelativeFrom = horizontalFrom },
+            new DW.VerticalPosition(new DW.PositionOffset(verticalOffset)) { RelativeFrom = verticalFrom },
+            new DW.Extent { Cx = 914400, Cy = 457200 },
+            new DW.EffectExtent { LeftEdge = 0L, TopEdge = 0L, RightEdge = 0L, BottomEdge = 0L },
+            new DW.WrapNone(),
+            new DW.DocProperties { Id = 2U, Name = "Anchored image" },
+            new A.Graphic(new A.GraphicData(
+                new Pic.Picture(
+                    new Pic.NonVisualPictureProperties(
+                        new Pic.NonVisualDrawingProperties { Id = 2U, Name = "anchored.png" },
+                        new Pic.NonVisualPictureDrawingProperties()),
+                    new Pic.BlipFill(new A.Blip { Embed = relationshipId }, new A.Stretch(new A.FillRectangle())),
+                    new Pic.ShapeProperties()))
+            { Uri = "http://schemas.openxmlformats.org/drawingml/2006/picture" }))
+        {
+            BehindDoc = false,
+            LayoutInCell = true,
+            AllowOverlap = true,
+            SimplePos = false,
+            RelativeHeight = 0U
+        });
+
+    private static Drawing CreateAlignedAnchorDrawing(
+        string relationshipId,
+        DW.HorizontalRelativePositionValues horizontalFrom,
+        DW.VerticalRelativePositionValues verticalFrom,
+        string horizontalAlign,
+        string verticalAlign) => new(
+        new DW.Anchor(
+            new DW.SimplePosition { X = 0L, Y = 0L },
+            new DW.HorizontalPosition(new DW.HorizontalAlignment { Text = horizontalAlign }) { RelativeFrom = horizontalFrom },
+            new DW.VerticalPosition(new DW.VerticalAlignment { Text = verticalAlign }) { RelativeFrom = verticalFrom },
             new DW.Extent { Cx = 914400, Cy = 457200 },
             new DW.EffectExtent { LeftEdge = 0L, TopEdge = 0L, RightEdge = 0L, BottomEdge = 0L },
             new DW.WrapNone(),
