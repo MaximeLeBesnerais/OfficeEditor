@@ -215,6 +215,30 @@ public sealed class DocxToTypstConverterTests : IDisposable
     }
 
     [Fact]
+    public void GenerateTypstSource_WithCenteredParagraphAndLeading_RendersAlignOutsidePar()
+    {
+        W.Paragraph paragraph = new(
+            new ParagraphProperties(
+                new Justification { Val = JustificationValues.Center },
+                new SpacingBetweenLines { Line = "276", LineRule = LineSpacingRuleValues.Auto }),
+            new W.Run(new Text("Centered quote")));
+        string path = CreateDocx("centered-leading.docx", body => body.Append(paragraph));
+
+        string typst = ConvertToTypst(path);
+        using TypstCompilerService compiler = new();
+
+        CompileResult result = compiler.Compile(typst, new CompileOptions
+        {
+            Format = OutputFormat.Pdf,
+            WorkingDirectory = tempDirectory
+        });
+
+        Assert.Contains("#align(center)[#par(leading: 7.15pt)[Centered quote]]", typst);
+        Assert.True(result.Success, result.ErrorMessage);
+        Assert.NotEmpty(result.Pages);
+    }
+
+    [Fact]
     public void GenerateTypstSource_WithEmptyStyledParagraph_PreservesSpacingBetweenHeadings()
     {
         string path = CreateDocx("empty-styled-paragraph.docx", body =>
