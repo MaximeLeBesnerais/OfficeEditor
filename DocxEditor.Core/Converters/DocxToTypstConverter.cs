@@ -389,6 +389,7 @@ public sealed class DocxToTypstConverter : IDisposable
             SpaceBeforePt = before,
             SpaceAfterPt = after,
             LeadingPt = leading,
+            TopBorder = ExtractParagraphTopBorder(paragraph),
             BottomBorder = ExtractParagraphBottomBorder(paragraph)
         };
     }
@@ -847,38 +848,25 @@ public sealed class DocxToTypstConverter : IDisposable
         };
     }
 
-    private static TypstBorderInfo? ExtractParagraphTopBorder(Wp.Paragraph? paragraph)
+    private TypstBorderInfo? ExtractParagraphTopBorder(Wp.Paragraph? paragraph)
     {
-        TopBorder? topBorder = paragraph?.ParagraphProperties?.ParagraphBorders?.TopBorder;
-        if (topBorder is null)
+        if (paragraph is null)
         {
             return null;
         }
 
-        // Ignore borders that are explicitly disabled.
-        BorderValues? borderValue = topBorder.Val?.Value;
-        if (borderValue == BorderValues.Nil || borderValue == BorderValues.None)
+        List<OpenXmlElement?> properties = GetParagraphFormattingProperties(paragraph);
+        properties.Add(paragraph.ParagraphProperties);
+
+        for (int i = properties.Count - 1; i >= 0; i--)
         {
-            return null;
+            if (properties[i]?.GetFirstChild<ParagraphBorders>()?.TopBorder is TopBorder topBorder)
+            {
+                return ExtractBorderInfo(topBorder);
+            }
         }
 
-        double sizeEighthPoints = 0;
-        if (topBorder.Size?.Value is uint size)
-        {
-            sizeEighthPoints = size;
-        }
-
-        string color = topBorder.Color?.Value ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(color))
-        {
-            color = "000000";
-        }
-
-        return new TypstBorderInfo
-        {
-            Color = color,
-            SizeEighthPoints = sizeEighthPoints
-        };
+        return null;
     }
 
     private static (double? XPt, double? YPt) ExtractAnchorOffset(DW.Anchor? anchor)
@@ -1162,6 +1150,11 @@ public sealed class DocxToTypstConverter : IDisposable
         else if (paragraph.LeadingPt is > 0 && !hasImages)
         {
             content = $"#par(leading: {FormatPt(paragraph.LeadingPt.Value)})[{content}]";
+        }
+
+        if (paragraph.TopBorder is not null)
+        {
+            content = $"#line(length: 100%, stroke: {FormatPt(paragraph.TopBorder.SizeEighthPoints / 8.0)} + rgb(\"#{paragraph.TopBorder.Color}\"))\n{content}";
         }
 
         List<string> spacingOptions = [];
