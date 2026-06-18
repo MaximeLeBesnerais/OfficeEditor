@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.IO.Compression;
 using System.Text;
 using System.Text.RegularExpressions;
 using DocumentFormat.OpenXml;
@@ -1235,16 +1236,114 @@ public sealed class DocxToTypstConverter : IDisposable
 
     private static bool IsInTextBoxContent(OpenXmlElement element) => element.Ancestors().Any(e => e.LocalName == "txbxContent");
 
-    private static ShapeGeometry ExtractShapeGeometry(OpenXmlElement element)
+    private ShapeGeometry ExtractShapeGeometry(OpenXmlElement element)
     {
         string style = GetXmlAttribute(element, "style") ?? string.Empty;
+        string? vmlFillColor = ExtractVmlFillColor(element);
+        string? drawingFillColor = vmlFillColor is null ? ExtractGfxDataFillColor(element) : null;
         return new ShapeGeometry(
             ReadStylePointValue(style, "margin-left") ?? ReadStylePointValue(style, "left"),
             ReadStylePointValue(style, "margin-top") ?? ReadStylePointValue(style, "top"),
             ReadStylePointValue(style, "width"),
             ReadStylePointValue(style, "height"),
-            NormalizeColor(GetXmlAttribute(element, "fillcolor") ?? Regex.Match(element.OuterXml, "<v:fill[^>]*(?:color|fillcolor)=\"([^\"]+)\"").Groups[1].Value),
+            vmlFillColor ?? drawingFillColor,
             NormalizeColor(GetXmlAttribute(element, "strokecolor") ?? Regex.Match(element.OuterXml, "<v:stroke[^>]*color=\"([^\"]+)\"").Groups[1].Value));
+    }
+
+    private static string? ExtractVmlFillColor(OpenXmlElement element)
+    {
+        string? filled = GetXmlAttribute(element, "filled");
+        if (filled is "f" || filled is "false" || filled is "0")
+        {
+            return null;
+        }
+
+        string? value = GetXmlAttribute(element, "fillcolor")
+            ?? Regex.Match(element.OuterXml, "<v:fill[^>]*(?:color|fillcolor)=\"([^\"]+)\"").Groups[1].Value;
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        // VML fillcolor may be "#RRGGBB [themeIndex]" - extract the hex part.
+        Match hexMatch = Regex.Match(value, "#?([0-9A-Fa-f]{6})");
+        return hexMatch.Success ? NormalizeColor(hexMatch.Groups[1].Value) : null;
+    }
+
+    private string? ExtractGfxDataFillColor(OpenXmlElement element)
+    {
+        string? gfxData = GetXmlAttribute(element, "gfxdata");
+        if (string.IsNullOrWhiteSpace(gfxData))
+        {
+            return null;
+        }
+
+        try
+        {
+            string normalized = gfxData
+                .Replace("&#xD;", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("&#xA;", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("&#13;", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("&#10;", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("\r", "")
+                .Replace("\n", "");
+            byte[] bytes = System.Convert.FromBase64String(normalized);
+            using MemoryStream stream = new(bytes);
+            using ZipArchive archive = new(stream, ZipArchiveMode.Read);
+            foreach (ZipArchiveEntry entry in archive.Entries)
+            {
+                if (!entry.FullName.EndsWith(".xml", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                using StreamReader reader = new(entry.Open());
+                string xml = reader.ReadToEnd();
+                string? fill = ExtractDrawingFillColorFromXml(xml);
+                if (fill is not null)
+                {
+                    return fill;
+                }
+            }
+        }
+        catch
+        {
+            // Ignore malformed gfxdata.
+        }
+
+        return null;
+    }
+
+    private string? ExtractDrawingFillColorFromXml(string xml)
+    {
+        // Solid fill with sRGB color.
+        Match solidSrgb = Regex.Match(xml, "<a:solidFill[^>]*>\\s*<a:srgbClr\\s+val=\"([0-9A-Fa-f]{6})\"", RegexOptions.Singleline);
+        if (solidSrgb.Success)
+        {
+            return NormalizeColor(solidSrgb.Groups[1].Value);
+        }
+
+        // Solid fill with theme color.
+        Match solidScheme = Regex.Match(xml, "<a:solidFill[^>]*>\\s*<a:schemeClr\\s+val=\"([^\"]+)\"", RegexOptions.Singleline);
+        if (solidScheme.Success)
+        {
+            return ResolveThemeColor(solidScheme.Groups[1].Value);
+        }
+
+        // Gradient fill - use the first stop's color as a solid approximation.
+        Match gradSrgb = Regex.Match(xml, "<a:gradFill[^>]*>.*?<a:gs[^>]*>\\s*<a:srgbClr\\s+val=\"([0-9A-Fa-f]{6})\"", RegexOptions.Singleline);
+        if (gradSrgb.Success)
+        {
+            return NormalizeColor(gradSrgb.Groups[1].Value);
+        }
+
+        Match gradScheme = Regex.Match(xml, "<a:gradFill[^>]*>.*?<a:gs[^>]*>\\s*<a:schemeClr\\s+val=\"([^\"]+)\"", RegexOptions.Singleline);
+        if (gradScheme.Success)
+        {
+            return ResolveThemeColor(gradScheme.Groups[1].Value);
+        }
+
+        return null;
     }
 
     private static ShapeGeometry ValidateShapeGeometry(ShapeGeometry geometry, TypstPageSetup pageSetup)
@@ -2305,7 +2404,20 @@ public sealed class DocxToTypstConverter : IDisposable
             return null;
         }
 
-        return themeColors.TryGetValue(themeColor, out string? color) ? color : null;
+        string normalized = themeColor.ToLowerInvariant() switch
+        {
+            "tx1" => "dark1",
+            "tx2" => "dark2",
+            "bg1" => "light1",
+            "bg2" => "light2",
+            "dk1" => "dark1",
+            "dk2" => "dark2",
+            "lt1" => "light1",
+            "lt2" => "light2",
+            _ => themeColor.ToLowerInvariant()
+        };
+
+        return themeColors.TryGetValue(normalized, out string? color) ? color : null;
     }
 
     private string? ResolveThemeFont(string? themeFont)
