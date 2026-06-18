@@ -853,6 +853,66 @@ public sealed class DocxToTypstConverterTests : IDisposable
     }
 
     [Fact]
+    public void GenerateTypstSource_WithContinuousSectionBreakAndSamePageSetup_DoesNotForcePageBreak()
+    {
+        string path = CreateDocx("continuous-same-setup.docx", body =>
+        {
+            body.Append(CreateParagraph("Before"));
+            body.Append(new W.Paragraph(
+                new W.ParagraphProperties(new SectionProperties(
+                    new SectionType { Val = W.SectionMarkValues.Continuous }))));
+            body.Append(CreateParagraph("After"));
+            body.Append(new SectionProperties());
+        });
+
+        string typst = ConvertToTypst(path);
+
+        Assert.DoesNotContain("#pagebreak()", typst);
+        Assert.Equal(1, CountOccurrences(typst, "#set page("));
+    }
+
+    [Fact]
+    public void GenerateTypstSource_WithContinuousSectionBreakAndChangedMargins_EmitsSetPageWithoutPageBreak()
+    {
+        string path = CreateDocx("continuous-changed-margins.docx", body =>
+        {
+            body.Append(CreateParagraph("Before"));
+            body.Append(new W.Paragraph(
+                new W.ParagraphProperties(new SectionProperties(
+                    new SectionType { Val = W.SectionMarkValues.Continuous }))));
+            body.Append(CreateParagraph("After"));
+            body.Append(new SectionProperties(
+                new PageSize { Width = 12240, Height = 15840 },
+                new PageMargin { Left = 720, Right = 720, Top = 720, Bottom = 720 }));
+        });
+
+        string typst = ConvertToTypst(path);
+
+        Assert.DoesNotContain("#pagebreak()", typst);
+        Assert.Equal(2, CountOccurrences(typst, "#set page("));
+        Assert.Contains("width: 8.5in", typst);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_WithNextPageSectionBreak_ForcesPageBreak()
+    {
+        string path = CreateDocx("nextpage-break.docx", body =>
+        {
+            body.Append(CreateParagraph("Before"));
+            body.Append(new W.Paragraph(
+                new W.ParagraphProperties(new SectionProperties(
+                    new SectionType { Val = W.SectionMarkValues.NextPage }))));
+            body.Append(CreateParagraph("After"));
+            body.Append(new SectionProperties());
+        });
+
+        string typst = ConvertToTypst(path);
+
+        Assert.Contains("#pagebreak()", typst);
+        Assert.True(typst.IndexOf("#pagebreak()", StringComparison.Ordinal) < typst.LastIndexOf("#set page(", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Header_WithMultipleParagraphs_DoesNotEmbedNewlineInContentArray()
     {
         string path = CreateDocx("multi-para-header-no-newline.docx", body => body.Append(CreateParagraph("Body")), mainPart =>
