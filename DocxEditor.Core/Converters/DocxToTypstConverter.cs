@@ -15,6 +15,7 @@ public sealed class DocxToTypstConverter : IDisposable
 {
     private const double TwipsPerInch = 1440.0;
     private const double EmusPerInch = 914400.0;
+    private const double EmusPerPoint = 12700.0;
 
     private readonly WordprocessingDocument document;
     private readonly string tempDirectory;
@@ -900,7 +901,15 @@ public sealed class DocxToTypstConverter : IDisposable
         Dictionary<string, int> shapeTextIndexes = new(StringComparer.OrdinalIgnoreCase);
         foreach (OpenXmlElement element in scope.Descendants().Where(IsShapeElement))
         {
-            if (element.Ancestors().Any(IsShapeElement))
+            // Shapes nested inside another shape (e.g. a textbox inside a VML shape) are handled
+            // with their parent. Groups are containers, so their children are processed separately.
+            if (element.Ancestors().Any(e => IsShapeElement(e) && e.LocalName != "group") || IsInFallbackContent(element))
+            {
+                continue;
+            }
+
+            // Groups provide coordinate context for their children; they are not rendered themselves.
+            if (element.LocalName == "group")
             {
                 continue;
             }
@@ -930,7 +939,9 @@ public sealed class DocxToTypstConverter : IDisposable
                 WidthPt = geometry.WidthPt,
                 HeightPt = geometry.HeightPt,
                 FillColor = geometry.FillColor,
-                StrokeColor = geometry.StrokeColor
+                StrokeColor = geometry.StrokeColor,
+                StrokeWidthPt = geometry.StrokeWidthPt,
+                Kind = geometry.Kind
             };
 
             string normalizedText = NormalizeShapeText(paragraphs);
@@ -994,27 +1005,305 @@ public sealed class DocxToTypstConverter : IDisposable
     private static bool IsShapeElement(OpenXmlElement element)
     {
         string localName = element.LocalName;
-        if (localName == "shape" || localName == "rect")
+        if (localName == "rect")
         {
             return true;
         }
 
-        return localName == "wsp" && element.Descendants().Any(e => e.LocalName == "txbxContent" || e.LocalName == "txbx");
+        if (localName == "shape")
+        {
+            // Ignore picture-only VML fallbacks unless they carry text.
+            string? type = GetXmlAttribute(element, "type");
+            if (!string.IsNullOrEmpty(type)
+                && type.Contains("t75", StringComparison.OrdinalIgnoreCase)
+                && !element.Descendants().Any(e => e.LocalName == "txbxContent" || e.LocalName == "txbx"))
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        // DrawingML shapes on a Word canvas (wpc:wpc).
+        if (localName == "wsp")
+        {
+            return element.Descendants().Any(e =>
+                e.LocalName == "prstGeom" || e.LocalName == "txbxContent" || e.LocalName == "txbx");
+        }
+
+        // Legacy canvas/group wrapper. Children are positioned relative to it.
+        return localName == "group";
     }
+
+    private static bool IsInFallbackContent(OpenXmlElement element)
+        => element.Ancestors().Any(e => e.LocalName == "Fallback");
 
     private static bool IsInTextBoxContent(OpenXmlElement element) => element.Ancestors().Any(e => e.LocalName == "txbxContent");
 
-    private static ShapeGeometry ExtractShapeGeometry(OpenXmlElement element)
+    private ShapeGeometry ExtractShapeGeometry(OpenXmlElement element)
+        => element.LocalName == "wsp"
+            ? ExtractWpsShapeGeometry(element)
+            : ExtractVmlShapeGeometry(element);
+
+    private ShapeGeometry ExtractWpsShapeGeometry(OpenXmlElement element)
+    {
+        OpenXmlElement? spPr = element.Elements().FirstOrDefault(e => e.LocalName == "spPr");
+        OpenXmlElement? xfrm = spPr?.Elements().FirstOrDefault(e => e.LocalName == "xfrm");
+        OpenXmlElement? off = xfrm?.Elements().FirstOrDefault(e => e.LocalName == "off");
+        OpenXmlElement? ext = xfrm?.Elements().FirstOrDefault(e => e.LocalName == "ext");
+        OpenXmlElement? prstGeom = spPr?.Elements().FirstOrDefault(e => e.LocalName == "prstGeom");
+
+        double? x = EmuToPoints(GetXmlAttribute(off, "x"));
+        double? y = EmuToPoints(GetXmlAttribute(off, "y"));
+        double? width = EmuToPoints(GetXmlAttribute(ext, "cx"));
+        double? height = EmuToPoints(GetXmlAttribute(ext, "cy"));
+        string? preset = GetXmlAttribute(prstGeom, "prst");
+        TypstShapeKind kind = MapPresetToShapeKind(preset);
+
+        string? fillColor = ResolveDrawingmlFillColor(spPr);
+        (string? strokeColor, double? strokeWidth) = ResolveDrawingmlStroke(spPr);
+
+        return new ShapeGeometry(x, y, width, height, fillColor, strokeColor, kind, strokeWidth);
+    }
+
+    private ShapeGeometry ExtractVmlShapeGeometry(OpenXmlElement element)
     {
         string style = GetXmlAttribute(element, "style") ?? string.Empty;
-        return new ShapeGeometry(
-            ReadStylePointValue(style, "margin-left") ?? ReadStylePointValue(style, "left"),
-            ReadStylePointValue(style, "margin-top") ?? ReadStylePointValue(style, "top"),
-            ReadStylePointValue(style, "width"),
-            ReadStylePointValue(style, "height"),
-            NormalizeColor(GetXmlAttribute(element, "fillcolor") ?? Regex.Match(element.OuterXml, "<v:fill[^>]*(?:color|fillcolor)=\"([^\"]+)\"").Groups[1].Value),
-            NormalizeColor(GetXmlAttribute(element, "strokecolor") ?? Regex.Match(element.OuterXml, "<v:stroke[^>]*color=\"([^\"]+)\"").Groups[1].Value));
+        (double scaleX, double scaleY, double offsetX, double offsetY) = ComputeVmlGroupTransform(element);
+        bool insideGroup = scaleX != 1.0 || scaleY != 1.0 || offsetX != 0.0 || offsetY != 0.0;
+
+        double? x = ReadVmlStyleLength(style, "margin-left", scaleX, insideGroup)
+            ?? ReadVmlStyleLength(style, "left", scaleX, insideGroup);
+        double? y = ReadVmlStyleLength(style, "margin-top", scaleY, insideGroup)
+            ?? ReadVmlStyleLength(style, "top", scaleY, insideGroup);
+        double? width = ReadVmlStyleLength(style, "width", scaleX, insideGroup);
+        double? height = ReadVmlStyleLength(style, "height", scaleY, insideGroup);
+
+        if (x is not null) x += offsetX;
+        if (y is not null) y += offsetY;
+
+        string? fillColor = NormalizeColor(GetXmlAttribute(element, "fillcolor") ?? Regex.Match(element.OuterXml, "<v:fill[^/>]*(?:color|fillcolor)=\"([^\"]+)\"").Groups[1].Value);
+        string? strokeColor = NormalizeColor(GetXmlAttribute(element, "strokecolor") ?? Regex.Match(element.OuterXml, "<v:stroke[^/>]*color=\"([^\"]+)\"").Groups[1].Value);
+        double? strokeWidth = ReadVmlStrokeWeight(element, style);
+        TypstShapeKind kind = MapVmlShapeKind(element);
+
+        return new ShapeGeometry(x, y, width, height, fillColor, strokeColor, kind, strokeWidth);
     }
+
+    private static (double ScaleX, double ScaleY, double OffsetX, double OffsetY) ComputeVmlGroupTransform(OpenXmlElement element)
+    {
+        double scaleX = 1.0;
+        double scaleY = 1.0;
+        double offsetX = 0.0;
+        double offsetY = 0.0;
+
+        foreach (OpenXmlElement ancestor in element.Ancestors().Where(e => e.LocalName == "group"))
+        {
+            string gStyle = GetXmlAttribute(ancestor, "style") ?? string.Empty;
+            string? coordSize = GetXmlAttribute(ancestor, "coordsize");
+            double? gWidth = ReadStylePointValue(gStyle, "width");
+            double? gHeight = ReadStylePointValue(gStyle, "height");
+
+            if (gWidth is not null && gHeight is not null && !string.IsNullOrEmpty(coordSize))
+            {
+                string[] parts = coordSize.Split(',');
+                if (parts.Length == 2
+                    && double.TryParse(parts[0], NumberStyles.Number, CultureInfo.InvariantCulture, out double cw)
+                    && double.TryParse(parts[1], NumberStyles.Number, CultureInfo.InvariantCulture, out double ch)
+                    && cw > 0
+                    && ch > 0)
+                {
+                    scaleX *= gWidth.Value / cw;
+                    scaleY *= gHeight.Value / ch;
+                }
+            }
+
+            offsetX += ReadStylePointValue(gStyle, "margin-left") ?? ReadStylePointValue(gStyle, "left") ?? 0.0;
+            offsetY += ReadStylePointValue(gStyle, "margin-top") ?? ReadStylePointValue(gStyle, "top") ?? 0.0;
+        }
+
+        return (scaleX, scaleY, offsetX, offsetY);
+    }
+
+    private static double? ReadVmlStyleLength(string style, string property, double scale, bool insideGroup)
+    {
+        Match match = Regex.Match(style, $"(?:^|;)\\s*{Regex.Escape(property)}\\s*:\\s*(-?[0-9.]+)\\s*(pt|in)?", RegexOptions.IgnoreCase);
+        if (!match.Success || !double.TryParse(match.Groups[1].Value, NumberStyles.Number, CultureInfo.InvariantCulture, out double value))
+        {
+            return null;
+        }
+
+        string unit = match.Groups[2].Value;
+        if (unit.Equals("in", StringComparison.OrdinalIgnoreCase))
+        {
+            return value * 72.0;
+        }
+
+        if (unit.Equals("pt", StringComparison.OrdinalIgnoreCase))
+        {
+            return value;
+        }
+
+        // Values inside a VML group are expressed in the group's coordinate units.
+        if (insideGroup)
+        {
+            return value * scale;
+        }
+
+        // Legacy fallback for unitless values that were stored in hundredths of a point.
+        return Math.Abs(value) > 2000.0 ? value / 100.0 : value;
+    }
+
+    private static double? ReadVmlStrokeWeight(OpenXmlElement element, string style)
+    {
+        string? weight = GetXmlAttribute(element, "strokeweight");
+        if (string.IsNullOrEmpty(weight))
+        {
+            Match match = Regex.Match(style, "stroke-weight\\s*:\\s*(-?[0-9.]+)\\s*(pt|in)?", RegexOptions.IgnoreCase);
+            if (match.Success)
+            {
+                weight = match.Groups[0].Value;
+            }
+        }
+
+        if (string.IsNullOrEmpty(weight))
+        {
+            return null;
+        }
+
+        Match weightMatch = Regex.Match(weight, "(-?[0-9.]+)\\s*(pt|in)?", RegexOptions.IgnoreCase);
+        if (!weightMatch.Success || !double.TryParse(weightMatch.Groups[1].Value, NumberStyles.Number, CultureInfo.InvariantCulture, out double value))
+        {
+            return null;
+        }
+
+        string unit = weightMatch.Groups[2].Value;
+        return unit.Equals("in", StringComparison.OrdinalIgnoreCase) ? value * 72.0 : value;
+    }
+
+    private string? ResolveDrawingmlFillColor(OpenXmlElement? spPr)
+    {
+        if (spPr is null)
+        {
+            return null;
+        }
+
+        OpenXmlElement? solidFill = spPr.Elements().FirstOrDefault(e => e.LocalName == "solidFill");
+        if (solidFill is not null)
+        {
+            return ResolveDrawingmlColor(solidFill);
+        }
+
+        if (spPr.Elements().Any(e => e.LocalName == "noFill"))
+        {
+            return null;
+        }
+
+        return null;
+    }
+
+    private (string? Color, double? Width) ResolveDrawingmlStroke(OpenXmlElement? spPr)
+    {
+        if (spPr is null)
+        {
+            return (null, null);
+        }
+
+        OpenXmlElement? ln = spPr.Elements().FirstOrDefault(e => e.LocalName == "ln");
+        if (ln is null)
+        {
+            return (null, null);
+        }
+
+        if (ln.Elements().Any(e => e.LocalName == "noFill"))
+        {
+            return (null, EmuToPoints(GetXmlAttribute(ln, "w")));
+        }
+
+        OpenXmlElement? solidFill = ln.Elements().FirstOrDefault(e => e.LocalName == "solidFill");
+        string? color = ResolveDrawingmlColor(solidFill);
+        double? width = EmuToPoints(GetXmlAttribute(ln, "w"));
+        return (color, width);
+    }
+
+    private string? ResolveDrawingmlColor(OpenXmlElement? fill)
+    {
+        if (fill is null)
+        {
+            return null;
+        }
+
+        OpenXmlElement? srgb = fill.Elements().FirstOrDefault(e => e.LocalName == "srgbClr");
+        if (srgb is not null)
+        {
+            return NormalizeColor(GetXmlAttribute(srgb, "val"));
+        }
+
+        OpenXmlElement? scheme = fill.Elements().FirstOrDefault(e => e.LocalName == "schemeClr");
+        if (scheme is not null)
+        {
+            return ResolveThemeColor(GetXmlAttribute(scheme, "val"));
+        }
+
+        return null;
+    }
+
+    private static TypstShapeKind MapPresetToShapeKind(string? preset)
+    {
+        if (string.IsNullOrEmpty(preset))
+        {
+            return TypstShapeKind.Rect;
+        }
+
+        if (preset.Equals("flowChartConnector", StringComparison.OrdinalIgnoreCase))
+        {
+            return TypstShapeKind.Circle;
+        }
+
+        if (preset.Contains("Connector", StringComparison.OrdinalIgnoreCase))
+        {
+            return TypstShapeKind.Line;
+        }
+
+        if (preset.Equals("ellipse", StringComparison.OrdinalIgnoreCase)
+            || preset.Equals("circle", StringComparison.OrdinalIgnoreCase))
+        {
+            return TypstShapeKind.Circle;
+        }
+
+        return TypstShapeKind.Rect;
+    }
+
+    private static TypstShapeKind MapVmlShapeKind(OpenXmlElement element)
+    {
+        string? type = GetXmlAttribute(element, "type");
+        if (!string.IsNullOrEmpty(type))
+        {
+            if (type.Contains("t120", StringComparison.OrdinalIgnoreCase))
+            {
+                return TypstShapeKind.Circle;
+            }
+
+            if (type.Contains("t33", StringComparison.OrdinalIgnoreCase)
+                || type.Contains("t34", StringComparison.OrdinalIgnoreCase)
+                || type.Contains("t35", StringComparison.OrdinalIgnoreCase)
+                || type.Contains("t37", StringComparison.OrdinalIgnoreCase))
+            {
+                return TypstShapeKind.Line;
+            }
+        }
+
+        string? connectorType = GetXmlAttribute(element, "connectortype");
+        if (!string.IsNullOrEmpty(connectorType))
+        {
+            return TypstShapeKind.Line;
+        }
+
+        return element.LocalName == "rect" ? TypstShapeKind.Rect : TypstShapeKind.Rect;
+    }
+
+    private static double? EmuToPoints(string? value)
+        => double.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out double emu) ? emu / EmusPerPoint : null;
 
     private static ShapeGeometry ValidateShapeGeometry(ShapeGeometry geometry, TypstPageSetup pageSetup)
     {
@@ -1522,6 +1811,16 @@ public sealed class DocxToTypstConverter : IDisposable
 
     private string RenderShape(TypstShapeBlock shape)
     {
+        return shape.Kind switch
+        {
+            TypstShapeKind.Circle => RenderCircleShape(shape),
+            TypstShapeKind.Line => RenderLineShape(shape),
+            _ => RenderRectShape(shape)
+        };
+    }
+
+    private string RenderRectShape(TypstShapeBlock shape)
+    {
         List<string> arguments = [];
         if (shape.WidthPt is > 0)
         {
@@ -1538,7 +1837,11 @@ public sealed class DocxToTypstConverter : IDisposable
             arguments.Add($"fill: rgb(\"#{shape.FillColor}\")");
         }
 
-        arguments.Add(shape.StrokeColor is null ? "stroke: none" : $"stroke: rgb(\"#{shape.StrokeColor}\")");
+        arguments.Add(shape.StrokeColor is null
+            ? "stroke: none"
+            : shape.StrokeWidthPt is not null
+                ? $"stroke: {FormatPt(shape.StrokeWidthPt.Value)} + rgb(\"#{shape.StrokeColor}\")"
+                : $"stroke: rgb(\"#{shape.StrokeColor}\")");
         if (shape.Paragraphs.Count > 0)
         {
             arguments.Add("inset: 4pt");
@@ -1552,6 +1855,46 @@ public sealed class DocxToTypstConverter : IDisposable
         return shape.XPt is not null || shape.YPt is not null
             ? $"#place(dx: {FormatPt(shape.XPt ?? 0)}, dy: {FormatPt(shape.YPt ?? 0)})[{rectangle}]"
             : rectangle;
+    }
+
+    private string RenderLineShape(TypstShapeBlock shape)
+    {
+        double width = shape.WidthPt ?? 0;
+        double height = shape.HeightPt ?? 0;
+        string stroke = shape.StrokeColor is null
+            ? "0.5pt"
+            : $"{FormatPt(shape.StrokeWidthPt ?? 0.5)} + rgb(\"#{shape.StrokeColor}\")";
+
+        string line = $"#line(start: (0pt, 0pt), end: ({FormatPt(width)}, {FormatPt(height)}), stroke: {stroke})";
+        return shape.XPt is not null || shape.YPt is not null
+            ? $"#place(dx: {FormatPt(shape.XPt ?? 0)}, dy: {FormatPt(shape.YPt ?? 0)})[{line}]"
+            : line;
+    }
+
+    private string RenderCircleShape(TypstShapeBlock shape)
+    {
+        double width = shape.WidthPt ?? 0;
+        double height = shape.HeightPt ?? 0;
+        double radius = Math.Min(width, height) / 2.0;
+        double centerX = (shape.XPt ?? 0) + width / 2.0;
+        double centerY = (shape.YPt ?? 0) + height / 2.0;
+
+        List<string> arguments = [$"radius: {FormatPt(radius)}"];
+        arguments.Add(shape.FillColor is null ? "fill: none" : $"fill: rgb(\"#{shape.FillColor}\")");
+        arguments.Add(shape.StrokeColor is null
+            ? "stroke: none"
+            : $"stroke: {FormatPt(shape.StrokeWidthPt ?? 0.5)} + rgb(\"#{shape.StrokeColor}\")");
+
+        string circle = $"#circle({string.Join(", ", arguments)})";
+        string placedCircle = $"#place(dx: {FormatPt(centerX)}, dy: {FormatPt(centerY)})[{circle}]";
+
+        if (shape.Paragraphs.Count == 0)
+        {
+            return placedCircle;
+        }
+
+        string label = $"#box(width: {FormatPt(width)}, height: {FormatPt(height)})[#align(center + horizon)[{string.Join("\n", shape.Paragraphs.Select(p => RenderInlines(p.Inlines)))}]]";
+        return placedCircle + $"#place(dx: {FormatPt(shape.XPt ?? 0)}, dy: {FormatPt(shape.YPt ?? 0)})[{label}]";
     }
 
     private string RenderInlines(IEnumerable<TypstInline> inlines) => string.Concat(inlines.Select(RenderInline));
@@ -2090,7 +2433,7 @@ public sealed class DocxToTypstConverter : IDisposable
 
     private sealed record TableFirstRowFormatting(string? ShadingColor, bool Bold, string? TextColor);
 
-    private sealed record ShapeGeometry(double? XPt, double? YPt, double? WidthPt, double? HeightPt, string? FillColor, string? StrokeColor)
+    private sealed record ShapeGeometry(double? XPt, double? YPt, double? WidthPt, double? HeightPt, string? FillColor, string? StrokeColor, TypstShapeKind Kind, double? StrokeWidthPt)
     {
         public bool IsValid { get; init; } = true;
     }
