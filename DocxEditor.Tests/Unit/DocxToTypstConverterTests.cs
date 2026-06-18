@@ -1178,6 +1178,61 @@ public sealed class DocxToTypstConverterTests : IDisposable
     }
 
     [Fact]
+    public void GenerateTypstSource_WithFullBoxBorder_RendersBoxStrokeAndCompiles()
+    {
+        W.Paragraph paragraph = new(
+            new ParagraphProperties(
+                new Justification { Val = JustificationValues.Center },
+                new ParagraphBorders(
+                    new TopBorder { Val = BorderValues.Single, Size = 6, Color = "006EB6" },
+                    new LeftBorder { Val = BorderValues.Single, Size = 6, Color = "006EB6" },
+                    new BottomBorder { Val = BorderValues.Single, Size = 6, Color = "006EB6" },
+                    new RightBorder { Val = BorderValues.Single, Size = 6, Color = "006EB6" })),
+            new W.Run(new Text("Boxed title")));
+        string path = CreateDocx("full-box-border.docx", body => body.Append(paragraph));
+
+        string typst = ConvertToTypst(path);
+
+        Assert.Contains("#box(width: 100%, stroke: (top: 0.75pt + rgb(\"#006EB6\"), left: 0.75pt + rgb(\"#006EB6\"), bottom: 0.75pt + rgb(\"#006EB6\"), right: 0.75pt + rgb(\"#006EB6\")), inset: 4pt)[#align(center)[Boxed title]]", typst);
+        Assert.DoesNotContain("#line(length: 100%", typst);
+
+        using TypstCompilerService compiler = new();
+        CompileResult result = compiler.Compile(typst, new CompileOptions
+        {
+            Format = OutputFormat.Pdf,
+            WorkingDirectory = tempDirectory
+        });
+        Assert.True(result.Success, result.ErrorMessage);
+        Assert.NotEmpty(result.Pages);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_WithStyleInheritedFullBoxBorder_RendersBoxStroke()
+    {
+        string path = CreateDocx("style-full-box-border.docx", body => body.Append(new W.Paragraph(
+            new ParagraphProperties(new ParagraphStyleId { Val = "Kop1" }),
+            new W.Run(new Text("Title")))), mainPart =>
+        {
+            AddStyles(mainPart, new Style(
+                new StyleParagraphProperties(new ParagraphBorders(
+                    new TopBorder { Val = BorderValues.Single, Size = 6, Color = "006EB6" },
+                    new LeftBorder { Val = BorderValues.Single, Size = 6, Color = "006EB6" },
+                    new BottomBorder { Val = BorderValues.Single, Size = 6, Color = "006EB6" },
+                    new RightBorder { Val = BorderValues.Single, Size = 6, Color = "006EB6" })),
+                new StyleRunProperties(new Bold()))
+            {
+                Type = StyleValues.Paragraph,
+                StyleId = "Kop1"
+            });
+        });
+
+        string typst = ConvertToTypst(path);
+
+        Assert.Contains("#box(width: 100%, stroke: (top: 0.75pt + rgb(\"#006EB6\"), left: 0.75pt + rgb(\"#006EB6\"), bottom: 0.75pt + rgb(\"#006EB6\"), right: 0.75pt + rgb(\"#006EB6\")), inset: 4pt)[#strong[Title]]", typst);
+        Assert.DoesNotContain("#line(length: 100%", typst);
+    }
+
+    [Fact]
     public void GenerateTypstSource_WithLargeFooterDistance_ReservesFooterSpaceInPageMargin()
     {
         string path = CreateDocx("footer-distance.docx", body =>
