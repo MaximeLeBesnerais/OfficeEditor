@@ -49,8 +49,9 @@ public sealed class DocxToTypstConverter : IDisposable
         MainDocumentPart? mainPart = document.MainDocumentPart;
         List<SectionProperties> sections = GetSectionPropertiesInDocumentOrder(body);
         TypstPageSetup pageSetup = ExtractPageSetup(sections.FirstOrDefault());
+        List<TypstHeaderFooterSet> effectiveHeaderFooters = ComputeEffectiveHeaderFooterSets(sections, pageSetup);
+        TypstHeaderFooterSet currentHeaderFooter = effectiveHeaderFooters.FirstOrDefault() ?? new TypstHeaderFooterSet();
         TypstPageSetup currentPageSetup = pageSetup;
-        TypstHeaderFooterSet currentHeaderFooter = ConvertHeaderFooterSet(sections.FirstOrDefault(), pageSetup);
         List<TypstBlock> blocks = [];
         List<OpenXmlElement> elements = body.Elements().ToList();
         for (int i = 0; i < elements.Count; i++)
@@ -65,7 +66,7 @@ public sealed class DocxToTypstConverter : IDisposable
                     break;
                 case Wp.Paragraph paragraph:
                     AddParagraphBlocks(blocks, paragraph, mainPart, currentPageSetup);
-                    AddSectionBoundary(blocks, paragraph, sections, ref currentPageSetup, ref currentHeaderFooter);
+                    AddSectionBoundary(blocks, paragraph, sections, effectiveHeaderFooters, ref currentPageSetup, ref currentHeaderFooter);
                     break;
                 case Wp.Table table:
                     blocks.Add(ConvertTable(table));
@@ -73,15 +74,26 @@ public sealed class DocxToTypstConverter : IDisposable
             }
         }
 
-        TypstHeaderFooterSet headerFooter = ConvertHeaderFooterSet(sections.FirstOrDefault(), pageSetup);
+        // Ensure the final section's effective header/footer set is applied to any remaining content.
+        TypstHeaderFooterSet finalHeaderFooter = effectiveHeaderFooters.Count > 0 ? effectiveHeaderFooters[^1] : currentHeaderFooter;
+        if (!ReferenceEquals(currentHeaderFooter, finalHeaderFooter))
+        {
+            blocks.Add(new TypstPageSettingsBlock
+            {
+                PageSetup = ExtractPageSetup(sections.LastOrDefault(), pageSetup),
+                HeaderFooter = finalHeaderFooter,
+                PageBreakBefore = false
+            });
+        }
+
         return new TypstDocument
         {
             PageSetup = pageSetup,
             DefaultFontFamily = ExtractDefaultFontFamily(),
             DefaultFontSizePt = ExtractDefaultFontSize(),
-            HeaderBlocks = headerFooter.DefaultHeaderBlocks,
-            FooterBlocks = headerFooter.DefaultFooterBlocks,
-            HeaderFooter = headerFooter,
+            HeaderBlocks = currentHeaderFooter.DefaultHeaderBlocks,
+            FooterBlocks = currentHeaderFooter.DefaultFooterBlocks,
+            HeaderFooter = currentHeaderFooter,
             Blocks = blocks,
             Diagnostics = diagnostics.ToList(),
             TempDirectory = tempDirectory,
@@ -368,6 +380,12 @@ public sealed class DocxToTypstConverter : IDisposable
             }
         }
 
+        string? frameAlignment = MapFrameAlignment(paragraph.ParagraphProperties);
+        if (frameAlignment is not null)
+        {
+            alignment = frameAlignment;
+        }
+
         double? lineBoxLeading = leading;
         if (InsertLeadingLineBreakSpacing(inlines, paragraphFontSizePt))
         {
@@ -613,7 +631,7 @@ public sealed class DocxToTypstConverter : IDisposable
         return new TypstTableBlock { Rows = rows, HasBorders = table.Descendants<TableBorders>().Any() || GetTableStyle(table)?.Descendants<TableBorders>().Any() == true };
     }
 
-    private void AddSectionBoundary(List<TypstBlock> blocks, Wp.Paragraph paragraph, IReadOnlyList<SectionProperties> sections, ref TypstPageSetup currentPageSetup, ref TypstHeaderFooterSet currentHeaderFooter)
+    private void AddSectionBoundary(List<TypstBlock> blocks, Wp.Paragraph paragraph, List<SectionProperties> sections, List<TypstHeaderFooterSet> effectiveHeaderFooters, ref TypstPageSetup currentPageSetup, ref TypstHeaderFooterSet currentHeaderFooter)
     {
         SectionProperties? sectionProperties = paragraph.ParagraphProperties?.GetFirstChild<SectionProperties>();
         if (sectionProperties is null)
@@ -621,15 +639,16 @@ public sealed class DocxToTypstConverter : IDisposable
             return;
         }
 
-        int sectionIndex = sections.ToList().FindIndex(section => ReferenceEquals(section, sectionProperties));
+        int sectionIndex = sections.FindIndex(section => ReferenceEquals(section, sectionProperties));
         if (sectionIndex < 0 || sectionIndex + 1 >= sections.Count)
         {
             return;
         }
 
-        SectionProperties nextSection = sections[sectionIndex + 1];
+        int nextIndex = sectionIndex + 1;
+        SectionProperties nextSection = sections[nextIndex];
         TypstPageSetup nextPageSetup = ExtractPageSetup(nextSection, currentPageSetup);
-        TypstHeaderFooterSet nextHeaderFooter = ConvertHeaderFooterSet(nextSection, nextPageSetup);
+        TypstHeaderFooterSet nextHeaderFooter = effectiveHeaderFooters[nextIndex];
 
         SectionMarkValues sectionBreakType = sectionProperties.GetFirstChild<SectionType>()?.Val?.Value ?? SectionMarkValues.NextPage;
         bool forcePageBreak = sectionBreakType == SectionMarkValues.NextPage
@@ -644,15 +663,15 @@ public sealed class DocxToTypstConverter : IDisposable
             return;
         }
 
+        currentHeaderFooter = nextHeaderFooter;
         blocks.Add(new TypstPageSettingsBlock
         {
             PageSetup = nextPageSetup,
-            HeaderFooter = nextHeaderFooter,
+            HeaderFooter = currentHeaderFooter,
             PageBreakBefore = forcePageBreak && !HasPageBreak(paragraph)
         });
 
         currentPageSetup = nextPageSetup;
-        currentHeaderFooter = nextHeaderFooter;
     }
 
     private bool AreHeaderFooterSetsEqual(TypstHeaderFooterSet left, TypstHeaderFooterSet right, TypstPageSetup pageSetup)
@@ -718,6 +737,29 @@ public sealed class DocxToTypstConverter : IDisposable
     private static bool HasHeaderFooterReference(SectionProperties? sectionProperties, HeaderFooterValues variant)
         => sectionProperties?.Elements<HeaderReference>().Any(reference => reference.Type?.Value == variant) == true
             || sectionProperties?.Elements<FooterReference>().Any(reference => reference.Type?.Value == variant) == true;
+
+    private static bool HasAnyHeaderFooterReference(SectionProperties? sectionProperties)
+        => sectionProperties?.Elements<HeaderReference>().Any() == true
+            || sectionProperties?.Elements<FooterReference>().Any() == true;
+
+    private List<TypstHeaderFooterSet> ComputeEffectiveHeaderFooterSets(List<SectionProperties> sections, TypstPageSetup basePageSetup)
+    {
+        List<TypstHeaderFooterSet> effectiveSets = [];
+        TypstHeaderFooterSet? current = null;
+        for (int i = 0; i < sections.Count; i++)
+        {
+            SectionProperties section = sections[i];
+            TypstPageSetup sectionPageSetup = ExtractPageSetup(section, basePageSetup);
+            if (HasAnyHeaderFooterReference(section) || current is null)
+            {
+                current = ConvertHeaderFooterSet(section, sectionPageSetup);
+            }
+
+            effectiveSets.Add(current);
+        }
+
+        return effectiveSets;
+    }
 
     private List<TypstBlock> ConvertHeaderFooterBlocks(SectionProperties? sectionProperties, bool isHeader, HeaderFooterValues variant, TypstPageSetup pageSetup)
     {
@@ -2064,6 +2106,19 @@ public sealed class DocxToTypstConverter : IDisposable
 
         Match match = Regex.Match(element.OuterXml, $"\\bw:{Regex.Escape(localName)}=\"([^\"]+)\"");
         return match.Success ? match.Groups[1].Value : null;
+    }
+
+    private static string? MapFrameAlignment(ParagraphProperties? properties)
+    {
+        Wp.FrameProperties? frameProperties = properties?.GetFirstChild<Wp.FrameProperties>();
+        string? xAlign = GetXmlAttribute(frameProperties, "xAlign");
+        return xAlign?.ToLowerInvariant() switch
+        {
+            "right" => "right",
+            "center" => "center",
+            "left" => "left",
+            _ => null
+        };
     }
 
     private static string? MapAlignment(JustificationValues value)
