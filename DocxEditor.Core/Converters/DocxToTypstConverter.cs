@@ -492,6 +492,8 @@ public sealed class DocxToTypstConverter : IDisposable
             after = (after ?? 0) + (trailingLineBreaks * EstimateLineBoxHeight(paragraphFontSizePt, lineBoxLeading));
         }
 
+        (TypstBorderInfo? topBorder, TypstBorderInfo? leftBorder, TypstBorderInfo? bottomBorder, TypstBorderInfo? rightBorder) = ExtractParagraphBorders(paragraph);
+
         return new TypstParagraphBlock
         {
             Inlines = inlines,
@@ -499,8 +501,10 @@ public sealed class DocxToTypstConverter : IDisposable
             SpaceBeforePt = before,
             SpaceAfterPt = after,
             LeadingPt = leading,
-            TopBorder = ExtractParagraphTopBorder(paragraph),
-            BottomBorder = ExtractParagraphBottomBorder(paragraph)
+            TopBorder = topBorder,
+            LeftBorder = leftBorder,
+            BottomBorder = bottomBorder,
+            RightBorder = rightBorder
         };
     }
 
@@ -983,24 +987,39 @@ public sealed class DocxToTypstConverter : IDisposable
         return images;
     }
 
-    private TypstBorderInfo? ExtractParagraphBottomBorder(Wp.Paragraph paragraph)
+    private (TypstBorderInfo? Top, TypstBorderInfo? Left, TypstBorderInfo? Bottom, TypstBorderInfo? Right) ExtractParagraphBorders(Wp.Paragraph paragraph)
     {
         List<OpenXmlElement?> properties = GetParagraphFormattingProperties(paragraph);
         properties.Add(paragraph.ParagraphProperties);
 
+        TypstBorderInfo? top = null;
+        TypstBorderInfo? left = null;
+        TypstBorderInfo? bottom = null;
+        TypstBorderInfo? right = null;
         for (int i = properties.Count - 1; i >= 0; i--)
         {
-            if (properties[i]?.GetFirstChild<ParagraphBorders>()?.BottomBorder is BottomBorder bottomBorder)
+            ParagraphBorders? borders = properties[i]?.GetFirstChild<ParagraphBorders>();
+            if (borders is null)
             {
-                return ExtractBorderInfo(bottomBorder);
+                continue;
             }
+
+            top ??= ExtractBorderInfo(borders.TopBorder);
+            left ??= ExtractBorderInfo(borders.LeftBorder);
+            bottom ??= ExtractBorderInfo(borders.BottomBorder);
+            right ??= ExtractBorderInfo(borders.RightBorder);
         }
 
-        return null;
+        return (top, left, bottom, right);
     }
 
-    private static TypstBorderInfo? ExtractBorderInfo(BorderType border)
+    private static TypstBorderInfo? ExtractBorderInfo(BorderType? border)
     {
+        if (border is null)
+        {
+            return null;
+        }
+
         BorderValues? borderValue = border.Val?.Value;
         if (borderValue == BorderValues.Nil || borderValue == BorderValues.None)
         {
@@ -1299,11 +1318,6 @@ public sealed class DocxToTypstConverter : IDisposable
             ? string.Join(Environment.NewLine, paragraph.ImageBlocks.Select(RenderImage))
             : RenderInlines(paragraph.Inlines);
 
-        if (paragraph.BottomBorder is not null)
-        {
-            content += $"\n#line(length: 100%, stroke: {FormatPt(paragraph.BottomBorder.SizeEighthPoints / 8.0)} + rgb(\"#{paragraph.BottomBorder.Color}\"))";
-        }
-
         if (paragraph.Alignment == "justify" && !hasImages)
         {
             List<string> parOptions = ["justify: true"];
@@ -1330,11 +1344,19 @@ public sealed class DocxToTypstConverter : IDisposable
             content = $"#par(leading: {FormatPt(paragraph.LeadingPt.Value)})[{content}]";
         }
 
-        if (paragraph.TopBorder is not null)
+
+        if (!hasImages && HasBoxBorder(paragraph))
+        {
+            content = RenderBoxBorder(paragraph, content);
+        }
+        else if (paragraph.TopBorder is not null)
         {
             content = $"#line(length: 100%, stroke: {FormatPt(paragraph.TopBorder.SizeEighthPoints / 8.0)} + rgb(\"#{paragraph.TopBorder.Color}\"))\n{content}";
         }
-
+        else if (paragraph.BottomBorder is not null)
+        {
+            content += $"\n#line(length: 100%, stroke: {FormatPt(paragraph.BottomBorder.SizeEighthPoints / 8.0)} + rgb(\"#{paragraph.BottomBorder.Color}\"))";
+        }
         List<string> spacingOptions = [];
         if (paragraph.SpaceBeforePt is > 0)
         {
@@ -1360,6 +1382,40 @@ public sealed class DocxToTypstConverter : IDisposable
         }
 
         return $"#block({string.Join(", ", spacingOptions)})[{content}]";
+    }
+
+    private static bool HasBoxBorder(TypstParagraphBlock paragraph)
+        => paragraph.LeftBorder is not null || paragraph.RightBorder is not null;
+
+    private static string RenderBoxBorder(TypstParagraphBlock paragraph, string content)
+    {
+        List<string> strokes = [];
+        if (paragraph.TopBorder is not null)
+        {
+            strokes.Add($"top: {FormatPt(paragraph.TopBorder.SizeEighthPoints / 8.0)} + rgb(\"#{paragraph.TopBorder.Color}\")");
+        }
+
+        if (paragraph.LeftBorder is not null)
+        {
+            strokes.Add($"left: {FormatPt(paragraph.LeftBorder.SizeEighthPoints / 8.0)} + rgb(\"#{paragraph.LeftBorder.Color}\")");
+        }
+
+        if (paragraph.BottomBorder is not null)
+        {
+            strokes.Add($"bottom: {FormatPt(paragraph.BottomBorder.SizeEighthPoints / 8.0)} + rgb(\"#{paragraph.BottomBorder.Color}\")");
+        }
+
+        if (paragraph.RightBorder is not null)
+        {
+            strokes.Add($"right: {FormatPt(paragraph.RightBorder.SizeEighthPoints / 8.0)} + rgb(\"#{paragraph.RightBorder.Color}\")");
+        }
+
+        if (strokes.Count == 0)
+        {
+            return content;
+        }
+
+        return $"#box(width: 100%, stroke: ({string.Join(", ", strokes)}), inset: 4pt)[{content}]";
     }
 
     private string RenderList(TypstListBlock list)
