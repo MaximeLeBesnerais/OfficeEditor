@@ -49,6 +49,8 @@ public sealed class DocxToTypstConverter : IDisposable
         MainDocumentPart? mainPart = document.MainDocumentPart;
         List<SectionProperties> sections = GetSectionPropertiesInDocumentOrder(body);
         TypstPageSetup pageSetup = ExtractPageSetup(sections.FirstOrDefault());
+        TypstPageSetup currentPageSetup = pageSetup;
+        TypstHeaderFooterSet currentHeaderFooter = ConvertHeaderFooterSet(sections.FirstOrDefault(), pageSetup);
         List<TypstBlock> blocks = [];
         List<OpenXmlElement> elements = body.Elements().ToList();
         for (int i = 0; i < elements.Count; i++)
@@ -62,8 +64,8 @@ public sealed class DocxToTypstConverter : IDisposable
                     i = lastListIndex;
                     break;
                 case Wp.Paragraph paragraph:
-                    AddParagraphBlocks(blocks, paragraph, mainPart, pageSetup);
-                    AddSectionBoundary(blocks, paragraph, sections, pageSetup);
+                    AddParagraphBlocks(blocks, paragraph, mainPart, currentPageSetup);
+                    AddSectionBoundary(blocks, paragraph, sections, ref currentPageSetup, ref currentHeaderFooter);
                     break;
                 case Wp.Table table:
                     blocks.Add(ConvertTable(table));
@@ -611,7 +613,7 @@ public sealed class DocxToTypstConverter : IDisposable
         return new TypstTableBlock { Rows = rows, HasBorders = table.Descendants<TableBorders>().Any() || GetTableStyle(table)?.Descendants<TableBorders>().Any() == true };
     }
 
-    private void AddSectionBoundary(List<TypstBlock> blocks, Wp.Paragraph paragraph, IReadOnlyList<SectionProperties> sections, TypstPageSetup currentPageSetup)
+    private void AddSectionBoundary(List<TypstBlock> blocks, Wp.Paragraph paragraph, IReadOnlyList<SectionProperties> sections, ref TypstPageSetup currentPageSetup, ref TypstHeaderFooterSet currentHeaderFooter)
     {
         SectionProperties? sectionProperties = paragraph.ParagraphProperties?.GetFirstChild<SectionProperties>();
         if (sectionProperties is null)
@@ -627,12 +629,56 @@ public sealed class DocxToTypstConverter : IDisposable
 
         SectionProperties nextSection = sections[sectionIndex + 1];
         TypstPageSetup nextPageSetup = ExtractPageSetup(nextSection, currentPageSetup);
+        TypstHeaderFooterSet nextHeaderFooter = ConvertHeaderFooterSet(nextSection, nextPageSetup);
+
+        SectionMarkValues sectionBreakType = sectionProperties.GetFirstChild<SectionType>()?.Val?.Value ?? SectionMarkValues.NextPage;
+        bool forcePageBreak = sectionBreakType == SectionMarkValues.NextPage
+            || sectionBreakType == SectionMarkValues.EvenPage
+            || sectionBreakType == SectionMarkValues.OddPage;
+
+        // For continuous-style breaks, only emit a boundary block if something meaningful
+        // (page geometry or header/footer content) actually changes. Otherwise the section
+        // break is a layout no-op and would otherwise be rendered as a spurious page break.
+        if (!forcePageBreak && currentPageSetup == nextPageSetup && AreHeaderFooterSetsEqual(currentHeaderFooter, nextHeaderFooter, currentPageSetup))
+        {
+            return;
+        }
+
         blocks.Add(new TypstPageSettingsBlock
         {
             PageSetup = nextPageSetup,
-            HeaderFooter = ConvertHeaderFooterSet(nextSection, nextPageSetup),
-            PageBreakBefore = !HasPageBreak(paragraph)
+            HeaderFooter = nextHeaderFooter,
+            PageBreakBefore = forcePageBreak && !HasPageBreak(paragraph)
         });
+
+        currentPageSetup = nextPageSetup;
+        currentHeaderFooter = nextHeaderFooter;
+    }
+
+    private bool AreHeaderFooterSetsEqual(TypstHeaderFooterSet left, TypstHeaderFooterSet right, TypstPageSetup pageSetup)
+    {
+        if (left.HasTitlePage != right.HasTitlePage || left.ApplyDefaultAfterFirstPageBreak != right.ApplyDefaultAfterFirstPageBreak)
+        {
+            return false;
+        }
+
+        (string? leftHeader, string? leftHeaderDecorative) = RenderHeaderFooterContent(left, isHeader: true, pageSetup);
+        (string? rightHeader, string? rightHeaderDecorative) = RenderHeaderFooterContent(right, isHeader: true, pageSetup);
+        if (leftHeader != rightHeader || leftHeaderDecorative != rightHeaderDecorative)
+        {
+            return false;
+        }
+
+        (string? leftFooter, string? leftFooterDecorative) = RenderHeaderFooterContent(left, isHeader: false, pageSetup);
+        (string? rightFooter, string? rightFooterDecorative) = RenderHeaderFooterContent(right, isHeader: false, pageSetup);
+        return leftFooter == rightFooter && leftFooterDecorative == rightFooterDecorative;
+    }
+
+    private (string? Content, string? Decorative) RenderHeaderFooterContent(TypstHeaderFooterSet set, bool isHeader, TypstPageSetup pageSetup)
+    {
+        List<TypstBlock> firstBlocks = isHeader ? set.FirstHeaderBlocks : set.FirstFooterBlocks;
+        List<TypstBlock> defaultBlocks = isHeader ? set.DefaultHeaderBlocks : set.DefaultFooterBlocks;
+        return BuildHeaderFooterContent(firstBlocks, defaultBlocks, set.HasTitlePage, isHeader, pageSetup);
     }
 
     private TypstHeaderFooterSet ConvertHeaderFooterSet(SectionProperties? sectionProperties, TypstPageSetup pageSetup)
