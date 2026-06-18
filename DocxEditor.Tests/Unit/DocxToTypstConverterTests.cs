@@ -595,6 +595,60 @@ public sealed class DocxToTypstConverterTests : IDisposable
     }
 
     [Fact]
+    public void GenerateTypstSource_WithVmlFillColorThemeSuffix_RendersHexFill()
+    {
+        string path = CreateDocx("vml-fillcolor-theme-suffix.docx", body =>
+        {
+            body.Append(new W.Paragraph(new W.Run(CreateVmlPicture("""
+                <v:shape xmlns:v="urn:schemas-microsoft-com:vml" id="Rect1" style="width:90pt;height:18pt" fillcolor="#4364ad [3215]" />
+                """))));
+        });
+
+        string typst = ConvertToTypst(path);
+
+        Assert.Contains("#rect(width: 90pt, height: 18pt, fill: rgb(\"#4364AD\"), stroke: none)", typst);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_WithVmlGfxDataThemeFill_RendersResolvedFill()
+    {
+        const string GfxData = "UEsDBBQAAAAIABcK01wYF20QngAAAMgAAAATAAAAW0NvbnRlbnRfVHlwZXNdLnhtbCWOSw6DMAxE95wi8h5Cu6iqisCinxPQA1jBUNTgRMSt4PYNZWk9z8yrmmVy6ktzHD0bOBQlKGLru5EHA8/2kZ9BRUHu0HkmAytFaOqsatdAUaUwRwMvkXDROtoXTRgLH4gT6f08oaRzHnRA+8aB9LEsT9p6FmLJZeuAOlOqulGPHyfqviSyu6QGUNf9dVszgCG40aIkrDeqk4f+i9Q/UEsDBBQAAAAIABcK01zTnnFwBgEAAEoCAAAOAAAAZHJzL2Uyb0RvYy54bWyt0sFuwyAMANB7vwJxX0hzmKYoSQ+rep607QMsIAkSYIRZ0/39aBotWXebdsRGD9u4OVycZWcdyaBv+b4oOdNeojJ+aPn72+nhiTNK4BVY9Lrln5r4ods1U6h1hSNapSPLhqd6Ci0fUwq1ECRH7YAKDNrnZI/RQcrHOAgVYcq4s6Iqy0cxYVQhotREOXq8JXm3Y6yBeogQRiMXH/7AOzB+1rbeERKwj2h+ec7IiIR9KiQ6gX1vpJ4rzNi+vKv1dYSgFzvrU8gToPA9C/pPffEpvMQ1NLdEaI06GWu76+H6kn62kZ3BtjxdKi66RmxvraC4F2+R3MMyL/FjYPOXrKG8AmK7A90XUEsBAhQDFAAAAAgAFwrTXBgXbRCeAAAAyAAAABMAAAAAAAAAAAAAAIABAAAAAFtDb250ZW50X1R5cGVzXS54bWxQSwECFAMUAAAACAAXCtNc055xcAYBAABKAgAADgAAAAAAAAAAAAAAgAHPAAAAZHJzL2Uyb0RvYy54bWxQSwUGAAAAAAIAAgB9AAAAAQIAAAAA";
+        string path = CreateDocx("vml-gfxdata-theme-fill.docx", body =>
+        {
+            body.Append(new W.Paragraph(new W.Run(CreateVmlPicture($"""
+                <v:rect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office" id="Rect1" style="width:90pt;height:18pt" fillcolor="none" o:gfxdata="{GfxData}" />
+                """))));
+        }, mainPart =>
+        {
+            ThemePart themePart = mainPart.ThemePart ?? mainPart.AddNewPart<ThemePart>();
+            themePart.Theme = new A.Theme(
+                new A.ThemeElements(
+                    new A.ColorScheme(
+                        new A.Dark1Color(new A.RgbColorModelHex { Val = "000000" }),
+                        new A.Light1Color(new A.RgbColorModelHex { Val = "FFFFFF" }),
+                        new A.Dark2Color(new A.RgbColorModelHex { Val = "4364AD" }),
+                        new A.Light2Color(new A.RgbColorModelHex { Val = "E7E6E6" }),
+                        new A.Accent1Color(new A.RgbColorModelHex { Val = "112233" }),
+                        new A.Accent2Color(new A.RgbColorModelHex { Val = "445566" }),
+                        new A.Accent3Color(new A.RgbColorModelHex { Val = "778899" }),
+                        new A.Accent4Color(new A.RgbColorModelHex { Val = "AABBCC" }),
+                        new A.Accent5Color(new A.RgbColorModelHex { Val = "DDEEFF" }),
+                        new A.Accent6Color(new A.RgbColorModelHex { Val = "123456" }),
+                        new A.Hyperlink(new A.RgbColorModelHex { Val = "0000FF" }),
+                        new A.FollowedHyperlinkColor(new A.RgbColorModelHex { Val = "800080" })) { Name = "Test" },
+                    new A.FontScheme(
+                        new A.MajorFont(new A.LatinFont { Typeface = "Aptos Display" }),
+                        new A.MinorFont(new A.LatinFont { Typeface = "Carlito" })) { Name = "Test" },
+                    new A.FormatScheme { Name = "Test" })) { Name = "Test" };
+            themePart.Theme.Save();
+        });
+
+        string typst = ConvertToTypst(path);
+
+        Assert.Contains("#rect(width: 90pt, height: 18pt, fill: rgb(\"#4364AD\"), stroke: none)", typst);
+    }
+
+    [Fact]
     public void GenerateTypstSource_WithHeaderAndFooterText_RendersPageHeaderAndFooter()
     {
         string path = CreateDocx("header-footer-text.docx", body => body.Append(CreateParagraph("Body text")), mainPart =>
