@@ -66,6 +66,8 @@ public sealed record TypstPageSettingsBlock : TypstBlock
 public sealed record TypstListBlock : TypstBlock
 {
     public bool Ordered { get; init; }
+    public string? NumberingPattern { get; init; }
+    public int? Start { get; init; }
     public List<TypstListItem> Items { get; init; } = [];
 }
 
