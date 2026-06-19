@@ -41,13 +41,15 @@ public class DocumentBuilder : IDocumentBuilder
     private readonly Body _body;
     private readonly bool _isNewDocument;
     private readonly Dictionary<string, Style> _cachedStyles;
-    private readonly string _filePath;
+    private readonly string? _filePath;
+    private readonly MemoryStream? _documentStream;
 
-    private DocumentBuilder(WordprocessingDocument document, bool isNew, string filePath)
+    private DocumentBuilder(WordprocessingDocument document, bool isNew, string? filePath, MemoryStream? documentStream = null)
     {
         _document = document;
         _isNewDocument = isNew;
         _filePath = filePath;
+        _documentStream = documentStream;
         _body = document.MainDocumentPart!.Document!.Body!;
         _cachedStyles = LoadStyles();
     }
@@ -68,6 +70,30 @@ public class DocumentBuilder : IDocumentBuilder
     {
         var document = WordprocessingDocument.Open(path, true);
         return new DocumentBuilder(document, false, path);
+    }
+
+    /// <summary>
+    /// Opens an existing DOCX document from a stream.
+    /// The stream content is copied to an internal buffer; the caller retains ownership of the original stream.
+    /// </summary>
+    public static IDocumentBuilder Open(Stream stream)
+    {
+        var memoryStream = new MemoryStream();
+        stream.CopyTo(memoryStream);
+        memoryStream.Position = 0;
+        var document = WordprocessingDocument.Open(memoryStream, true);
+        return new DocumentBuilder(document, false, null, memoryStream);
+    }
+
+    /// <summary>
+    /// Opens an existing DOCX document from a byte array (convenience overload).
+    /// </summary>
+    public static IDocumentBuilder Open(byte[] bytes)
+    {
+        var memoryStream = new MemoryStream(bytes);
+        memoryStream.Position = 0;
+        var document = WordprocessingDocument.Open(memoryStream, true);
+        return new DocumentBuilder(document, false, null, memoryStream);
     }
 
     public IDocumentBuilder AddParagraph(string text, string? style = null)
@@ -199,6 +225,41 @@ public class DocumentBuilder : IDocumentBuilder
         {
             using var clone = _document.Clone(path);
         }
+    }
+
+    /// <summary>
+    /// Writes the current document content to the provided stream and leaves it open.
+    /// </summary>
+    public void Save(Stream stream)
+    {
+        _document.Save();
+
+        if (_documentStream != null)
+        {
+            _documentStream.Position = 0;
+            _documentStream.CopyTo(stream);
+            _documentStream.Position = 0;
+        }
+        else
+        {
+            using var fileStream = File.OpenRead(_filePath!);
+            fileStream.CopyTo(stream);
+        }
+    }
+
+    /// <summary>
+    /// Returns the current document content as a byte array.
+    /// </summary>
+    public byte[] SaveToBytes()
+    {
+        _document.Save();
+
+        if (_documentStream != null)
+        {
+            return _documentStream.ToArray();
+        }
+
+        return File.ReadAllBytes(_filePath!);
     }
 
     private Paragraph CreateParagraph(string text, string? style)
@@ -415,5 +476,6 @@ public class DocumentBuilder : IDocumentBuilder
     public void Dispose()
     {
         _document.Dispose();
+        _documentStream?.Dispose();
     }
 }
