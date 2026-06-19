@@ -4,6 +4,12 @@
     <TargetFramework>net9.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <PackageId>MaximeLB.PptxEditor.Core</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>MaximeLB</Authors>
+    <Description>PPTX presentation creation, editing, and Typst conversion library</Description>
+    <RepositoryUrl>https://github.com/MaximeLeBesnerais/DocxEditor</RepositoryUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
 
   <ItemGroup>
