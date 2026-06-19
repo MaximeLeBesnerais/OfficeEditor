@@ -612,7 +612,7 @@ public sealed class DocxToTypstConverterTests : IDisposable
     [Fact]
     public void GenerateTypstSource_WithVmlGfxDataThemeFill_RendersResolvedFill()
     {
-        const string GfxData = "UEsDBBQAAAAIABcK01wYF20QngAAAMgAAAATAAAAW0NvbnRlbnRfVHlwZXNdLnhtbCWOSw6DMAxE95wi8h5Cu6iqisCinxPQA1jBUNTgRMSt4PYNZWk9z8yrmmVy6ktzHD0bOBQlKGLru5EHA8/2kZ9BRUHu0HkmAytFaOqsatdAUaUwRwMvkXDROtoXTRgLH4gT6f08oaRzHnRA+8aB9LEsT9p6FmLJZeuAOlOqulGPHyfqviSyu6QGUNf9dVszgCG40aIkrDeqk4f+i9Q/UEsDBBQAAAAIABcK01zTnnFwBgEAAEoCAAAOAAAAZHJzL2Uyb0RvYy54bWyt0sFuwyAMANB7vwJxX0hzmKYoSQ+rep607QMsIAkSYIRZ0/39aBotWXebdsRGD9u4OVycZWcdyaBv+b4oOdNeojJ+aPn72+nhiTNK4BVY9Lrln5r4ods1U6h1hSNapSPLhqd6Ci0fUwq1ECRH7YAKDNrnZI/RQcrHOAgVYcq4s6Iqy0cxYVQhotREOXq8JXm3Y6yBeogQRiMXH/7AOzB+1rbeERKwj2h+ec7IiIR9KiQ6gX1vpJ4rzNi+vKv1dYSgFzvrU8gToPA9C/pPffEpvMQ1NLdEaI06GWu76+H6kn62kZ3BtjxdKi66RmxvraC4F2+R3MMyL/FjYPOXrKG8AmK7A90XUEsBAhQDFAAAAAgAFwrTXBgXbRCeAAAAyAAAABMAAAAAAAAAAAAAAIABAAAAAFtDb250ZW50X1R5cGVzXS54bWxQSwECFAMUAAAACAAXCtNc055xcAYBAABKAgAADgAAAAAAAAAAAAAAgAHPAAAAZHJzL2Uyb0RvYy54bWxQSwUGAAAAAAIAAgB9AAAAAQIAAAAA";
+        const string GfxData = "UEsDBBQAAAAIABcK01wYF20QngAAAMgAAAATAAAAW0NvbnRlbnRfVHlwZXNdLnhtbCWOSw6DMAxE95wi8h5Cu6iqisCinxPQA1jBUNTgRMSt4PYNZWk9z8yrmmVy6ktzHD0bOBQlKGLru5EHA8/2kZ9BRUHu0HkmAytFaOqsatdAUaUwRwMvkXDROtoXTRgLH4gT6f08oaRzHnRA+8aB9LEsT9p6FmLJZeuAOlOqulGPHyfqviSyu6QGUNf9dVszgCG40aIkrDeqk4f+i9Q/UEsDBBQAAAAIABcK01zTnnFwBgEAAEoCAAAOAAAAZHJzL2Uyb0RvYy54bWyt0sFuwyAMANB7vwJxX0hzmKYoSQ+rep607QMsIAkSYIRZ0/39aBotWXebdsRGD9u4OVycZWcdyaBv+b4oOdNeojJ+aPn72+nhiTNK4BVY9Lrln5r4ods1U6h1hSNapSPLhqd6Ci0fUwq1ECRH7YAKDNrnZI/RQcrHOAgVYcq4s6Iqy0cxYVQhotREOXq8JXm3Y6yBeogQRiMXH/7AOzB+1rbeERKwj2h+ec7IiIR9KiQ6gX1vpJ4rzNi+vKv1dYSgFzvrU8gToPA9C/pPffEpvMQ1NLdEaI06GWu76+H6kn62kZ3BtjxdKi66RmxvraC4F2+R3MMyL/FjYPOXrKG8AmK7A90XUEsBAhQDFAAAAAgAFwrTXBgXbRCeAAAAyAAAABMAAAAAAAAAAAAAAIABAAAAAFtDb250ZW50X1R5cGVzXS54bWxQSwECFAMUAAAACAAXCtNc055xcAYBAABKAgAADgAAAAAAAAAAAAAAgAHPAAAAZHJzL2Uyb0RvYy54bWwt0sFuwyAMANB7vwJxX0hzmKYoSQ+rep607QMsIAkSYIRZ0/39aBotWXebdsRGD9u4OVycZWcdyaBv+b4oOdNeojJ+aPn72+nhiTNK4BVY9Lrln5r4ods1U6h1hSNapSPLhqd6Ci0fUwq1ECRH7YAKDNrnZI/RQcrHOAgVYcq4s6Iqy0cxYVQhotREOXq8JXm3Y6yBeogQRiMXH/7AOzB+1rbeERKwj2h+ec7IiIR9KiQ6gX1vpJ4rzNi+vKv1dYSgFzvrU8gToPA9C/pPffEpvMQ1NLdEaI06GWu76+H6kn62kZ3BtjxdKi66RmxvraC4F2+R3MMyL/FjYPOXrKG8AmK7A90XUEsBAhQDFAAAAAgAFwrTXBgXbRCeAAAAyAAAABMAAAAAAAAAAAAAAIABAAAAAFtDb250ZW50X1R5cGVzXS54bWxQSwECFAMUAAAACAAXCtNc055xcAYBAABKAgAADgAAAAAAAAAAAAAAgAHPAAAAZHJzL2Uyb0RvYy54bWxQSwUGAAAAAAIAAgB9AAAAAQIAAAAA";
         string path = CreateDocx("vml-gfxdata-theme-fill.docx", body =>
         {
             body.Append(new W.Paragraph(new W.Run(CreateVmlPicture($"""
@@ -646,6 +646,176 @@ public sealed class DocxToTypstConverterTests : IDisposable
         string typst = ConvertToTypst(path);
 
         Assert.Contains("#rect(width: 90pt, height: 18pt, fill: rgb(\"#4364AD\"), stroke: none)", typst);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_WithWpcCanvasProcessBox_RendersPlacedRectWithGeometryAndText()
+    {
+        string drawingXml = """
+            <wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+                       xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+                       xmlns:wpc="http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas"
+                       xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape"
+                       xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+                       distT="0" distB="0" distL="0" distR="0">
+              <wp:extent cx="6120130" cy="3871595"/>
+              <wp:docPr id="1" name="Canvas"/>
+              <a:graphic>
+                <a:graphicData uri="http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas">
+                  <wpc:wpc>
+                    <wpc:bg/>
+                    <wpc:whole/>
+                    <wps:wsp>
+                      <wps:cNvPr id="1" name="ProcessBox"/>
+                      <wps:cNvSpPr/>
+                      <wps:spPr>
+                        <a:xfrm>
+                          <a:off x="220474" y="1818962"/>
+                          <a:ext cx="1476000" cy="468000"/>
+                        </a:xfrm>
+                        <a:prstGeom prst="flowChartAlternateProcess"/>
+                        <a:solidFill><a:srgbClr val="4472C4"/></a:solidFill>
+                        <a:ln w="19050"><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill></a:ln>
+                      </wps:spPr>
+                      <wps:txbx>
+                        <w:txbxContent>
+                          <w:p><w:r><w:t>Process text</w:t></w:r></w:p>
+                        </w:txbxContent>
+                      </wps:txbx>
+                      <wps:bodyPr/>
+                    </wps:wsp>
+                  </wpc:wpc>
+                </a:graphicData>
+              </a:graphic>
+            </wp:inline>
+            """;
+        string path = CreateDocx("wpc-process-box.docx", body =>
+            body.Append(new W.Paragraph(new W.Run(CreateDrawingXml(drawingXml)))));
+
+        string typst = ConvertToTypst(path);
+
+        Assert.Contains("#place(dx: 17.36pt, dy: 143.225pt)[#rect(width: 116.22pt, height: 36.85pt, fill: rgb(\"#4472C4\"), stroke: 1.5pt + rgb(\"#FFFFFF\"), inset: 4pt)[Process text]]", typst);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_WithWpcCanvasConnector_RendersPlacedLine()
+    {
+        string drawingXml = """
+            <wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+                       xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+                       xmlns:wpc="http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas"
+                       xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape"
+                       distT="0" distB="0" distL="0" distR="0">
+              <wp:extent cx="6120130" cy="3871595"/>
+              <wp:docPr id="1" name="Canvas"/>
+              <a:graphic>
+                <a:graphicData uri="http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas">
+                  <wpc:wpc>
+                    <wpc:bg/>
+                    <wpc:whole/>
+                    <wps:wsp>
+                      <wps:cNvPr id="2" name="Connector"/>
+                      <wps:cNvCnPr/>
+                      <wps:spPr>
+                        <a:xfrm>
+                          <a:off x="220474" y="545058"/>
+                          <a:ext cx="2113436" cy="1507904"/>
+                        </a:xfrm>
+                        <a:prstGeom prst="bentConnector4"/>
+                        <a:ln w="19050"><a:solidFill><a:srgbClr val="5B9BD5"/></a:solidFill></a:ln>
+                      </wps:spPr>
+                      <wps:bodyPr/>
+                    </wps:wsp>
+                  </wpc:wpc>
+                </a:graphicData>
+              </a:graphic>
+            </wp:inline>
+            """;
+        string path = CreateDocx("wpc-connector.docx", body =>
+            body.Append(new W.Paragraph(new W.Run(CreateDrawingXml(drawingXml)))));
+
+        string typst = ConvertToTypst(path);
+
+        Assert.Contains("#place(dx: 17.36pt, dy: 42.918pt)[#line(start: (0pt, 0pt), end: (166.412pt, 118.733pt), stroke: 1.5pt + rgb(\"#5B9BD5\"))]", typst);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_WithWpcCanvasCircleMarker_RendersCircleWithText()
+    {
+        string drawingXml = """
+            <wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+                       xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+                       xmlns:wpc="http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas"
+                       xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape"
+                       xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+                       distT="0" distB="0" distL="0" distR="0">
+              <wp:extent cx="6120130" cy="3871595"/>
+              <wp:docPr id="1" name="Canvas"/>
+              <a:graphic>
+                <a:graphicData uri="http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas">
+                  <wpc:wpc>
+                    <wpc:bg/>
+                    <wpc:whole/>
+                    <wps:wsp>
+                      <wps:cNvPr id="3" name="Marker"/>
+                      <wps:cNvSpPr/>
+                      <wps:spPr>
+                        <a:xfrm>
+                          <a:off x="760606" y="139765"/>
+                          <a:ext cx="359410" cy="359410"/>
+                        </a:xfrm>
+                        <a:prstGeom prst="flowChartConnector"/>
+                      </wps:spPr>
+                      <wps:txbx>
+                        <w:txbxContent>
+                          <w:p><w:r><w:t>A</w:t></w:r></w:p>
+                        </w:txbxContent>
+                      </wps:txbx>
+                      <wps:bodyPr/>
+                    </wps:wsp>
+                  </wpc:wpc>
+                </a:graphicData>
+              </a:graphic>
+            </wp:inline>
+            """;
+        string path = CreateDocx("wpc-marker.docx", body =>
+            body.Append(new W.Paragraph(new W.Run(CreateDrawingXml(drawingXml)))));
+
+        string typst = ConvertToTypst(path);
+
+        Assert.Contains("#circle(radius: 14.15pt, fill: none, stroke: none)", typst);
+        Assert.Contains("#align(center + horizon)[A]", typst);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_WithVmlGroupCanvas_ScalesChildCoordinates()
+    {
+        string path = CreateDocx("vml-group-scaled.docx", body =>
+        {
+            body.Append(new W.Paragraph(new W.Run(CreateVmlPicture("""
+                <v:group xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+                         coordsize="61201,38715" style="width:481.9pt;height:304.85pt">
+                  <v:shape id="ScaledBox" type="#_x0000_t176" style="position:absolute;left:2204;top:18189;width:14760;height:4680" fillcolor="#4472C4" strokecolor="#FFFFFF">
+                    <v:textbox>
+                      <w:txbxContent>
+                        <w:p><w:r><w:t>Scaled text</w:t></w:r></w:p>
+                      </w:txbxContent>
+                    </v:textbox>
+                  </v:shape>
+                </v:group>
+                """))));
+        });
+
+        string typst = ConvertToTypst(path);
+
+        Assert.Contains("#place(dx: 17.35", typst);
+        Assert.Contains("dy: 143.22", typst);
+        Assert.Contains("#rect(", typst);
+        Assert.Contains("width: 116.22", typst);
+        Assert.Contains("height: 36.85", typst);
+        Assert.Contains("fill: rgb(\"#4472C4\")", typst);
+        Assert.Contains("stroke: rgb(\"#FFFFFF\")", typst);
+        Assert.Contains("[Scaled text]", typst);
     }
 
     [Fact]
@@ -1747,6 +1917,13 @@ public sealed class DocxToTypstConverterTests : IDisposable
         Picture picture = new();
         picture.InnerXml = innerXml;
         return picture;
+    }
+
+    private static Drawing CreateDrawingXml(string innerXml)
+    {
+        Drawing drawing = new();
+        drawing.InnerXml = innerXml;
+        return drawing;
     }
 
     private static W.Paragraph CreateListParagraph(string text, int numberingId) => new(
