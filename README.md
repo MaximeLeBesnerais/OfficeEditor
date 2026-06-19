@@ -20,6 +20,8 @@ A modern .NET 9 suite for creating and editing Office documents (DOCX, PPTX, XLS
 
 ### CLI
 
+> **Note:** The `officeeditor` command is available from source via `dotnet run --project OfficeEditor.Cli -- [command]`. It is not yet published as a standalone dotnet tool.
+
 ```bash
 # Create documents (auto-detects format from extension)
 officeeditor create output.docx --text "Hello World"
@@ -162,17 +164,28 @@ builder.MergeVariables(new Dictionary<string, string>
 
 ## Installation
 
-```bash
-# Core libraries (pick what you need)
-dotnet add package OfficeEditor.Core
-dotnet add package DocxEditor.Core
-dotnet add package PptxEditor.Core
-dotnet add package XlsxEditor.Core
+> **Pre-1.0 Notice:** The packages are **not yet published on NuGet**. Build from source for now.
 
-# CLI tools
-dotnet tool install OfficeEditor.Cli
-dotnet tool install DocxEditor.Cli
+```bash
+# Clone and build from source
+git clone https://github.com/maximeleb/OfficeEditor.git
+cd OfficeEditor
+dotnet build
+
+# Run the CLI from source (not yet available as a dotnet tool)
+dotnet run --project OfficeEditor.Cli -- --help
 ```
+
+**Planned NuGet packages** (coming soon):
+
+| Package | Description |
+|---------|-------------|
+| `MaximeLB.OfficeEditor.Core` | Shared abstractions, services, variables |
+| `MaximeLB.DocxEditor.Core` | Word (DOCX) creation & editing |
+| `MaximeLB.PptxEditor.Core` | PowerPoint (PPTX) creation, editing & Typst export |
+| `MaximeLB.XlsxEditor.Core` | Excel (XLSX) creation & editing |
+| `MaximeLB.OfficeEditor.Cli` | Unified CLI tool |
+| `MaximeLB.TypstBridge.Managed` | In-process Typst compiler bridge |
 
 ## Visual PDF Diffs
 
@@ -343,6 +356,8 @@ engine.Process(document, data);
 
 ## CLI Commands
 
+> **Note:** The `officeeditor` and `docxeditor` commands are available from source (via `dotnet run --project OfficeEditor.Cli` / `dotnet run --project DocxEditor.Cli`). They are not yet published as standalone dotnet tools.
+
 ### Unified CLI (`officeeditor`)
 
 | Command | Description |
@@ -445,6 +460,23 @@ dotnet test
 `TypstCompilerService` uses TypstBridge as the primary in-process backend for PPTX exports. TypstBridge supports PDF, SVG, PNG, multi-page outputs, working-directory assets, explicit font paths, PNG PPI, and diagnostics.
 
 `typstsharp` remains referenced for fallback/legacy compatibility, and the external `typst` CLI remains a safety net when native compilation is unavailable. Install the `typst` binary if you need CLI fallback support in your environment.
+
+## Status & Limitations
+
+**Version:** 0.1.0 (pre-1.0). The public API may change between versions.
+
+**Platform Support:**
+- **linux-x64** — Primary target, actively tested.
+- **Windows / macOS** — Planned, not yet verified.
+
+**Rendering (PPTX → Typst → PDF/PNG/SVG):**
+- Text, images, shapes, and tables render with good fidelity.
+- Charts, SmartArt, and animations have **partial support** — complex charts may render as simplified representations or be omitted entirely.
+- **Font fidelity** varies by platform. Installing Microsoft Office fonts (e.g., Aptos, Calibri) improves visual accuracy, but exact parity with PowerPoint is not guaranteed due to differences in font metrics, line breaking, and layout engines between PowerPoint and Typst.
+
+**Packages:**
+- Not yet published on NuGet. See [Installation](#installation) for source-build instructions.
+- The `officeeditor` CLI is not yet published as a dotnet tool. Use `dotnet run --project OfficeEditor.Cli` instead.
 
 ## License
 
