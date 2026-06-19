@@ -117,6 +117,13 @@ public sealed record TypstImageBlock : TypstBlock
     public TypstBorderInfo? TopBorder { get; init; }
 }
 
+public enum TypstShapeKind
+{
+    Rect,
+    Circle,
+    Line
+}
+
 public sealed record TypstShapeBlock : TypstBlock
 {
     public List<TypstParagraphBlock> Paragraphs { get; init; } = [];
@@ -126,6 +133,8 @@ public sealed record TypstShapeBlock : TypstBlock
     public double? HeightPt { get; init; }
     public string? FillColor { get; init; }
     public string? StrokeColor { get; init; }
+    public double? StrokeWidthPt { get; init; }
+    public TypstShapeKind Kind { get; init; } = TypstShapeKind.Rect;
 }
 
 public sealed record TypstInline
