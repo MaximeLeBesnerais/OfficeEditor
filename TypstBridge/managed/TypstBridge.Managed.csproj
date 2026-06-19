@@ -4,6 +4,12 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>12</LangVersion>
+    <PackageId>MaximeLB.TypstBridge.Managed</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>MaximeLB</Authors>
+    <Description>Managed bridge for Typst typesetting engine native bindings</Description>
+    <RepositoryUrl>https://github.com/MaximeLeBesnerais/DocxEditor</RepositoryUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <TypstBridgeLinuxX64NativeLibrary>$(MSBuildThisFileDirectory)../runtimes/linux-x64/native/libtypst_bridge.so</TypstBridgeLinuxX64NativeLibrary>
     <TypstBridgeCanBuildLinuxX64NativeAsset Condition="'$(OS)' == 'Unix' and '$([System.OperatingSystem]::IsLinux())' == 'true' and '$([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture)' == 'X64' and ('$(RuntimeIdentifier)' == '' or '$(RuntimeIdentifier)' == 'linux-x64')">true</TypstBridgeCanBuildLinuxX64NativeAsset>
   </PropertyGroup>
