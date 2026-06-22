@@ -23,6 +23,10 @@ public sealed class PptxToTypstConverter : IDisposable
     private Dictionary<string, TableStyleDefinition> _tableStyles = new(StringComparer.OrdinalIgnoreCase);
     private int _imageCounter;
 
+    /// <summary>Target PPI for upscale detection. Used to determine if a native image
+    /// is smaller than the display size and would be blurred by Typst upscaling.</summary>
+    public float Ppi { get; init; } = 150;
+
     private readonly HashSet<string> _knownSystemFonts = new(StringComparer.OrdinalIgnoreCase)
     {
         "Arial", "Helvetica", "Liberation Sans", "Liberation Serif", "DejaVu Sans", "DejaVu Serif",
@@ -213,7 +217,7 @@ public sealed class PptxToTypstConverter : IDisposable
                 GenerateTextSource(sb, element.Text!, widthStr, heightStr, availableFonts);
                 break;
             case "Image":
-                GenerateImageSource(sb, element.Image!, widthStr, heightStr);
+                GenerateImageSource(sb, element.Image!, width, height, widthStr, heightStr);
                 break;
             case "Table":
                 GenerateTableSource(sb, element.Table!, widthStr, heightStr);
@@ -1030,19 +1034,56 @@ public sealed class PptxToTypstConverter : IDisposable
         fontFamilies.Add(fontFamily);
     }
 
-    private void GenerateImageSource(StringBuilder sb, TypstImageElement image, string width, string height)
+    private void GenerateImageSource(StringBuilder sb, TypstImageElement image,
+        double widthPt, double heightPt, string widthStr, string heightStr)
     {
         var relativePath = $"assets/{image.FileName}";
 
+        // If we know the native pixel dimensions, check whether the display size
+        // would cause significant upscaling at the target PPI.  When upscaling is
+        // detected, emit the image at its native pixel dimensions (in Typst's px
+        // unit) to avoid blurriness from Typst's rasterisation pass.
+        string imageTag;
+        if (image.PixelWidth.HasValue && image.PixelHeight.HasValue
+            && Ppi > 0)
+        {
+            double targetPxW = widthPt * (Ppi / 72.0);
+            double targetPxH = heightPt * (Ppi / 72.0);
+
+            if (image.PixelWidth.Value < targetPxW * 0.9
+                || image.PixelHeight.Value < targetPxH * 0.9)
+            {
+                // Upscaling detected — emit native pixel dimensions to suppress
+                // Typst's interpolating upscale.
+                imageTag = $"#image(\"{relativePath}\","
+                    + $" width: {image.PixelWidth.Value}px,"
+                    + $" height: {image.PixelHeight.Value}px)";
+
+                // Wrap in clipping rect if corner radius is set
+                if (image.CornerRadius > 0)
+                {
+                    var radius = FormatPt(image.CornerRadius);
+                    sb.Append($"#rect(clip: true, width: {widthStr}, height: {heightStr}, radius: {radius}, [{imageTag}])");
+                    return;
+                }
+
+                sb.Append(imageTag);
+                return;
+            }
+        }
+
+        // Sufficient native resolution (or unknown format) — use the display size.
+        imageTag = $"#image(\"{relativePath}\", width: {widthStr}, height: {heightStr})";
+
+        // Wrap in clipping rect if corner radius is set
         if (image.CornerRadius > 0)
         {
-            // Wrap image in a clipping rect to apply rounded corners
             var radius = FormatPt(image.CornerRadius);
-            sb.Append($"#rect(clip: true, width: {width}, height: {height}, radius: {radius}, [#image(\"{relativePath}\", width: {width}, height: {height})])");
+            sb.Append($"#rect(clip: true, width: {widthStr}, height: {heightStr}, radius: {radius}, [{imageTag}])");
         }
         else
         {
-            sb.Append($"#image(\"{relativePath}\", width: {width}, height: {height})");
+            sb.Append(imageTag);
         }
     }
 
@@ -3005,6 +3046,70 @@ public sealed class PptxToTypstConverter : IDisposable
         return null;
     }
 
+    /// <summary>
+    /// Reads the native pixel dimensions from a PNG or JPEG byte array header.
+    /// Returns (width, height) or null for unsupported/unparseable formats.
+    /// </summary>
+    private static (int Width, int Height)? GetNativeImageDimensions(byte[] imageData)
+    {
+        if (imageData.Length < 24)
+            return null;
+
+        // PNG: signature \x89PNG\r\n\x1a\n followed by IHDR chunk at offset 8
+        // IHDR length (4 bytes) + "IHDR" (4 bytes) + width (4 bytes BE) + height (4 bytes BE)
+        if (imageData[0] == 0x89 && imageData[1] == 0x50 && imageData[2] == 0x4E && imageData[3] == 0x47
+            && imageData[4] == 0x0D && imageData[5] == 0x0A && imageData[6] == 0x1A && imageData[7] == 0x0A)
+        {
+            if (imageData.Length < 24)
+                return null;
+            int width = (imageData[16] << 24) | (imageData[17] << 16) | (imageData[18] << 8) | imageData[19];
+            int height = (imageData[20] << 24) | (imageData[21] << 16) | (imageData[22] << 8) | imageData[23];
+            return (width, height);
+        }
+
+        // JPEG: SOI marker 0xFF 0xD8
+        if (imageData[0] == 0xFF && imageData[1] == 0xD8)
+        {
+            int offset = 2;
+            while (offset + 4 < imageData.Length)
+            {
+                // JPEG markers start with 0xFF, followed by marker type (not 0xFF, not 0x00)
+                // Marker length (2 bytes BE) includes length bytes but not the marker bytes.
+                int marker = imageData[offset];
+                if (marker != 0xFF)
+                    break;
+                offset++;
+                int markerType = imageData[offset++];
+                if (markerType == 0x00 || markerType == 0xFF)
+                    continue;
+                if (markerType == 0xD9) // EOI
+                    break;
+                if (offset + 2 > imageData.Length)
+                    break;
+                int segmentLength = (imageData[offset] << 8) | imageData[offset + 1];
+                if (segmentLength < 2 || offset + segmentLength > imageData.Length)
+                    break;
+                // SOF markers: 0xC0-0xC3, 0xC5-0xC7, 0xC9-0xCB, 0xCD-0xCF
+                if ((markerType >= 0xC0 && markerType <= 0xC3)
+                    || (markerType >= 0xC5 && markerType <= 0xC7)
+                    || (markerType >= 0xC9 && markerType <= 0xCB)
+                    || (markerType >= 0xCD && markerType <= 0xCF))
+                {
+                    if (offset + 7 > imageData.Length)
+                        break;
+                    // After length (2 bytes), precision (1 byte), height (2 bytes BE), width (2 bytes BE)
+                    int jpegHeight = (imageData[offset + 3] << 8) | imageData[offset + 4];
+                    int jpegWidth = (imageData[offset + 5] << 8) | imageData[offset + 6];
+                    return (jpegWidth, jpegHeight);
+                }
+                offset += segmentLength;
+            }
+        }
+
+        // Unsupported format
+        return null;
+    }
+
     private TypstImageElement? ExtractImage(SlidePart slidePart, P.Picture picture)
     {
         var blipFill = picture.BlipFill;
@@ -3036,19 +3141,26 @@ public sealed class PptxToTypstConverter : IDisposable
         var fileName = $"image_{_imageCounter}.{extension}";
         var fullPath = Path.Combine(_assetsDirectory, fileName);
 
-        // Save image data
+        // Read image data into memory to detect native dimensions before writing
+        byte[] imageData;
         using (var stream = imagePart.GetStream())
-        using (var fileStream = File.Create(fullPath))
         {
-            stream.CopyTo(fileStream);
+            using var ms = new MemoryStream();
+            stream.CopyTo(ms);
+            imageData = ms.ToArray();
         }
+        File.WriteAllBytes(fullPath, imageData);
+
+        var dimensions = GetNativeImageDimensions(imageData);
 
         return new TypstImageElement
         {
             FileName = fileName,
             FullPath = fullPath,
             Width = 0, // Will be set from shape position
-            Height = 0
+            Height = 0,
+            PixelWidth = dimensions?.Width,
+            PixelHeight = dimensions?.Height
         };
     }
 
@@ -3080,19 +3192,26 @@ public sealed class PptxToTypstConverter : IDisposable
         var fileName = $"image_{_imageCounter}.{extension}";
         var fullPath = Path.Combine(_assetsDirectory, fileName);
 
-        // Save image data
+        // Read image data into memory to detect native dimensions before writing
+        byte[] imageData;
         using (var stream = imagePart.GetStream())
-        using (var fileStream = File.Create(fullPath))
         {
-            stream.CopyTo(fileStream);
+            using var ms = new MemoryStream();
+            stream.CopyTo(ms);
+            imageData = ms.ToArray();
         }
+        File.WriteAllBytes(fullPath, imageData);
+
+        var dimensions = GetNativeImageDimensions(imageData);
 
         return new TypstImageElement
         {
             FileName = fileName,
             FullPath = fullPath,
             Width = 0,
-            Height = 0
+            Height = 0,
+            PixelWidth = dimensions?.Width,
+            PixelHeight = dimensions?.Height
         };
     }
 
