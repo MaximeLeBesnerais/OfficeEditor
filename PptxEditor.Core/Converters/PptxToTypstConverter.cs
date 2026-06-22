@@ -1660,6 +1660,7 @@ public sealed class PptxToTypstConverter : IDisposable
             Y = offY + position.Y * scaleY,
             Width = position.Width * scaleX,
             Height = position.Height * scaleY,
+            Rotation = position.Rotation,
             Image = imageElement
         };
     }
