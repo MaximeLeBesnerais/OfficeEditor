@@ -15,8 +15,14 @@ public interface IWorkbookBuilder : IDisposable
     // Variables
     List<VariableInfo> DetectVariables();
     IWorkbookBuilder MergeVariables(Dictionary<string, string> data);
-    
+
     void Save(string? path = null);
+    void Save(Stream stream);
+    byte[] SaveToBytes();
+
+    static abstract IWorkbookBuilder Create();
+    static abstract IWorkbookBuilder Open(Stream stream);
+    static abstract IWorkbookBuilder Open(byte[] bytes);
 }
 
 public interface IWorksheetBuilder
@@ -42,20 +48,22 @@ public enum ChartType
 public class WorkbookBuilder : IWorkbookBuilder
 {
     private readonly SpreadsheetDocument _document;
-    private readonly string _path;
+    private readonly string? _path;
+    private readonly MemoryStream? _documentStream;
     private readonly bool _isNewDocument;
     private readonly Dictionary<string, WorksheetBuilder> _worksheets = new();
     private WorkbookPart _workbookPart;
     private SharedStringTablePart? _sharedStringPart;
     private uint _nextSheetId = 1;
 
-    private WorkbookBuilder(SpreadsheetDocument document, string path, bool isNew)
+    private WorkbookBuilder(SpreadsheetDocument document, string? path, bool isNew, MemoryStream? documentStream = null)
     {
         _document = document;
         _path = path;
+        _documentStream = documentStream;
         _isNewDocument = isNew;
         _workbookPart = document.WorkbookPart!;
-        
+
         if (isNew)
         {
             InitializeNewWorkbook();
@@ -78,6 +86,40 @@ public class WorkbookBuilder : IWorkbookBuilder
     {
         var document = SpreadsheetDocument.Open(path, true);
         return new WorkbookBuilder(document, path, false);
+    }
+
+    public static IWorkbookBuilder Create()
+    {
+        var memoryStream = new MemoryStream();
+        var document = SpreadsheetDocument.Create(memoryStream, SpreadsheetDocumentType.Workbook);
+        document.AddWorkbookPart();
+        return new WorkbookBuilder(document, null, true, memoryStream);
+    }
+
+    /// <summary>
+    /// Opens an existing XLSX workbook from a stream.
+    /// The stream content is copied to an internal buffer; the caller retains ownership of the original stream.
+    /// </summary>
+    public static IWorkbookBuilder Open(Stream stream)
+    {
+        var memoryStream = new MemoryStream();
+        stream.CopyTo(memoryStream);
+        memoryStream.Position = 0;
+        var document = SpreadsheetDocument.Open(memoryStream, true);
+        return new WorkbookBuilder(document, null, false, memoryStream);
+    }
+
+    /// <summary>
+    /// Opens an existing XLSX workbook from a byte array.
+    /// The bytes are copied to an internal writable buffer so the caller cannot mutate the document's backing store.
+    /// </summary>
+    public static IWorkbookBuilder Open(byte[] bytes)
+    {
+        var memoryStream = new MemoryStream(bytes.Length);
+        memoryStream.Write(bytes, 0, bytes.Length);
+        memoryStream.Position = 0;
+        var document = SpreadsheetDocument.Open(memoryStream, true);
+        return new WorkbookBuilder(document, null, false, memoryStream);
     }
 
     public IWorksheetBuilder AddWorksheet(string name)
@@ -168,22 +210,68 @@ public class WorkbookBuilder : IWorkbookBuilder
 
     public void Save(string? path = null)
     {
-        _document.Save();
-        if (!string.IsNullOrEmpty(path))
+        if (string.IsNullOrEmpty(path))
         {
-            if (Path.GetFullPath(path) == Path.GetFullPath(_path))
+            if (string.IsNullOrEmpty(_path))
             {
-                return;
+                throw new InvalidOperationException("This workbook was created in memory. Use Save(Stream) or SaveToBytes() to persist it.");
             }
 
-            using var clone = _document.Clone(path, true);
-            clone.Save();
+            _document.Save();
+            return;
         }
+
+        _document.Save();
+
+        if (!string.IsNullOrEmpty(_path) && Path.GetFullPath(path) == Path.GetFullPath(_path))
+        {
+            return;
+        }
+
+        using var clone = _document.Clone(path, true);
+        clone.Save();
+    }
+
+    /// <summary>
+    /// Writes the current workbook content to the provided stream and leaves it open.
+    /// </summary>
+    public void Save(Stream stream)
+    {
+        _document.Save();
+
+        if (_documentStream != null)
+        {
+            _documentStream.Position = 0;
+            _documentStream.CopyTo(stream);
+            _documentStream.Position = 0;
+        }
+        else
+        {
+            using var fileStream = File.OpenRead(_path!);
+            fileStream.CopyTo(stream);
+        }
+    }
+
+    /// <summary>
+    /// Returns the current workbook content as a byte array.
+    /// </summary>
+    public byte[] SaveToBytes()
+    {
+        _document.Save();
+
+        if (_documentStream != null)
+        {
+            _documentStream.Position = 0;
+            return _documentStream.ToArray();
+        }
+
+        return File.ReadAllBytes(_path!);
     }
 
     public void Dispose()
     {
         _document.Dispose();
+        _documentStream?.Dispose();
     }
 
     internal string GetSharedString(string text)
