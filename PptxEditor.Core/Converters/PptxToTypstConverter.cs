@@ -4183,7 +4183,17 @@ public sealed class PptxToTypstConverter : IDisposable
             .Replace("_", "\\_")
             .Replace("#", "\\#")
             .Replace("`", "\\`")
-            .Replace("$", "\\$");
+            .Replace("$", "\\$")
+            .Replace("%", "\\%")
+            .Replace("&", "\\&")
+            .Replace("@", "\\@")
+            .Replace("^", "\\^")
+            .Replace("~", "\\~")
+            .Replace("<", "\\<")
+            .Replace(">", "\\>")
+            .Replace("/", "\\/")
+            .Replace("{", "\\{")
+            .Replace("}", "\\}");
     }
 
     public void Dispose()
