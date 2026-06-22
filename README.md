@@ -160,7 +160,71 @@ builder.MergeVariables(new Dictionary<string, string>
 {
     ["reportDate"] = "2024-01-01"
 });
+
+### C# API - In-memory / service usage
+
+All builders support pathless creation and `byte[]`/`Stream` I/O, so you can generate documents in memory for web APIs, Azure Functions, or services. The existing file-path APIs remain unchanged.
+
+Create a DOCX and return bytes:
+
+```csharp
+using DocxEditor.Core.Builders;
+using OfficeEditor.Core.Services;
+
+using var builder = DocumentBuilder.Create();
+builder.AddParagraph("Hello");
+BinaryOfficeDocument doc = builder.ToBinaryDocument();
+return doc.Bytes;
 ```
+
+Create a PPTX in memory:
+
+```csharp
+using PptxEditor.Core.Builders;
+using OfficeEditor.Core.Services;
+
+using var builder = PresentationBuilder.Create();
+builder.AddSlide();
+builder.CurrentSlide.AddTitle("Hello");
+BinaryOfficeDocument doc = builder.ToBinaryDocument();
+```
+
+Create an XLSX in memory:
+
+```csharp
+using XlsxEditor.Core.Builders;
+using OfficeEditor.Core.Services;
+
+using var builder = WorkbookBuilder.Create();
+builder.AddWorksheet("Sheet1").AddCell("A1", "Hello");
+BinaryOfficeDocument doc = builder.ToBinaryDocument();
+```
+
+Return a generated file from an ASP.NET Core minimal API:
+
+```csharp
+app.MapGet("/report.docx", () =>
+{
+    using var builder = DocumentBuilder.Create();
+    builder.AddParagraph("Hello");
+    BinaryOfficeDocument doc = builder.ToBinaryDocument();
+    return Results.File(doc.Bytes, doc.ContentType, $"report{doc.FileExtension}");
+});
+```
+
+Roundtrip an existing document from bytes:
+
+```csharp
+byte[] templateBytes = await File.ReadAllBytesAsync("template.docx");
+
+using var builder = DocumentBuilder.Open(templateBytes);
+builder.ReplaceText("{{name}}", "John Doe");
+BinaryOfficeDocument doc = builder.ToBinaryDocument();
+
+await File.WriteAllBytesAsync("output.docx", doc.Bytes);
+```
+
+> **Stream ownership:** Each builder manages its own internal buffer. When you pass a stream to `Save(Stream)`, the builder writes to it and leaves it open so the caller can continue using it.
 
 ## Installation
 
