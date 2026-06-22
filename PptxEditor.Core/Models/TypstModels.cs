@@ -113,6 +113,10 @@ public sealed class TypstImageElement
     public double Width { get; init; }
     public double Height { get; init; }
     public double CornerRadius { get; set; }
+    /// <summary>Native pixel width read from image header, or null if unknown.</summary>
+    public int? PixelWidth { get; init; }
+    /// <summary>Native pixel height read from image header, or null if unknown.</summary>
+    public int? PixelHeight { get; init; }
 }
 
 public sealed class TypstTableElement
