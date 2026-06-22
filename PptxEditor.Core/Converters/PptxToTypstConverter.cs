@@ -1053,11 +1053,13 @@ public sealed class PptxToTypstConverter : IDisposable
             if (image.PixelWidth.Value < targetPxW * 0.9
                 || image.PixelHeight.Value < targetPxH * 0.9)
             {
-                // Upscaling detected — emit native pixel dimensions to suppress
-                // Typst's interpolating upscale.
+                // Upscaling detected — limit display size to native resolution
+                // to avoid Typst interpolating and producing blurry output.
+                double nativePtW = image.PixelWidth.Value * 72.0 / Ppi;
+                double nativePtH = image.PixelHeight.Value * 72.0 / Ppi;
                 imageTag = $"#image(\"{relativePath}\","
-                    + $" width: {image.PixelWidth.Value}px,"
-                    + $" height: {image.PixelHeight.Value}px)";
+                    + $" width: {FormatPt(nativePtW)},"
+                    + $" height: {FormatPt(nativePtH)})";
 
                 // Wrap in clipping rect if corner radius is set
                 if (image.CornerRadius > 0)
@@ -1120,7 +1122,7 @@ public sealed class PptxToTypstConverter : IDisposable
                 }
                 if (!string.IsNullOrEmpty(stroke))
                 {
-                    sb.Append($", {stroke}");
+                    sb.Append(string.IsNullOrEmpty(fill) ? stroke : $", {stroke}");
                 }
                 foreach (var (x, y) in shape.Points)
                 {
@@ -1688,7 +1690,6 @@ public sealed class PptxToTypstConverter : IDisposable
 
         // Fallback: 5% of the shape's smaller dimension
         return Math.Min(width, height) * 0.05;
-    }
     }
 
     private List<(double X, double Y)> ExtractPathPoints(Drawing.Path path)
