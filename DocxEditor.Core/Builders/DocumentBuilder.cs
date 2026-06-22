@@ -31,8 +31,14 @@ public interface IDocumentBuilder : IDisposable
     
     // Publipostage
     void MergeBatch(List<Dictionary<string, string>> records, string outputPattern, string? templatePath = null);
-    
+
     void Save(string? path = null);
+    void Save(Stream stream);
+    byte[] SaveToBytes();
+
+    static abstract IDocumentBuilder Create();
+    static abstract IDocumentBuilder Open(Stream stream);
+    static abstract IDocumentBuilder Open(byte[] bytes);
 }
 
 public class DocumentBuilder : IDocumentBuilder
@@ -66,6 +72,19 @@ public class DocumentBuilder : IDocumentBuilder
         return new DocumentBuilder(document, true, path);
     }
 
+    public static IDocumentBuilder Create()
+    {
+        var memoryStream = new MemoryStream();
+        var document = WordprocessingDocument.Create(memoryStream, DocumentFormat.OpenXml.WordprocessingDocumentType.Document);
+        var mainPart = document.AddMainDocumentPart();
+        mainPart.Document = new Document();
+        var body = new Body();
+        mainPart.Document.Append(body);
+        mainPart.Document.Save();
+
+        return new DocumentBuilder(document, true, null, memoryStream);
+    }
+
     public static IDocumentBuilder Open(string path)
     {
         var document = WordprocessingDocument.Open(path, true);
@@ -90,7 +109,8 @@ public class DocumentBuilder : IDocumentBuilder
     /// </summary>
     public static IDocumentBuilder Open(byte[] bytes)
     {
-        var memoryStream = new MemoryStream(bytes);
+        var memoryStream = new MemoryStream(bytes.Length);
+        memoryStream.Write(bytes, 0, bytes.Length);
         memoryStream.Position = 0;
         var document = WordprocessingDocument.Open(memoryStream, true);
         return new DocumentBuilder(document, false, null, memoryStream);
@@ -224,6 +244,11 @@ public class DocumentBuilder : IDocumentBuilder
         if (!string.IsNullOrEmpty(path) && !string.Equals(_filePath, path, StringComparison.OrdinalIgnoreCase))
         {
             using var clone = _document.Clone(path);
+        }
+        else if (string.IsNullOrEmpty(path) && string.IsNullOrEmpty(_filePath))
+        {
+            throw new InvalidOperationException(
+                "No file path is associated with this document. Use Save(string path), Save(Stream stream), or SaveToBytes() to specify a destination.");
         }
     }
 
