@@ -1039,18 +1039,23 @@ public sealed class PptxToTypstConverter : IDisposable
     private void GenerateShapeSource(StringBuilder sb, TypstShapeElement shape, string widthStr, string heightStr, double width, double height)
     {
         var fill = !string.IsNullOrEmpty(shape.FillColor) ? $"fill: rgb(\"{shape.FillColor}\")" : "";
+        var stroke = shape.StrokeWidth > 0 && !string.IsNullOrEmpty(shape.StrokeColor)
+            ? $"stroke: {FormatPt(shape.StrokeWidth)} + rgb(\"{shape.StrokeColor}\")"
+            : "";
 
         switch (shape.ShapeType)
         {
             case "rect":
                 sb.Append($"#rect(width: {widthStr}, height: {heightStr}");
                 if (!string.IsNullOrEmpty(fill)) sb.Append($", {fill}");
+                if (!string.IsNullOrEmpty(stroke)) sb.Append($", {stroke}");
                 if (shape.CornerRadius > 0) sb.Append($", radius: {FormatPt(shape.CornerRadius)}");
                 sb.Append(")");
                 break;
             case "ellipse":
                 sb.Append($"#ellipse(width: {widthStr}, height: {heightStr}");
                 if (!string.IsNullOrEmpty(fill)) sb.Append($", {fill}");
+                if (!string.IsNullOrEmpty(stroke)) sb.Append($", {stroke}");
                 sb.Append(")");
                 break;
             case "polygon":
@@ -1061,6 +1066,10 @@ public sealed class PptxToTypstConverter : IDisposable
                 else
                 {
                     sb.Append("#polygon(");
+                }
+                if (!string.IsNullOrEmpty(stroke))
+                {
+                    sb.Append($", {stroke}");
                 }
                 foreach (var (x, y) in shape.Points)
                 {
@@ -1429,9 +1438,10 @@ public sealed class PptxToTypstConverter : IDisposable
             }
         }
 
-        // Check for shape geometry with fill
+        // Check for shape geometry with fill or stroke
         var shapeElement = ExtractShapeGeometry(shape.ShapeProperties);
-        if (shapeElement != null && !string.IsNullOrEmpty(shapeElement.FillColor))
+        if (shapeElement != null && (!string.IsNullOrEmpty(shapeElement.FillColor)
+            || (!string.IsNullOrEmpty(shapeElement.StrokeColor) && shapeElement.StrokeWidth > 0)))
         {
             // Return shape element
             yield return new TypstElement
@@ -1476,6 +1486,18 @@ public sealed class PptxToTypstConverter : IDisposable
         // Extract fill color
         var fillColor = ExtractShapeFillColor(shapeProperties);
 
+        // Extract stroke (outline) properties
+        var (strokeColor, strokeWidth) = ExtractShapeStroke(shapeProperties);
+
+        // Helper to build TypstShapeElement with common fill+stroke properties
+        TypstShapeElement CreateElement(string shapeType) => new()
+        {
+            ShapeType = shapeType,
+            FillColor = fillColor,
+            StrokeColor = strokeColor,
+            StrokeWidth = strokeWidth
+        };
+
         // Check for preset geometry
         var prstGeom = shapeProperties.Elements<Drawing.PresetGeometry>().FirstOrDefault();
         if (prstGeom != null)
@@ -1487,16 +1509,14 @@ public sealed class PptxToTypstConverter : IDisposable
                 {
                     ShapeType = "rect",
                     FillColor = fillColor,
+                    StrokeColor = strokeColor,
+                    StrokeWidth = strokeWidth,
                     CornerRadius = prst == Drawing.ShapeTypeValues.RoundRectangle ? 5.0 : 0
                 };
             }
             if (prst == Drawing.ShapeTypeValues.Ellipse)
             {
-                return new TypstShapeElement
-                {
-                    ShapeType = "ellipse",
-                    FillColor = fillColor
-                };
+                return CreateElement("ellipse");
             }
         }
 
@@ -1516,11 +1536,7 @@ public sealed class PptxToTypstConverter : IDisposable
                         // Check if it's a simple rectangle (4 points + close)
                         if (IsRectanglePath(points))
                         {
-                            return new TypstShapeElement
-                            {
-                                ShapeType = "rect",
-                                FillColor = fillColor
-                            };
+                            return CreateElement("rect");
                         }
 
                         // Otherwise treat as polygon
@@ -1528,6 +1544,8 @@ public sealed class PptxToTypstConverter : IDisposable
                         {
                             ShapeType = "polygon",
                             FillColor = fillColor,
+                            StrokeColor = strokeColor,
+                            StrokeWidth = strokeWidth,
                             Points = points
                         };
                     }
@@ -1535,15 +1553,11 @@ public sealed class PptxToTypstConverter : IDisposable
             }
         }
 
-        // No recognizable geometry
-        if (!string.IsNullOrEmpty(fillColor))
+        // No recognizable geometry — return shape if it has fill or stroke
+        if (!string.IsNullOrEmpty(fillColor) || (!string.IsNullOrEmpty(strokeColor) && strokeWidth > 0))
         {
-            // Fallback: treat as rectangle with fill
-            return new TypstShapeElement
-            {
-                ShapeType = "rect",
-                FillColor = fillColor
-            };
+            // Fallback: treat as rectangle
+            return CreateElement("rect");
         }
 
         return null;
@@ -1561,6 +1575,36 @@ public sealed class PptxToTypstConverter : IDisposable
             }
         }
         return string.Empty;
+    }
+
+    /// <summary>
+    /// Extracts stroke (outline) properties from a shape's &lt;a:ln&gt; element.
+    /// Returns the stroke color (hex with # prefix) and width in points (EMU / 12700).
+    /// </summary>
+    private (string StrokeColor, double StrokeWidth) ExtractShapeStroke(ShapeProperties shapeProperties)
+    {
+        var outline = shapeProperties.Elements<Drawing.Outline>().FirstOrDefault();
+        if (outline == null)
+            return (string.Empty, 0);
+
+        // Check for noFill — outline exists but no color fill
+        var noFill = outline.Elements<Drawing.NoFill>().FirstOrDefault();
+        if (noFill != null)
+            return (string.Empty, 0);
+
+        var strokeWidth = outline.Width?.Value / 12700.0 ?? 0;
+        if (strokeWidth <= 0)
+            return (string.Empty, 0);
+
+        var solidFill = outline.Elements<Drawing.SolidFill>().FirstOrDefault();
+        if (solidFill != null)
+        {
+            var color = ExtractColor(solidFill);
+            if (!string.IsNullOrEmpty(color))
+                return (color, strokeWidth);
+        }
+
+        return (string.Empty, strokeWidth);
     }
 
     private List<(double X, double Y)> ExtractPathPoints(Drawing.Path path)
