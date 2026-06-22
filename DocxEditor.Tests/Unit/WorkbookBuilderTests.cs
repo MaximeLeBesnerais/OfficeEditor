@@ -347,6 +347,95 @@ public class WorkbookBuilderTests : IDisposable
         Assert.Throws<FormatException>(() => worksheet.AddCell("A", "Missing row"));
     }
 
+    [Fact]
+    public void Create_SaveToBytes_ReturnsValidXlsx()
+    {
+        // Arrange
+        byte[] bytes;
+
+        // Act
+        using (var builder = WorkbookBuilder.Create())
+        {
+            builder.AddWorksheet("Sheet1").AddCell("A1", "Hello bytes");
+            bytes = builder.SaveToBytes();
+        }
+
+        // Assert
+        Assert.NotEmpty(bytes);
+        using var stream = new MemoryStream(bytes);
+        using var doc = SpreadsheetDocument.Open(stream, false);
+        Assert.NotNull(doc.WorkbookPart);
+        Assert.Single(doc.WorkbookPart!.Workbook.Sheets!.Elements<Sheet>());
+    }
+
+    [Fact]
+    public void Create_Save_Stream_ReturnsValidXlsx()
+    {
+        // Arrange
+        using var outputStream = new MemoryStream();
+
+        // Act
+        using (var builder = WorkbookBuilder.Create())
+        {
+            builder.AddWorksheet("Sheet1").AddCell("A1", "Hello stream");
+            builder.Save(outputStream);
+        }
+
+        // Assert
+        Assert.True(outputStream.CanRead);
+        Assert.True(outputStream.CanWrite);
+        Assert.True(outputStream.Length > 0);
+        outputStream.Position = 0;
+        using var doc = SpreadsheetDocument.Open(outputStream, false);
+        Assert.NotNull(doc.WorkbookPart);
+        var sheetData = doc.WorkbookPart!.WorksheetParts.First().Worksheet.GetFirstChild<SheetData>();
+        Assert.NotNull(sheetData);
+        var cell = sheetData!.Elements<Row>().First().Elements<Cell>().First();
+        Assert.Equal("A1", cell.CellReference?.Value);
+    }
+
+    [Fact]
+    public void Open_FromBytes_AndSaveToBytes_RoundtripsCell()
+    {
+        // Arrange
+        byte[] originalBytes;
+        using (var builder = WorkbookBuilder.Create())
+        {
+            builder.AddWorksheet("Sheet1").AddCell("A1", "Original");
+            originalBytes = builder.SaveToBytes();
+        }
+
+        // Act
+        byte[] modifiedBytes;
+        using (var builder = WorkbookBuilder.Open(originalBytes))
+        {
+            builder.GetWorksheet("Sheet1").AddCell("B2", "Added");
+            modifiedBytes = builder.SaveToBytes();
+        }
+
+        // Assert
+        using var stream = new MemoryStream(modifiedBytes);
+        using var doc = SpreadsheetDocument.Open(stream, false);
+        var cells = doc.WorkbookPart!.WorksheetParts.First().Worksheet.GetFirstChild<SheetData>()!
+            .Elements<Row>()
+            .SelectMany(r => r.Elements<Cell>())
+            .Select(c => c.CellReference?.Value)
+            .ToList();
+        Assert.Contains("A1", cells);
+        Assert.Contains("B2", cells);
+    }
+
+    [Fact]
+    public void Save_WithNoPath_OnPathlessDocument_ThrowsInvalidOperationException()
+    {
+        // Arrange
+        using var builder = WorkbookBuilder.Create();
+        builder.AddWorksheet("Sheet1").AddCell("A1", "No path");
+
+        // Act & Assert
+        Assert.Throws<InvalidOperationException>(() => builder.Save());
+    }
+
     public void Dispose()
     {
         if (File.Exists(_testFilePath))
