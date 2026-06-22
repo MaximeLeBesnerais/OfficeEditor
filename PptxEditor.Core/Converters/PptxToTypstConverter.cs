@@ -1033,7 +1033,17 @@ public sealed class PptxToTypstConverter : IDisposable
     private void GenerateImageSource(StringBuilder sb, TypstImageElement image, string width, string height)
     {
         var relativePath = $"assets/{image.FileName}";
-        sb.Append($"#image(\"{relativePath}\", width: {width}, height: {height})");
+
+        if (image.CornerRadius > 0)
+        {
+            // Wrap image in a clipping rect to apply rounded corners
+            var radius = FormatPt(image.CornerRadius);
+            sb.Append($"#rect(clip: true, width: {width}, height: {height}, radius: {radius}, [#image(\"{relativePath}\", width: {width}, height: {height})])");
+        }
+        else
+        {
+            sb.Append($"#image(\"{relativePath}\", width: {width}, height: {height})");
+        }
     }
 
     private void GenerateShapeSource(StringBuilder sb, TypstShapeElement shape, string widthStr, string heightStr, double width, double height)
@@ -1417,6 +1427,12 @@ public sealed class PptxToTypstConverter : IDisposable
             var imageElement = ExtractImageFromBlipFill(slidePart, blipFill);
             if (imageElement != null)
             {
+                // Extract corner radius from shape geometry for rounded image clipping
+                if (shape.ShapeProperties != null)
+                {
+                    imageElement.CornerRadius = ExtractShapeCornerRadius(shape.ShapeProperties, finalW, finalH);
+                }
+
                 // If shape also has text, we should ideally overlay it
                 // For now, return image if no text, or prioritize text if present
                 if (string.IsNullOrWhiteSpace(text.Content))
@@ -1439,7 +1455,7 @@ public sealed class PptxToTypstConverter : IDisposable
         }
 
         // Check for shape geometry with fill or stroke
-        var shapeElement = ExtractShapeGeometry(shape.ShapeProperties);
+        var shapeElement = ExtractShapeGeometry(shape.ShapeProperties, finalW, finalH);
         if (shapeElement != null && (!string.IsNullOrEmpty(shapeElement.FillColor)
             || (!string.IsNullOrEmpty(shapeElement.StrokeColor) && shapeElement.StrokeWidth > 0)))
         {
@@ -1479,7 +1495,7 @@ public sealed class PptxToTypstConverter : IDisposable
         }
     }
 
-    private TypstShapeElement? ExtractShapeGeometry(ShapeProperties? shapeProperties)
+    private TypstShapeElement? ExtractShapeGeometry(ShapeProperties? shapeProperties, double shapeWidth = 0, double shapeHeight = 0)
     {
         if (shapeProperties == null) return null;
 
@@ -1505,13 +1521,16 @@ public sealed class PptxToTypstConverter : IDisposable
             var prst = prstGeom.Preset?.Value;
             if (prst == Drawing.ShapeTypeValues.Rectangle || prst == Drawing.ShapeTypeValues.RoundRectangle)
             {
+                var cornerRadius = prst == Drawing.ShapeTypeValues.RoundRectangle
+                    ? ExtractShapeCornerRadius(shapeProperties, shapeWidth, shapeHeight)
+                    : 0;
                 return new TypstShapeElement
                 {
                     ShapeType = "rect",
                     FillColor = fillColor,
                     StrokeColor = strokeColor,
                     StrokeWidth = strokeWidth,
-                    CornerRadius = prst == Drawing.ShapeTypeValues.RoundRectangle ? 5.0 : 0
+                    CornerRadius = cornerRadius
                 };
             }
             if (prst == Drawing.ShapeTypeValues.Ellipse)
@@ -1605,6 +1624,30 @@ public sealed class PptxToTypstConverter : IDisposable
         }
 
         return (string.Empty, strokeWidth);
+    }
+
+    /// <summary>
+    /// Extracts the corner radius from a RoundRectangle preset geometry's adjustment value list.
+    /// The adjustment value (0–100000) represents a percentage of the shape's smaller dimension.
+    /// Falls back to 5% of the smaller dimension if no adjustment value is found.
+    /// </summary>
+    private double ExtractShapeCornerRadius(ShapeProperties shapeProperties, double width, double height)
+    {
+        if (width <= 0 || height <= 0) return 0;
+
+        var prstGeom = shapeProperties.Elements<Drawing.PresetGeometry>().FirstOrDefault();
+        if (prstGeom == null) return 0;
+
+        // Parse the adjustment value from <a:gd name="adj" fmla="val XXXX"/>
+        var match = Regex.Match(prstGeom.OuterXml, @"\bfmla\s*=\s*""val\s+(\d+)""");
+        if (match.Success && double.TryParse(match.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var adjValue))
+        {
+            return (adjValue / 100000.0) * Math.Min(width, height);
+        }
+
+        // Fallback: 5% of the shape's smaller dimension
+        return Math.Min(width, height) * 0.05;
+    }
     }
 
     private List<(double X, double Y)> ExtractPathPoints(Drawing.Path path)
