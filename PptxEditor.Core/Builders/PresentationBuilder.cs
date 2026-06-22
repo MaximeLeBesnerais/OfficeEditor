@@ -35,8 +35,14 @@ public interface IPresentationBuilder : IDisposable
     string ExportToTypst();
     byte[] ExportToPdf(PdfOptions? options = null);
     byte[][] ExportThumbnails(ThumbnailOptions? options = null);
-    
+
     void Save(string? path = null);
+    void Save(Stream stream);
+    byte[] SaveToBytes();
+
+    static abstract IPresentationBuilder Create();
+    static abstract IPresentationBuilder Open(Stream stream);
+    static abstract IPresentationBuilder Open(byte[] bytes);
 }
 
 public sealed record PdfOptions
@@ -76,12 +82,16 @@ public class PresentationBuilder : IPresentationBuilder
     private readonly bool _isNewDocument;
     private readonly List<SlideBuilder> _slides = new();
     private int _currentSlideIndex = -1;
+    private readonly string? _filePath;
+    private readonly MemoryStream? _documentStream;
 
-    private PresentationBuilder(PresentationDocument document, bool isNew)
+    private PresentationBuilder(PresentationDocument document, bool isNew, string? filePath = null, MemoryStream? documentStream = null)
     {
         _document = document;
         _isNewDocument = isNew;
-        
+        _filePath = filePath;
+        _documentStream = documentStream;
+
         if (isNew)
         {
             InitializeNewPresentation();
@@ -95,17 +105,42 @@ public class PresentationBuilder : IPresentationBuilder
     public static IPresentationBuilder Create(string path)
     {
         var document = PresentationDocument.Create(path, PresentationDocumentType.Presentation);
-        return new PresentationBuilder(document, true);
+        return new PresentationBuilder(document, true, path);
     }
 
     public static IPresentationBuilder Open(string path)
     {
         var document = PresentationDocument.Open(path, true);
-        return new PresentationBuilder(document, false);
+        return new PresentationBuilder(document, false, path);
     }
 
-    public ISlideBuilder CurrentSlide => _currentSlideIndex >= 0 && _currentSlideIndex < _slides.Count 
-        ? _slides[_currentSlideIndex] 
+    public static IPresentationBuilder Create()
+    {
+        var memoryStream = new MemoryStream();
+        var document = PresentationDocument.Create(memoryStream, PresentationDocumentType.Presentation);
+        return new PresentationBuilder(document, true, null, memoryStream);
+    }
+
+    public static IPresentationBuilder Open(Stream stream)
+    {
+        var memoryStream = new MemoryStream();
+        stream.CopyTo(memoryStream);
+        memoryStream.Position = 0;
+        var document = PresentationDocument.Open(memoryStream, true);
+        return new PresentationBuilder(document, false, null, memoryStream);
+    }
+
+    public static IPresentationBuilder Open(byte[] bytes)
+    {
+        var memoryStream = new MemoryStream(bytes.Length);
+        memoryStream.Write(bytes, 0, bytes.Length);
+        memoryStream.Position = 0;
+        var document = PresentationDocument.Open(memoryStream, true);
+        return new PresentationBuilder(document, false, null, memoryStream);
+    }
+
+    public ISlideBuilder CurrentSlide => _currentSlideIndex >= 0 && _currentSlideIndex < _slides.Count
+        ? _slides[_currentSlideIndex]
         : throw new InvalidOperationException("No slide selected.");
 
     public int SlideCount => _slides.Count;
@@ -386,15 +421,49 @@ public class PresentationBuilder : IPresentationBuilder
             var newDoc = _document.Clone(path);
             newDoc.Dispose();
         }
-        else
+        else if (_filePath != null)
         {
             _document.Save();
         }
+        else
+        {
+            throw new InvalidOperationException("Cannot save stream-backed document without a path. Use Save(Stream) or SaveToBytes().");
+        }
+    }
+
+    public void Save(Stream stream)
+    {
+        _document.Save();
+
+        if (_documentStream != null)
+        {
+            _documentStream.Position = 0;
+            _documentStream.CopyTo(stream);
+            _documentStream.Position = 0;
+        }
+        else
+        {
+            using var fileStream = File.OpenRead(_filePath!);
+            fileStream.CopyTo(stream);
+        }
+    }
+
+    public byte[] SaveToBytes()
+    {
+        _document.Save();
+
+        if (_documentStream != null)
+        {
+            return _documentStream.ToArray();
+        }
+
+        return File.ReadAllBytes(_filePath!);
     }
 
     public void Dispose()
     {
         _document.Dispose();
+        _documentStream?.Dispose();
     }
 
     private void InitializeNewPresentation()
