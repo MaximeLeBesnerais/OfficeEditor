@@ -112,6 +112,7 @@ public sealed class TypstImageElement
     public string FullPath { get; init; } = string.Empty;
     public double Width { get; init; }
     public double Height { get; init; }
+    public double CornerRadius { get; set; }
 }
 
 public sealed class TypstTableElement
