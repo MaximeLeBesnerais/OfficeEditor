@@ -188,6 +188,18 @@ public class InstructionEngineTests
         {
         }
 
+        public void Save(Stream stream)
+        {
+        }
+
+        public byte[] SaveToBytes() => [];
+
+        public static IDocumentBuilder Create() => throw new NotImplementedException();
+
+        public static IDocumentBuilder Open(Stream stream) => throw new NotImplementedException();
+
+        public static IDocumentBuilder Open(byte[] bytes) => throw new NotImplementedException();
+
         public void Dispose()
         {
         }
