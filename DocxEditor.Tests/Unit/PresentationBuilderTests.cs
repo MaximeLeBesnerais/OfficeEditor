@@ -305,6 +305,91 @@ public class PresentationBuilderTests : IDisposable
         Assert.Contains("Value Fallback {{unprovided}}", text);
     }
 
+    [Fact]
+    public void Create_SaveToBytes_ReturnsValidPptx()
+    {
+        // Arrange
+        byte[] bytes;
+
+        // Act
+        using (var builder = PresentationBuilder.Create())
+        {
+            builder.AddSlide();
+            bytes = builder.SaveToBytes();
+        }
+
+        // Assert
+        Assert.NotEmpty(bytes);
+        using var stream = new MemoryStream(bytes);
+        using var doc = PresentationDocument.Open(stream, false);
+        Assert.NotNull(doc.PresentationPart);
+        Assert.Single(doc.PresentationPart!.Presentation.SlideIdList!.ChildElements.OfType<SlideId>());
+    }
+
+    [Fact]
+    public void Create_Save_Stream_ReturnsValidPptx()
+    {
+        // Arrange
+        using var outputStream = new MemoryStream();
+
+        // Act
+        using (var builder = PresentationBuilder.Create())
+        {
+            builder.AddSlide();
+            builder.CurrentSlide.AddTitle("Stream title");
+            builder.Save(outputStream);
+        }
+
+        // Assert
+        Assert.True(outputStream.CanRead);
+        Assert.True(outputStream.CanWrite);
+        Assert.True(outputStream.Length > 0);
+        outputStream.Position = 0;
+        using var doc = PresentationDocument.Open(outputStream, false);
+        Assert.NotNull(doc.PresentationPart);
+        var slide = doc.PresentationPart!.SlideParts.First();
+        Assert.Contains("Stream title", slide.Slide!.InnerText);
+    }
+
+    [Fact]
+    public void Open_FromBytes_AndSaveToBytes_RoundtripsSlide()
+    {
+        // Arrange
+        byte[] originalBytes;
+        using (var builder = PresentationBuilder.Create())
+        {
+            builder.AddSlide();
+            builder.CurrentSlide.AddTitle("Original title");
+            originalBytes = builder.SaveToBytes();
+        }
+
+        // Act
+        byte[] modifiedBytes;
+        using (var builder = PresentationBuilder.Open(originalBytes))
+        {
+            builder.GetSlide(0).AddText("Added text");
+            modifiedBytes = builder.SaveToBytes();
+        }
+
+        // Assert
+        using var stream = new MemoryStream(modifiedBytes);
+        using var doc = PresentationDocument.Open(stream, false);
+        var slide = doc.PresentationPart!.SlideParts.First();
+        Assert.Contains("Original title", slide.Slide!.InnerText);
+        Assert.Contains("Added text", slide.Slide.InnerText);
+    }
+
+    [Fact]
+    public void Save_WithNoPath_OnPathlessDocument_ThrowsInvalidOperationException()
+    {
+        // Arrange
+        using var builder = PresentationBuilder.Create();
+        builder.AddSlide();
+
+        // Act & Assert
+        Assert.Throws<InvalidOperationException>(() => builder.Save());
+    }
+
     public void Dispose()
     {
         if (File.Exists(_testFilePath))
