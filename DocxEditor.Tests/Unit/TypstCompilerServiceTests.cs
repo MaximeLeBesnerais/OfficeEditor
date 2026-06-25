@@ -1,4 +1,5 @@
 using System.Text;
+using System.Diagnostics;
 using System.Reflection;
 using OfficeEditor.Core.Services;
 using Xunit;
@@ -125,6 +126,19 @@ fi
     private string[] ReadFakeTypstArguments()
     {
         return File.ReadAllLines(Path.Combine(_tempDir, "typst-args.log"));
+    }
+
+    private static string ResolvePhysicalPath(string path)
+    {
+        var startInfo = new ProcessStartInfo("realpath", path)
+        {
+            RedirectStandardOutput = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        using var process = Process.Start(startInfo)!;
+        process.WaitForExit();
+        return process.StandardOutput.ReadToEnd().Trim();
     }
 
     private string CreateSimpleTypstDocument()
@@ -385,7 +399,7 @@ fi
         Assert.True(result.Success);
         Assert.Single(result.Pages);
         Assert.True(result.Pages[0].AsSpan(0, 4).SequenceEqual("%PDF"u8));
-        Assert.Equal(workDir, File.ReadAllText(Path.Combine(_tempDir, "typst-cwd.log")).Trim());
+        Assert.Equal(ResolvePhysicalPath(workDir), File.ReadAllText(Path.Combine(_tempDir, "typst-cwd.log")).Trim());
         Assert.True(File.Exists(keepFile));
         Assert.Empty(Directory.GetFiles(workDir, "input_*.typ"));
         Assert.Empty(Directory.GetFiles(workDir, "output_*.pdf"));
