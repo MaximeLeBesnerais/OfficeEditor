@@ -1,5 +1,4 @@
-
-Microsoft Visual Studio Solution File, Format Version 12.00
+﻿Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
@@ -24,6 +23,8 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "convert-docx", "tools\convert-docx\convert-docx.csproj", "{0896715C-64D4-4ACB-B347-31E154D01D97}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "visual-diff", "tools\visual-diff\visual-diff.csproj", "{2A3D6E31-0D0B-4E1C-BBB0-51A4AC34E3BE}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OfficeEditor.Api", "OfficeEditor.Api\OfficeEditor.Api.csproj", "{91B03161-10B6-4023-A284-9DD66E93EBD4}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -57,8 +58,8 @@ Global
 		{37537720-FDD7-4C52-8C58-0CAC096C275F}.Release|Any CPU.Build.0 = Release|Any CPU
 		{37537720-FDD7-4C52-8C58-0CAC096C275F}.Release|x64.ActiveCfg = Release|Any CPU
 		{37537720-FDD7-4C52-8C58-0CAC096C275F}.Release|x64.Build.0 = Release|Any CPU
-		{37537720-FDD7-4C52-8C58-0CAC096C275F}.Release|x86.ActiveCfg = Release|Any CPU
-		{37537720-FDD7-4C52-8C58-0CAC096C275F}.Release|x86.Build.0 = Release|Any CPU
+		{37537720-FDD7-4C52-8C58-0CAC096C275F}.Release|x86.ActiveCfg = Debug|Any CPU
+		{37537720-FDD7-4C52-8C58-0CAC096C275F}.Release|x86.Build.0 = Debug|Any CPU
 		{D4E5F6A7-B8C9-0123-DEF0-456789012345}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{D4E5F6A7-B8C9-0123-DEF0-456789012345}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{D4E5F6A7-B8C9-0123-DEF0-456789012345}.Debug|x64.ActiveCfg = Debug|Any CPU
@@ -155,11 +156,23 @@ Global
 		{2A3D6E31-0D0B-4E1C-BBB0-51A4AC34E3BE}.Release|x64.Build.0 = Release|Any CPU
 		{2A3D6E31-0D0B-4E1C-BBB0-51A4AC34E3BE}.Release|x86.ActiveCfg = Release|Any CPU
 		{2A3D6E31-0D0B-4E1C-BBB0-51A4AC34E3BE}.Release|x86.Build.0 = Release|Any CPU
+		{91B03161-10B6-4023-A284-9DD66E93EBD4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{91B03161-10B6-4023-A284-9DD66E93EBD4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{91B03161-10B6-4023-A284-9DD66E93EBD4}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{91B03161-10B6-4023-A284-9DD66E93EBD4}.Debug|x64.Build.0 = Debug|Any CPU
+		{91B03161-10B6-4023-A284-9DD66E93EBD4}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{91B03161-10B6-4023-A284-9DD66E93EBD4}.Debug|x86.Build.0 = Debug|Any CPU
+		{91B03161-10B6-4023-A284-9DD66E93EBD4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{91B03161-10B6-4023-A284-9DD66E93EBD4}.Release|Any CPU.Build.0 = Release|Any CPU
+		{91B03161-10B6-4023-A284-9DD66E93EBD4}.Release|x64.ActiveCfg = Release|Any CPU
+		{91B03161-10B6-4023-A284-9DD66E93EBD4}.Release|x64.Build.0 = Release|Any CPU
+		{91B03161-10B6-4023-A284-9DD66E93EBD4}.Release|x86.ActiveCfg = Debug|Any CPU
+		{91B03161-10B6-4023-A284-9DD66E93EBD4}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
 	EndGlobalSection
-	GlobalSection(NestedProjects) = preSolution
+	GlobalSection(NestedProjects) = postSolution
 		{0896715C-64D4-4ACB-B347-31E154D01D97} = {07C2787E-EAC7-C090-1BA3-A61EC2A24D84}
 		{2A3D6E31-0D0B-4E1C-BBB0-51A4AC34E3BE} = {07C2787E-EAC7-C090-1BA3-A61EC2A24D84}
 	EndGlobalSection
