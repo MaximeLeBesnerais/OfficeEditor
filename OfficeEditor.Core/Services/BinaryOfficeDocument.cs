@@ -7,7 +7,8 @@ public enum OfficeDocumentFormat
 {
     Docx,
     Pptx,
-    Xlsx
+    Xlsx,
+    Markdown
 }
 
 /// <summary>
