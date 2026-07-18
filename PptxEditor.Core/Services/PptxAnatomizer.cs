@@ -60,34 +60,39 @@ public class PptxAnatomizer
     {
         var (id, name) = GetElementIdAndName(shape.NonVisualShapeProperties);
         var text = GetShapeText(shape);
-        
+        var (x, y, cx, cy) = GetTransform(shape.ShapeProperties?.Transform2D);
+
         return new SlideElement
         {
             Type = "Text",
             Id = id,
             Name = name,
             Location = $"slide:{slideIndex}:shape:{name}",
-            Text = text
+            Text = text,
+            X = x, Y = y, Cx = cx, Cy = cy
         };
     }
 
     private SlideElement AnalyzePicture(P.Picture picture, int slideIndex)
     {
         var (id, name) = GetElementIdAndName(picture.NonVisualPictureProperties);
-        
+        var (x, y, cx, cy) = GetTransform(picture.ShapeProperties?.Transform2D);
+
         return new SlideElement
         {
             Type = "Image",
             Id = id,
             Name = name,
-            Location = $"slide:{slideIndex}:image:{name}"
+            Location = $"slide:{slideIndex}:image:{name}",
+            X = x, Y = y, Cx = cx, Cy = cy
         };
     }
 
     private SlideElement? AnalyzeGraphicFrame(P.GraphicFrame graphicFrame, int slideIndex)
     {
         var (id, name) = GetElementIdAndName(graphicFrame.NonVisualGraphicFrameProperties);
-        
+        var (x, y, cx, cy) = GetTransform(graphicFrame.Transform);
+
         var graphicData = graphicFrame.Graphic?.GraphicData;
         if (graphicData == null) return null;
 
@@ -102,7 +107,8 @@ public class PptxAnatomizer
                 Id = id,
                 Name = name,
                 Location = $"slide:{slideIndex}:table:{name}",
-                TableData = tableData
+                TableData = tableData,
+                X = x, Y = y, Cx = cx, Cy = cy
             };
         }
 
@@ -112,22 +118,27 @@ public class PptxAnatomizer
             Type = "GraphicFrame",
             Id = id,
             Name = name,
-            Location = $"slide:{slideIndex}:graphic:{name}"
+            Location = $"slide:{slideIndex}:graphic:{name}",
+            X = x, Y = y, Cx = cx, Cy = cy
         };
     }
 
     private SlideElement? AnalyzeGroupShape(P.GroupShape groupShape, int slideIndex)
     {
         var (id, name) = GetElementIdAndName(groupShape.NonVisualGroupShapeProperties);
-        
-        // For groups, we list them but don't recurse into children for now
-        // Children will be detected at the top level if the group is unwrapped
+        var (x, y, cx, cy) = GetTransform(groupShape.GroupShapeProperties?.TransformGroup);
+
+        // Groups are reported with their own (group-level) transform but are NOT
+        // recursed into: children use the group's child coordinate space, which
+        // would need chOff/chExt mapping to slide coordinates. That mapping is
+        // out of scope; child elements surface only if the group is unwrapped.
         return new SlideElement
         {
             Type = "Group",
             Id = id,
             Name = name,
-            Location = $"slide:{slideIndex}:group:{name}"
+            Location = $"slide:{slideIndex}:group:{name}",
+            X = x, Y = y, Cx = cx, Cy = cy
         };
     }
 
@@ -151,6 +162,44 @@ public class PptxAnatomizer
         var name = !string.IsNullOrEmpty(nameAttr.Value) ? nameAttr.Value : "Unknown";
 
         return (id, name);
+    }
+
+    /// <summary>
+    /// Reads x/y/cx/cy (EMU) from an xfrm element (a:xfrm on shapes/pictures,
+    /// p:xfrm on graphic frames, a:xfrm on groups). Typed SDK access locates the
+    /// off/ext child elements (structurally safe), but attribute VALUES are read
+    /// via the guarded regex-on-OuterXml pattern per AGENTS.pptx.md rule 1
+    /// (canonical: StyleResolver.GetAttributeValue) — OpenXmlElement.GetAttribute
+    /// is unreliable for OOXML attributes. A missing xfrm (or missing off/ext)
+    /// yields nulls: placeholders without an explicit transform inherit their
+    /// position from the slide layout.
+    /// </summary>
+    private static (long? X, long? Y, long? Cx, long? Cy) GetTransform(OpenXmlElement? xfrm)
+    {
+        if (xfrm == null) return (null, null, null, null);
+
+        var offset = xfrm.ChildElements.FirstOrDefault(e => e.LocalName == "off");
+        var extents = xfrm.ChildElements.FirstOrDefault(e => e.LocalName == "ext");
+
+        return (
+            ParseInt64(GetAttributeValue(offset, "x")),
+            ParseInt64(GetAttributeValue(offset, "y")),
+            ParseInt64(GetAttributeValue(extents, "cx")),
+            ParseInt64(GetAttributeValue(extents, "cy")));
+    }
+
+    private static long? ParseInt64(string? value)
+        => long.TryParse(value, out var parsed) ? parsed : null;
+
+    private static string? GetAttributeValue(OpenXmlElement? element, string attributeName)
+    {
+        if (element == null) return null;
+
+        var match = System.Text.RegularExpressions.Regex.Match(
+            element.OuterXml,
+            $@"\b{System.Text.RegularExpressions.Regex.Escape(attributeName)}\s*=\s*""([^""]*)""");
+
+        return match.Success ? match.Groups[1].Value : null;
     }
 
     private string GetShapeText(P.Shape shape)
