@@ -4,6 +4,7 @@ using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Presentation;
 using Drawing = DocumentFormat.OpenXml.Drawing;
 using P = DocumentFormat.OpenXml.Presentation;
+using PptxEditor.Core.Models;
 
 namespace PptxEditor.Core.Services;
 
@@ -16,13 +17,19 @@ public readonly record struct PptxReplaceResult
 
     public string? Error { get; }
 
-    private PptxReplaceResult(bool success, string? error)
+    /// <summary>
+    /// Non-fatal caveats (e.g. fit-mode fallbacks). Empty when nothing noteworthy happened.
+    /// </summary>
+    public IReadOnlyList<string> Warnings { get; }
+
+    private PptxReplaceResult(bool success, string? error, IReadOnlyList<string>? warnings = null)
     {
         Success = success;
         Error = error;
+        Warnings = warnings ?? Array.Empty<string>();
     }
 
-    public static PptxReplaceResult Ok() => new(true, null);
+    public static PptxReplaceResult Ok(IReadOnlyList<string>? warnings = null) => new(true, null, warnings);
 
     public static PptxReplaceResult Fail(string error) => new(false, error);
 
@@ -171,6 +178,23 @@ public class PptxElementReplacer
             throw new FileNotFoundException($"Image not found: {newImagePath}");
         }
 
+        using var stream = new FileStream(newImagePath, FileMode.Open, FileAccess.Read);
+        return ReplaceImage(
+            slidePart, elementId, stream, Path.GetExtension(newImagePath), ImageFitMode.Stretch);
+    }
+
+    /// <summary>
+    /// Replaces the image behind a picture element and fits it per <paramref name="fit"/>.
+    /// The frame's a:xfrm is never moved except for <see cref="ImageFitMode.Contain"/>.
+    /// </summary>
+    /// <param name="extension">File-extension hint (e.g. ".png") used to derive the part type.</param>
+    /// <param name="crop">Explicit a:srcRect for <see cref="ImageFitMode.Crop"/>; null → treated as Fill.</param>
+    public PptxReplaceResult ReplaceImage(SlidePart slidePart, uint elementId, Stream image, string extension, ImageFitMode fit, SourceRect? crop = null)
+    {
+        ArgumentNullException.ThrowIfNull(slidePart);
+        ArgumentNullException.ThrowIfNull(image);
+        extension ??= string.Empty;
+
         if (elementId == 0)
             return PptxReplaceResult.Fail("Element id must be greater than zero.");
 
@@ -196,11 +220,19 @@ public class PptxElementReplacer
         if (oldImagePart == null)
             return PptxReplaceResult.Fail($"Relationship '{oldEmbedId}' does not resolve to an image part on the slide.");
 
-        // Add the new part and retarget the blip BEFORE touching the old part.
-        var imagePart = slidePart.AddImagePart(GetImagePartType(newImagePath));
-        using (var stream = new FileStream(newImagePath, FileMode.Open, FileAccess.Read))
+        // Buffer once: the bytes are fed to the new part and sniffed for dimensions.
+        byte[] imageBytes;
+        using (var buffer = new MemoryStream())
         {
-            imagePart.FeedData(stream);
+            image.CopyTo(buffer);
+            imageBytes = buffer.ToArray();
+        }
+
+        // Add the new part and retarget the blip BEFORE touching the old part.
+        var imagePart = slidePart.AddImagePart(GetImagePartTypeFromExtension(extension));
+        using (var partStream = new MemoryStream(imageBytes, writable: false))
+        {
+            imagePart.FeedData(partStream);
         }
         blip.Embed = slidePart.GetIdOfPart(imagePart);
 
@@ -213,7 +245,9 @@ public class PptxElementReplacer
             slidePart.DeletePart(oldImagePart);
         }
 
-        return PptxReplaceResult.Ok();
+        var warnings = new List<string>();
+        ApplyFit(matches[0], imageBytes, fit, crop, warnings);
+        return PptxReplaceResult.Ok(warnings);
     }
 
     private static void SetCellText(Drawing.TableCell cell, string value)
@@ -349,9 +383,9 @@ public class PptxElementReplacer
 
     // Extension → part-type switch mirrored from SlideBuilder.AddImage
     // (SlideBuilder.cs is owned by another workstream and must not be edited).
-    private static PartTypeInfo GetImagePartType(string imagePath)
+    private static PartTypeInfo GetImagePartTypeFromExtension(string extension)
     {
-        var ext = Path.GetExtension(imagePath).ToLowerInvariant();
+        var ext = extension.ToLowerInvariant();
         return ext switch
         {
             ".png" => ImagePartType.Png,
@@ -362,6 +396,189 @@ public class PptxElementReplacer
             _ => ImagePartType.Jpeg
         };
     }
+
+    #region Fit modes (F7)
+
+    private const int SrcRectScale = 100000; // 1/1000ths of a percent, spcPct family (rule 2)
+
+    private static void ApplyFit(P.Picture picture, byte[] imageBytes, ImageFitMode fit, SourceRect? crop, List<string> warnings)
+    {
+        var blipFill = picture.BlipFill!;
+        NormalizeTileToStretch(blipFill);
+
+        // Crop without an explicit rect is Fill.
+        var effectiveFit = fit == ImageFitMode.Crop && crop == null ? ImageFitMode.Fill : fit;
+
+        if (effectiveFit == ImageFitMode.Stretch)
+        {
+            // Replacing a previously cropped picture must come out clean:
+            // the old a:srcRect is replaced, never stacked.
+            RemoveSourceRect(blipFill);
+            return;
+        }
+
+        if (effectiveFit == ImageFitMode.Crop)
+        {
+            SetSourceRect(blipFill, crop!.Value);
+            return;
+        }
+
+        // Fill and Contain need the new image's pixel dimensions and the frame extents.
+        var dimensions = ImageHeaderSniffer.TryGetPixelDimensions(imageBytes);
+        if (dimensions is not { } dims)
+        {
+            RemoveSourceRect(blipFill);
+            warnings.Add(
+                $"Image dimensions could not be determined (unsupported or unrecognized format); " +
+                $"fit '{ToFitString(effectiveFit)}' fell back to 'stretch'.");
+            return;
+        }
+
+        var xfrm = picture.ShapeProperties?.Transform2D;
+        var cx = xfrm?.Extents?.Cx?.Value;
+        var cy = xfrm?.Extents?.Cy?.Value;
+        if (cx is not > 0 || cy is not > 0)
+        {
+            RemoveSourceRect(blipFill);
+            warnings.Add(
+                "Picture has no usable frame transform; " +
+                $"fit '{ToFitString(effectiveFit)}' fell back to 'stretch'.");
+            return;
+        }
+
+        if (effectiveFit == ImageFitMode.Fill)
+        {
+            ApplyFill(blipFill, dims.Width, dims.Height, cx.Value, cy.Value);
+        }
+        else
+        {
+            RemoveSourceRect(blipFill); // Contain never carries a srcRect
+            ApplyContain(xfrm!, dims.Width, dims.Height, cx.Value, cy.Value);
+        }
+    }
+
+    private static string ToFitString(ImageFitMode fit) => fit.ToString().ToLowerInvariant();
+
+    /// <summary>
+    /// Cover: center-crop the image so the visible region matches the frame aspect.
+    /// Image wider than the frame → crop left/right; taller → crop top/bottom.
+    /// </summary>
+    private static void ApplyFill(P.BlipFill blipFill, int imageWidth, int imageHeight, long frameCx, long frameCy)
+    {
+        // Compare aspects in exact integer cross-products (imageW/imageH vs frameCx/frameCy).
+        var imageCross = (long)imageWidth * frameCy;
+        var frameCross = (long)imageHeight * frameCx;
+        if (imageCross == frameCross)
+        {
+            RemoveSourceRect(blipFill); // aspects already match: no crop needed
+            return;
+        }
+
+        int left = 0, top = 0, right = 0, bottom = 0;
+        if (imageCross > frameCross)
+        {
+            var visibleFraction = (double)frameCross / imageCross;
+            left = right = CropFractionToInt((1.0 - visibleFraction) / 2.0);
+        }
+        else
+        {
+            var visibleFraction = (double)imageCross / frameCross;
+            top = bottom = CropFractionToInt((1.0 - visibleFraction) / 2.0);
+        }
+
+        if (left == 0 && top == 0 && right == 0 && bottom == 0)
+        {
+            RemoveSourceRect(blipFill);
+            return;
+        }
+        SetSourceRect(blipFill, new SourceRect(left, top, right, bottom));
+    }
+
+    /// <summary>
+    /// Fit inside: shrink the frame's a:ext around the frame's center so the frame
+    /// aspect matches the image aspect; the image then fills the smaller frame exactly.
+    /// </summary>
+    private static void ApplyContain(Drawing.Transform2D xfrm, int imageWidth, int imageHeight, long cx, long cy)
+    {
+        var imageCross = (long)imageWidth * cy;
+        var frameCross = (long)imageHeight * cx;
+        if (imageCross == frameCross)
+        {
+            return; // frame already matches the image aspect
+        }
+
+        long newCx, newCy;
+        if (imageCross > frameCross)
+        {
+            // Image wider than the frame → width-limited: keep cx, shrink cy.
+            newCx = cx;
+            newCy = (long)Math.Round(cx * (double)imageHeight / imageWidth, MidpointRounding.AwayFromZero);
+        }
+        else
+        {
+            // Image taller than the frame → height-limited: keep cy, shrink cx.
+            newCx = (long)Math.Round(cy * (double)imageWidth / imageHeight, MidpointRounding.AwayFromZero);
+            newCy = cy;
+        }
+
+        // Shrink around the center: shift the offset by half of each delta.
+        var offset = xfrm.Offset;
+        if (offset == null)
+        {
+            offset = new Drawing.Offset { X = 0, Y = 0 };
+            xfrm.InsertAt(offset, 0); // a:off precedes a:ext in CT_Transform2D
+        }
+        offset.X = (offset.X?.Value ?? 0) + (cx - newCx) / 2;
+        offset.Y = (offset.Y?.Value ?? 0) + (cy - newCy) / 2;
+
+        var extents = xfrm.Extents!;
+        extents.Cx = newCx;
+        extents.Cy = newCy;
+    }
+
+    private static int CropFractionToInt(double fraction) =>
+        (int)Math.Round(fraction * SrcRectScale, MidpointRounding.AwayFromZero);
+
+    private static void SetSourceRect(P.BlipFill blipFill, SourceRect rect)
+    {
+        RemoveSourceRect(blipFill);
+        var srcRect = new Drawing.SourceRectangle
+        {
+            Left = rect.Left,
+            Top = rect.Top,
+            Right = rect.Right,
+            Bottom = rect.Bottom
+        };
+        // CT_BlipFillProperties sequence: blip?, srcRect?, (tile|stretch)? — srcRect follows the blip.
+        if (blipFill.Blip != null)
+        {
+            blipFill.InsertAfter(srcRect, blipFill.Blip);
+        }
+        else
+        {
+            blipFill.InsertAt(srcRect, 0);
+        }
+    }
+
+    private static void RemoveSourceRect(P.BlipFill blipFill) =>
+        blipFill.RemoveAllChildren<Drawing.SourceRectangle>();
+
+    /// <summary>Tiled blip fills don't compose with srcRect fit math; normalize to stretch first.</summary>
+    private static void NormalizeTileToStretch(P.BlipFill blipFill)
+    {
+        var hasTile = blipFill.Elements<Drawing.Tile>().Any();
+        if (hasTile)
+        {
+            blipFill.RemoveAllChildren<Drawing.Tile>();
+        }
+        if (hasTile || !blipFill.Elements<Drawing.Stretch>().Any())
+        {
+            // Same shape SlideBuilder.AddImage emits; appended last per the CT_BlipFillProperties sequence.
+            blipFill.Append(new Drawing.Stretch(new Drawing.FillRectangle()));
+        }
+    }
+
+    #endregion
 
     private static OpenXmlPart? TryGetPartById(OpenXmlPartContainer container, string relationshipId)
     {

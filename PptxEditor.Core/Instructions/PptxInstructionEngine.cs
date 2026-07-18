@@ -233,25 +233,13 @@ public class PptxInstructionEngine
             {
                 var slidePart = GetSlidePart(builder, replaceImage.Slide);
                 var imageBytes = Convert.FromBase64String(replaceImage.Image);
-                // The replacer's public surface is path-based (it derives the part type from
-                // the file extension), so the bytes round-trip through a temp file.
-                var tempPath = Path.Combine(
-                    Path.GetTempPath(), $"pptx-replace-image-{Guid.NewGuid():N}{DetectImageExtension(imageBytes)}");
-                try
+                var fitMode = ParseFitMode(replaceImage.Fit);
+                using var stream = new MemoryStream(imageBytes, writable: false);
+                var result = new PptxElementReplacer().ReplaceImage(
+                    slidePart, replaceImage.ElementId, stream, DetectImageExtension(imageBytes), fitMode);
+                if (!result.Success)
                 {
-                    File.WriteAllBytes(tempPath, imageBytes);
-                    var result = new PptxElementReplacer().ReplaceImage(slidePart, replaceImage.ElementId, tempPath);
-                    if (!result.Success)
-                    {
-                        throw new InvalidOperationException(result.Error);
-                    }
-                }
-                finally
-                {
-                    if (File.Exists(tempPath))
-                    {
-                        File.Delete(tempPath);
-                    }
+                    throw new InvalidOperationException(result.Error);
                 }
                 return new[] { replaceImage.Slide };
             }
@@ -312,6 +300,22 @@ public class PptxInstructionEngine
         }
         return slideBuilder.SlidePart;
     }
+
+    /// <summary>
+    /// Maps the validated fit argument to <see cref="ImageFitMode"/>. The JSON parser
+    /// validates the vocabulary already; the throw below only guards instructions
+    /// constructed directly in code. The vocabulary carries no explicit crop rect,
+    /// so "crop" reaches the replacer with a null rect and behaves as "fill".
+    /// </summary>
+    private static ImageFitMode ParseFitMode(string? fit) => fit?.ToLowerInvariant() switch
+    {
+        null or "" or "stretch" => ImageFitMode.Stretch,
+        "fill" => ImageFitMode.Fill,
+        "crop" => ImageFitMode.Crop,
+        "contain" => ImageFitMode.Contain,
+        _ => throw new InvalidOperationException(
+            $"Unknown fit mode '{fit}'; expected one of stretch|fill|crop|contain.")
+    };
 
     private static string DetectImageExtension(byte[] bytes)
     {
