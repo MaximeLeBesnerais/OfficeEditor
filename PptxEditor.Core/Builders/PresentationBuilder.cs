@@ -31,6 +31,10 @@ public interface IPresentationBuilder : IDisposable
     IPresentationBuilder ReplaceElement(uint elementId, string newText);
     IPresentationBuilder ReplaceTable(uint elementId, List<List<string>> newData);
     IPresentationBuilder ReplaceImage(uint elementId, string newImagePath);
+
+    // Fit-checked text replacement (W5); thin current-slide wrappers over TextFitService
+    FitCheckResult ReplaceElementWithFitCheck(uint elementId, string newText, FitCheckOptions? options = null);
+    FitCheckResult CheckElementFit(uint elementId);
     
     // Export to Typst/PDF/Thumbnails
     string ExportToTypst();
@@ -432,6 +436,36 @@ public class PresentationBuilder : IPresentationBuilder
             replacer.ReplaceImage(slidePart, elementId, newImagePath);
         }
         return this;
+    }
+
+    /// <summary>
+    /// Replaces text on the current slide like <see cref="ReplaceElement"/>, then
+    /// measures the new content against the shape box; when the shape has
+    /// normAutofit (or options.AutoShrink), emulates PowerPoint shrink and persists
+    /// &lt;a:normAutofit&gt; on the slide shape only. The measurement verdict is
+    /// returned (unlike ReplaceElement, whose replacer result is swallowed).
+    /// </summary>
+    public FitCheckResult ReplaceElementWithFitCheck(uint elementId, string newText, FitCheckOptions? options = null)
+    {
+        if (_currentSlideIndex >= 0 && _currentSlideIndex < _slides.Count)
+        {
+            var slidePart = _slides[_currentSlideIndex].SlidePart;
+            var fitService = new Services.TextFitService(_document);
+            return fitService.ReplaceTextWithFitCheck(slidePart, elementId, newText, options);
+        }
+        return new FitCheckResult { Replaced = false, ReplaceError = "No current slide.", Warnings = new[] { "No current slide." } };
+    }
+
+    /// <summary>Read-only fit check of the current text of a shape on the current slide.</summary>
+    public FitCheckResult CheckElementFit(uint elementId)
+    {
+        if (_currentSlideIndex >= 0 && _currentSlideIndex < _slides.Count)
+        {
+            var slidePart = _slides[_currentSlideIndex].SlidePart;
+            var fitService = new Services.TextFitService(_document);
+            return fitService.CheckShapeFit(slidePart, elementId);
+        }
+        return new FitCheckResult { Warnings = new[] { "No current slide." } };
     }
 
     public string ExportToTypst()

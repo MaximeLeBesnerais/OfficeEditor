@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using DocumentFormat.OpenXml.Packaging;
 using PptxEditor.Core.Converters;
 using PptxEditor.Core.Models;
@@ -8,14 +7,13 @@ namespace PptxEditor.Core.Services;
 /// <summary>
 /// Cached font-metrics resolution for text measurement, keyed by (family, bold, italic).
 ///
-/// DEDUP-INTEGRATION: unify with converter resolution chain (see
-/// w5-request-PptxToTypstConverter.cs.patch). This class deliberately replicates
-/// the private embedded-first chain of PptxToTypstConverter
-/// (ppt/fonts embedded → system scan → Aptos/Calibri→Carlito substitution)
-/// against public pieces (<see cref="OpenTypeFontMetricsReader"/> + package part
-/// access + system font dirs) because the converter's chain is private and owned
-/// by another workstream. Once the converter exposes its chain publicly, this
-/// catalog should delegate to it and the duplication removed.
+/// The system-font scan delegates to <see cref="PptxToTypstConverter.SharedSystemFonts"/> —
+/// the converter's embedded-first chain backing store (same well-known directories +
+/// fontconfig), scanned once per process behind its static cache. What intentionally
+/// stays here (the converter's public measurement surface does not cover it):
+/// per-variant embedded ppt/fonts keying (regular/bold/italic/boldItalic), italic
+/// variant names, TTC detection with warnings, Aptos/Calibri substitution, and the
+/// catalog options (additional paths/directories, IncludeSystemFonts).
 ///
 /// TrueType Collections (.ttc) are detected and reported as unparseable
 /// (warning) — they never crash resolution.
@@ -204,8 +202,16 @@ public sealed class FontMetricsCatalog
         ScanDirectories(_options.AdditionalFontDirectories);
         if (_options.IncludeSystemFonts)
         {
-            ScanDirectories(SystemFontDirectories());
-            DiscoverFontConfigFonts();
+            // Converter-owned chain: same well-known directories + fontconfig scan,
+            // performed at most once per process behind the converter's static cache
+            // (never a per-catalog rescan). TTC paths from fontconfig land here too and
+            // are flagged at read time by ReadPathMetrics.
+            var (families, paths) = PptxToTypstConverter.SharedSystemFonts;
+            _availableFamilies.UnionWith(families);
+            foreach (var (family, path) in paths)
+            {
+                _fontPaths.TryAdd(family, path);
+            }
         }
     }
 
@@ -340,73 +346,6 @@ public sealed class FontMetricsCatalog
                 }
                 catch { /* skip unreadable fonts */ }
             }
-        }
-    }
-
-    // Same well-known directories as the converter's DiscoverSystemFonts.
-    private static IEnumerable<string> SystemFontDirectories()
-    {
-        yield return "/usr/share/fonts";
-        yield return "/usr/local/share/fonts";
-        yield return Environment.GetFolderPath(Environment.SpecialFolder.Fonts);
-        yield return "/System/Library/Fonts";
-        yield return "/Library/Fonts";
-        yield return System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".fonts");
-        yield return System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local", "share", "fonts");
-        yield return System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Fonts");
-    }
-
-    // Fontconfig path — mirrors the converter's DiscoverFontConfigFonts so
-    // measurement sees the same faces rendering does (including .ttc paths,
-    // which are then reported as unparseable instead of failing silently).
-    private void DiscoverFontConfigFonts()
-    {
-        try
-        {
-            using var process = Process.Start(new ProcessStartInfo
-            {
-                FileName = "fc-list",
-                ArgumentList = { "--format=%{file}\t%{family}\n" },
-                RedirectStandardOutput = true,
-                RedirectStandardError = false,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            });
-
-            if (process == null)
-                return;
-
-            var outputTask = process.StandardOutput.ReadToEndAsync();
-            if (!process.WaitForExit(2000))
-            {
-                try { process.Kill(entireProcessTree: true); }
-                catch { /* best effort cleanup */ }
-                return;
-            }
-
-            if (!process.HasExited || process.ExitCode != 0)
-                return;
-            if (!outputTask.Wait(500))
-                return;
-
-            foreach (var line in outputTask.Result.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-            {
-                var parts = line.Split('\t', 2);
-                if (parts.Length != 2 || string.IsNullOrWhiteSpace(parts[1]))
-                    continue;
-
-                var fontPath = parts[0].Trim();
-                foreach (var family in parts[1].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-                {
-                    _availableFamilies.Add(family);
-                    if (!string.IsNullOrEmpty(fontPath))
-                        _fontPaths.TryAdd(family, fontPath);
-                }
-            }
-        }
-        catch
-        {
-            // Fontconfig is optional; directory scanning is the portable fallback.
         }
     }
 }
