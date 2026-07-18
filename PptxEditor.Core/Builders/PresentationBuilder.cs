@@ -14,6 +14,7 @@ public interface IPresentationBuilder : IDisposable
     IPresentationBuilder AddSlide(string? layoutName = null);
     IPresentationBuilder RemoveSlide(int index);
     IPresentationBuilder ReorderSlide(int fromIndex, int toIndex);
+    IPresentationBuilder DuplicateSlide(int index, int? position = null);
     
     // Content
     ISlideBuilder CurrentSlide { get; }
@@ -35,6 +36,7 @@ public interface IPresentationBuilder : IDisposable
     string ExportToTypst();
     byte[] ExportToPdf(PdfOptions? options = null);
     byte[][] ExportThumbnails(ThumbnailOptions? options = null);
+    byte[] ExportThumbnail(int slideIndex, ThumbnailOptions? options = null);
 
     void Save(string? path = null);
     void Save(Stream stream);
@@ -191,15 +193,9 @@ public class PresentationBuilder : IPresentationBuilder
         slidePart.AddPart(slideLayoutPart);
 
         // Add slide to presentation
-        var slideIds = slideIdList.ChildElements
-            .OfType<SlideId>()
-            .Select(sid => sid.Id?.Value ?? 0)
-            .ToList();
-        var maxSlideId = slideIds.Count > 0 ? slideIds.Max() : 256;
-        
         var newSlideId = new SlideId
         {
-            Id = maxSlideId + 1,
+            Id = GetNextSlideId(slideIdList),
             RelationshipId = _document.PresentationPart.GetIdOfPart(slidePart)
         };
         slideIdList.Append(newSlideId);
@@ -234,6 +230,13 @@ public class PresentationBuilder : IPresentationBuilder
             slideId.Remove();
         }
 
+        // Prune parts referenced only by this slide (slide-only images, notes, ...) so they
+        // do not stay orphaned in the package. Shared parts (layouts, images used by other
+        // slides) survive. Master/layout/theme parts are never pruned: they are always
+        // referenced from the master/presentation graph.
+        var referencedElsewhere = CollectPartsReferencedOutside(slidePart);
+        PruneUnreferencedParts(slidePart, referencedElsewhere, new HashSet<OpenXmlPartContainer>());
+
         // Remove the slide part
         _document.PresentationPart.DeletePart(slidePart);
         _slides.RemoveAt(index);
@@ -264,23 +267,99 @@ public class PresentationBuilder : IPresentationBuilder
         
         var slideId = slideIds[fromIndex];
         slideId.Remove();
-        
-        // Insert at the correct position
-        var targetIndex = fromIndex < toIndex ? toIndex - 1 : toIndex;
-        if (targetIndex >= slideIdList.ChildElements.Count)
+
+        // After removal the list has one fewer entry; insert BEFORE the element currently
+        // at toIndex so the slide lands exactly at toIndex (both for earlier and later moves).
+        if (toIndex >= slideIdList.ChildElements.Count)
         {
             slideIdList.Append(slideId);
         }
         else
         {
-            var targetSlideId = slideIdList.ChildElements.OfType<SlideId>().ElementAt(targetIndex);
-            slideIdList.InsertAfter(slideId, targetSlideId);
+            var targetSlideId = slideIdList.ChildElements.OfType<SlideId>().ElementAt(toIndex);
+            slideIdList.InsertBefore(slideId, targetSlideId);
         }
 
         if (_currentSlideIndex == fromIndex)
         {
             _currentSlideIndex = toIndex;
         }
+
+        return this;
+    }
+
+    /// <summary>
+    /// Creates a verbatim copy of the slide at <paramref name="index"/> and inserts it at
+    /// <paramref name="position"/> (defaults to right after the source slide).
+    /// The slide XML is copied byte-for-byte (preserving all styling); image and layout
+    /// parts are shared with the source slide, not copied. Every relationship of the
+    /// source slide part is re-wired with an IDENTICAL relationship id so the copied
+    /// XML's r:embed / r:id references stay valid (mismatched rIds = corrupt deck).
+    /// Notes are per-slide state: the duplicate starts without a notes part.
+    /// </summary>
+    public IPresentationBuilder DuplicateSlide(int index, int? position = null)
+    {
+        if (index < 0 || index >= _slides.Count)
+        {
+            throw new ArgumentOutOfRangeException(nameof(index));
+        }
+
+        var insertPosition = position ?? index + 1;
+        if (insertPosition < 0 || insertPosition > _slides.Count)
+        {
+            throw new ArgumentOutOfRangeException(nameof(position));
+        }
+
+        var presentationPart = _document.PresentationPart!;
+        var slideIdList = presentationPart.Presentation!.SlideIdList!;
+        var sourceSlidePart = _slides[index].SlidePart;
+
+        // Verbatim copy of the slide XML (style-preservation rule).
+        var newSlidePart = presentationPart.AddNewPart<SlidePart>();
+        using (var sourceStream = sourceSlidePart.GetStream())
+        {
+            newSlidePart.FeedData(sourceStream);
+        }
+
+        foreach (var pair in sourceSlidePart.Parts)
+        {
+            if (pair.OpenXmlPart is NotesSlidePart)
+            {
+                continue; // notes are per-slide state; the duplicate starts without them
+            }
+
+            newSlidePart.AddPart(pair.OpenXmlPart, pair.RelationshipId);
+        }
+
+        foreach (var hyperlink in sourceSlidePart.HyperlinkRelationships)
+        {
+            newSlidePart.AddHyperlinkRelationship(hyperlink.Uri, hyperlink.IsExternal, hyperlink.Id);
+        }
+
+        foreach (var external in sourceSlidePart.ExternalRelationships)
+        {
+            newSlidePart.AddExternalRelationship(external.RelationshipType, external.Uri, external.Id);
+        }
+
+        var newSlideId = new SlideId
+        {
+            Id = GetNextSlideId(slideIdList),
+            RelationshipId = presentationPart.GetIdOfPart(newSlidePart)
+        };
+
+        var existingSlideIds = slideIdList.ChildElements.OfType<SlideId>().ToList();
+        if (insertPosition >= existingSlideIds.Count)
+        {
+            slideIdList.Append(newSlideId);
+        }
+        else
+        {
+            slideIdList.InsertBefore(newSlideId, existingSlideIds[insertPosition]);
+        }
+
+        // Keep the _slides ↔ slideIdList invariant that ReorderSlide/RemoveSlide rely on.
+        _slides.Insert(insertPosition, new SlideBuilder(newSlidePart, newSlidePart.Slide!));
+        _currentSlideIndex = insertPosition;
 
         return this;
     }
@@ -395,22 +474,61 @@ public class PresentationBuilder : IPresentationBuilder
     public byte[][] ExportThumbnails(ThumbnailOptions? options = null)
     {
         options ??= new ThumbnailOptions();
-        
+
+        var outputFormat = options.Format?.Trim().ToLowerInvariant() switch
+        {
+            null or "" or "png" => OfficeEditor.Core.Services.OutputFormat.Png,
+            "svg" => OfficeEditor.Core.Services.OutputFormat.Svg,
+            var unsupported => throw new ArgumentException(
+                $"Unsupported thumbnail format '{unsupported}'. Supported formats: \"png\" (default), \"svg\".",
+                nameof(options))
+        };
+
         using var converter = new Converters.PptxToTypstConverter(_document);
         var presentation = converter.Convert();
         var typstSource = converter.GenerateTypstSource(presentation);
-        
+
         using var compiler = new OfficeEditor.Core.Services.TypstCompilerService();
         var compileOptions = new OfficeEditor.Core.Services.CompileOptions
         {
-            Format = OfficeEditor.Core.Services.OutputFormat.Png,
+            Format = outputFormat,
             Ppi = options.Ppi,
             FontDirectory = presentation.FontFiles.Count > 0 ? Path.Combine(presentation.TempDirectory, "fonts") : null,
             WorkingDirectory = presentation.TempDirectory
         };
-        
+
         var result = compiler.Compile(typstSource, compileOptions);
         return result.Pages;
+    }
+
+    /// <summary>
+    /// Renders a single slide to an image and returns the encoded bytes.
+    /// </summary>
+    /// <remarks>
+    /// v0 implementation: renders the whole deck via <see cref="ExportThumbnails"/> and
+    /// returns the page at <paramref name="slideIndex"/>. This full-render fallback assumes
+    /// a 1:1 page-to-slide mapping, so the rendered page count is validated against
+    /// <see cref="SlideCount"/> before slicing and an <see cref="InvalidOperationException"/>
+    /// is thrown on mismatch (rather than returning the wrong page). The internals can be
+    /// swapped to true single-slide compilation later without breaking callers.
+    /// </remarks>
+    public byte[] ExportThumbnail(int slideIndex, ThumbnailOptions? options = null)
+    {
+        if (slideIndex < 0 || slideIndex >= _slides.Count)
+        {
+            throw new ArgumentOutOfRangeException(nameof(slideIndex));
+        }
+
+        var pages = ExportThumbnails(options);
+
+        if (pages.Length != _slides.Count)
+        {
+            throw new InvalidOperationException(
+                $"Rendered page count ({pages.Length}) does not match the slide count ({_slides.Count}); " +
+                $"cannot safely slice page {slideIndex}. The full-render fallback requires a 1:1 page-to-slide mapping.");
+        }
+
+        return pages[slideIndex];
     }
 
     public void Save(string? path = null)
@@ -658,6 +776,78 @@ public class PresentationBuilder : IPresentationBuilder
         _document.PackageProperties.Creator = "OfficeEditor";
         _document.PackageProperties.Created = DateTime.Now;
         _document.PackageProperties.Modified = DateTime.Now;
+    }
+
+    /// <summary>
+    /// Collects every part reachable from the package root WITHOUT traversing
+    /// <paramref name="excludedPart"/>. After <paramref name="excludedPart"/> is deleted,
+    /// any part it referenced that is not in this set would be orphaned.
+    /// The excluded part itself is still added to the set so back-references
+    /// (e.g. notes slide → slide) are never treated as orphans.
+    /// </summary>
+    private HashSet<OpenXmlPart> CollectPartsReferencedOutside(OpenXmlPart excludedPart)
+    {
+        var referenced = new HashSet<OpenXmlPart>();
+        var visitedContainers = new HashSet<OpenXmlPartContainer>();
+        var stack = new Stack<OpenXmlPartContainer>();
+        stack.Push(_document);
+
+        while (stack.Count > 0)
+        {
+            var container = stack.Pop();
+            if (!visitedContainers.Add(container))
+            {
+                continue;
+            }
+
+            foreach (var pair in container.Parts)
+            {
+                referenced.Add(pair.OpenXmlPart);
+                if (!ReferenceEquals(pair.OpenXmlPart, excludedPart))
+                {
+                    stack.Push(pair.OpenXmlPart);
+                }
+            }
+        }
+
+        return referenced;
+    }
+
+    /// <summary>
+    /// Recursively deletes every part under <paramref name="container"/> that is not
+    /// referenced anywhere outside the subtree being removed. Children are pruned before
+    /// their parent so exclusively-owned sub-parts do not leak.
+    /// </summary>
+    private static void PruneUnreferencedParts(
+        OpenXmlPartContainer container,
+        HashSet<OpenXmlPart> referencedElsewhere,
+        HashSet<OpenXmlPartContainer> visited)
+    {
+        if (!visited.Add(container))
+        {
+            return;
+        }
+
+        foreach (var pair in container.Parts.ToList())
+        {
+            if (referencedElsewhere.Contains(pair.OpenXmlPart))
+            {
+                continue;
+            }
+
+            PruneUnreferencedParts(pair.OpenXmlPart, referencedElsewhere, visited);
+            container.DeletePart(pair.OpenXmlPart);
+        }
+    }
+
+    private static uint GetNextSlideId(SlideIdList slideIdList)
+    {
+        var slideIds = slideIdList.ChildElements
+            .OfType<SlideId>()
+            .Select(sid => sid.Id?.Value ?? 0)
+            .ToList();
+        var maxSlideId = slideIds.Count > 0 ? slideIds.Max() : 256;
+        return maxSlideId + 1;
     }
 
     private void LoadExistingSlides()
