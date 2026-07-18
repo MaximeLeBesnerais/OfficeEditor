@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Caching.Memory;
+using PptxEditor.Core.Builders;
 
 namespace OfficeEditor.Api.Services;
 
@@ -44,21 +45,6 @@ public sealed class DeckSession
     /// list instance when mutating it after the session is stored.
     /// </summary>
     public List<string> TempDirectories { get; } = new();
-}
-
-public interface IDeckSessionStore
-{
-    /// <summary>Stores a new session and returns its generated deck id.</summary>
-    Guid Store(byte[] sourceBytes, string fileName, int slideCount);
-
-    /// <summary>Stores an already-built session (used by revision-bump edits).</summary>
-    void Store(DeckSession session);
-
-    bool TryGet(Guid deckId, out DeckSession? session);
-    void Remove(Guid deckId);
-
-    /// <summary>Deletes the session-owned temp directories; called on eviction/removal.</summary>
-    void SweepSession(DeckSession session);
 }
 
 public sealed class InMemoryDeckSessionStore : IDeckSessionStore
@@ -117,6 +103,70 @@ public sealed class InMemoryDeckSessionStore : IDeckSessionStore
     public void Remove(Guid deckId)
     {
         _cache.Remove(deckId);
+    }
+
+    public byte[]? GetBytes(Guid deckId)
+    {
+        return TryGet(deckId, out var session) ? session!.SourceBytes : null;
+    }
+
+    public T WithDeckLock<T>(Guid deckId, Func<T> action)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+
+        if (!TryGet(deckId, out var session) || session is null)
+        {
+            // Unknown/expired deck: no lock to hold. Edit callers re-check GetBytes
+            // inside the action, so this still maps to 404 rather than throwing.
+            return action();
+        }
+
+        // Serialize against renders and other edits of this deck — the preview
+        // pipeline takes the same per-deck semaphore (DeckPreviewService).
+        session.RenderLock.Wait();
+        try
+        {
+            return action();
+        }
+        finally
+        {
+            session.RenderLock.Release();
+        }
+    }
+
+    public void UpdateBytes(Guid deckId, byte[] bytes)
+    {
+        ArgumentNullException.ThrowIfNull(bytes);
+
+        if (!TryGet(deckId, out var existing) || existing is null)
+        {
+            throw new KeyNotFoundException($"Unknown deck id '{deckId}'.");
+        }
+
+        // Slide-ops instructions (duplicate/move/delete) can change the slide count,
+        // and preview validation trusts SlideCount: re-derive it from the new bytes
+        // instead of carrying a stale count into the new revision.
+        int slideCount;
+        using (var builder = PresentationBuilder.Open(bytes))
+        {
+            slideCount = builder.SlideCount;
+        }
+
+        // Revision bump = a NEW session entry (see DeckSession.Revision): pages cached
+        // on the old revision are discarded with it, and evicting the old entry sweeps
+        // its session-owned temp dirs. The fresh RenderLock is safe: callers already
+        // inside WithDeckLock hold the OLD session's lock for their whole critical
+        // section, so old and new sessions are coherent snapshots.
+        var revision = new DeckSession
+        {
+            DeckId = existing.DeckId,
+            SourceBytes = bytes,
+            FileName = existing.FileName,
+            SlideCount = slideCount,
+            Revision = existing.Revision + 1
+        };
+
+        Store(revision);
     }
 
     public void SweepSession(DeckSession session)
