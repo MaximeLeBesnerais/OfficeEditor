@@ -33,6 +33,39 @@ internal static class TypstBridgeNative
     [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "typst_bridge_last_error_message")]
     [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.ApplicationDirectory | DllImportSearchPath.SafeDirectories)]
     internal static extern IntPtr LastErrorMessage();
+
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "typst_bridge_session_create")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.ApplicationDirectory | DllImportSearchPath.SafeDirectories)]
+    internal static extern TypstBridgeStatus SessionCreate(
+        IntPtr workingDirUtf8,
+        UIntPtr workingDirLen,
+        IntPtr fontPaths,
+        UIntPtr fontPathsCount,
+        out IntPtr session);
+
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "typst_bridge_session_update_source")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.ApplicationDirectory | DllImportSearchPath.SafeDirectories)]
+    internal static extern TypstBridgeStatus SessionUpdateSource(
+        TypstBridgeSessionHandle session,
+        IntPtr sourceUtf8,
+        UIntPtr sourceLen,
+        IntPtr rootFileNameUtf8,
+        UIntPtr rootFileNameLen);
+
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "typst_bridge_session_compile")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.ApplicationDirectory | DllImportSearchPath.SafeDirectories)]
+    internal static extern IntPtr SessionCompile(
+        TypstBridgeSessionHandle session,
+        uint outputFormat,
+        double ppi);
+
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "typst_bridge_session_free")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.ApplicationDirectory | DllImportSearchPath.SafeDirectories)]
+    internal static extern void SessionFree(IntPtr session);
+
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "typst_bridge_evict_cache")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.ApplicationDirectory | DllImportSearchPath.SafeDirectories)]
+    internal static extern TypstBridgeStatus EvictCache(uint maxAge);
 }
 
 internal enum TypstBridgeStatus : uint

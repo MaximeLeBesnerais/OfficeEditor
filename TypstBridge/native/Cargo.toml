@@ -8,6 +8,10 @@ build = "build.rs"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+# Already a transitive dependency of typst 0.14.2 (pinned to the exact version in
+# Cargo.lock); promoted to a direct dependency so the bridge can drive
+# `comemo::evict` for bounded memoization in long-lived processes.
+comemo = "=0.5.1"
 typst = "=0.14.2"
 typst-kit = { version = "=0.14.2", default-features = false, features = ["fonts", "embed-fonts"] }
 typst-pdf = "=0.14.2"
