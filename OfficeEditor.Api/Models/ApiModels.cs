@@ -18,3 +18,8 @@ public record SampleFileDto(
     string Name,
     string Format,
     string Description);
+
+public record CreateDeckResponse(
+    Guid DeckId,
+    int SlideCount,
+    string FileName);
