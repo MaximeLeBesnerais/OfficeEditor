@@ -30,10 +30,10 @@ public record PptxReplaceTextInstruction : PptxInstruction
 /// <summary>
 /// replaceImage { slide, elementId, image (base64), fit? }
 /// <para>
-/// <see cref="Fit"/> is parsed and validated ("stretch"|"fill"|"crop"|"contain")
-/// but NOT applied by the engine yet — the current replacer always stretches the
-/// image into the existing frame. Fit modes land with the F7 work; the field is
-/// part of the vocabulary now so clients can send it forward-compatibly.
+/// <see cref="Fit"/> selects how the replacement is fitted into the existing frame:
+/// "stretch" (default, legacy behavior), "fill" (center-crop cover via a:srcRect),
+/// "crop" (the vocabulary carries no explicit source rect, so it behaves as "fill")
+/// and "contain" (the frame's a:ext shrinks around its center to the image aspect).
 /// </para>
 /// </summary>
 public record PptxReplaceImageInstruction : PptxInstruction
@@ -49,7 +49,7 @@ public record PptxReplaceImageInstruction : PptxInstruction
     /// <summary>Base64-encoded image bytes.</summary>
     public required string Image { get; init; }
 
-    /// <summary>Optional fit mode; reserved for F7 (see type remarks).</summary>
+    /// <summary>Optional fit mode: "stretch" (default) | "fill" | "crop" | "contain".</summary>
     public string? Fit { get; init; }
 }
 
