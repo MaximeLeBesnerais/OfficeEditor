@@ -69,22 +69,44 @@ Expected differences come from different layout engines, font metrics, and embed
 
 ## How to regenerate
 
-Generate PNG slides from a PPTX file:
+Run from the repository root. Generate PNG slides from a PPTX file:
 
 ```bash
-rtk dotnet run --project tools/convert-pptx -- \
+dotnet run --project tools/convert-pptx -- \
   examples/REF/PPTX/Presentation1.pptx \
   examples/output/pptx-comparison/generated/Presentation1 \
   --format png \
   --font-path /usr/share/fonts
 ```
 
-Rasterize the reference PDF to PNGs at 150 DPI:
+Rasterize the reference PDF to PNGs at 150 DPI (requires poppler):
 
 ```bash
-rtk pdftocairo -png -r 150 \
+pdftocairo -png -r 150 \
   examples/REF/PPTX/Presentation1.pdf \
   examples/output/pptx-comparison/official/Presentation1/page
 ```
 
 Repeat the two commands above for `pres-pro.pptx`, replacing `Presentation1` with `pres-pro` in the output paths.
+
+> `rtk` prefixes you may see elsewhere in this repo are an optional shell
+> token-saving wrapper — the plain commands above work as-is.
+
+### Recompute the RMSE table
+
+With ImageMagick installed, the visual-diff tool's PNG-pair mode recomputes
+per-slide RMSE without needing poppler (the committed official PNGs under
+`docs/assets/pptx-comparison/official/` are reused as the reference):
+
+```bash
+dotnet run --project tools/visual-diff -- \
+  --ref docs/assets/pptx-comparison/official/Presentation1 \
+  --gen examples/output/pptx-comparison/generated/Presentation1 \
+  --out examples/output/visual-diff/pptx-comparison/Presentation1 \
+  --name Presentation1
+```
+
+Per-slide `PercentRmse` values in `examples/output/visual-diff/pptx-comparison/Presentation1/metrics.json`
+map 1:1 to the RMSE % column above. RMSE values are machine-dependent (fonts,
+rendering backend), so expect small drift from the committed numbers; see
+`tools/visual-diff/baselines/README.md`.
