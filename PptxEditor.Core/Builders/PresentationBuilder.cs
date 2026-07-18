@@ -505,12 +505,15 @@ public class PresentationBuilder : IPresentationBuilder
     /// Renders a single slide to an image and returns the encoded bytes.
     /// </summary>
     /// <remarks>
-    /// v0 implementation: renders the whole deck via <see cref="ExportThumbnails"/> and
-    /// returns the page at <paramref name="slideIndex"/>. This full-render fallback assumes
-    /// a 1:1 page-to-slide mapping, so the rendered page count is validated against
-    /// <see cref="SlideCount"/> before slicing and an <see cref="InvalidOperationException"/>
-    /// is thrown on mismatch (rather than returning the wrong page). The internals can be
-    /// swapped to true single-slide compilation later without breaking callers.
+    /// v1 implementation: converts and compiles only the requested slide via
+    /// <see cref="Converters.PptxToTypstConverter.ConvertSingleSlide"/>; the emitted
+    /// document is self-contained (global header + this slide's <c>#set page</c>), so a
+    /// successful render yields exactly one page. If the single-slide render does not
+    /// produce exactly one page, the method falls back to the v0 whole-deck render
+    /// (<see cref="ExportThumbnails"/>) and slices out the requested page, validating the
+    /// rendered page count against <see cref="SlideCount"/> before slicing and throwing an
+    /// <see cref="InvalidOperationException"/> on mismatch (rather than returning the
+    /// wrong page).
     /// </remarks>
     public byte[] ExportThumbnail(int slideIndex, ThumbnailOptions? options = null)
     {
@@ -519,6 +522,41 @@ public class PresentationBuilder : IPresentationBuilder
             throw new ArgumentOutOfRangeException(nameof(slideIndex));
         }
 
+        options ??= new ThumbnailOptions();
+
+        var outputFormat = options.Format?.Trim().ToLowerInvariant() switch
+        {
+            null or "" or "png" => OfficeEditor.Core.Services.OutputFormat.Png,
+            "svg" => OfficeEditor.Core.Services.OutputFormat.Svg,
+            var unsupported => throw new ArgumentException(
+                $"Unsupported thumbnail format '{unsupported}'. Supported formats: \"png\" (default), \"svg\".",
+                nameof(options))
+        };
+
+        // v1 single-slide path: compile only the requested slide.
+        using (var converter = new Converters.PptxToTypstConverter(_document))
+        {
+            var presentation = converter.ConvertSingleSlide(slideIndex);
+            var typstSource = converter.GenerateTypstSource(presentation);
+
+            using var compiler = new OfficeEditor.Core.Services.TypstCompilerService();
+            var compileOptions = new OfficeEditor.Core.Services.CompileOptions
+            {
+                Format = outputFormat,
+                Ppi = options.Ppi,
+                FontDirectory = presentation.FontFiles.Count > 0 ? Path.Combine(presentation.TempDirectory, "fonts") : null,
+                WorkingDirectory = presentation.TempDirectory
+            };
+
+            var result = compiler.Compile(typstSource, compileOptions);
+            if (result.Pages.Length == 1)
+            {
+                return result.Pages[0];
+            }
+        }
+
+        // Full-render fallback (v0 semantics): render the whole deck and slice the page,
+        // which requires a 1:1 page-to-slide mapping.
         var pages = ExportThumbnails(options);
 
         if (pages.Length != _slides.Count)
