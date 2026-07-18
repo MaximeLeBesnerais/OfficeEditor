@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Presentation;
@@ -6,167 +7,429 @@ using P = DocumentFormat.OpenXml.Presentation;
 
 namespace PptxEditor.Core.Services;
 
+/// <summary>
+/// Outcome of a single element-replacement operation.
+/// </summary>
+public readonly record struct PptxReplaceResult
+{
+    public bool Success { get; }
+
+    public string? Error { get; }
+
+    private PptxReplaceResult(bool success, string? error)
+    {
+        Success = success;
+        Error = error;
+    }
+
+    public static PptxReplaceResult Ok() => new(true, null);
+
+    public static PptxReplaceResult Fail(string error) => new(false, error);
+
+    public override string ToString() => Success ? "Success" : $"Failure: {Error}";
+}
+
 public class PptxElementReplacer
 {
-    public void ReplaceText(SlidePart slidePart, uint elementId, string newText)
+    // Guarded attribute read per AGENTS.pptx.md rule 1: OpenXmlElement.GetAttribute()
+    // can crash on unreliable OOXML attributes, so read them via regex on OuterXml
+    // (canonical pattern: StyleResolver.GetAttributeValue).
+    private static readonly Regex IdAttributePattern = new(
+        @"\bid\s*=\s*""([^""]*)""", RegexOptions.Compiled);
+
+    private const long DefaultTableWidth = 7200000;
+    private const long DefaultRowHeight = 370840;
+
+    public PptxReplaceResult ReplaceText(SlidePart slidePart, uint elementId, string newText)
     {
-        var slide = slidePart.Slide;
-        if (slide?.CommonSlideData?.ShapeTree == null) return;
+        ArgumentNullException.ThrowIfNull(slidePart);
+        newText ??= string.Empty;
 
-        var shape = FindShapeById(slide.CommonSlideData.ShapeTree, elementId);
-        if (shape == null) return;
+        if (elementId == 0)
+            return PptxReplaceResult.Fail("Element id must be greater than zero.");
 
-        var textBody = shape.TextBody;
-        if (textBody == null) return;
+        var shapeTree = slidePart.Slide?.CommonSlideData?.ShapeTree;
+        if (shapeTree == null)
+            return PptxReplaceResult.Fail("Slide has no shape tree.");
 
-        // Clear existing paragraphs and add new text
+        var matches = FindById<P.Shape>(shapeTree, elementId);
+        if (matches.Count == 0)
+            return PptxReplaceResult.Fail($"No shape with id {elementId} found on the slide.");
+        if (matches.Count > 1)
+            return PptxReplaceResult.Fail($"Multiple shapes with id {elementId} found on the slide; refusing to pick one arbitrarily.");
+
+        var textBody = matches[0].TextBody;
+        if (textBody == null)
+            return PptxReplaceResult.Fail($"Shape with id {elementId} has no text body.");
+
+        // Capture per-paragraph templates (paragraph properties + first run's run
+        // properties) before clearing — run-level semantics, never naked runs.
+        var templates = textBody.Elements<Drawing.Paragraph>()
+            .Select(p => new ParagraphTemplate(
+                p.ParagraphProperties?.CloneNode(true),
+                p.Elements<Drawing.Run>().FirstOrDefault()?.RunProperties?.CloneNode(true)))
+            .ToList();
+        var fallbackPPr = templates.Select(t => t.ParagraphProperties).FirstOrDefault(p => p != null);
+        var fallbackRPr = templates.Select(t => t.RunProperties).FirstOrDefault(r => r != null);
+
         textBody.RemoveAllChildren<Drawing.Paragraph>();
-        textBody.Append(new Drawing.Paragraph(new Drawing.Run(new Drawing.Text(newText))));
-    }
 
-    public void ReplaceTableData(SlidePart slidePart, uint elementId, List<List<string>> newData)
-    {
-        var slide = slidePart.Slide;
-        if (slide?.CommonSlideData?.ShapeTree == null) return;
-
-        var graphicFrame = FindGraphicFrameById(slide.CommonSlideData.ShapeTree, elementId);
-        if (graphicFrame == null) return;
-
-        var graphicData = graphicFrame.Graphic?.GraphicData;
-        if (graphicData == null) return;
-
-        var existingTable = graphicData.Elements<Drawing.Table>().FirstOrDefault();
-        if (existingTable == null) return;
-
-        // Get column count from first row
-        if (newData.Count == 0 || newData[0].Count == 0) return;
-        
-        var numCols = newData[0].Count;
-        var numRows = newData.Count;
-
-        // Create new table with updated data
-        var newTable = new Drawing.Table(
-            new Drawing.TableProperties { FirstRow = true },
-            new Drawing.TableGrid(Enumerable.Range(0, numCols).Select(_ => new Drawing.GridColumn { Width = 7200000 / numCols }))
-        );
-
-        foreach (var row in newData)
+        // Multi-line text becomes multiple paragraphs; each line reuses the
+        // template of the paragraph at the same index (last one when the
+        // replacement has more lines than the original).
+        var lines = newText.Replace("\r\n", "\n").Split('\n');
+        for (var i = 0; i < lines.Length; i++)
         {
-            var tableRow = new Drawing.TableRow { Height = 370840 };
-            foreach (var cell in row)
-            {
-                var tableCell = new Drawing.TableCell(
-                    new Drawing.TextBody(
-                        new Drawing.BodyProperties(),
-                        new Drawing.ListStyle(),
-                        new Drawing.Paragraph(new Drawing.Run(new Drawing.Text(cell)))
-                    ),
-                    new Drawing.TableCellProperties()
-                );
-                tableRow.Append(tableCell);
-            }
-            newTable.Append(tableRow);
+            var template = templates.Count == 0
+                ? ParagraphTemplate.Empty
+                : templates[Math.Min(i, templates.Count - 1)];
+
+            var paragraph = new Drawing.Paragraph();
+            var pPr = template.ParagraphProperties ?? fallbackPPr;
+            if (pPr != null)
+                paragraph.Append(pPr.CloneNode(true));
+
+            var run = new Drawing.Run();
+            var rPr = template.RunProperties ?? fallbackRPr;
+            if (rPr != null)
+                run.Append(rPr.CloneNode(true));
+            run.Append(CreateText(lines[i]));
+            paragraph.Append(run);
+
+            textBody.Append(paragraph);
         }
 
-        // Replace the old table
-        graphicData.RemoveAllChildren<Drawing.Table>();
-        graphicData.Append(newTable);
+        return PptxReplaceResult.Ok();
     }
 
-    public void ReplaceImage(SlidePart slidePart, uint elementId, string newImagePath)
+    public PptxReplaceResult ReplaceTableData(SlidePart slidePart, uint elementId, List<List<string>> newData)
     {
+        ArgumentNullException.ThrowIfNull(slidePart);
+        ArgumentNullException.ThrowIfNull(newData);
+
+        if (elementId == 0)
+            return PptxReplaceResult.Fail("Element id must be greater than zero.");
+
+        var shapeTree = slidePart.Slide?.CommonSlideData?.ShapeTree;
+        if (shapeTree == null)
+            return PptxReplaceResult.Fail("Slide has no shape tree.");
+
+        var matches = FindById<P.GraphicFrame>(shapeTree, elementId);
+        if (matches.Count == 0)
+            return PptxReplaceResult.Fail($"No graphic frame with id {elementId} found on the slide.");
+        if (matches.Count > 1)
+            return PptxReplaceResult.Fail($"Multiple graphic frames with id {elementId} found on the slide; refusing to pick one arbitrarily.");
+
+        var graphicData = matches[0].Graphic?.GraphicData;
+        if (graphicData == null)
+            return PptxReplaceResult.Fail($"Graphic frame with id {elementId} has no graphic data.");
+
+        var existingTable = graphicData.Elements<Drawing.Table>().FirstOrDefault();
+        if (existingTable == null)
+            return PptxReplaceResult.Fail($"Graphic frame with id {elementId} does not contain a table.");
+
+        if (newData.Count == 0 || newData[0].Count == 0)
+            return PptxReplaceResult.Fail("Table data must contain at least one row and one column.");
+
+        var numCols = newData[0].Count;
+        if (newData.Any(row => row.Count != numCols))
+            return PptxReplaceResult.Fail("All table rows must have the same number of columns.");
+
+        var existingRows = existingTable.Elements<Drawing.TableRow>().ToList();
+        var dimensionsMatch = existingRows.Count == newData.Count
+            && existingRows.All(row => row.Elements<Drawing.TableCell>().Count() == numCols);
+
+        if (dimensionsMatch)
+        {
+            // In-place edit: preserves each cell's tcPr and run properties.
+            for (var i = 0; i < newData.Count; i++)
+            {
+                var cells = existingRows[i].Elements<Drawing.TableCell>().ToList();
+                for (var j = 0; j < numCols; j++)
+                {
+                    SetCellText(cells[j], newData[i][j]);
+                }
+            }
+            return PptxReplaceResult.Ok();
+        }
+
+        // Dimensions differ → rebuild, but keep the original table properties
+        // (tableStyleId, banding flags), grid widths and row heights. Only the
+        // a:tbl element is swapped, so the frame's xfrm is untouched.
+        var newTable = RebuildTable(existingTable, newData, numCols);
+        graphicData.RemoveAllChildren<Drawing.Table>();
+        graphicData.Append(newTable);
+        return PptxReplaceResult.Ok();
+    }
+
+    public PptxReplaceResult ReplaceImage(SlidePart slidePart, uint elementId, string newImagePath)
+    {
+        ArgumentNullException.ThrowIfNull(slidePart);
+
         if (!File.Exists(newImagePath))
         {
             throw new FileNotFoundException($"Image not found: {newImagePath}");
         }
 
-        var slide = slidePart.Slide;
-        if (slide?.CommonSlideData?.ShapeTree == null) return;
+        if (elementId == 0)
+            return PptxReplaceResult.Fail("Element id must be greater than zero.");
 
-        var picture = FindPictureById(slide.CommonSlideData.ShapeTree, elementId);
-        if (picture == null) return;
+        var shapeTree = slidePart.Slide?.CommonSlideData?.ShapeTree;
+        if (shapeTree == null)
+            return PptxReplaceResult.Fail("Slide has no shape tree.");
 
-        var blipFill = picture.BlipFill;
-        if (blipFill == null) return;
+        var matches = FindById<P.Picture>(shapeTree, elementId);
+        if (matches.Count == 0)
+            return PptxReplaceResult.Fail($"No picture with id {elementId} found on the slide.");
+        if (matches.Count > 1)
+            return PptxReplaceResult.Fail($"Multiple pictures with id {elementId} found on the slide; refusing to pick one arbitrarily.");
 
-        var blip = blipFill.Blip;
-        if (blip == null) return;
+        var blip = matches[0].BlipFill?.Blip;
+        if (blip == null)
+            return PptxReplaceResult.Fail($"Picture with id {elementId} has no blip fill.");
 
         var oldEmbedId = blip.Embed?.Value;
-        if (oldEmbedId == null) return;
+        if (string.IsNullOrEmpty(oldEmbedId))
+            return PptxReplaceResult.Fail($"Picture with id {elementId} is not linked to an image part.");
 
-        // Remove old image part
-        var oldImagePart = (ImagePart?)slidePart.GetPartById(oldEmbedId);
-        if (oldImagePart != null)
+        var oldImagePart = TryGetPartById(slidePart, oldEmbedId) as ImagePart;
+        if (oldImagePart == null)
+            return PptxReplaceResult.Fail($"Relationship '{oldEmbedId}' does not resolve to an image part on the slide.");
+
+        // Add the new part and retarget the blip BEFORE touching the old part.
+        var imagePart = slidePart.AddImagePart(GetImagePartType(newImagePath));
+        using (var stream = new FileStream(newImagePath, FileMode.Open, FileAccess.Read))
+        {
+            imagePart.FeedData(stream);
+        }
+        blip.Embed = slidePart.GetIdOfPart(imagePart);
+
+        // Delete the old part only when nothing else references it — the same
+        // ImagePart may be shared with other slides; deleting it then corrupts
+        // the deck. The count includes this slide's (now stale) relationship,
+        // so 1 means "only we referenced it".
+        if (CountPartReferences(slidePart.OpenXmlPackage, oldImagePart) <= 1)
         {
             slidePart.DeletePart(oldImagePart);
         }
 
-        // Add new image part
-        var imagePart = slidePart.AddImagePart(ImagePartType.Jpeg);
-        using (var stream = new FileStream(newImagePath, FileMode.Open))
-        {
-            imagePart.FeedData(stream);
-        }
-
-        // Update blip reference
-        blip.Embed = slidePart.GetIdOfPart(imagePart);
+        return PptxReplaceResult.Ok();
     }
 
-    private P.Shape? FindShapeById(ShapeTree shapeTree, uint elementId)
+    private static void SetCellText(Drawing.TableCell cell, string value)
     {
-        foreach (var element in shapeTree.ChildElements)
+        var textBody = cell.TextBody;
+        var firstParagraph = textBody?.Elements<Drawing.Paragraph>().FirstOrDefault();
+        var firstRun = firstParagraph?.Elements<Drawing.Run>().FirstOrDefault();
+
+        if (textBody == null || firstParagraph == null || firstRun == null)
         {
-            if (element is P.Shape shape)
+            // No run-level template in this cell — rebuild a minimal text body,
+            // leaving the cell's own properties (tcPr) untouched.
+            if (textBody == null)
             {
-                var id = GetElementId(shape.NonVisualShapeProperties);
-                if (id == elementId) return shape;
+                // a:txBody must precede a:tcPr in a:tc.
+                textBody = new Drawing.TextBody(new Drawing.BodyProperties(), new Drawing.ListStyle());
+                cell.InsertAt(textBody, 0);
             }
+            else
+            {
+                textBody.RemoveAllChildren<Drawing.Paragraph>();
+            }
+            textBody.Append(new Drawing.Paragraph(new Drawing.Run(CreateText(value))));
+            return;
+        }
+
+        // Keep the first paragraph (with its pPr) and the first run (with its
+        // rPr); drop extra paragraphs/runs.
+        foreach (var paragraph in textBody.Elements<Drawing.Paragraph>().Skip(1).ToList())
+        {
+            paragraph.Remove();
+        }
+        foreach (var child in firstParagraph.ChildElements.ToList())
+        {
+            if (child is Drawing.ParagraphProperties || ReferenceEquals(child, firstRun))
+                continue;
+            child.Remove();
+        }
+
+        var text = firstRun.Text ?? firstRun.AppendChild(new Drawing.Text());
+        SetTextValue(text, value);
+    }
+
+    private static Drawing.Table RebuildTable(Drawing.Table existingTable, List<List<string>> newData, int numCols)
+    {
+        var tableProperties = existingTable.TableProperties?.CloneNode(true)
+            ?? new Drawing.TableProperties { FirstRow = true };
+
+        var originalWidths = existingTable.TableGrid?
+            .Elements<Drawing.GridColumn>()
+            .Select(column => column.Width?.Value ?? 0L)
+            .ToList() ?? new List<long>();
+        var widths = ComputeColumnWidths(originalWidths, numCols);
+
+        var originalHeights = existingTable.Elements<Drawing.TableRow>()
+            .Select(row => row.Height?.Value ?? DefaultRowHeight)
+            .ToList();
+
+        var newTable = new Drawing.Table();
+        newTable.Append(tableProperties);
+        newTable.Append(new Drawing.TableGrid(widths.Select(w => new Drawing.GridColumn { Width = w })));
+
+        for (var i = 0; i < newData.Count; i++)
+        {
+            var height = originalHeights.Count > 0
+                ? originalHeights[i % originalHeights.Count]
+                : DefaultRowHeight;
+            var tableRow = new Drawing.TableRow { Height = height };
+            foreach (var cellText in newData[i])
+            {
+                tableRow.Append(new Drawing.TableCell(
+                    new Drawing.TextBody(
+                        new Drawing.BodyProperties(),
+                        new Drawing.ListStyle(),
+                        new Drawing.Paragraph(new Drawing.Run(CreateText(cellText)))),
+                    new Drawing.TableCellProperties()));
+            }
+            newTable.Append(tableRow);
+        }
+
+        return newTable;
+    }
+
+    private static List<long> ComputeColumnWidths(List<long> originalWidths, int numCols)
+    {
+        if (originalWidths.Count == 0 || originalWidths.Any(w => w <= 0))
+        {
+            return Enumerable.Repeat(DefaultTableWidth / numCols, numCols).ToList();
+        }
+
+        // Reuse the original column widths cyclically, then normalize so the
+        // total table width is preserved.
+        var total = originalWidths.Sum();
+        var widths = Enumerable.Range(0, numCols)
+            .Select(c => originalWidths[c % originalWidths.Count])
+            .ToList();
+        var current = widths.Sum();
+        if (current != total)
+        {
+            long applied = 0;
+            for (var i = 0; i < numCols; i++)
+            {
+                widths[i] = widths[i] * total / current;
+                applied += widths[i];
+            }
+            widths[^1] += total - applied; // absorb rounding drift
+        }
+        return widths;
+    }
+
+    private static Drawing.Text CreateText(string value)
+    {
+        var text = new Drawing.Text(value);
+        SetSpacePreserve(text, value);
+        return text;
+    }
+
+    private static void SetTextValue(Drawing.Text text, string value)
+    {
+        text.Text = value;
+        SetSpacePreserve(text, value);
+    }
+
+    // Preserve leading/trailing whitespace in a:t (xml:space="preserve").
+    private static void SetSpacePreserve(Drawing.Text text, string value)
+    {
+        if (value.Length > 0 && (value.StartsWith(' ') || value.EndsWith(' ')))
+        {
+            text.SetAttribute(new OpenXmlAttribute(
+                "xml:space", "http://www.w3.org/XML/1998/namespace", "preserve"));
+        }
+    }
+
+    // Extension → part-type switch mirrored from SlideBuilder.AddImage
+    // (SlideBuilder.cs is owned by another workstream and must not be edited).
+    private static PartTypeInfo GetImagePartType(string imagePath)
+    {
+        var ext = Path.GetExtension(imagePath).ToLowerInvariant();
+        return ext switch
+        {
+            ".png" => ImagePartType.Png,
+            ".gif" => ImagePartType.Gif,
+            ".bmp" => ImagePartType.Bmp,
+            ".tiff" or ".tif" => ImagePartType.Tiff,
+            ".svg" => ImagePartType.Svg,
+            _ => ImagePartType.Jpeg
+        };
+    }
+
+    private static OpenXmlPart? TryGetPartById(OpenXmlPartContainer container, string relationshipId)
+    {
+        foreach (var pair in container.Parts)
+        {
+            if (pair.RelationshipId == relationshipId)
+                return pair.OpenXmlPart;
         }
         return null;
     }
 
-    private P.GraphicFrame? FindGraphicFrameById(ShapeTree shapeTree, uint elementId)
+    private static int CountPartReferences(OpenXmlPackage package, OpenXmlPart target)
     {
-        foreach (var element in shapeTree.ChildElements)
+        var count = 0;
+        var visited = new HashSet<OpenXmlPartContainer>();
+        var pending = new Stack<OpenXmlPartContainer>();
+        pending.Push(package);
+        while (pending.Count > 0)
         {
-            if (element is P.GraphicFrame graphicFrame)
+            var container = pending.Pop();
+            if (!visited.Add(container))
+                continue;
+            foreach (var pair in container.Parts)
             {
-                var id = GetElementId(graphicFrame.NonVisualGraphicFrameProperties);
-                if (id == elementId) return graphicFrame;
+                if (ReferenceEquals(pair.OpenXmlPart, target))
+                    count++;
+                pending.Push(pair.OpenXmlPart);
             }
         }
-        return null;
+        return count;
     }
 
-    private P.Picture? FindPictureById(ShapeTree shapeTree, uint elementId)
+    private static List<T> FindById<T>(ShapeTree shapeTree, uint elementId) where T : OpenXmlElement
     {
+        var matches = new List<T>();
         foreach (var element in shapeTree.ChildElements)
         {
-            if (element is P.Picture picture)
+            if (element is not T candidate)
+                continue;
+
+            var nvProperties = candidate switch
             {
-                var id = GetElementId(picture.NonVisualPictureProperties);
-                if (id == elementId) return picture;
-            }
+                P.Shape shape => (OpenXmlElement?)shape.NonVisualShapeProperties,
+                P.GraphicFrame frame => frame.NonVisualGraphicFrameProperties,
+                P.Picture picture => picture.NonVisualPictureProperties,
+                _ => null
+            };
+            if (nvProperties != null && GetElementId(nvProperties) == elementId)
+                matches.Add(candidate);
         }
-        return null;
+        return matches;
     }
 
-    private uint GetElementId(OpenXmlElement? nvProperties)
+    private static uint GetElementId(OpenXmlElement nvProperties)
     {
-        if (nvProperties == null) return 0;
-
         // The cNvPr element might be parsed as OpenXmlUnknownElement due to namespace issues
         // in OpenXML SDK v3.5.1 when Drawing elements are nested inside Presentation elements
         var cnvPr = nvProperties.ChildElements.FirstOrDefault(e => e.LocalName == "cNvPr");
         if (cnvPr == null) return 0;
 
-        var idAttr = cnvPr.GetAttribute("id", "");
-        if (!string.IsNullOrEmpty(idAttr.Value) && uint.TryParse(idAttr.Value, out var parsedId))
-        {
-            return parsedId;
-        }
+        var match = IdAttributePattern.Match(cnvPr.OuterXml);
+        return match.Success && uint.TryParse(match.Groups[1].Value, out var parsedId)
+            ? parsedId
+            : 0;
+    }
 
-        return 0;
+    private sealed record ParagraphTemplate(OpenXmlElement? ParagraphProperties, OpenXmlElement? RunProperties)
+    {
+        public static readonly ParagraphTemplate Empty = new(null, null);
     }
 }
