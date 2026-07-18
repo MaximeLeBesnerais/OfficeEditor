@@ -3,7 +3,12 @@ using PptxEditor.Core.Models;
 
 namespace PptxEditor.Core.Converters;
 
-internal static class OpenTypeFontMetricsReader
+/// <summary>
+/// Reads OpenType/TrueType font metrics (units-per-em, ascenders, advance widths)
+/// directly from raw font bytes. Public so fit-checking services
+/// (<see cref="PptxEditor.Core.Services.TextFitService"/>) can measure text.
+/// </summary>
+public static class OpenTypeFontMetricsReader
 {
     public static TypstFontMetrics? TryRead(ReadOnlySpan<byte> data)
     {
