@@ -24,6 +24,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "convert-docx", "tools\conve
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "visual-diff", "tools\visual-diff\visual-diff.csproj", "{2A3D6E31-0D0B-4E1C-BBB0-51A4AC34E3BE}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "pptx-benchmark", "tools\pptx-benchmark\pptx-benchmark.csproj", "{0C02536A-56B3-4D64-BA60-A9197B97EFE7}"
+EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OfficeEditor.Api", "OfficeEditor.Api\OfficeEditor.Api.csproj", "{91B03161-10B6-4023-A284-9DD66E93EBD4}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TypstBridge.Managed.Tests", "TypstBridge\tests\TypstBridge.Managed.Tests\TypstBridge.Managed.Tests.csproj", "{0A30AC41-9848-45A7-B3D5-D6F16AC5F6EC}"
@@ -172,6 +174,18 @@ Global
 		{91B03161-10B6-4023-A284-9DD66E93EBD4}.Release|x64.Build.0 = Release|Any CPU
 		{91B03161-10B6-4023-A284-9DD66E93EBD4}.Release|x86.ActiveCfg = Debug|Any CPU
 		{91B03161-10B6-4023-A284-9DD66E93EBD4}.Release|x86.Build.0 = Release|Any CPU
+		{0C02536A-56B3-4D64-BA60-A9197B97EFE7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0C02536A-56B3-4D64-BA60-A9197B97EFE7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0C02536A-56B3-4D64-BA60-A9197B97EFE7}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{0C02536A-56B3-4D64-BA60-A9197B97EFE7}.Debug|x64.Build.0 = Debug|Any CPU
+		{0C02536A-56B3-4D64-BA60-A9197B97EFE7}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{0C02536A-56B3-4D64-BA60-A9197B97EFE7}.Debug|x86.Build.0 = Debug|Any CPU
+		{0C02536A-56B3-4D64-BA60-A9197B97EFE7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0C02536A-56B3-4D64-BA60-A9197B97EFE7}.Release|Any CPU.Build.0 = Release|Any CPU
+		{0C02536A-56B3-4D64-BA60-A9197B97EFE7}.Release|x64.ActiveCfg = Release|Any CPU
+		{0C02536A-56B3-4D64-BA60-A9197B97EFE7}.Release|x64.Build.0 = Release|Any CPU
+		{0C02536A-56B3-4D64-BA60-A9197B97EFE7}.Release|x86.ActiveCfg = Release|Any CPU
+		{0C02536A-56B3-4D64-BA60-A9197B97EFE7}.Release|x86.Build.0 = Release|Any CPU
 		{0A30AC41-9848-45A7-B3D5-D6F16AC5F6EC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{0A30AC41-9848-45A7-B3D5-D6F16AC5F6EC}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{0A30AC41-9848-45A7-B3D5-D6F16AC5F6EC}.Debug|x64.ActiveCfg = Debug|Any CPU
@@ -203,5 +217,6 @@ Global
 	GlobalSection(NestedProjects) = postSolution
 		{0896715C-64D4-4ACB-B347-31E154D01D97} = {07C2787E-EAC7-C090-1BA3-A61EC2A24D84}
 		{2A3D6E31-0D0B-4E1C-BBB0-51A4AC34E3BE} = {07C2787E-EAC7-C090-1BA3-A61EC2A24D84}
+		{0C02536A-56B3-4D64-BA60-A9197B97EFE7} = {07C2787E-EAC7-C090-1BA3-A61EC2A24D84}
 	EndGlobalSection
 EndGlobal
