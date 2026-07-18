@@ -1,9 +1,30 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Globalization;
 using TypstBridge.Managed;
 using TypstBridge.Managed.Models;
 
 namespace OfficeEditor.Core.Services;
+
+/// <summary>
+/// Timing data for a single <see cref="TypstCompilerService.Compile"/> call.
+/// Only recorded when <see cref="TypstCompilerService.TimingEnabled"/> is set
+/// (or the OFFICEEDITOR_TIMING environment variable is truthy at process start).
+/// </summary>
+public sealed record TypstCompileTiming
+{
+    public required DateTimeOffset TimestampUtc { get; init; }
+    public required OutputFormat Format { get; init; }
+    /// <summary>Backend that produced the result: "bridge", "legacy-typstsharp", or "cli".</summary>
+    public required string Backend { get; init; }
+    public required double TotalMilliseconds { get; init; }
+    /// <summary>Time spent in the TypstBridge attempt (always tried first).</summary>
+    public required double BridgeMilliseconds { get; init; }
+    /// <summary>Time spent in the fallback backend, when one was used.</summary>
+    public double? FallbackMilliseconds { get; init; }
+    public required int PageCount { get; init; }
+    public required bool Success { get; init; }
+}
 
 public enum OutputFormat
 {
@@ -34,6 +55,42 @@ public sealed class TypstCompilerService : IDisposable
     private static readonly bool _legacyTypstSharpAvailable;
     private dynamic? _legacyTypstSharpCompiler; // legacy typstsharp PDF fallback compiler
 
+    // Opt-in compile timing (OFFICEEDITOR_TIMING env var or TimingEnabled property).
+    // When off there is no allocation and no clock read on the Compile path.
+    private static readonly ConcurrentQueue<TypstCompileTiming> _timings = new();
+    private static volatile bool _timingEnabled = IsTimingEnvironmentVariableSet();
+
+    /// <summary>
+    /// Enables per-compile timing records. Defaults to the OFFICEEDITOR_TIMING
+    /// environment variable ("1"/"true"/"yes", case-insensitive).
+    /// </summary>
+    public static bool TimingEnabled
+    {
+        get => _timingEnabled;
+        set => _timingEnabled = value;
+    }
+
+    /// <summary>
+    /// Removes and returns all timing records collected so far. Thread-safe.
+    /// </summary>
+    public static IReadOnlyList<TypstCompileTiming> DrainTimings()
+    {
+        var drained = new List<TypstCompileTiming>();
+        while (_timings.TryDequeue(out var timing))
+        {
+            drained.Add(timing);
+        }
+        return drained;
+    }
+
+    private static bool IsTimingEnvironmentVariableSet()
+    {
+        var value = Environment.GetEnvironmentVariable("OFFICEEDITOR_TIMING");
+        return string.Equals(value, "1", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(value, "true", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(value, "yes", StringComparison.OrdinalIgnoreCase);
+    }
+
     static TypstCompilerService()
     {
         // Probe whether the legacy typstsharp fallback can be loaded for PDF output.
@@ -60,25 +117,58 @@ public sealed class TypstCompilerService : IDisposable
     {
         options ??= new CompileOptions();
 
+        // Timers stay null when timing is disabled — zero overhead on the hot path.
+        var totalTimer = _timingEnabled ? Stopwatch.StartNew() : null;
+        var bridgeTimer = _timingEnabled ? Stopwatch.StartNew() : null;
+
         var bridgeResult = CompileBridge(source, options);
+        bridgeTimer?.Stop();
         if (bridgeResult.Success)
         {
+            RecordTiming(totalTimer, bridgeTimer, fallbackTimer: null, "bridge", options.Format, bridgeResult);
             return bridgeResult;
         }
 
-        var fallbackResult = _legacyTypstSharpAvailable && options.Format == OutputFormat.Pdf && string.IsNullOrEmpty(options.FontDirectory)
+        var useLegacyFallback = _legacyTypstSharpAvailable && options.Format == OutputFormat.Pdf && string.IsNullOrEmpty(options.FontDirectory);
+        var fallbackTimer = _timingEnabled ? Stopwatch.StartNew() : null;
+        var fallbackResult = useLegacyFallback
             ? CompileLegacyTypstSharp(source, options)
             : CompileCli(source, options);
+        fallbackTimer?.Stop();
 
         if (!fallbackResult.Success)
         {
-            return fallbackResult with
+            fallbackResult = fallbackResult with
             {
                 ErrorMessage = CombineErrors(bridgeResult.ErrorMessage, fallbackResult.ErrorMessage)
             };
         }
 
+        // Note: CompileLegacyTypstSharp may internally degrade to the CLI on error,
+        // so "legacy-typstsharp" marks the entry path, not necessarily the final backend.
+        RecordTiming(totalTimer, bridgeTimer, fallbackTimer, useLegacyFallback ? "legacy-typstsharp" : "cli", options.Format, fallbackResult);
         return fallbackResult;
+    }
+
+    private static void RecordTiming(Stopwatch? totalTimer, Stopwatch? bridgeTimer, Stopwatch? fallbackTimer, string backend, OutputFormat format, CompileResult result)
+    {
+        if (totalTimer is null)
+        {
+            return;
+        }
+
+        totalTimer.Stop();
+        _timings.Enqueue(new TypstCompileTiming
+        {
+            TimestampUtc = DateTimeOffset.UtcNow,
+            Format = format,
+            Backend = backend,
+            TotalMilliseconds = totalTimer.Elapsed.TotalMilliseconds,
+            BridgeMilliseconds = bridgeTimer?.Elapsed.TotalMilliseconds ?? 0,
+            FallbackMilliseconds = fallbackTimer?.Elapsed.TotalMilliseconds,
+            PageCount = result.Pages.Length,
+            Success = result.Success
+        });
     }
 
     private static CompileResult CompileBridge(string source, CompileOptions options)
