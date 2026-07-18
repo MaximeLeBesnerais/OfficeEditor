@@ -1,0 +1,43 @@
+{
+  "themeColors": {
+    "accent1": "#CEBA80",
+    "accent2": "#4E364F",
+    "accent3": "#7A7567",
+    "accent4": "#364F4A",
+    "accent5": "#96A3C4",
+    "accent6": "#C2CFBB",
+    "dk1": "#000000",
+    "dk2": "#2C3932",
+    "folHlink": "#E15C3D",
+    "hlink": "#169C9A",
+    "lt1": "#FFFFFF",
+    "lt2": "#B17A5B"
+  },
+  "majorFont": "Aptos Light",
+  "minorFont": "Aptos",
+  "title": {
+    "fontFamily": "Aptos Light",
+    "fontSizePt": 54,
+    "bold": false,
+    "italic": null,
+    "color": "#000000"
+  },
+  "body": {
+    "fontFamily": "Aptos Display",
+    "fontSizePt": 18,
+    "bold": false,
+    "italic": false,
+    "color": "#000000"
+  },
+  "other": {
+    "fontFamily": "Aptos",
+    "fontSizePt": 18,
+    "bold": null,
+    "italic": null,
+    "color": "#000000"
+  },
+  "backgroundColor": "#CEBA80",
+  "slideWidthPt": 960,
+  "slideHeightPt": 540,
+  "warnings": []
+}
