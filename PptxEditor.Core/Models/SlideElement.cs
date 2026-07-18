@@ -9,6 +9,14 @@ public record SlideElement
     public string? Text { get; init; }
     public List<List<string>>? TableData { get; init; }
     public string? ImagePath { get; init; }
+
+    // Position/extent in EMU (English Metric Units) from the element's a:xfrm.
+    // Null when the element carries no explicit transform — placeholder shapes
+    // commonly omit a:xfrm and inherit their position from the slide layout.
+    public long? X { get; init; }
+    public long? Y { get; init; }
+    public long? Cx { get; init; }
+    public long? Cy { get; init; }
 }
 
 public record SlideAnatomy
