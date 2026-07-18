@@ -28,9 +28,8 @@ builder.Services.AddSingleton<IPreviewService, PreviewService>();
 builder.Services.AddSingleton<IDeckSessionStore, InMemoryDeckSessionStore>();
 builder.Services.AddSingleton<ISlideRenderer, BuilderSlideRenderer>();
 builder.Services.AddSingleton<IDeckPreviewService, DeckPreviewService>();
-// W7: builder.Services.AddSingleton<IDeckService, DeckService>();
-// W7: builder.Services.AddSingleton<IPptxInstructionService, PptxInstructionService>();
-// W7: builder.Services.AddSingleton<IBrandProfileService, BrandProfileService>();
+builder.Services.AddSingleton<IDeckService, DeckService>();
+builder.Services.AddSingleton<IDeckEditService, DeckEditService>();
 
 var app = builder.Build();
 
@@ -278,6 +277,44 @@ app.MapGet("/api/decks/{deckId:guid}/slides/{n:int}/preview", async (
     }
 
     return Results.File(preview.Bytes, preview.ContentType);
+});
+
+app.MapGet("/api/decks/{id:guid}/anatomy", (Guid id, IDeckService deckService) =>
+{
+    var anatomy = deckService.GetAnatomy(id);
+    return anatomy is null ? Results.NotFound() : Results.Ok(anatomy);
+});
+
+app.MapPost("/api/decks/{id:guid}/instructions", async (
+    Guid id,
+    HttpContext context,
+    IDeckEditService deckEditService,
+    CancellationToken ct) =>
+{
+    using var reader = new StreamReader(context.Request.Body);
+    var instructionsJson = await reader.ReadToEndAsync(ct);
+
+    var response = deckEditService.ApplyInstructions(id, instructionsJson);
+    if (response is null)
+    {
+        return Results.NotFound();
+    }
+
+    return response.Success ? Results.Ok(response) : Results.BadRequest(response);
+});
+
+app.MapGet("/api/decks/{id:guid}/file", (Guid id, IDeckService deckService) =>
+{
+    var bytes = deckService.GetDeckBytes(id);
+    if (bytes is null)
+    {
+        return Results.NotFound();
+    }
+
+    return Results.File(
+        bytes,
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        $"{id}.pptx");
 });
 
 app.Run();
