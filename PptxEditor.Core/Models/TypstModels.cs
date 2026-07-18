@@ -27,9 +27,29 @@ public sealed class TypstFontMetrics
 
 public sealed class TypstSlide
 {
+    private readonly List<string> _warnings = new();
+
     public int SlideIndex { get; init; }
     public SlideLayout Layout { get; init; } = new();
     public List<TypstElement> Elements { get; init; } = new();
+
+    /// <summary>
+    /// Human-readable warnings for slide content that could not be rendered faithfully —
+    /// e.g. charts or other unsupported graphic frames replaced by a visible placeholder,
+    /// or SmartArt approximated as positioned text. Empty when every element converted
+    /// cleanly. Populated by <see cref="Converters.PptxToTypstConverter"/> during
+    /// conversion; never mutated afterwards.
+    /// </summary>
+    public IReadOnlyList<string> Warnings => _warnings;
+
+    /// <summary>Adds a conversion warning for this slide (no-op for null/blank text).</summary>
+    public void AddWarning(string warning)
+    {
+        if (!string.IsNullOrWhiteSpace(warning))
+        {
+            _warnings.Add(warning);
+        }
+    }
 }
 
 public sealed class SlideLayout
