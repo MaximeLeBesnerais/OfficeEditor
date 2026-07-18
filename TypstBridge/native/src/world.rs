@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use typst::diag::{FileError, FileResult};
 use typst::foundations::{Bytes, Datetime};
@@ -12,8 +13,7 @@ use crate::fonts::BridgeFonts;
 
 pub struct BridgeWorld {
     library: LazyHash<Library>,
-    book: LazyHash<FontBook>,
-    fonts: Vec<Font>,
+    fonts: Arc<BridgeFonts>,
     main_id: FileId,
     main_source: Source,
     working_dir: PathBuf,
@@ -25,28 +25,37 @@ impl BridgeWorld {
         source_text: String,
         working_dir: PathBuf,
         root_name: &str,
-        fonts: BridgeFonts,
+        fonts: Arc<BridgeFonts>,
     ) -> Self {
+        let canonical_working_dir =
+            fs::canonicalize(&working_dir).unwrap_or_else(|_| working_dir.clone());
+
+        let mut world = Self {
+            library: LazyHash::new(Library::default()),
+            fonts,
+            main_id: FileId::new(None, VirtualPath::new("main.typ")),
+            main_source: Source::new(
+                FileId::new(None, VirtualPath::new("main.typ")),
+                String::new(),
+            ),
+            working_dir,
+            canonical_working_dir,
+        };
+        world.set_source(source_text, root_name);
+        world
+    }
+
+    /// Replaces the main source in place, keeping the library, font set, and
+    /// working-directory resolution hot. Used by persistent sessions so an
+    /// edited-slide recompile keeps comemo-memoized layout work reachable.
+    pub fn set_source(&mut self, source_text: String, root_name: &str) {
         let root_name = if root_name.is_empty() {
             "main.typ"
         } else {
             root_name
         };
-        let main_id = FileId::new(None, VirtualPath::new(root_name));
-        let main_source = Source::new(main_id, source_text);
-
-        let canonical_working_dir =
-            fs::canonicalize(&working_dir).unwrap_or_else(|_| working_dir.clone());
-
-        Self {
-            library: LazyHash::new(Library::default()),
-            book: LazyHash::new(fonts.book),
-            fonts: fonts.fonts,
-            main_id,
-            main_source,
-            working_dir,
-            canonical_working_dir,
-        }
+        self.main_id = FileId::new(None, VirtualPath::new(root_name));
+        self.main_source = Source::new(self.main_id, source_text);
     }
 }
 
@@ -56,7 +65,7 @@ impl World for BridgeWorld {
     }
 
     fn book(&self) -> &LazyHash<FontBook> {
-        &self.book
+        &self.fonts.book
     }
 
     fn main(&self) -> FileId {
@@ -88,7 +97,7 @@ impl World for BridgeWorld {
     }
 
     fn font(&self, index: usize) -> Option<Font> {
-        self.fonts.get(index).cloned()
+        self.fonts.fonts.get(index).cloned()
     }
 
     fn today(&self, _offset: Option<i64>) -> Option<Datetime> {
