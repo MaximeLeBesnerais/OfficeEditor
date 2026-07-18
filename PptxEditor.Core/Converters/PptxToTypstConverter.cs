@@ -23,6 +23,9 @@ public sealed class PptxToTypstConverter : IDisposable
     private Dictionary<string, TableStyleDefinition> _tableStyles = new(StringComparer.OrdinalIgnoreCase);
     private int _imageCounter;
 
+    /// <summary>Warnings for the slide currently being converted; null outside slide conversion.</summary>
+    private List<string>? _activeSlideWarnings;
+
     /// <summary>Target PPI for upscale detection. Used to determine if a native image
     /// is smaller than the display size and would be blurred by Typst upscaling.</summary>
     public float Ppi { get; init; } = 150;
@@ -49,6 +52,70 @@ public sealed class PptxToTypstConverter : IDisposable
 
     public TypstPresentation Convert()
     {
+        var presentation = BeginConversion();
+
+        var slideIdList = _document.PresentationPart!.Presentation!.SlideIdList;
+        if (slideIdList == null) return presentation;
+
+        int slideIndex = 1;
+        foreach (var slideId in slideIdList.ChildElements.OfType<SlideId>())
+        {
+            var slidePart = (SlidePart)_document.PresentationPart.GetPartById(slideId.RelationshipId!);
+            var slide = slidePart.Slide;
+            if (slide == null) continue;
+
+            var typstSlide = ConvertSlide(slidePart, slide, slideIndex);
+            presentation.Slides.Add(typstSlide);
+            slideIndex++;
+        }
+
+        return presentation;
+    }
+
+    /// <summary>
+    /// Converts a single slide and returns a <see cref="TypstPresentation"/> containing
+    /// exactly that one slide.
+    /// </summary>
+    /// <param name="slideIndex">0-based index into the presentation's slide order.</param>
+    /// <remarks>
+    /// Pair with <see cref="GenerateTypstSource"/> to emit a self-contained one-page
+    /// document: the global <c>#set text</c> header plus this slide's <c>#set page</c>
+    /// block, with no cross-slide state (per-slide pages in the whole-deck emission are
+    /// delimited only by <c>#pagebreak()</c>). Compiling the emitted source therefore
+    /// yields exactly one page (<c>Pages.Length == 1</c>) matching the corresponding page
+    /// of the whole-deck render.
+    /// </remarks>
+    public TypstPresentation ConvertSingleSlide(int slideIndex)
+    {
+        var slideIds = (_document.PresentationPart!.Presentation!.SlideIdList?.ChildElements
+            .OfType<SlideId>().ToList()) ?? new List<SlideId>();
+
+        if (slideIndex < 0 || slideIndex >= slideIds.Count)
+        {
+            throw new ArgumentOutOfRangeException(nameof(slideIndex), slideIndex,
+                $"Slide index must be in the range [0, {slideIds.Count}).");
+        }
+
+        var presentation = BeginConversion();
+
+        var slidePart = (SlidePart)_document.PresentationPart.GetPartById(slideIds[slideIndex].RelationshipId!);
+        var slide = slidePart.Slide;
+        if (slide != null)
+        {
+            // TypstSlide.SlideIndex stays 1-based (used e.g. for slide-number placeholders).
+            presentation.Slides.Add(ConvertSlide(slidePart, slide, slideIndex + 1));
+        }
+
+        return presentation;
+    }
+
+    /// <summary>
+    /// Performs the conversion setup shared by <see cref="Convert"/> and
+    /// <see cref="ConvertSingleSlide"/>: per-deck embedded-font extraction, theme fonts,
+    /// system fonts (process-wide cache), and table styles.
+    /// </summary>
+    private TypstPresentation BeginConversion()
+    {
         _fontMetrics.Clear();
         ExtractFonts();
         var fontFiles = Directory.GetFiles(_fontsDirectory).ToList();
@@ -67,31 +134,14 @@ public sealed class PptxToTypstConverter : IDisposable
         {
             LoadTableStyles(null);
         }
-        
-        var presentation = new TypstPresentation
+
+        return new TypstPresentation
         {
             TempDirectory = _tempDirectory,
             FontFiles = fontFiles,
             FontMetrics = new Dictionary<string, TypstFontMetrics>(_fontMetrics, StringComparer.OrdinalIgnoreCase),
             ThemeFonts = _themeFonts
         };
-
-        var slideIdList = _document.PresentationPart!.Presentation.SlideIdList;
-        if (slideIdList == null) return presentation;
-
-        int slideIndex = 1;
-        foreach (var slideId in slideIdList.ChildElements.OfType<SlideId>())
-        {
-            var slidePart = (SlidePart)_document.PresentationPart.GetPartById(slideId.RelationshipId!);
-            var slide = slidePart.Slide;
-            if (slide == null) continue;
-
-            var typstSlide = ConvertSlide(slidePart, slide, slideIndex);
-            presentation.Slides.Add(typstSlide);
-            slideIndex++;
-        }
-
-        return presentation;
     }
 
     public string GenerateTypstSource(TypstPresentation presentation)
@@ -905,7 +955,56 @@ public sealed class PptxToTypstConverter : IDisposable
         return false;
     }
 
+    /// <summary>Process-wide snapshot of a system-font scan (families + file paths).</summary>
+    private sealed class SystemFontDiscovery
+    {
+        public required HashSet<string> Families { get; init; }
+        public required Dictionary<string, string> Paths { get; init; }
+    }
+
+    private static readonly object s_systemFontCacheLock = new();
+    private static SystemFontDiscovery? s_systemFontCache;
+
+    /// <summary>
+    /// Clears the process-wide system-font cache. The next conversion re-scans system font
+    /// directories and fontconfig. Call this after installing or removing fonts; the cache
+    /// otherwise lives for the process lifetime (system fonts are stable within a run).
+    /// Embedded PPTX fonts are extracted per deck and are unaffected by this cache.
+    /// </summary>
+    public static void InvalidateSystemFontCache()
+    {
+        lock (s_systemFontCacheLock)
+        {
+            s_systemFontCache = null;
+        }
+    }
+
+    private static SystemFontDiscovery GetOrScanSystemFonts()
+    {
+        lock (s_systemFontCacheLock)
+        {
+            // The scan (recursive directory walk + per-file name-table parse + fc-list)
+            // costs 100-1000 ms, so it is performed at most once per process; the lock is
+            // held across it to prevent concurrent duplicate scans on first use.
+            s_systemFontCache ??= ScanSystemFonts();
+            return s_systemFontCache;
+        }
+    }
+
     private HashSet<string> DiscoverSystemFonts()
+    {
+        var discovery = GetOrScanSystemFonts();
+
+        _systemFontPaths.Clear();
+        foreach (var kv in discovery.Paths)
+        {
+            _systemFontPaths[kv.Key] = kv.Value;
+        }
+
+        return new HashSet<string>(discovery.Families, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static SystemFontDiscovery ScanSystemFonts()
     {
         var systemFontDirs = new[]
         {
@@ -920,7 +1019,7 @@ public sealed class PptxToTypstConverter : IDisposable
         };
 
         var fontFamilies = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        _systemFontPaths.Clear();
+        var fontPaths = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var dir in systemFontDirs.Where(Directory.Exists))
         {
@@ -935,7 +1034,7 @@ public sealed class PptxToTypstConverter : IDisposable
                         if (!string.IsNullOrEmpty(familyName))
                         {
                             fontFamilies.Add(familyName);
-                            _systemFontPaths.TryAdd(familyName, fontFile);
+                            fontPaths.TryAdd(familyName, fontFile);
                         }
                     }
                     catch { /* skip unreadable fonts */ }
@@ -944,12 +1043,12 @@ public sealed class PptxToTypstConverter : IDisposable
             catch { /* skip inaccessible directories */ }
         }
 
-        DiscoverFontConfigFonts(fontFamilies);
+        DiscoverFontConfigFonts(fontFamilies, fontPaths);
 
-        return fontFamilies;
+        return new SystemFontDiscovery { Families = fontFamilies, Paths = fontPaths };
     }
 
-    private void DiscoverFontConfigFonts(HashSet<string> fontFamilies)
+    private static void DiscoverFontConfigFonts(HashSet<string> fontFamilies, Dictionary<string, string> fontPaths)
     {
         try
         {
@@ -994,7 +1093,7 @@ public sealed class PptxToTypstConverter : IDisposable
                 {
                     fontFamilies.Add(family);
                     if (!string.IsNullOrEmpty(fontPath))
-                        _systemFontPaths.TryAdd(family, fontPath);
+                        fontPaths.TryAdd(family, fontPath);
                 }
             }
         }
@@ -1362,15 +1461,36 @@ public sealed class PptxToTypstConverter : IDisposable
         var shapeTree = slide.CommonSlideData?.ShapeTree;
         if (shapeTree == null) return typstSlide;
 
-        foreach (var element in shapeTree.ChildElements)
+        // Warnings raised while converting this slide's elements (e.g. unsupported
+        // graphic frames) are collected here and exposed on TypstSlide.Warnings.
+        var warnings = new List<string>();
+        _activeSlideWarnings = warnings;
+        try
         {
-            foreach (var typstElement in ConvertElement(slidePart, element, styleResolver, slideIndex))
+            foreach (var element in shapeTree.ChildElements)
             {
-                typstSlide.Elements.Add(typstElement);
+                foreach (var typstElement in ConvertElement(slidePart, element, styleResolver, slideIndex))
+                {
+                    typstSlide.Elements.Add(typstElement);
+                }
             }
+        }
+        finally
+        {
+            _activeSlideWarnings = null;
+        }
+
+        foreach (var warning in warnings)
+        {
+            typstSlide.AddWarning(warning);
         }
 
         return typstSlide;
+    }
+
+    private void AddSlideWarning(string warning)
+    {
+        _activeSlideWarnings?.Add(warning);
     }
 
     private Models.SlideLayout ExtractSlideLayout(SlidePart slidePart, Slide slide, StyleResolver styleResolver)
@@ -1823,9 +1943,111 @@ public sealed class PptxToTypstConverter : IDisposable
         var uri = graphicData.Uri?.Value ?? "";
         if (uri.Contains("/drawingml/2006/diagram", StringComparison.Ordinal))
         {
+            // SmartArt: approximate as positioned text from the diagram drawing part.
+            var approximated = false;
             foreach (var element in ConvertDiagramGraphicFrame(slidePart, graphicFrame, position, offX, offY, scaleX, scaleY))
+            {
+                approximated = true;
                 yield return element;
+            }
+
+            if (approximated)
+            {
+                AddSlideWarning($"SmartArt diagram '{name}' was approximated as positioned text; diagram layout and styling may differ from the original.");
+            }
+            else
+            {
+                AddSlideWarning($"SmartArt diagram '{name}' could not be approximated and was replaced by a placeholder.");
+                foreach (var placeholder in CreateUnsupportedFramePlaceholders(position, offX, offY, scaleX, scaleY, "SmartArt diagram"))
+                    yield return placeholder;
+            }
+
+            yield break;
         }
+
+        // Charts, OLE objects, media, and any other graphic frames have no conversion
+        // path: render a visible placeholder (never drop content silently) and warn.
+        var kind = ClassifyGraphicFrameKind(uri);
+        AddSlideWarning($"{kind} '{name}' is not supported and was replaced by a placeholder.");
+        foreach (var placeholder in CreateUnsupportedFramePlaceholders(position, offX, offY, scaleX, scaleY, kind))
+            yield return placeholder;
+    }
+
+    private static string ClassifyGraphicFrameKind(string uri)
+    {
+        if (uri.Contains("/drawingml/2006/chart", StringComparison.Ordinal))
+            return "Chart";
+        if (uri.Contains("oleObject", StringComparison.OrdinalIgnoreCase))
+            return "Embedded object";
+        if (uri.Contains("video", StringComparison.OrdinalIgnoreCase)
+            || uri.Contains("audio", StringComparison.OrdinalIgnoreCase)
+            || uri.Contains("media", StringComparison.OrdinalIgnoreCase))
+            return "Media";
+        return "Unsupported content";
+    }
+
+    /// <summary>
+    /// Builds the visible placeholder for a graphic frame that cannot be rendered: a
+    /// framed box with a centered label. Two elements (box + label) at the frame's
+    /// position; empty when the frame has no usable extent.
+    /// </summary>
+    private static IEnumerable<TypstElement> CreateUnsupportedFramePlaceholders(
+        (double X, double Y, double Width, double Height) position,
+        double offX, double offY, double scaleX, double scaleY,
+        string kind)
+    {
+        var x = offX + position.X * scaleX;
+        var y = offY + position.Y * scaleY;
+        var width = position.Width * scaleX;
+        var height = position.Height * scaleY;
+        if (width <= 0 || height <= 0)
+            yield break;
+
+        yield return new TypstElement
+        {
+            Type = "Shape",
+            X = x,
+            Y = y,
+            Width = width,
+            Height = height,
+            Shape = new TypstShapeElement
+            {
+                ShapeType = "rect",
+                FillColor = "#F5F5F5",
+                StrokeColor = "#9E9E9E",
+                StrokeWidth = 1.0
+            }
+        };
+
+        var label = $"{kind} (not supported)";
+        var formatting = new TypstTextFormatting
+        {
+            FontSize = 10,
+            Color = "#757575",
+            Align = "center"
+        };
+        yield return new TypstElement
+        {
+            Type = "Text",
+            X = x,
+            Y = y,
+            Width = width,
+            Height = height,
+            Text = new TypstTextElement
+            {
+                Paragraphs = new List<TypstParagraph>
+                {
+                    new TypstParagraph
+                    {
+                        Content = label,
+                        Runs = new List<TypstTextRun> { new TypstTextRun { Content = label, Formatting = formatting } },
+                        Formatting = formatting
+                    }
+                },
+                VerticalAlign = "center",
+                ParagraphCount = 1
+            }
+        };
     }
 
     private IEnumerable<TypstElement> ConvertDiagramGraphicFrame(SlidePart slidePart, P.GraphicFrame graphicFrame,
@@ -2238,10 +2460,14 @@ public sealed class PptxToTypstConverter : IDisposable
                     vertAlign = "bottom";
             }
         }
-        var padLeft = EmuToPt(bodyPr?.LeftInset?.Value ?? 0);
-        var padTop = EmuToPt(bodyPr?.TopInset?.Value ?? 0);
-        var padRight = EmuToPt(bodyPr?.RightInset?.Value ?? 0);
-        var padBottom = EmuToPt(bodyPr?.BottomInset?.Value ?? 0);
+        // OOXML bodyPr inset defaults (ECMA-376: lIns/rIns = 91440 EMU = 0.1",
+        // tIns/bIns = 45720 EMU = 0.05") apply whenever an attribute is absent —
+        // including when bodyPr itself is missing. Read via regex on OuterXml per
+        // AGENTS.pptx.md rule 1.
+        var padLeft = GetEmuAttributeAsPt(bodyPr, "lIns") ?? EmuToPt(DefaultHorizontalInsetEmu);
+        var padTop = GetEmuAttributeAsPt(bodyPr, "tIns") ?? EmuToPt(DefaultVerticalInsetEmu);
+        var padRight = GetEmuAttributeAsPt(bodyPr, "rIns") ?? EmuToPt(DefaultHorizontalInsetEmu);
+        var padBottom = GetEmuAttributeAsPt(bodyPr, "bIns") ?? EmuToPt(DefaultVerticalInsetEmu);
 
         // Get text body list style for cascade level 3
         var bodyLstStyle = textBody.ChildElements.FirstOrDefault(e => e.LocalName == "lstStyle");
@@ -3461,7 +3687,7 @@ public sealed class PptxToTypstConverter : IDisposable
         return anchor == "ctr" ? "center" : null;
     }
 
-    private static double? GetEmuAttributeAsPt(OpenXmlElement element, string attributeName)
+    private static double? GetEmuAttributeAsPt(OpenXmlElement? element, string attributeName)
     {
         var value = GetAttributeValue(element, attributeName);
         return long.TryParse(value, CultureInfo.InvariantCulture, out var emu) ? EmuToPt(emu) : null;
@@ -4323,6 +4549,12 @@ public sealed class PptxToTypstConverter : IDisposable
     {
         return emu / 12700.0;
     }
+
+    /// <summary>OOXML default for <c>lIns</c>/<c>rIns</c> on <c>a:bodyPr</c> (0.1").</summary>
+    private const int DefaultHorizontalInsetEmu = 91440;
+
+    /// <summary>OOXML default for <c>tIns</c>/<c>bIns</c> on <c>a:bodyPr</c> (0.05").</summary>
+    private const int DefaultVerticalInsetEmu = 45720;
 
     private static string FormatPt(double pt)
     {
