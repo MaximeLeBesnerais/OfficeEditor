@@ -1,0 +1,180 @@
+namespace VisualDiff;
+
+/// <summary>
+/// Builds the comparison inputs for the built-in suites and arbitrary
+/// --ref/--gen pairs, and detects whether a run needs a PDF renderer.
+/// </summary>
+internal static class SuiteCatalog
+{
+    private static readonly (string Name, string Pptx, string RefPdf, string GenPdf)[] PptxDecks =
+    [
+        ("Presentation1", "examples/REF/PPTX/Presentation1.pptx", "examples/REF/PPTX/Presentation1.pdf", "examples/output/ref/pptx/Presentation1.pdf"),
+        ("pres-pro", "examples/REF/PPTX/pres-pro.pptx", "examples/REF/PPTX/pres-pro.pdf", "examples/output/ref/pptx/pres-pro.pdf")
+    ];
+
+    public static List<ComparisonInput> BuildInputs(CliOptions options)
+    {
+        if (options.Suite is not null)
+        {
+            if (string.Equals(options.Suite, "docx", StringComparison.OrdinalIgnoreCase))
+            {
+                return
+                [
+                    new("Annual reporting template ENGLISH_0", "examples/REF/DOCX/Annual reporting template ENGLISH_0.pdf", "examples/output/ref/docx/Annual reporting template ENGLISH_0.pdf", InputKind.Pdf),
+                    new("Monitoring Report Template", "examples/REF/DOCX/Monitoring Report Template.pdf", "examples/output/ref/docx/Monitoring Report Template.pdf", InputKind.Pdf),
+                    new("gestion-risques-entreprise-bcp-pme", "examples/REF/DOCX/gestion-risques-entreprise-bcp-pme.pdf", "examples/output/ref/docx/gestion-risques-entreprise-bcp-pme.pdf", InputKind.Pdf)
+                ];
+            }
+
+            if (string.Equals(options.Suite, "pptx", StringComparison.OrdinalIgnoreCase))
+            {
+                return BuildPptxSuite(options);
+            }
+
+            throw new InvalidOperationException($"Unknown suite '{options.Suite}'. Supported suites: docx, pptx.");
+        }
+
+        InputKind referenceKind = DetectKind(options.ReferencePath!);
+        InputKind generatedKind = DetectKind(options.GeneratedPath!);
+        if (referenceKind != generatedKind)
+        {
+            throw new InvalidOperationException(
+                "--ref and --gen must be the same kind of input: both PDFs, both single PNGs, or both directories of PNGs.");
+        }
+
+        string name = options.Name ?? Path.GetFileNameWithoutExtension(options.GeneratedPath!);
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            name = "comparison";
+        }
+
+        return [new(name, options.ReferencePath!, options.GeneratedPath!, referenceKind)];
+    }
+
+    /// <summary>
+    /// Cheap, side-effect-free tool requirement detection used to probe external
+    /// tools before any expensive work (e.g. --generate conversions) happens.
+    /// </summary>
+    public static ToolRequirements RequirementsFor(CliOptions options)
+    {
+        bool needsRenderer = options.Suite is not null
+            || DetectKind(options.ReferencePath!) == InputKind.Pdf;
+        return ToolRequirements.ImageCompare | (needsRenderer ? ToolRequirements.PdfRenderer : ToolRequirements.None);
+    }
+
+    public static InputKind DetectKind(string path)
+    {
+        if (Directory.Exists(path))
+        {
+            return InputKind.Png;
+        }
+
+        string extension = Path.GetExtension(path);
+        if (extension.Equals(".png", StringComparison.OrdinalIgnoreCase))
+        {
+            return InputKind.Png;
+        }
+
+        if (extension.Equals(".pdf", StringComparison.OrdinalIgnoreCase))
+        {
+            return InputKind.Pdf;
+        }
+
+        throw new InvalidOperationException(
+            $"Cannot determine input type of '{path}'. Use a .pdf file, a .png file, or a directory containing PNGs.");
+    }
+
+    private static List<ComparisonInput> BuildPptxSuite(CliOptions options)
+    {
+        List<ComparisonInput> inputs = [];
+        List<string> skipped = [];
+
+        foreach ((string name, string pptx, string refPdf, string genPdf) in PptxDecks)
+        {
+            if (!File.Exists(refPdf))
+            {
+                throw new FileNotFoundException(
+                    $"Committed reference PDF is missing: {Path.GetFullPath(refPdf)}. The suite cannot run without it.", refPdf);
+            }
+
+            if (!File.Exists(genPdf))
+            {
+                if (options.GenerateMissing)
+                {
+                    if (!TryGeneratePptxPdf(name, pptx, genPdf, options.FontPath))
+                    {
+                        skipped.Add($"{name} (conversion failed)");
+                        continue;
+                    }
+                }
+                else
+                {
+                    skipped.Add(name);
+                    Console.Error.WriteLine($"visual-diff: skipping '{name}': generated PDF not found: {genPdf}");
+                    Console.Error.WriteLine($"  produce it with: {GenerateCommand(pptx, genPdf, options.FontPath)}");
+                    Console.Error.WriteLine("  or re-run with --generate to let visual-diff build it via tools/convert-pptx.");
+                    continue;
+                }
+            }
+
+            inputs.Add(new(name, refPdf, genPdf, InputKind.Pdf));
+        }
+
+        if (inputs.Count == 0)
+        {
+            string commands = string.Join(Environment.NewLine,
+                PptxDecks.Select(d => $"  {GenerateCommand(d.Pptx, d.GenPdf, options.FontPath)}"));
+            throw new InvalidOperationException(
+                "No generated PPTX PDFs were available under examples/output/ref/pptx/. Produce them first:\n"
+                + commands
+                + "\nOr re-run with --generate to let visual-diff invoke tools/convert-pptx itself.");
+        }
+
+        if (skipped.Count > 0)
+        {
+            Console.Error.WriteLine($"visual-diff: {skipped.Count} deck(s) skipped: {string.Join(", ", skipped)}");
+        }
+
+        return inputs;
+    }
+
+    private static string GenerateCommand(string pptx, string genPdf, string? fontPath) =>
+        $"dotnet run --project tools/convert-pptx -- {pptx} {genPdf} --format pdf"
+        + (fontPath is null ? string.Empty : $" --font-path {fontPath}");
+
+    private static bool TryGeneratePptxPdf(string name, string pptx, string genPdf, string? fontPath)
+    {
+        if (!File.Exists(pptx))
+        {
+            Console.Error.WriteLine($"visual-diff: cannot generate '{name}': source deck missing: {pptx}");
+            return false;
+        }
+
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(genPdf))!);
+        List<string> arguments = ["run", "--project", "tools/convert-pptx", "--", pptx, genPdf, "--format", "pdf"];
+        if (fontPath is not null)
+        {
+            arguments.Add("--font-path");
+            arguments.Add(fontPath);
+        }
+
+        Console.WriteLine($"Generating '{name}' PDF via tools/convert-pptx...");
+        try
+        {
+            ProcessResult result = ComparisonRunner.RunProcess("dotnet", arguments);
+            if (result.ExitCode != 0 || !File.Exists(genPdf))
+            {
+                Console.Error.WriteLine($"visual-diff: convert-pptx failed for '{name}' (exit {result.ExitCode}).");
+                Console.Error.WriteLine(result.ErrorOrOutput);
+                return false;
+            }
+
+            return true;
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            Console.Error.WriteLine($"visual-diff: could not start 'dotnet' to generate '{name}': {ex.Message}");
+            return false;
+        }
+    }
+}
