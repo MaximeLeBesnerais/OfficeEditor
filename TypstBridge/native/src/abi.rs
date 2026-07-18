@@ -1,6 +1,10 @@
 use std::ffi::{c_char, c_uchar};
 
-pub const TYPST_BRIDGE_ABI_VERSION: u32 = 2;
+// ABI v3 adds persistent compile sessions (typst_bridge_session_*), explicit
+// comemo cache eviction (typst_bridge_evict_cache), and a native font cache.
+// The v2 single-shot entry point (typst_bridge_compile) is unchanged in layout
+// and behavior; requests carrying abi_version 2 or 3 are both accepted.
+pub const TYPST_BRIDGE_ABI_VERSION: u32 = 3;
 
 pub const TYPST_BRIDGE_DIAG_ERROR: u32 = 1;
 pub const TYPST_BRIDGE_DIAG_WARNING: u32 = 2;
