@@ -268,7 +268,7 @@ public sealed class PptxToTypstConverter : IDisposable
                 GenerateTextSource(sb, element.Text!, widthStr, heightStr, availableFonts);
                 break;
             case "Image":
-                GenerateImageSource(sb, element.Image!, width, height, widthStr, heightStr);
+                GenerateImageSource(sb, element.Image!, widthStr, heightStr);
                 break;
             case "Table":
                 GenerateTableSource(sb, element.Table!, widthStr, heightStr);
@@ -1211,47 +1211,13 @@ public sealed class PptxToTypstConverter : IDisposable
     }
 
     private void GenerateImageSource(StringBuilder sb, TypstImageElement image,
-        double widthPt, double heightPt, string widthStr, string heightStr)
+        string widthStr, string heightStr)
     {
         var relativePath = $"assets/{image.FileName}";
 
-        // If we know the native pixel dimensions, check whether the display size
-        // would cause significant upscaling at the target PPI.  When upscaling is
-        // detected, emit the image at its native pixel dimensions (in Typst's px
-        // unit) to avoid blurriness from Typst's rasterisation pass.
-        string imageTag;
-        if (image.PixelWidth.HasValue && image.PixelHeight.HasValue
-            && Ppi > 0)
-        {
-            double targetPxW = widthPt * (Ppi / 72.0);
-            double targetPxH = heightPt * (Ppi / 72.0);
-
-            if (image.PixelWidth.Value < targetPxW * 0.9
-                || image.PixelHeight.Value < targetPxH * 0.9)
-            {
-                // Upscaling detected — limit display size to native resolution
-                // to avoid Typst interpolating and producing blurry output.
-                double nativePtW = image.PixelWidth.Value * 72.0 / Ppi;
-                double nativePtH = image.PixelHeight.Value * 72.0 / Ppi;
-                imageTag = $"#image(\"{relativePath}\","
-                    + $" width: {FormatPt(nativePtW)},"
-                    + $" height: {FormatPt(nativePtH)})";
-
-                // Wrap in clipping rect if corner radius is set
-                if (image.CornerRadius > 0)
-                {
-                    var radius = FormatPt(image.CornerRadius);
-                    sb.Append($"#rect(clip: true, width: {widthStr}, height: {heightStr}, radius: {radius}, [{imageTag}])");
-                    return;
-                }
-
-                sb.Append(imageTag);
-                return;
-            }
-        }
-
-        // Sufficient native resolution (or unknown format) — use the display size.
-        imageTag = $"#image(\"{relativePath}\", width: {widthStr}, height: {heightStr})";
+        // Image geometry comes from the PPTX frame. Native pixel dimensions are
+        // retained on TypstImageElement for diagnostics but must not change layout.
+        var imageTag = $"#image(\"{relativePath}\", width: {widthStr}, height: {heightStr})";
 
         // Wrap in clipping rect if corner radius is set
         if (image.CornerRadius > 0)
