@@ -77,6 +77,22 @@ public sealed class StyleResolver
     }
 
     /// <summary>
+    /// Theme color scheme map (scheme name -> #RRGGBB) loaded from the theme of the
+    /// slide's master, including sysClr LastColor fallbacks.
+    /// Keys (when present in the theme): dk1, lt1, dk2, lt2, accent1-6, hlink, folHlink.
+    /// Exposes raw scheme slots — clrMap remapping is NOT applied here.
+    /// </summary>
+    public IReadOnlyDictionary<string, string> SchemeColors => _schemeColors;
+
+    /// <summary>
+    /// Gets the master text style for an exact style key ("Title", "Body", "Other") and
+    /// zero-based level, or null when the master defines no such entry.
+    /// Unlike <see cref="GetDefaultTextStyle"/>, no level-0 or Body fallback is applied.
+    /// </summary>
+    public DefaultTextStyle? GetTextStyle(string key, int level)
+        => _textStyles.TryGetStyle(key, level);
+
+    /// <summary>
     /// Resolves a scheme color to RGB
     /// </summary>
     public string? ResolveSchemeColor(string schemeColorName)
@@ -197,7 +213,7 @@ public sealed class StyleResolver
         return cache;
     }
 
-    private static void LoadLevelStyles(TextStyleCache cache, string styleType, OpenXmlElement? styleList)
+    private void LoadLevelStyles(TextStyleCache cache, string styleType, OpenXmlElement? styleList)
     {
         if (styleList == null)
             return;
@@ -248,17 +264,112 @@ public sealed class StyleResolver
         return null;
     }
 
-    private static string? ExtractColorFromRunProperties(Drawing.DefaultRunProperties defRPr)
+    private string? ExtractColorFromRunProperties(Drawing.DefaultRunProperties defRPr)
     {
         var solidFill = defRPr.Elements<Drawing.SolidFill>().FirstOrDefault();
         if (solidFill == null)
             return null;
 
+        // Fast path: explicit sRGB color.
         var rgb = solidFill.RgbColorModelHex;
         if (rgb?.Val != null)
             return $"#{rgb.Val.Value}";
 
-        return null;
+        // Scheme color (the common case in master txStyles, e.g. <a:schemeClr val="tx1"/>).
+        var schemeClr = solidFill.SchemeColor;
+        if (schemeClr == null)
+            return null;
+
+        // Raw XML attribute read per AGENTS.pptx.md rule 1 — the SDK enum ToString()
+        // yields names like "Text1" which ResolveSchemeColor aliases do not cover.
+        var schemeName = GetAttributeValue(schemeClr, "val");
+        if (string.IsNullOrEmpty(schemeName))
+            return null;
+
+        var resolved = ResolveSchemeColor(schemeName);
+        if (resolved == null)
+            return null;
+
+        return ApplyLumTransforms(schemeClr, resolved);
+    }
+
+    /// <summary>
+    /// Applies lumMod/lumOff luminance transforms (HSL space, per ECMA-376) to a resolved
+    /// scheme color. Other color transforms (tint, shade, satMod, ...) are not applied.
+    /// </summary>
+    private static string ApplyLumTransforms(Drawing.SchemeColor schemeClr, string hexColor)
+    {
+        var lumMod = ReadTransformValue(schemeClr, "lumMod");
+        var lumOff = ReadTransformValue(schemeClr, "lumOff");
+        if (lumMod == null && lumOff == null)
+            return hexColor;
+
+        var mod = (lumMod ?? 100000) / 100000.0;
+        var off = (lumOff ?? 0) / 100000.0;
+
+        var r = Convert.ToInt32(hexColor.Substring(1, 2), 16) / 255.0;
+        var g = Convert.ToInt32(hexColor.Substring(3, 2), 16) / 255.0;
+        var b = Convert.ToInt32(hexColor.Substring(5, 2), 16) / 255.0;
+
+        RgbToHsl(r, g, b, out var h, out var s, out var l);
+        l = Math.Clamp(l * mod + off, 0.0, 1.0);
+        var (rr, gg, bb) = HslToRgb(h, s, l);
+
+        return string.Create(System.Globalization.CultureInfo.InvariantCulture,
+            $"#{(int)Math.Round(rr * 255):X2}{(int)Math.Round(gg * 255):X2}{(int)Math.Round(bb * 255):X2}");
+    }
+
+    private static int? ReadTransformValue(Drawing.SchemeColor schemeClr, string localName)
+    {
+        var element = schemeClr.ChildElements.FirstOrDefault(e => e.LocalName == localName);
+        if (element == null)
+            return null;
+
+        var valAttr = GetAttributeValue(element, "val");
+        return int.TryParse(valAttr, out var val) ? val : null;
+    }
+
+    private static void RgbToHsl(double r, double g, double b, out double h, out double s, out double l)
+    {
+        var max = Math.Max(r, Math.Max(g, b));
+        var min = Math.Min(r, Math.Min(g, b));
+        l = (max + min) / 2.0;
+        h = 0.0;
+        s = 0.0;
+
+        if (max == min)
+            return;
+
+        var d = max - min;
+        s = l > 0.5 ? d / (2.0 - max - min) : d / (max + min);
+
+        if (max == r)
+            h = (g - b) / d + (g < b ? 6.0 : 0.0);
+        else if (max == g)
+            h = (b - r) / d + 2.0;
+        else
+            h = (r - g) / d + 4.0;
+        h /= 6.0;
+    }
+
+    private static (double R, double G, double B) HslToRgb(double h, double s, double l)
+    {
+        if (s == 0.0)
+            return (l, l, l);
+
+        var q = l < 0.5 ? l * (1.0 + s) : l + s - l * s;
+        var p = 2.0 * l - q;
+        return (HueToRgb(p, q, h + 1.0 / 3.0), HueToRgb(p, q, h), HueToRgb(p, q, h - 1.0 / 3.0));
+    }
+
+    private static double HueToRgb(double p, double q, double t)
+    {
+        if (t < 0.0) t += 1.0;
+        if (t > 1.0) t -= 1.0;
+        if (t < 1.0 / 6.0) return p + (q - p) * 6.0 * t;
+        if (t < 1.0 / 2.0) return q;
+        if (t < 2.0 / 3.0) return p + (q - p) * (2.0 / 3.0 - t) * 6.0;
+        return p;
     }
 
     public DefaultTextStyle GetLayoutPlaceholderLstStyle(int? idx, PlaceholderValues? type, int level)
@@ -620,7 +731,7 @@ public sealed class StyleResolver
         return null;
     }
 
-    private static DefaultTextStyle ExtractLstStyleDefRPr(OpenXmlElement? textBody, int level)
+    private DefaultTextStyle ExtractLstStyleDefRPr(OpenXmlElement? textBody, int level)
     {
         if (textBody == null) return new DefaultTextStyle();
 
@@ -884,6 +995,16 @@ public sealed class StyleResolver
         {
             var key = $"{styleType}:{level}";
             _styles[key] = style;
+        }
+
+        /// <summary>
+        /// Exact-match lookup with no fallback — returns null when the styleType:level
+        /// entry was never loaded (used by brand profile extraction).
+        /// </summary>
+        public DefaultTextStyle? TryGetStyle(string styleType, int level)
+        {
+            var key = $"{styleType}:{level}";
+            return _styles.TryGetValue(key, out var style) ? style : null;
         }
 
         public DefaultTextStyle GetStyle(string styleType, int level = 0)
