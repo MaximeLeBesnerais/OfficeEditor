@@ -20,6 +20,13 @@ It is not a C# reimplementation of Typst. OfficeEditor.Core's `TypstCompilerServ
 - `typstsharp` remains present as a legacy PDF-only fallback path and has not been removed.
 - Linux x64 builds can auto-generate the native runtime asset when `TypstBridge.Managed` is built and the asset is missing.
 - Managed tests cover native loading, PDF/SVG/PNG rendering, multi-page outputs, PPI, and diagnostics. Asset/font behavior and repeated compile/free stability are covered by native-side checks or remain future managed-test coverage where gaps exist.
+- **ABI v3** adds persistent compile sessions (warm worlds), a process-wide parsed-font cache, and bounded comemo memoization eviction for long-lived processes; see below and [`docs/abi.md`](docs/abi.md).
+
+## Performance behavior (ABI v3)
+
+- **Native font cache.** Parsed font sets (`FontBook` + `Font` handles) are memoized process-wide, keyed by the sorted font-path list plus working directory and font-flag state. A cache hit skips directory scanning, `fs::read`, and font parsing entirely. The cache is never evicted; its size is bounded by the number of distinct font-path lists the process compiles with.
+- **Persistent sessions.** `TypstBridgeCompiler.CreateSession(workingDirectory, fontPaths)` returns a `TypstBridgeCompileSession` that keeps the native world (library, font set, working directory) warm. `UpdateSource(source, rootFileName)` swaps the source in place; `Compile(outputFormat, ppi)` recompiles with the same result layout as a cold compile; `Dispose()` frees the native handle (finalizer-safe via `SafeHandle`). Session output is byte-identical to a cold `Compile` of the same inputs. Sessions are independent and compile in parallel; a single session serializes its own calls.
+- **Memoization eviction.** Every 10 finished compiles the bridge runs one `comemo::evict(30)` pass (typst-cli watch-mode pattern), reclaiming memoized entries unused for roughly 300 compiles so server memory stays bounded. `TypstBridgeCompiler.EvictCache(maxAge)` forces a pass on demand; `EvictCache(0)` evicts everything unreferenced. Output bytes are deterministic across eviction boundaries (`World::today` is pinned at 1970-01-01).
 
 Current limits:
 

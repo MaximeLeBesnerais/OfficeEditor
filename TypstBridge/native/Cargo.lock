@@ -2483,6 +2483,7 @@ dependencies = [
 name = "typst_bridge"
 version = "0.1.0"
 dependencies = [
+ "comemo",
  "tiny-skia",
  "typst",
  "typst-kit",
