@@ -121,6 +121,7 @@ public sealed class PptxToTypstConverter : IDisposable
         var fontFiles = Directory.GetFiles(_fontsDirectory).ToList();
         _themeFonts = ExtractThemeFonts();
         _availableSystemFonts = DiscoverSystemFonts();
+        _fontsInitialized = true;
 
         // Load table styles using first slide's theme for scheme color resolution
         var firstSlideId = _document.PresentationPart!.Presentation!.SlideIdList?.ChildElements.OfType<SlideId>().FirstOrDefault();
@@ -953,6 +954,82 @@ public sealed class PptxToTypstConverter : IDisposable
 
         metrics = null!;
         return false;
+    }
+
+    private bool _fontsInitialized;
+
+    /// <summary>
+    /// Lazily performs the font half of <see cref="BeginConversion"/> (per-deck embedded
+    /// fonts + system font paths) for the public measurement surface, without running a
+    /// slide conversion. The system scan is never repeated per call: it routes through
+    /// the process-wide cache (<see cref="GetOrScanSystemFonts"/>). A prior
+    /// <see cref="Convert"/>/<see cref="ConvertSingleSlide"/> on this instance counts as
+    /// initialization.
+    /// </summary>
+    private void EnsureFontsInitialized()
+    {
+        if (_fontsInitialized)
+        {
+            return;
+        }
+
+        _fontMetrics.Clear();
+        ExtractFonts();
+        _availableSystemFonts = DiscoverSystemFonts();
+        _fontsInitialized = true;
+    }
+
+    /// <summary>
+    /// W5 DEDUP-INTEGRATION: public read access to the converter's embedded-first
+    /// font-metrics resolution chain (embedded ppt/fonts cache → system font paths via
+    /// the process-wide scan → "{family} Bold" variant fallback), so measurement code
+    /// (PptxEditor.Core/Services/FontMetricsCatalog and friends) can delegate to it
+    /// instead of duplicating the chain.
+    /// </summary>
+    public TypstFontMetrics? ResolveFontMetricsForMeasurement(string fontFamily, bool bold)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(fontFamily);
+
+        EnsureFontsInitialized();
+
+        if (bold)
+        {
+            var boldMetrics = GetFontMetrics($"{fontFamily} Bold");
+            if (boldMetrics != null)
+            {
+                return boldMetrics;
+            }
+        }
+
+        return GetFontMetrics(fontFamily);
+    }
+
+    /// <summary>
+    /// W5 DEDUP-INTEGRATION: resolved family→file map from the system/fontconfig scan
+    /// (includes .ttc paths reported by fontconfig, so measurement can flag TrueType
+    /// Collections as unparseable instead of silently failing metric reads).
+    /// </summary>
+    public IReadOnlyDictionary<string, string> ResolvedSystemFontPaths
+    {
+        get
+        {
+            EnsureFontsInitialized();
+            return _systemFontPaths;
+        }
+    }
+
+    /// <summary>
+    /// Shared process-wide system-font snapshot (families + family→file paths) backing
+    /// <see cref="ResolvedSystemFontPaths"/>, exposed internally so FontMetricsCatalog
+    /// consumes the same single scan instead of duplicating it per instance.
+    /// </summary>
+    internal static (IReadOnlySet<string> Families, IReadOnlyDictionary<string, string> Paths) SharedSystemFonts
+    {
+        get
+        {
+            var discovery = GetOrScanSystemFonts();
+            return (discovery.Families, discovery.Paths);
+        }
     }
 
     /// <summary>Process-wide snapshot of a system-font scan (families + file paths).</summary>
