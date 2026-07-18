@@ -9,6 +9,7 @@ use crate::abi::{
     TypstBridgeStatus, TYPST_BRIDGE_ABI_VERSION,
 };
 use crate::diagnostics;
+use crate::evict;
 use crate::fonts;
 use crate::memory::{into_raw_string, into_raw_vec, output_item};
 use crate::render_pdf;
@@ -21,12 +22,19 @@ pub fn compile(request: *const TypstBridgeCompileRequest) -> *mut TypstBridgeCom
         Ok(request) => compile_valid(request),
         Err(message) => result(TypstBridgeStatus::InvalidArgument, &message, true),
     };
+    evict::note_compile_finished();
 
     Box::into_raw(Box::new(result))
 }
 
 pub fn panic_result(message: &str) -> *mut TypstBridgeCompileResult {
     Box::into_raw(Box::new(result(TypstBridgeStatus::Panic, message, true)))
+}
+
+/// Builds an error compile result for failures that happen outside the normal
+/// request-validation path (e.g. invalid session compile arguments).
+pub(crate) fn error_result(status: TypstBridgeStatus, message: &str) -> TypstBridgeCompileResult {
+    result(status, message, true)
 }
 
 fn compile_valid(request: ValidRequest) -> TypstBridgeCompileResult {
@@ -42,23 +50,37 @@ fn compile_valid(request: ValidRequest) -> TypstBridgeCompileResult {
         fonts,
     );
 
-    let compiled = typst::compile::<PagedDocument>(&world);
+    compile_world(
+        &world,
+        &request.root_file_name,
+        request.output_format,
+        request.ppi,
+    )
+}
+
+/// Compiles an already-constructed world and renders the requested outputs.
+/// Shared by the single-shot entry point and persistent sessions.
+pub(crate) fn compile_world(
+    world: &BridgeWorld,
+    root_file_name: &str,
+    output_format: TypstBridgeOutputFormat,
+    ppi: f64,
+) -> TypstBridgeCompileResult {
+    let compiled = typst::compile::<PagedDocument>(world);
     match compiled.output {
         Ok(document) => {
-            let diagnostics = diagnostics::from_typst_many(&world, compiled.warnings);
-            match request.output_format {
+            let diagnostics = diagnostics::from_typst_many(world, compiled.warnings);
+            match output_format {
                 TypstBridgeOutputFormat::Pdf => {
-                    render_pdf_result(&world, &request.root_file_name, &document, diagnostics)
+                    render_pdf_result(world, root_file_name, &document, diagnostics)
                 }
                 TypstBridgeOutputFormat::Svg => render_svg_result(&document, diagnostics),
-                TypstBridgeOutputFormat::Png => {
-                    render_png_result(&document, request.ppi, diagnostics)
-                }
+                TypstBridgeOutputFormat::Png => render_png_result(&document, ppi, diagnostics),
             }
         }
         Err(errors) => {
             let diagnostics =
-                diagnostics::from_typst_many(&world, errors.into_iter().chain(compiled.warnings));
+                diagnostics::from_typst_many(world, errors.into_iter().chain(compiled.warnings));
             let message = diagnostics_message(&diagnostics, "Typst compilation failed");
             result_with_diagnostics(TypstBridgeStatus::Compile, &message, diagnostics)
         }
@@ -246,7 +268,9 @@ fn validate_request(request: *const TypstBridgeCompileRequest) -> Result<ValidRe
 
     let request = unsafe { &*request };
 
-    if request.abi_version != TYPST_BRIDGE_ABI_VERSION {
+    // The v2 single-shot entry point remains supported: the request layout is
+    // unchanged between ABI v2 and v3, so both versions are accepted here.
+    if request.abi_version != TYPST_BRIDGE_ABI_VERSION && request.abi_version != 2 {
         return Err(format!(
             "Unsupported ABI version {}; expected {}",
             request.abi_version, TYPST_BRIDGE_ABI_VERSION
@@ -271,34 +295,8 @@ fn validate_request(request: *const TypstBridgeCompileRequest) -> Result<ValidRe
 
     validate_ppi(output_format, request.ppi)?;
 
-    let mut font_paths = Vec::new();
-    if request.font_paths_count > 0 {
-        if request.font_paths.is_null() {
-            return Err(
-                "font_paths must not be null when font_paths_count is greater than zero".to_owned(),
-            );
-        }
-
-        let raw_font_paths =
-            unsafe { slice::from_raw_parts(request.font_paths, request.font_paths_count) };
-        for (index, font_path) in raw_font_paths.iter().enumerate() {
-            font_paths.push(
-                read_utf8(
-                    font_path.value_utf8,
-                    font_path.value_len,
-                    &format!("font_paths[{index}].value"),
-                )?
-                .to_owned(),
-            );
-        }
-    }
-
-    let working_dir = if working_dir.is_empty() {
-        std::env::current_dir()
-            .map_err(|error| format!("Failed to get current directory: {error}"))?
-    } else {
-        PathBuf::from(working_dir)
-    };
+    let font_paths = read_font_paths(request.font_paths, request.font_paths_count)?;
+    let working_dir = resolve_working_dir(working_dir)?;
 
     Ok(ValidRequest {
         source,
@@ -325,7 +323,62 @@ fn read_utf8<'a>(ptr: *const c_char, len: usize, name: &str) -> Result<&'a str, 
     str::from_utf8(bytes).map_err(|_| format!("{name}_utf8 must be valid UTF-8"))
 }
 
-fn validate_ppi(output_format: TypstBridgeOutputFormat, ppi: f64) -> Result<(), String> {
+/// Reads and validates the raw font-path array from ABI string pairs.
+/// Shared by request validation and session creation.
+pub(crate) fn read_font_paths(
+    font_paths: *const crate::abi::TypstBridgeString,
+    font_paths_count: usize,
+) -> Result<Vec<String>, String> {
+    let mut paths = Vec::new();
+    if font_paths_count == 0 {
+        return Ok(paths);
+    }
+
+    if font_paths.is_null() {
+        return Err(
+            "font_paths must not be null when font_paths_count is greater than zero".to_owned(),
+        );
+    }
+
+    let raw_font_paths = unsafe { slice::from_raw_parts(font_paths, font_paths_count) };
+    for (index, font_path) in raw_font_paths.iter().enumerate() {
+        paths.push(
+            read_utf8(
+                font_path.value_utf8,
+                font_path.value_len,
+                &format!("font_paths[{index}].value"),
+            )?
+            .to_owned(),
+        );
+    }
+
+    Ok(paths)
+}
+
+/// Resolves an optional working directory the same way request validation
+/// does: an empty value falls back to the process current directory.
+pub(crate) fn resolve_working_dir(working_dir: &str) -> Result<PathBuf, String> {
+    if working_dir.is_empty() {
+        std::env::current_dir().map_err(|error| format!("Failed to get current directory: {error}"))
+    } else {
+        Ok(PathBuf::from(working_dir))
+    }
+}
+
+/// Validates a raw ABI string pair without copying. Shared with the session
+/// entry points.
+pub(crate) fn read_utf8_str<'a>(
+    ptr: *const c_char,
+    len: usize,
+    name: &str,
+) -> Result<&'a str, String> {
+    read_utf8(ptr, len, name)
+}
+
+pub(crate) fn validate_ppi(
+    output_format: TypstBridgeOutputFormat,
+    ppi: f64,
+) -> Result<(), String> {
     if !ppi.is_finite() {
         return Err("ppi must be finite".to_owned());
     }
