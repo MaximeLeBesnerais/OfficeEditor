@@ -2238,10 +2238,14 @@ public sealed class PptxToTypstConverter : IDisposable
                     vertAlign = "bottom";
             }
         }
-        var padLeft = EmuToPt(bodyPr?.LeftInset?.Value ?? 0);
-        var padTop = EmuToPt(bodyPr?.TopInset?.Value ?? 0);
-        var padRight = EmuToPt(bodyPr?.RightInset?.Value ?? 0);
-        var padBottom = EmuToPt(bodyPr?.BottomInset?.Value ?? 0);
+        // OOXML bodyPr inset defaults (ECMA-376: lIns/rIns = 91440 EMU = 0.1",
+        // tIns/bIns = 45720 EMU = 0.05") apply whenever an attribute is absent —
+        // including when bodyPr itself is missing. Read via regex on OuterXml per
+        // AGENTS.pptx.md rule 1.
+        var padLeft = GetEmuAttributeAsPt(bodyPr, "lIns") ?? EmuToPt(DefaultHorizontalInsetEmu);
+        var padTop = GetEmuAttributeAsPt(bodyPr, "tIns") ?? EmuToPt(DefaultVerticalInsetEmu);
+        var padRight = GetEmuAttributeAsPt(bodyPr, "rIns") ?? EmuToPt(DefaultHorizontalInsetEmu);
+        var padBottom = GetEmuAttributeAsPt(bodyPr, "bIns") ?? EmuToPt(DefaultVerticalInsetEmu);
 
         // Get text body list style for cascade level 3
         var bodyLstStyle = textBody.ChildElements.FirstOrDefault(e => e.LocalName == "lstStyle");
@@ -3461,7 +3465,7 @@ public sealed class PptxToTypstConverter : IDisposable
         return anchor == "ctr" ? "center" : null;
     }
 
-    private static double? GetEmuAttributeAsPt(OpenXmlElement element, string attributeName)
+    private static double? GetEmuAttributeAsPt(OpenXmlElement? element, string attributeName)
     {
         var value = GetAttributeValue(element, attributeName);
         return long.TryParse(value, CultureInfo.InvariantCulture, out var emu) ? EmuToPt(emu) : null;
@@ -4323,6 +4327,12 @@ public sealed class PptxToTypstConverter : IDisposable
     {
         return emu / 12700.0;
     }
+
+    /// <summary>OOXML default for <c>lIns</c>/<c>rIns</c> on <c>a:bodyPr</c> (0.1").</summary>
+    private const int DefaultHorizontalInsetEmu = 91440;
+
+    /// <summary>OOXML default for <c>tIns</c>/<c>bIns</c> on <c>a:bodyPr</c> (0.05").</summary>
+    private const int DefaultVerticalInsetEmu = 45720;
 
     private static string FormatPt(double pt)
     {
