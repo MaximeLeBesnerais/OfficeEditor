@@ -13,7 +13,7 @@ public sealed class TypstBridgeCompiler
     /// <summary>
     /// ABI version supported by this managed wrapper.
     /// </summary>
-    public const uint SupportedAbiVersion = 2;
+    public const uint SupportedAbiVersion = 3;
 
     static TypstBridgeCompiler()
     {
@@ -108,6 +108,64 @@ public sealed class TypstBridgeCompiler
         }
     }
 
+    /// <summary>
+    /// Creates a persistent compile session that keeps the native world (library, font set,
+    /// working directory) warm across compiles. Use
+    /// <see cref="TypstBridgeCompileSession.UpdateSource" /> to swap the source in place and
+    /// <see cref="TypstBridgeCompileSession.Compile" /> to recompile; dispose the session to
+    /// release the native handle.
+    /// </summary>
+    public TypstBridgeCompileSession CreateSession(string workingDirectory, IReadOnlyList<string>? fontPaths = null)
+    {
+        ArgumentNullException.ThrowIfNull(workingDirectory);
+
+        List<IntPtr> allocations = [];
+        try
+        {
+            EnsureSupportedAbiVersion();
+            IntPtr workingDirectoryPtr = AllocateUtf8(workingDirectory, nullTerminated: false, allocations, out int workingDirectoryLength);
+            IntPtr fontPathsPtr = AllocateFontPathArray(fontPaths ?? [], allocations);
+
+            IntPtr rawHandle = IntPtr.Zero;
+            TypstBridgeStatus status = CallNative(
+                () => TypstBridgeNative.SessionCreate(
+                    workingDirectoryPtr,
+                    (UIntPtr)workingDirectoryLength,
+                    fontPathsPtr,
+                    (UIntPtr)(fontPaths?.Count ?? 0),
+                    out rawHandle),
+                "create a Typst bridge session");
+
+            if (status != TypstBridgeStatus.Ok || rawHandle == IntPtr.Zero)
+            {
+                throw new TypstBridgeException($"The native Typst bridge failed to create a session ({status}). {GetLastErrorMessage()}".Trim());
+            }
+
+            return new TypstBridgeCompileSession(TypstBridgeSessionHandle.FromRawHandle(rawHandle));
+        }
+        finally
+        {
+            foreach (IntPtr allocation in allocations)
+            {
+                Marshal.FreeHGlobal(allocation);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Forces one comemo memoization eviction pass in the native bridge. Automatic eviction
+    /// already runs on a cadence (see docs/abi.md); this hook exists for memory-pressure or
+    /// idle transitions. <paramref name="maxAge" /> of 0 evicts every unreferenced entry.
+    /// </summary>
+    public void EvictCache(uint maxAge)
+    {
+        TypstBridgeStatus status = CallNative(() => TypstBridgeNative.EvictCache(maxAge), "evict the Typst bridge memoization caches");
+        if (status != TypstBridgeStatus.Ok)
+        {
+            throw new TypstBridgeException($"The native Typst bridge failed to evict memoization caches ({status}). {GetLastErrorMessage()}".Trim());
+        }
+    }
+
     private static NativeCompileRequest CreateNativeRequest(TypstCompileRequest request, List<IntPtr> allocations)
     {
         IntPtr source = AllocateUtf8(request.Source, nullTerminated: false, allocations, out int sourceLength);
@@ -132,7 +190,7 @@ public sealed class TypstBridgeCompiler
         };
     }
 
-    private static IntPtr AllocateFontPathArray(IReadOnlyList<string> fontPaths, List<IntPtr> allocations)
+    internal static IntPtr AllocateFontPathArray(IReadOnlyList<string> fontPaths, List<IntPtr> allocations)
     {
         if (fontPaths.Count == 0)
         {
@@ -157,7 +215,7 @@ public sealed class TypstBridgeCompiler
         return array;
     }
 
-    private static IntPtr AllocateUtf8(string value, bool nullTerminated, List<IntPtr> allocations, out int byteLength)
+    internal static IntPtr AllocateUtf8(string value, bool nullTerminated, List<IntPtr> allocations, out int byteLength)
     {
         byte[] bytes = Encoding.UTF8.GetBytes(value);
         byteLength = bytes.Length;
@@ -175,7 +233,7 @@ public sealed class TypstBridgeCompiler
         return buffer;
     }
 
-    private static TypstCompileResult CopyResult(IntPtr resultPtr)
+    internal static TypstCompileResult CopyResult(IntPtr resultPtr)
     {
         NativeCompileResult nativeResult = Marshal.PtrToStructure<NativeCompileResult>(resultPtr);
         TypstOutputFile[] outputs = CopyOutputs(nativeResult.Outputs, ToInt32(nativeResult.OutputsCount));
@@ -264,7 +322,7 @@ public sealed class TypstBridgeCompiler
         return (int)count;
     }
 
-    private static T CallNative<T>(Func<T> action, string operation)
+    internal static T CallNative<T>(Func<T> action, string operation)
     {
         try
         {
@@ -284,7 +342,7 @@ public sealed class TypstBridgeCompiler
         }
     }
 
-    private static string GetLastErrorMessage()
+    internal static string GetLastErrorMessage()
     {
         try
         {
