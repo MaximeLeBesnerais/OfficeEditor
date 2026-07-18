@@ -1,16 +1,74 @@
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use typst::foundations::Bytes;
 use typst::text::{Font, FontBook};
 use typst_kit::fonts::FontSearcher;
+use typst_utils::LazyHash;
 
 pub struct BridgeFonts {
-    pub book: FontBook,
+    pub book: LazyHash<FontBook>,
     pub fonts: Vec<Font>,
 }
 
-pub fn load_font_paths(paths: &[String], working_dir: &Path) -> Result<BridgeFonts, String> {
+/// Process-wide cache of parsed font sets.
+///
+/// Keyed by the caller-supplied font-path list (sorted) plus the working
+/// directory and the embedded-fonts flag, so a cache hit skips directory
+/// scanning, `fs::read` of font files, AND `Font` parsing entirely.
+///
+/// Tradeoff: the cache is never evicted. In practice its size is bounded by
+/// the number of distinct font-path lists a process compiles with (one per
+/// deck/profile in the preview server), and each entry is shared by `Arc`, so
+/// steady-state memory stays flat. Entries that became unreachable on disk are
+/// still served; callers that need invalidation must restart the process.
+static FONT_CACHE: OnceLock<Mutex<HashMap<String, Arc<BridgeFonts>>>> = OnceLock::new();
+
+fn font_cache() -> &'static Mutex<HashMap<String, Arc<BridgeFonts>>> {
+    FONT_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// `include_system_fonts` stays disabled for deterministic output; the flag is
+/// part of the cache key so a future caller-facing toggle cannot collide with
+/// entries built under a different flag state.
+const INCLUDE_SYSTEM_FONTS: bool = false;
+
+pub fn load_font_paths(paths: &[String], working_dir: &Path) -> Result<Arc<BridgeFonts>, String> {
+    let key = cache_key(paths, working_dir);
+    if let Some(cached) = lock_cache().get(&key) {
+        return Ok(Arc::clone(cached));
+    }
+
+    let loaded = Arc::new(load_font_paths_uncached(paths, working_dir)?);
+    let mut cache = lock_cache();
+    let cached = cache.entry(key).or_insert_with(|| Arc::clone(&loaded));
+    Ok(Arc::clone(cached))
+}
+
+fn cache_key(paths: &[String], working_dir: &Path) -> String {
+    let mut sorted = paths.to_vec();
+    sorted.sort();
+
+    let mut key = String::new();
+    key.push_str(if INCLUDE_SYSTEM_FONTS { "sys:1" } else { "sys:0" });
+    key.push('\u{1f}');
+    key.push_str(&working_dir.to_string_lossy());
+    for path in &sorted {
+        key.push('\u{1f}');
+        key.push_str(path);
+    }
+    key
+}
+
+fn lock_cache() -> std::sync::MutexGuard<'static, HashMap<String, Arc<BridgeFonts>>> {
+    font_cache()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn load_font_paths_uncached(paths: &[String], working_dir: &Path) -> Result<BridgeFonts, String> {
     let mut book = FontBook::new();
     let mut fonts = Vec::new();
 
@@ -26,7 +84,9 @@ pub fn load_font_paths(paths: &[String], working_dir: &Path) -> Result<BridgeFon
 
     // Keep system fonts disabled for deterministic behavior, but include Typst's
     // embedded fallback fonts so minimal documents can compile without a font path.
-    let embedded = FontSearcher::new().include_system_fonts(false).search();
+    let embedded = FontSearcher::new()
+        .include_system_fonts(INCLUDE_SYSTEM_FONTS)
+        .search();
     for slot in embedded.fonts {
         if let Some(font) = slot.get() {
             book.push(font.info().clone());
@@ -34,7 +94,10 @@ pub fn load_font_paths(paths: &[String], working_dir: &Path) -> Result<BridgeFon
         }
     }
 
-    Ok(BridgeFonts { book, fonts })
+    Ok(BridgeFonts {
+        book: LazyHash::new(book),
+        fonts,
+    })
 }
 
 fn collect_font_files(paths: &[String], working_dir: &Path) -> Result<Vec<PathBuf>, String> {
@@ -139,5 +202,15 @@ mod tests {
         assert_eq!(files, vec![root.join("local.ttf")]);
 
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn load_font_paths_memoizes_parsed_font_set() {
+        let first = load_font_paths(&[], Path::new(".")).expect("first load");
+        let second = load_font_paths(&[], Path::new(".")).expect("second load");
+
+        // Cache hit returns the same shared entry: no fs::read or Font parsing.
+        assert!(Arc::ptr_eq(&first, &second));
+        assert!(!first.fonts.is_empty(), "embedded fallback fonts are present");
     }
 }
