@@ -1,0 +1,369 @@
+{
+  "version": "2.0",
+  "design": {
+    "palette": { "primary": "#0B3D91", "accent": "#FF6B00", "ink": "#1A1A1A", "paper": "#FFFFFF", "muted": "#8A94A6", "bg": "#F5F6FA", "cardBg": "#EEF0F5" },
+    "fonts": { "display": "Aptos Display", "body": "Aptos" },
+    "shape": { "cornerRadius": 8, "cardStyle": "flat" },
+    "metrics": { "marginPt": 40, "gutterPt": 16, "titleSizePt": 34, "bodySizePt": 14 }
+  },
+  "slides": [
+    {
+      "type": "cover",
+      "content": { "kicker": ".NET 9 · C# 12 · MIT", "title": "OfficeEditor", "subtitle": "Generate, edit and render Office documents — from JSON, YAML or fluent C#" }
+    },
+    {
+      "type": "container",
+      "fill": "bg",
+      "layout": { "mode": "row", "gap": 18, "justify": "space-evenly", "align": "stretch" },
+      "padding": [40, 40, 40, 40],
+      "children": [
+        { "type": "card", "content": { "title": "3 Formats", "subtitle": "DOCX · PPTX · XLSX", "body": "Create and edit all three major Office formats from a single instruction vocabulary." }, "size": { "grow": 1 } },
+        { "type": "card", "content": { "title": "1,217 Tests", "subtitle": "xUnit · 0 failures", "body": "Visual-diff suite with RMSE parity against PowerPoint ground truth for every primitive." }, "size": { "grow": 1 } },
+        { "type": "card", "content": { "title": "16.9ms warm", "subtitle": "deck_generate", "body": "Full 16-slide deck from JSON to PPTX. MCP tool + REST API surfaces for AI consumers." }, "size": { "grow": 1 } },
+        { "type": "card", "content": { "title": "10 Workstreams", "subtitle": "Phase 5 completed", "body": "Slide Layout Engine — parallel agents, worktree-per-workstream, not a single merge conflict." }, "size": { "grow": 1 } }
+      ]
+    },
+    {
+      "type": "section",
+      "content": { "index": "01", "kicker": "OVERVIEW", "title": "What is OfficeEditor?", "subtitle": "A .NET suite for programmatic Office document creation and editing" }
+    },
+    {
+      "type": "container",
+      "fill": "bg",
+      "layout": { "mode": "row", "gap": 18, "justify": "space-evenly", "align": "stretch" },
+      "padding": [40, 40, 40, 40],
+      "children": [
+        {
+          "type": "container",
+          "layout": { "mode": "column", "gap": 0 },
+          "size": { "grow": 1 },
+          "children": [
+            { "type": "image_card", "content": { "src": "/tmp/deck-assets/blue.png", "fit": "crop", "title": "DOCX generation", "subtitle": "Instruction-set documents with style preservation and template-based output." }, "size": { "grow": 1 } },
+            { "type": "rect", "fill": "primary", "radius": 0, "size": { "w": 12, "h": 12 } }
+          ]
+        },
+        {
+          "type": "container",
+          "layout": { "mode": "column", "gap": 0 },
+          "size": { "grow": 1 },
+          "children": [
+            { "type": "image_card", "content": { "src": "/tmp/deck-assets/orange.png", "fit": "crop", "title": "PPTX deck building", "subtitle": "From-scratch beautiful decks via JSON vocabulary. Exact Typst preview parity." }, "size": { "grow": 1 } },
+            { "type": "rect", "fill": "accent", "radius": 0, "size": { "w": 12, "h": 12 } }
+          ]
+        },
+        {
+          "type": "container",
+          "layout": { "mode": "column", "gap": 0 },
+          "size": { "grow": 1 },
+          "children": [
+            { "type": "image_card", "content": { "src": "/tmp/deck-assets/gray.png", "fit": "crop", "title": "XLSX spreadsheets", "subtitle": "Tabular data via builder pattern with variable support and formula injection." }, "size": { "grow": 1 } },
+            { "type": "rect", "fill": "muted", "radius": 0, "size": { "w": 12, "h": 12 } }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "two_col",
+      "content": {
+        "title": "Creation vs editing — two paths, one engine",
+        "weights": [1, 1],
+        "left": {
+          "type": "card",
+          "content": {
+            "title": "Path A: Edit existing",
+            "subtitle": "Instruction-based mutation",
+            "body": "Open any PPTX/DOCX. Replace text with fit-checked overflow. Swap images with fill/crop/contain. Extract brand profiles. Non-destructive style preservation. Every edit is an instruction object — replayable, auditable, undoable."
+          }
+        },
+        "right": {
+          "type": "card",
+          "content": {
+            "title": "Path B: Generate from scratch",
+            "subtitle": "Declarative JSON vocabulary",
+            "body": "No template file required. Strict JSON Schema with loud, actionable validation. AI-consumable: 12 concepts, ~200 tokens in a prompt. Exact Typst preview by construction — the layout pass is shared."
+          }
+        }
+      }
+    },
+    {
+      "type": "table_slide",
+      "content": {
+        "title": "Technology stack",
+        "columns": ["Layer", "Technology", "Purpose"],
+        "rows": [
+          ["Runtime", ".NET 9 · C# 12", "Primary application code"],
+          ["OOXML", "DocumentFormat.OpenXml SDK", "DOCX, PPTX, XLSX read/write"],
+          ["Rendering", "TypstBridge · typstsharp", "PPTX → PDF / PNG / SVG"],
+          ["Serialization", "System.Text.Json · YamlDotNet", "Instruction documents"],
+          ["CLI", "Spectre.Console", "Rich terminal experience"],
+          ["API", "ASP.NET Core · MCP stdio", "Deck sessions + LLM tools"],
+          ["Frontend", "Vite · Tailwind CSS", "Web deck editor"],
+          ["Testing", "xUnit · visual-diff", "1,217 tests, RMSE parity"]
+        ],
+        "columnWeights": [2, 3, 3]
+      }
+    },
+    {
+      "type": "section",
+      "content": { "index": "02", "kicker": "ARCHITECTURE", "title": "The generation pipeline", "subtitle": "JSON → Parse → Expand → Layout → Emit → PPTX + Preview" }
+    },
+    {
+      "type": "container",
+      "fill": "bg",
+      "layout": { "mode": "row", "gap": 14, "justify": "space-evenly", "align": "stretch" },
+      "overflow": "clip",
+      "padding": [40, 40, 40, 40],
+      "children": [
+        { "type": "card", "content": { "title": "1. Parse", "subtitle": "JSON Schema + Validator", "body": "Single-pass System.Text.Json walker. 53 adversarial rejection cases. CSS-isms, typos, percentages all caught with path + 'Did you mean…?' suggestions." }, "size": { "grow": 1 } },
+        { "type": "card", "content": { "title": "2. Expand", "subtitle": "Archetypes + Components", "body": "5 archetype slide types, 8 prebuilt components. Archetypes compose components, components emit primitives. Never a second layout system." }, "size": { "grow": 1 } },
+        { "type": "card", "content": { "title": "3. Layout", "subtitle": "Pure C# resolver", "body": "Row, column, grid. 5 justify modes. Grow/aspect/padding. Text measurement with shrink/error overflow. Zero OOXML or Typst imports — resolved once." }, "size": { "grow": 1 } },
+        { "type": "card", "content": { "title": "4. Emit", "subtitle": "OOXML + Typst dual path", "body": "One draw tree, two emitters. OOXML for delivery (native PPTX). Typst for preview (#place-only). Parity via per-primitive RMSE thresholds." }, "size": { "grow": 1 } }
+      ]
+    },
+    {
+      "type": "container",
+      "fill": { "angle": 135, "stops": [{ "color": "primary", "offset": 0 }, { "color": "accent", "offset": 1 }] },
+      "layout": { "mode": "column", "gap": 20, "justify": "center", "align": "center" },
+      "padding": [40, 40, 40, 40],
+      "children": [
+        { "type": "text", "text": "\"Layout is resolved exactly once, in C#.\"", "fontSize": 26, "color": "paper", "textAlign": "center", "size": { "w": 700, "h": 36 } },
+        { "type": "line", "orientation": "horizontal", "size": { "w": 80, "h": 3 }, "stroke": { "color": "paper", "width": 3 } },
+        { "type": "text", "text": "Typst is a dumb renderer. The draw tree feeds both emitters. No second layout pass.", "fontSize": 13, "color": "paper", "textAlign": "center", "size": { "w": 550, "h": 20 } },
+        {
+          "type": "container",
+          "layout": { "mode": "row", "gap": 60, "justify": "center", "align": "center" },
+          "overflow": "clip",
+          "size": { "w": 500, "h": 120 },
+          "children": [
+            { "type": "card", "content": { "title": "P4", "subtitle": "OOXML emitter", "body": "67 tests" }, "size": { "w": 150, "h": 100 } },
+            { "type": "card", "content": { "title": "P5", "subtitle": "Typst emitter", "body": "31 golden tests" }, "size": { "w": 150, "h": 100 } }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "two_col",
+      "content": {
+        "title": "Components — the AI authoring vocabulary",
+        "weights": [3, 2],
+        "left": {
+          "type": "bullet_list",
+          "content": {
+            "title": "8 prebuilt, token-driven components",
+            "items": [
+              "card — title, subtitle, body with palette and font tokens",
+              "kpi — value + label + delta trend indicator",
+              "title_block — kicker, title, subtitle stack",
+              "bullet_list — titled list with item markers",
+              "image_card — image with caption, overlay, and fit modes",
+              "badge — small colored pill label",
+              "divider — horizontal or vertical rule",
+              "table_block — header, rows, column weights"
+            ]
+          }
+        },
+        "right": {
+          "type": "card",
+          "content": {
+            "title": "By design",
+            "subtitle": "Components ARE primitives",
+            "body": "Every component expands to a pure primitive tree — rect, text, ellipse, line. No direct OOXML. No escape hatches. Enforceable by inspection and enforced by test."
+          }
+        }
+      }
+    },
+    {
+      "type": "container",
+      "fill": "bg",
+      "layout": { "mode": "column", "gap": 18, "justify": "center", "align": "center" },
+      "padding": [40, 40, 40, 40],
+      "children": [
+        { "type": "text", "text": "Geometric primitives", "fontSize": 28, "color": "primary", "textAlign": "center", "size": { "w": 800, "h": 38 } },
+        { "type": "text", "text": "Every Tier-1 shape — used decoratively throughout this very deck", "fontSize": 12, "color": "muted", "textAlign": "center", "size": { "w": 500, "h": 18 } },
+        {
+          "type": "container",
+          "layout": { "mode": "row", "gap": 24, "justify": "center", "align": "center" },
+          "size": { "w": 800, "h": 180 },
+          "children": [
+            {
+              "type": "container",
+              "layout": { "mode": "column", "gap": 8, "align": "center" },
+              "size": { "w": 140, "h": 180 },
+              "children": [
+                { "type": "rect", "fill": "primary", "radius": { "tl": 20, "tr": 4, "br": 20, "bl": 4 }, "size": { "w": 100, "h": 100 } },
+                { "type": "text", "text": "rect", "fontSize": 10, "color": "muted", "textAlign": "center", "size": { "w": 100, "h": 14 } }
+              ]
+            },
+            {
+              "type": "container",
+              "layout": { "mode": "column", "gap": 8, "align": "center" },
+              "size": { "w": 140, "h": 180 },
+              "children": [
+                { "type": "ellipse", "fill": "accent", "size": { "w": 100, "h": 100 } },
+                { "type": "text", "text": "ellipse", "fontSize": 10, "color": "muted", "textAlign": "center", "size": { "w": 100, "h": 14 } }
+              ]
+            },
+            {
+              "type": "container",
+              "layout": { "mode": "column", "gap": 8, "align": "center" },
+              "size": { "w": 140, "h": 180 },
+              "children": [
+                { "type": "rect", "fill": "paper", "radius": 50, "stroke": { "color": "accent", "width": 4 }, "size": { "w": 100, "h": 100 } },
+                { "type": "text", "text": "stroke", "fontSize": 10, "color": "muted", "textAlign": "center", "size": { "w": 100, "h": 14 } }
+              ]
+            },
+            {
+              "type": "container",
+              "layout": { "mode": "column", "gap": 8, "align": "center" },
+              "size": { "w": 140, "h": 180 },
+              "children": [
+                { "type": "rect", "fill": { "angle": 45, "stops": [{ "color": "primary", "offset": 0 }, { "color": "accent", "offset": 1 }] }, "radius": 8, "size": { "w": 100, "h": 100 } },
+                { "type": "text", "text": "gradient", "fontSize": 10, "color": "muted", "textAlign": "center", "size": { "w": 100, "h": 14 } }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "fill": "bg",
+      "layout": { "mode": "row", "gap": 18, "justify": "space-evenly", "align": "stretch" },
+      "padding": [40, 40, 40, 40],
+      "children": [
+        { "type": "image_card", "content": { "src": "/tmp/deck-assets/blue.png", "fit": "crop", "title": "Crop mode", "subtitle": "Center-crop with source rect. Fills container, preserves aspect, crops excess." }, "size": { "grow": 1 } },
+        { "type": "image_card", "content": { "src": "/tmp/deck-assets/wide-orange.png", "fit": "contain", "title": "Contain mode", "subtitle": "Entire image visible, letterboxed. No cropping, no distortion." }, "size": { "grow": 1 } },
+        { "type": "image_card", "content": { "src": "/tmp/deck-assets/wide-blue.png", "fit": "fill", "title": "Fill mode", "subtitle": "Stretches to fill container exactly. Distorts if the aspect ratios differ." }, "size": { "grow": 1 } }
+      ]
+    },
+    {
+      "type": "section",
+      "content": { "index": "03", "kicker": "FEATURES", "title": "Generation power", "subtitle": "Brand extraction · Text fitting · Image modes · Archetype slides" }
+    },
+    {
+      "type": "two_col",
+      "content": {
+        "title": "Smart text and image handling",
+        "weights": [1, 1],
+        "left": {
+          "type": "card",
+          "content": {
+            "title": "TextFitService",
+            "subtitle": "Shrink, never clip",
+            "body": "Font metrics-driven text measurement. normAutofit emulation. fontScale ≥ MinScale or loud warning. Overflow policy per container: error, shrink, or clip. Never silently loses content."
+          }
+        },
+        "right": {
+          "type": "card",
+          "content": {
+            "title": "Image fit modes (F7)",
+            "subtitle": "Fill · Contain · Crop",
+            "body": "Source-rect crop geometry. Proportional contain scaling. Cover-style fill with center-crop. Used by every image_card in this deck — every image here runs through the F7 pipeline."
+          }
+        }
+      }
+    },
+    {
+      "type": "two_col",
+      "content": {
+        "title": "Brand intelligence",
+        "weights": [2, 1],
+        "left": {
+          "type": "card",
+          "content": {
+            "title": "BrandProfileExtractor",
+            "subtitle": "Mine tokens from existing decks",
+            "body": "Run on pres-pro, AetherLink, FusionFest, REMOVED. Extracts palette, fonts, and metrics. Hand-tuned into shippable token sets. Design tokens are first-class input — the generator is beautiful by default because great brands were loaded first."
+          }
+        },
+        "right": {
+          "type": "image_card",
+          "content": { "src": "/tmp/deck-assets/wide-blue.png", "fit": "fill", "title": "3 token sets", "subtitle": "pres-pro · AetherLink · REMOVED" }
+        }
+      }
+    },
+    {
+      "type": "container",
+      "fill": "bg",
+      "layout": { "mode": "row", "gap": 18, "justify": "space-evenly", "align": "stretch" },
+      "padding": [40, 40, 40, 40],
+      "children": [
+        { "type": "card", "content": { "title": "cover", "subtitle": "Archetype", "body": "Kicker + title + subtitle stack. Clean, minimal, first impression." }, "size": { "grow": 1 } },
+        { "type": "card", "content": { "title": "section", "subtitle": "Archetype", "body": "Index number + divider. Creates rhythm and pacing in longer decks." }, "size": { "grow": 1 } },
+        { "type": "card", "content": { "title": "kpi_row", "subtitle": "Archetype", "body": "4 metric cards in a row. Value + label + delta. Instant dashboard slide." }, "size": { "grow": 1 } },
+        { "type": "card", "content": { "title": "two_col", "subtitle": "Archetype", "body": "Two slots with grow weights. Cards, images, or bullet lists side-by-side." }, "size": { "grow": 1 } },
+        { "type": "card", "content": { "title": "table_slide", "subtitle": "Archetype", "body": "Header + rows + column weights. Tabular data with token-driven styling." }, "size": { "grow": 1 } }
+      ]
+    },
+    {
+      "type": "container",
+      "fill": "#1A1A1A",
+      "layout": { "mode": "column", "gap": 16, "justify": "center", "align": "center" },
+      "padding": [40, 40, 40, 40],
+      "children": [
+        { "type": "text", "text": "STACK", "fontSize": 12, "color": "muted", "textAlign": "center", "size": { "w": 800, "h": 18 } },
+        { "type": "text", "text": "deck_generate", "fontSize": 32, "color": "paper", "textAlign": "center", "size": { "w": 500, "h": 44 } },
+        { "type": "text", "text": "MCP tool + REST API  ·  JSON → PPTX + SVG previews  ·  warm 16.9ms for ≤16 slides", "fontSize": 12, "color": "muted", "textAlign": "center", "size": { "w": 600, "h": 18 } },
+        { "type": "line", "orientation": "horizontal", "size": { "w": 60, "h": 2 }, "stroke": { "color": "accent", "width": 2 } },
+        {
+          "type": "container",
+          "layout": { "mode": "row", "gap": 24, "justify": "center", "align": "center" },
+          "size": { "w": 500, "h": 100 },
+          "children": [
+            { "type": "card", "content": { "title": "API", "subtitle": "POST /api/decks/generate", "body": "HTTP 200: PPTX + previews  ·  HTTP 400: P1 validator errors verbatim" }, "size": { "w": 200, "h": 90 } },
+            { "type": "card", "content": { "title": "MCP", "subtitle": "deck_generate tool", "body": "JSON-RPC stdio host  ·  base64 previews  ·  session creation for follow-up edits" }, "size": { "w": 200, "h": 90 } }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "fill": "bg",
+      "layout": { "mode": "column", "gap": 14, "justify": "center", "align": "center" },
+      "padding": [40, 40, 40, 40],
+      "children": [
+        { "type": "text", "text": "Phase 5 in numbers", "fontSize": 28, "color": "primary", "textAlign": "center", "size": { "w": 800, "h": 38 } },
+        { "type": "line", "orientation": "horizontal", "size": { "w": 60, "h": 3 }, "stroke": { "color": "accent", "width": 3 } },
+        {
+          "type": "container",
+          "layout": { "mode": "row", "gap": 18, "justify": "space-evenly", "align": "stretch" },
+          "size": { "w": 800, "h": 120 },
+          "children": [
+            { "type": "card", "content": { "title": "10", "subtitle": "Workstreams", "body": "P1 → P10 completed" }, "size": { "w": 160, "h": 100 } },
+            { "type": "card", "content": { "title": "5", "subtitle": "Waves", "body": "Parallel execution" }, "size": { "w": 160, "h": 100 } },
+            { "type": "card", "content": { "title": "1,217", "subtitle": "Tests", "body": "0 failures at merge" }, "size": { "w": 160, "h": 100 } },
+            { "type": "card", "content": { "title": "0", "subtitle": "Conflicts", "body": "Worktree-per-agent" }, "size": { "w": 160, "h": 100 } }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "fill": { "angle": 225, "stops": [{ "color": "accent", "offset": 0 }, { "color": "primary", "offset": 1 }] },
+      "layout": { "mode": "column", "gap": 18, "justify": "center", "align": "center" },
+      "padding": [40, 40, 40, 40],
+      "children": [
+        { "type": "text", "text": "This deck was not made in PowerPoint.", "fontSize": 14, "color": "paper", "textAlign": "center", "size": { "w": 600, "h": 20 } },
+        { "type": "text", "text": "Generated by code. From scratch. No template.", "fontSize": 28, "color": "paper", "textAlign": "center", "size": { "w": 600, "h": 40 } },
+        {
+          "type": "group",
+          "size": { "w": 440, "h": 160 },
+          "children": [
+            { "type": "rect", "fill": "paper", "radius": 18, "size": { "w": 180, "h": 130 }, "at": { "x": 0, "y": 15 } },
+            { "type": "ellipse", "fill": "accent", "size": { "w": 110, "h": 110 }, "at": { "x": 130, "y": 0 } },
+            { "type": "rect", "fill": "primary", "radius": 10, "size": { "w": 140, "h": 90 }, "at": { "x": 270, "y": 40 } },
+            { "type": "line", "orientation": "horizontal", "size": { "w": 200, "h": 3 }, "stroke": { "color": "paper", "width": 3 }, "at": { "x": 130, "y": 80 } }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "cover",
+      "content": {
+        "kicker": "Open source · MIT",
+        "title": "Thank you",
+        "subtitle": "github.com/MaximeLeBesnerais/DocxEditor"
+      }
+    }
+  ]
+}

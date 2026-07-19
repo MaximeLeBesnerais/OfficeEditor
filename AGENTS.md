@@ -6,11 +6,9 @@
 
 ## Project Overview
 
-.NET 9 (9.0.313) suite for creating and editing Office documents — **DOCX, PPTX, XLSX** — via instruction sets (JSON/YAML), fluent C# APIs, or a **declarative JSON vocabulary for generating beautiful PPTX from scratch** (Phase 5). Also: edit existing PPTX with smart text/image replacement, extract brand profiles, convert PPTX → Typst → PDF/PNG/SVG, and verify visual fidelity with a per-primitive RMSE parity suite.
+.NET 9 (9.0.313) suite for creating and editing Office documents — **DOCX, PPTX, XLSX** — via instruction sets (JSON/YAML), fluent C# APIs, or a **declarative JSON vocabulary for generating beautiful PPTX from scratch**. Also: edit existing PPTX with smart text/image replacement, extract brand profiles, convert PPTX → Typst → PDF/PNG/SVG, and verify visual fidelity with a per-primitive RMSE parity suite.
 
 The repo folder is named `DocxEditor/` for historical reasons; the product is **OfficeEditor** (see `README.md`).
-
-For the full Phase 5 specification, see `plan.md` (Slide Layout Engine & Generation Vocabulary).
 
 ## Setup Verification (mandatory first step)
 
@@ -41,7 +39,7 @@ git status                # expect clean or only intended changes
 ## Architecture Patterns
 
 - **Instruction Pattern** — operations modeled as instruction objects (see `DocxEditor.Core/Instructions/`, `PptxEditor.Core/Instructions/`)
-- **Generation Pipeline** — JSON → parse (schema + loud validator) → expand (archetypes → components → primitives) → layout (pure C#, once) → emit (OOXML + Typst dual path). See `PptxEditor.Core/Generation/` and `plan.md`.
+- **Generation Pipeline** — JSON → parse (schema + loud validator) → expand (archetypes → components → primitives) → layout (pure C#, once) → emit (OOXML + Typst dual path). See `PptxEditor.Core/Generation/`.
 - **Builder Pattern** — fluent API for composing operations (see `*.Builders/`)
 - **Strategy Pattern** — different executors per instruction type
 - **Repository Pattern** — abstract document storage (file system, stream)
@@ -63,7 +61,7 @@ DocxEditor/                         # repo folder (historical name)
 ├── DocxEditor.Cli/                 # DOCX CLI
 ├── DocxEditor.Tests/               # xUnit tests (unit + integration)
 ├── PptxEditor.Core/                # PPTX: Builders, Converters, Models, Services, Variables
-│   └── Generation/                 #   Phase 5: Model, Schema, Layout, Emit/Ooxml, Emit/Typst, Components, Archetypes, Fixtures, Design
+│   └── Generation/                 #   Model, Schema, Layout, Emit/Ooxml, Emit/Typst, Components, Archetypes, Fixtures, Design
 ├── XlsxEditor.Core/                # XLSX: Builders, Variables
 ├── OfficeEditor.Core/              # Shared services (TypstCompilerService, Variables, Exceptions)
 ├── OfficeEditor.Cli/               # Multi-format CLI (create, edit, detect, merge, generate)
@@ -90,7 +88,7 @@ DocxEditor/                         # repo folder (historical name)
 - Imperative (fluent API) + declarative (JSON/YAML) interfaces
 - Preserve all existing styles when editing documents
 - Template-based document creation
-- **Layout once, emit twice** — single C# layout pass shared by OOXML (delivery) and Typst (#place-only preview) emitters (plan.md §2)
+- **Layout once, emit twice** — single C# layout pass shared by OOXML (delivery) and Typst (#place-only preview) emitters
 - **Every primitive ships with both emitters + parity fixture** — no half-tested features
 - **Typst preview is the spec of record** for ambiguous OOXML rendering — match OOXML to the preview, not vice versa
 
