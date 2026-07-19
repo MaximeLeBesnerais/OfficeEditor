@@ -1,0 +1,30 @@
+{
+  "version": "2.0",
+  "design": {
+    "palette": { "primary": "#0B3D91", "accent": "#FF6B00", "ink": "#1A1A1A", "muted": "#8A94A6" },
+    "fonts": { "display": "Aptos Display", "body": "Aptos" }
+  },
+  "slides": [
+    {
+      "type": "container",
+      "children": [
+        { "type": "rect", "at": { "x": 10, "y": 10 }, "size": { "w": 280, "h": 80 },
+          "fill": { "angle": 0, "stops": [
+            { "color": "primary", "offset": 0 },
+            { "color": "accent", "offset": 1 }
+          ] } },
+        { "type": "rect", "at": { "x": 10, "y": 110 }, "size": { "w": 280, "h": 80 },
+          "fill": { "angle": 45, "stops": [
+            { "color": "primary", "offset": 0 },
+            { "color": "accent", "offset": 0.5 },
+            { "color": "ink", "offset": 1 }
+          ] } },
+        { "type": "rect", "at": { "x": 10, "y": 210 }, "size": { "w": 280, "h": 80 },
+          "fill": { "angle": 90, "stops": [
+            { "color": "muted", "offset": 0, "alpha": 0.8 },
+            { "color": "#123456", "offset": 1 }
+          ] } }
+      ]
+    }
+  ]
+}
