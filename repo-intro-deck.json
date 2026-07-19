@@ -1,0 +1,152 @@
+{
+  "version": "2.0",
+  "design": {
+    "palette": {
+      "primary": "#0B3D91",
+      "accent": "#FF6B00",
+      "ink": "#1A1A1A",
+      "paper": "#FFFFFF",
+      "muted": "#8A94A6"
+    },
+    "fonts": {
+      "display": "Aptos Display",
+      "body": "Aptos"
+    },
+    "shape": {
+      "cornerRadius": 4,
+      "cardStyle": "flat"
+    },
+    "metrics": {
+      "marginPt": 43,
+      "gutterPt": 18,
+      "titleSizePt": 36,
+      "bodySizePt": 14
+    }
+  },
+  "slides": [
+    {
+      "type": "cover",
+      "content": {
+        "kicker": ".NET 9 · C# 12",
+        "title": "OfficeEditor",
+        "subtitle": "Create and edit DOCX, PPTX and XLSX documents — via JSON/YAML instruction sets or fluent C# APIs"
+      }
+    },
+    {
+      "type": "kpi_row",
+      "content": {
+        "title": "By the numbers",
+        "kpis": [
+          { "value": "3", "label": "Formats", "delta": "DOCX · PPTX · XLSX" },
+          { "value": "12", "label": "Projects", "delta": ".NET solution" },
+          { "value": "1.2k", "label": "Tests", "delta": "xUnit, 0 failures" },
+          { "value": "<500ms", "label": "Generation", "delta": "per deck, 16 slides" }
+        ]
+      }
+    },
+    {
+      "type": "two_col",
+      "content": {
+        "title": "What does it do?",
+        "weights": [1, 1],
+        "left": {
+          "type": "bullet_list",
+          "content": {
+            "title": "Creation",
+            "items": [
+              "Generate PPTX from scratch via JSON vocabulary",
+              "Build DOCX documents with instruction sets",
+              "Template-based output with preserved styles"
+            ]
+          }
+        },
+        "right": {
+          "type": "bullet_list",
+          "content": {
+            "title": "Editing & Export",
+            "items": [
+              "Replace images and text with fit modes",
+              "Extract brand profiles from existing decks",
+              "Export PPTX to PDF/PNG/SVG via TypstBridge"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "section",
+      "content": {
+        "index": "01",
+        "kicker": "ARCHITECTURE",
+        "title": "How it works",
+        "subtitle": "Instruction pattern · Layered emitters · Exact preview"
+      }
+    },
+    {
+      "type": "two_col",
+      "content": {
+        "title": "Architecture deep-dive",
+        "weights": [3, 2],
+        "left": {
+          "type": "bullet_list",
+          "content": {
+            "title": "Pipeline",
+            "items": [
+              "JSON/YAML → Instruction objects → Executors → OOXML",
+              "Single layout pass shared by OOXML + Typst emitters",
+              "Components: card, kpi, bullet_list, title_block, badge, table, divider, image_card",
+              "Archetypes: cover, section, two_col, kpi_row, table_slide"
+            ]
+          }
+        },
+        "right": {
+          "type": "card",
+          "content": {
+            "title": "TypstBridge",
+            "subtitle": "Preview engine",
+            "body": "Native + managed wrapper. ABI v3 with font cache, comemo eviction and persistent compile sessions."
+          }
+        }
+      }
+    },
+    {
+      "type": "table_slide",
+      "content": {
+        "title": "Technology stack",
+        "columns": ["Layer", "Technology", "Role"],
+        "rows": [
+          ["Runtime", ".NET 9 · C# 12", "Primary app code"],
+          ["OOXML", "DocumentFormat.OpenXml", "DOCX/PPTX/XLSX emission"],
+          ["Rendering", "TypstBridge · typstsharp · typst CLI", "PPTX → PDF/PNG/SVG"],
+          ["Serialization", "System.Text.Json · YamlDotNet", "Instruction documents"],
+          ["CLI", "Spectre.Console", "Rich terminal UX"],
+          ["API", "ASP.NET Core", "Deck sessions & generation"],
+          ["Frontend", "Vite · Tailwind CSS", "Web-based deck editor"],
+          ["Testing", "xUnit · visual-diff suite", "1,217 tests · RMSE parity"]
+        ],
+        "columnWeights": [2, 3, 3]
+      }
+    },
+    {
+      "type": "kpi_row",
+      "content": {
+        "title": "Recent milestones (Phase 5)",
+        "subtitle": "Slide Layout Engine & Generation Vocabulary",
+        "kpis": [
+          { "value": "10", "label": "Workstreams", "delta": "P1 to P10 completed" },
+          { "value": "5", "label": "Waves", "delta": "Parallel worktree-per-agent" },
+          { "value": "16.9ms", "label": "Warm gen", "delta": "deck_generate pipeline" },
+          { "value": "0", "label": "Failures", "delta": "1,217 tests green" }
+        ]
+      }
+    },
+    {
+      "type": "cover",
+      "content": {
+        "kicker": "Open source · MIT",
+        "title": "Thank you",
+        "subtitle": "github.com/MaximeLeBesnerais/DocxEditor"
+      }
+    }
+  ]
+}
