@@ -1,8 +1,6 @@
 # OfficeEditor - Agent Guidelines
 
-> **Load first, always.** Domain-specific rules live in `AGENTS.pptx.md` and `AGENTS.typst.md` — load those only when the task touches PPTX or Typst code.
-
-> **Read RTK rules in `agent-instructions/RTK.md` before using `rtk`.** This project relies heavily on RTK for efficient iteration. Misuse can lead to wasted time and frustration. 
+> **Load first, always.** Domain-specific rules live in `agent-instructions/AGENTS.pptx.md` and `agent-instructions/AGENTS.typst.md` — load those only when the task touches PPTX or Typst code. 
 
 ## Project Overview
 
@@ -16,7 +14,6 @@ Run before any work:
 
 ```bash
 dotnet --version          # expect 9.0.x
-rtk --version             # if missing, fall back to plain commands — see RTK.md
 git status                # expect clean or only intended changes
 ```
 
@@ -73,8 +70,6 @@ DocxEditor/                         # repo folder (historical name)
 ├── TypstBridge/                    # Native + managed wrapper around Typst (primary backend)
 ├── examples/                       # Sample programs + REF/ for visual regression
 ├── tools/                          # visual-diff suite, pptx-benchmark, convert tools
-├── .rtk/                           # RTK filter config (filters.toml)
-└── RTK.md                          # Shell token-saving rules
 ```
 
 ## Domain-Specific Guides
