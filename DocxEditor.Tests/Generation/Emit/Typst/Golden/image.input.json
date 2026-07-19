@@ -1,0 +1,22 @@
+{
+  "version": "2.0",
+  "design": {
+    "palette": { "primary": "#0B3D91" },
+    "fonts": { "display": "Aptos Display", "body": "Aptos" }
+  },
+  "slides": [
+    {
+      "type": "container",
+      "children": [
+        { "type": "image", "src": "assets/hero.png", "fit": "fill",
+          "at": { "x": 10, "y": 10 }, "size": { "w": 200, "h": 120 } },
+        { "type": "image", "src": "assets/logo.png", "fit": "contain", "alt": "Company logo",
+          "at": { "x": 230, "y": 10 }, "size": { "w": 200, "h": 120 } },
+        { "type": "image", "src": "assets/team.png", "fit": "crop",
+          "at": { "x": 450, "y": 10 }, "size": { "w": 200, "h": 120 } },
+        { "type": "image", "src": "assets/chart.png", "fit": "crop", "crop": { "left": 10000, "top": 0, "right": 10000, "bottom": 0 },
+          "at": { "x": 10, "y": 150 }, "size": { "w": 200, "h": 120 } }
+      ]
+    }
+  ]
+}

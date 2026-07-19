@@ -1,0 +1,20 @@
+{
+  "version": "2.0",
+  "design": {
+    "palette": { "primary": "#0B3D91", "accent": "#FF6B00", "ink": "#1A1A1A" },
+    "fonts": { "display": "Aptos Display", "body": "Aptos" }
+  },
+  "slides": [
+    {
+      "type": "container",
+      "children": [
+        { "type": "ellipse", "at": { "x": 10, "y": 10 }, "size": { "w": 120, "h": 80 }, "fill": "primary" },
+        { "type": "ellipse", "at": { "x": 150, "y": 10 }, "size": { "w": 120, "h": 80 },
+          "stroke": { "color": "accent", "width": 1.5 } },
+        { "type": "ellipse", "at": { "x": 290, "y": 10 }, "size": { "w": 120, "h": 80 },
+          "fill": "accent", "stroke": { "color": "ink", "width": 1 },
+          "shadow": { "color": "ink", "dx": 2, "dy": 3, "blur": 5 } }
+      ]
+    }
+  ]
+}
