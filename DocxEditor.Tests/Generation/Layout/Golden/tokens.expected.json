@@ -1,0 +1,146 @@
+{
+  "slides": [
+    {
+      "widthPt": 960,
+      "heightPt": 540,
+      "root": {
+        "kind": "container",
+        "x": 0,
+        "y": 0,
+        "w": 960,
+        "h": 540,
+        "overflow": "error",
+        "children": [
+          {
+            "kind": "text",
+            "x": 10,
+            "y": 10,
+            "w": 200,
+            "h": 30,
+            "runs": [
+              {
+                "text": "Hello",
+                "font": "Aptos Display",
+                "size": 14,
+                "color": "#0B3D91",
+                "bold": false,
+                "italic": false
+              }
+            ],
+            "textAlign": "left",
+            "anchor": "top",
+            "insets": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "overflow": "shrink",
+            "fontScale": 1
+          },
+          {
+            "kind": "text",
+            "x": 10,
+            "y": 50,
+            "w": 200,
+            "h": 40,
+            "runs": [
+              {
+                "text": "A",
+                "font": "Aptos",
+                "size": 12,
+                "color": "#1A1A1A",
+                "bold": true,
+                "italic": false
+              },
+              {
+                "text": "B",
+                "font": "Aptos",
+                "size": 20,
+                "color": "#FF6B00",
+                "bold": false,
+                "italic": false
+              }
+            ],
+            "textAlign": "left",
+            "anchor": "top",
+            "insets": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "overflow": "shrink",
+            "fontScale": 1
+          },
+          {
+            "kind": "container",
+            "x": 300,
+            "y": 10,
+            "w": 200,
+            "h": 100,
+            "fill": {
+              "type": "solid",
+              "color": "#0B3D91"
+            },
+            "stroke": {
+              "color": "#FF6B00",
+              "width": 2
+            },
+            "radius": [
+              8,
+              8,
+              8,
+              8
+            ],
+            "shadow": {
+              "color": "#1A1A1A",
+              "dx": 2,
+              "dy": 3,
+              "blur": 6,
+              "alpha": 0.5
+            },
+            "overflow": "error",
+            "children": []
+          },
+          {
+            "kind": "rect",
+            "x": 300,
+            "y": 130,
+            "w": 200,
+            "h": 60,
+            "fill": {
+              "type": "gradient",
+              "angle": 45,
+              "stops": [
+                {
+                  "color": "#0B3D91",
+                  "offset": 0
+                },
+                {
+                  "color": "#123456",
+                  "offset": 1,
+                  "alpha": 0.8
+                }
+              ]
+            }
+          },
+          {
+            "kind": "line",
+            "x": 10,
+            "y": 120,
+            "w": 200,
+            "h": 2,
+            "connector": false,
+            "orientation": "horizontal",
+            "stroke": {
+              "color": "#8A94A6",
+              "width": 1
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "warnings": []
+}

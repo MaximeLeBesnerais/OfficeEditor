@@ -1,0 +1,60 @@
+{
+  "version": "2.0",
+  "design": {
+    "palette": { "primary": "#0B3D91", "paper": "#FFFFFF" }
+  },
+  "slides": [
+    {
+      "type": "container",
+      "layout": { "mode": "row", "gap": 10, "justify": "start", "align": "start" },
+      "children": [
+        { "type": "rect", "size": { "w": 100, "h": 40 }, "fill": "primary" },
+        { "type": "rect", "size": { "w": 100, "h": 40 }, "fill": "primary" },
+        { "type": "rect", "size": { "w": 100, "h": 40 }, "fill": "primary" }
+      ]
+    },
+    {
+      "type": "container",
+      "layout": { "mode": "row", "gap": 10, "justify": "center", "align": "start" },
+      "children": [
+        { "type": "rect", "size": { "w": 100, "h": 40 }, "fill": "primary" },
+        { "type": "rect", "size": { "w": 100, "h": 40 }, "fill": "primary" },
+        { "type": "rect", "size": { "w": 100, "h": 40 }, "fill": "primary" }
+      ]
+    },
+    {
+      "type": "container",
+      "layout": { "mode": "row", "gap": 10, "justify": "end", "align": "start" },
+      "children": [
+        { "type": "rect", "size": { "w": 100, "h": 40 }, "fill": "primary" },
+        { "type": "rect", "size": { "w": 100, "h": 40 }, "fill": "primary" },
+        { "type": "rect", "size": { "w": 100, "h": 40 }, "fill": "primary" }
+      ]
+    },
+    {
+      "type": "container",
+      "layout": { "mode": "row", "gap": 10, "justify": "space-between", "align": "start" },
+      "children": [
+        { "type": "rect", "size": { "w": 100, "h": 40 }, "fill": "primary" },
+        { "type": "rect", "size": { "w": 100, "h": 40 }, "fill": "primary" },
+        { "type": "rect", "size": { "w": 100, "h": 40 }, "fill": "primary" }
+      ]
+    },
+    {
+      "type": "container",
+      "layout": { "mode": "row", "gap": 10, "justify": "space-evenly", "align": "start" },
+      "children": [
+        { "type": "rect", "size": { "w": 100, "h": 40 }, "fill": "primary" },
+        { "type": "rect", "size": { "w": 100, "h": 40 }, "fill": "primary" },
+        { "type": "rect", "size": { "w": 100, "h": 40 }, "fill": "primary" }
+      ]
+    },
+    {
+      "type": "container",
+      "layout": { "mode": "row", "gap": 10, "justify": "space-between", "align": "start" },
+      "children": [
+        { "type": "rect", "size": { "w": 100, "h": 40 }, "fill": "primary" }
+      ]
+    }
+  ]
+}
