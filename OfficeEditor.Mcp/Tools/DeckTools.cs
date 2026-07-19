@@ -1,11 +1,19 @@
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using OfficeEditor.Core.Services;
 using OfficeEditor.Mcp.JsonRpc;
 using OfficeEditor.Mcp.Sessions;
 using PptxEditor.Core.Builders;
+using PptxEditor.Core.Generation.Components;
+using PptxEditor.Core.Generation.Emit.Ooxml;
+using PptxEditor.Core.Generation.Emit.Typst;
+using PptxEditor.Core.Generation.Layout;
+using PptxEditor.Core.Generation.Schema;
 using PptxEditor.Core.Instructions;
 using PptxEditor.Core.Serialization;
+using PptxEditor.Core.Services;
 
 namespace OfficeEditor.Mcp.Tools;
 
@@ -47,10 +55,139 @@ public sealed class DeckTools
             ToolSchemas.AnatomizeName => Anatomize(args),
             ToolSchemas.ReplaceElementName => ReplaceElement(args),
             ToolSchemas.RenderSlideName => RenderSlide(args),
+            ToolSchemas.GenerateName => Generate(args),
             _ => throw new McpException(JsonRpcErrorCodes.InvalidParams,
                 $"Unknown tool '{name}'. Available tools: {ToolSchemas.AnatomizeName}, " +
-                $"{ToolSchemas.ReplaceElementName}, {ToolSchemas.RenderSlideName}.")
+                $"{ToolSchemas.ReplaceElementName}, {ToolSchemas.RenderSlideName}, {ToolSchemas.GenerateName}.")
         };
+    }
+
+    /// <summary>
+    /// deck_generate (plan.md §7.1): generation JSON in → PPTX + per-slide previews out.
+    /// The pipeline is the P1–P5 chain (validate → expand → layout → OOXML; previews via the
+    /// Typst emitter → TypstBridge-first compiler). Preview rendering is best-effort: with no
+    /// Typst backend available the deck still succeeds and previewError carries the reason.
+    /// </summary>
+    private JsonObject Generate(JsonElement args)
+    {
+        var documentElement = GetRequired(args, "document");
+        if (documentElement.ValueKind != JsonValueKind.Object)
+        {
+            throw new McpException(JsonRpcErrorCodes.InvalidParams,
+                "'document' must be a JSON object (the generation document, plan.md §3.4).");
+        }
+        // Raw text keeps the P1 validator's error paths byte-accurate.
+        var documentJson = documentElement.GetRawText();
+
+        var format = GetOptionalString(args, "previewFormat")?.Trim().ToLowerInvariant() ?? "svg";
+        if (format is not ("svg" or "png"))
+        {
+            throw new McpException(JsonRpcErrorCodes.InvalidParams,
+                $"'previewFormat' must be \"svg\" or \"png\" (got '{format}').");
+        }
+
+        var ppi = GetOptionalNumber(args, "ppi") ?? 150f;
+        if (ppi is < 36f or > 600f)
+        {
+            throw new McpException(JsonRpcErrorCodes.InvalidParams,
+                $"'ppi' must be between 36 and 600 (got {ppi}).");
+        }
+
+        var totalTimer = Stopwatch.StartNew();
+        var generationTimer = Stopwatch.StartNew();
+
+        var validation = new GenerationDocumentParser().Validate(documentJson);
+        if (!validation.IsValid)
+        {
+            // P1's actionable errors, verbatim — one per line so an AI caller can fix them all.
+            throw new McpException(JsonRpcErrorCodes.InvalidParams,
+                $"Invalid generation document ({validation.Errors.Count} error(s)):{Environment.NewLine}" +
+                string.Join(Environment.NewLine, validation.Errors.Select(e => e.ToString())));
+        }
+
+        LayoutResult layout;
+        try
+        {
+            // Fresh stack per call: resolver/measurer/catalog carry per-run state and are
+            // not thread-safe; the system-font scan behind the catalog is process-cached,
+            // so this stays cheap on the warm path.
+            var expanded = ComponentExpander.Expand(validation.Document!);
+            layout = new LayoutResolver(new TextMeasure(new FontMetricsCatalog())).Resolve(expanded);
+        }
+        catch (ComponentException ex)
+        {
+            throw new McpException(JsonRpcErrorCodes.InvalidParams, $"Invalid generation document: {ex.Message}");
+        }
+        catch (LayoutException ex)
+        {
+            throw new McpException(JsonRpcErrorCodes.InvalidParams, $"Invalid generation document: {ex.Message}");
+        }
+
+        var emission = new OoxmlEmitter().Emit(layout);
+        var generationMs = generationTimer.Elapsed.TotalMilliseconds;
+
+        var session = _sessions.Store(emission.Bytes, "generated.pptx", layout.Slides.Count);
+
+        JsonArray previews = [];
+        string? previewError = null;
+        try
+        {
+            var source = new TypstEmitter().Emit(layout);
+            using var compiler = new TypstCompilerService();
+            var result = compiler.Compile(source, new CompileOptions
+            {
+                Format = format == "svg" ? OutputFormat.Svg : OutputFormat.Png,
+                Ppi = ppi
+            });
+            if (!result.Success)
+            {
+                previewError = result.ErrorMessage ?? "Typst preview compilation failed.";
+            }
+            else if (result.Pages.Length != layout.Slides.Count)
+            {
+                previewError = $"Typst preview produced {result.Pages.Length} page(s) for {layout.Slides.Count} slide(s).";
+            }
+            else
+            {
+                var contentType = format == "svg" ? "image/svg+xml" : "image/png";
+                for (var i = 0; i < result.Pages.Length; i++)
+                {
+                    previews.Add(new JsonObject
+                    {
+                        ["slide"] = i + 1,
+                        ["format"] = format,
+                        ["contentType"] = contentType,
+                        ["contentBase64"] = Convert.ToBase64String(result.Pages[i])
+                    });
+                }
+            }
+        }
+        catch (TypstEmitException ex)
+        {
+            previewError = $"Typst emission failed: {ex.Message}";
+        }
+
+        totalTimer.Stop();
+        var payload = new JsonObject
+        {
+            ["success"] = true,
+            ["slideCount"] = layout.Slides.Count,
+            ["pptxBase64"] = Convert.ToBase64String(emission.Bytes),
+            ["previewFormat"] = format,
+            ["ppi"] = ppi,
+            ["previews"] = previews,
+            ["warnings"] = new JsonArray(validation.Warnings.Select(w => (JsonNode)w.ToString()).ToArray()),
+            ["pipelineWarnings"] = new JsonArray(layout.Warnings.Concat(emission.Warnings).Select(w => (JsonNode)w).ToArray()),
+            ["generationMs"] = Math.Round(generationMs, 2),
+            ["totalMs"] = Math.Round(totalTimer.Elapsed.TotalMilliseconds, 2)
+        };
+        if (previewError is not null)
+        {
+            payload["previewError"] = previewError;
+        }
+        payload["deckHandle"] = session.Handle.ToString();
+        payload["revision"] = session.Revision;
+        return payload;
     }
 
     private JsonObject Anatomize(JsonElement args)
