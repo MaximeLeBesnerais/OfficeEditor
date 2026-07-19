@@ -1,0 +1,21 @@
+{
+  "version": "2.0",
+  "design": {
+    "palette": { "primary": "#0B3D91", "muted": "#8A94A6" },
+    "fonts": { "display": "Aptos Display", "body": "Aptos" }
+  },
+  "slides": [
+    {
+      "type": "container",
+      "children": [
+        { "type": "line", "at": { "x": 10, "y": 20 }, "size": { "w": 300, "h": 2 },
+          "stroke": { "color": "primary", "width": 2 } },
+        { "type": "line", "at": { "x": 330, "y": 10 }, "size": { "w": 2, "h": 120 },
+          "orientation": "vertical", "stroke": { "color": "muted" } },
+        { "type": "line", "at": { "x": 10, "y": 60 }, "size": { "w": 300, "h": 1 } },
+        { "type": "connector", "at": { "x": 10, "y": 100 }, "size": { "w": 300, "h": 2 },
+          "stroke": { "color": "muted", "width": 0.5 } }
+      ]
+    }
+  ]
+}
