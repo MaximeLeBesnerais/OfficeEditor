@@ -438,7 +438,7 @@ public sealed class OoxmlEmitterTests : IDisposable
         var first = runs[0].RunProperties!;
         Assert.Equal("1000", Attr(first, "sz")); // 20pt × FontScale 0.5 × 100
         Assert.Equal("1", Attr(first, "b"));
-        Assert.Equal("Aptos Display", Attr(first, "typeface"));
+        Assert.Null(Attr(first, "typeface"));
         Assert.Equal("0B3D91", Attr(first, "val"));
 
         var second = runs[1].RunProperties!;
