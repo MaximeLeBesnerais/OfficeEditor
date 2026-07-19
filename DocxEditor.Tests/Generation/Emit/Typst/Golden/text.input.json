@@ -1,0 +1,32 @@
+{
+  "version": "2.0",
+  "design": {
+    "palette": { "primary": "#0B3D91", "accent": "#FF6B00", "ink": "#1A1A1A" },
+    "fonts": { "display": "Aptos Display", "body": "Aptos" },
+    "metrics": { "bodySizePt": 14 }
+  },
+  "slides": [
+    {
+      "type": "container",
+      "children": [
+        { "type": "text", "text": "Quarterly results", "font": "display", "fontSize": 30, "color": "primary",
+          "at": { "x": 10, "y": 10 }, "size": { "w": 400, "h": 40 } },
+        { "type": "text", "text": "Centered", "anchor": "middle", "textAlign": "center",
+          "at": { "x": 10, "y": 60 }, "size": { "w": 400, "h": 40 } },
+        { "type": "text", "text": "Bottom right", "anchor": "bottom", "textAlign": "right", "bold": true, "italic": true,
+          "at": { "x": 10, "y": 110 }, "size": { "w": 400, "h": 40 } },
+        { "type": "text", "fontSize": 12, "color": "ink",
+          "runs": [
+            { "text": "Revenue ", "bold": true },
+            { "text": "+34%", "color": "accent", "fontSize": 20 },
+            { "text": " YoY", "italic": true }
+          ],
+          "at": { "x": 10, "y": 160 }, "size": { "w": 400, "h": 40 } },
+        { "type": "text", "text": "Inset box", "insets": [4, 8],
+          "at": { "x": 10, "y": 210 }, "size": { "w": 400, "h": 40 } },
+        { "type": "text", "text": "50% & [growth] #win <ok>",
+          "at": { "x": 10, "y": 260 }, "size": { "w": 400, "h": 40 } }
+      ]
+    }
+  ]
+}
