@@ -10,6 +10,7 @@ obj/
 
 # Test results
 TestResults/
+coverage/
 
 # NuGet
 *.nupkg
