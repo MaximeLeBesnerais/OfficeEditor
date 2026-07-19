@@ -408,10 +408,7 @@ public sealed class OoxmlEmitter
         {
             runProperties.Append(new Drawing.SolidFill(new Drawing.RgbColorModelHex { Val = Hex(run.ColorHex) }));
         }
-        if (run.FontFamily is not null)
-        {
-            runProperties.Append(new Drawing.LatinFont { Typeface = run.FontFamily });
-        }
+
 
         // Line breaks inside a run become a:br elements carrying the same run properties.
         var segments = run.Text.Split('\n');
