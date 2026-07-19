@@ -14,8 +14,12 @@ A baseline file is a verbatim copy of a suite run's `metrics.json` (same shape;
 ```text
 tools/visual-diff/baselines/
 ├── README.md           (this file)
-└── pptx/
-    └── metrics.json    (baseline for --suite pptx; regenerate per environment)
+├── pptx/
+│   └── metrics.json    (baseline for --suite pptx; regenerate per environment)
+└── gen/
+    ├── README.md       (Phase 5 parity pipeline + calibration instructions)
+    └── thresholds.json (per-primitive RMSE ceilings for --suite gen; authored,
+                         mirrors FixtureCatalog, drift-guarded by tests)
 ```
 
 ## Regenerating the PPTX baseline

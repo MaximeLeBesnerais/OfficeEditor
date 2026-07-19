@@ -7,6 +7,7 @@ Compares reference and generated output page-by-page and writes an HTML report p
 - .NET 9 SDK
 - ImageMagick: `compare` (or ImageMagick 7's `magick`, invoked as `magick compare`) — required for all comparisons
 - Poppler tools: `pdftocairo` preferred, `pdftoppm` supported as a fallback — **only required for PDF inputs**; PNG-pair mode skips poppler entirely
+- typst CLI — **only required for `--suite gen --render`**; the gen suite itself diffs pre-rendered PNGs and needs nothing beyond ImageMagick
 
 External tools are probed in `/usr/bin`, `/opt/homebrew/bin` (Homebrew on Apple Silicon), then `PATH`. Run `--probe` to see what was found:
 
@@ -39,9 +40,36 @@ dotnet run --project tools/visual-diff -- --suite docx
 
 # PPTX suite: examples/REF/PPTX/{REMOVED,pres-pro}.pdf vs examples/output/ref/pptx/*.pdf
 dotnet run --project tools/visual-diff -- --suite pptx
+
+# GEN suite (Phase 5 parity fixtures): PowerPoint ground truth vs Typst preview,
+# per primitive, with per-primitive RMSE thresholds as the gate
+dotnet run --project tools/visual-diff -- --suite gen --generate
 ```
 
 Default report output is `examples/output/visual-diff/<suite>/`.
+
+### The gen suite (Phase 5 parity harness)
+
+`--suite gen` is the parity harness for the from-scratch generation vocabulary (plan.md §5, rule 2): every Tier-1 primitive + linear gradient has one fixture deck (catalog: `PptxEditor.Core/Generation/Fixtures/FixtureCatalog`), emitted by BOTH emitters from the same resolved layout, then diffed as **PowerPoint render (ground truth) vs Typst render (spec of record)** per fixture.
+
+The pipeline has three steps; the two render steps are external and opt-in by design:
+
+```bash
+# 1. Generate fixture decks + Typst sources (deterministic, in-process, no external tools)
+dotnet run --project tools/visual-diff -- --suite gen --generate
+
+# 2. Render the Typst preview pages (needs the typst CLI — probed)
+dotnet run --project tools/visual-diff -- --suite gen --render
+
+# 3. Produce the PowerPoint ground truth manually per fixture
+#    (open examples/output/gen/parity/<fixture>/fixture.pptx in PowerPoint, export PDF,
+#     pdftocairo -png -r 150 ground-truth.pdf ground-truth/page)
+
+# 4. Diff + gate (thresholds from baselines/gen/thresholds.json apply by default)
+dotnet run --project tools/visual-diff -- --suite gen
+```
+
+Missing renders are loud per-fixture skips with the exact production steps; if nothing can be compared the suite exits 1. The gate is `ThresholdCheck`: any page or fixture-average normalized RMSE above its per-primitive ceiling exits 2. See [baselines/gen/README.md](baselines/gen/README.md) for threshold calibration.
 
 ### The PPTX suite and generated PDFs
 
@@ -87,7 +115,12 @@ dotnet run --project tools/visual-diff -- \
 
 ## Threshold checks (RMSE gate)
 
-The core tool is **report-only**: without `--baseline` it always exits 0 on success, regardless of RMSE values. The threshold wrapper engages only when you ask for it, and exits non-zero on regression:
+Two gates exist, mutually exclusive per run:
+
+- **`--baseline <metrics.json>`** — machine-dependent baseline + margin gate (REF-deck suites). Exits 2 when any per-page or per-document average normalized RMSE exceeds `baseline + margin`.
+- **`--thresholds <thresholds.json>`** — per-primitive absolute RMSE ceilings (gen parity suite). Exits 2 when any page or fixture average exceeds its fixture's threshold.
+
+The core tool is **report-only**: without a gate it always exits 0 on success, regardless of RMSE values. The threshold wrapper engages only when you ask for it, and exits non-zero on regression:
 
 ```bash
 # Standalone: check an existing metrics.json against a baseline
@@ -95,6 +128,11 @@ dotnet run --project tools/visual-diff -- \
   --check examples/output/visual-diff/pptx/metrics.json \
   --baseline tools/visual-diff/baselines/pptx/metrics.json \
   --margin 0.05
+
+# Standalone: check an existing metrics.json against per-primitive thresholds
+dotnet run --project tools/visual-diff -- \
+  --check examples/output/visual-diff/gen/metrics.json \
+  --thresholds tools/visual-diff/baselines/gen/thresholds.json
 
 # Combined: run the suite, then check the fresh metrics
 dotnet run --project tools/visual-diff -- --suite pptx \
@@ -120,18 +158,20 @@ Baselines live in [`baselines/`](baselines/) as metrics.json-shaped files. **The
 
 | Option | Description |
 |--------|-------------|
-| `--suite <docx\|pptx>` | Runs a built-in comparison suite. |
+| `--suite <docx\|pptx\|gen>` | Runs a built-in comparison suite. |
 | `--ref <path>` | Reference PDF, single PNG, or directory of PNGs. |
 | `--gen <path>` | Generated PDF, single PNG, or directory of PNGs (same kind as `--ref`). |
 | `--out <path>` | Report directory. Required for arbitrary pairs; defaults to `examples/output/visual-diff/<suite>/` for suites. |
 | `--name <name>` | Display/report name for an arbitrary pair. |
-| `--dpi <number>` | Rasterization DPI for PDF inputs. Default: `150`. Higher values are more precise but slower and larger. |
-| `--generate` | (`--suite pptx`) Build missing generated PDFs via `tools/convert-pptx`. |
+| `--dpi <number>` | Rasterization DPI for PDF inputs and `--render`. Default: `150`. Higher values are more precise but slower and larger. |
+| `--generate` | (`--suite pptx`) Build missing generated PDFs via `tools/convert-pptx`. (`--suite gen`) Generate fixture decks + Typst sources in-process. |
 | `--font-path <dir>` | Extra font directory passed to `tools/convert-pptx` when using `--generate`. |
-| `--check <file>` | Threshold-check an existing metrics.json against `--baseline`. |
-| `--baseline <file>` | Baseline metrics.json; after a run, check the fresh metrics against it. |
-| `--margin <number>` | Absolute margin on normalized RMSE (`0.05` = 5 points). Default: `0.05`. |
-| `--probe` | Print external-tool availability and exit. |
+| `--render` | (`--suite gen`) Render fixture `.typ` sources to PNG pages via the typst CLI (probed; opt-in). |
+| `--check <file>` | Threshold-check an existing metrics.json against `--baseline` or `--thresholds`. |
+| `--baseline <file>` | Baseline metrics.json; after a run, check the fresh metrics against it. Mutually exclusive with `--thresholds`. |
+| `--thresholds <file>` | Per-primitive thresholds.json (gen suite); after a run, check the fresh metrics against the per-fixture RMSE ceilings. Defaults for `--suite gen` to `tools/visual-diff/baselines/gen/thresholds.json` when present. |
+| `--margin <number>` | Absolute margin on normalized RMSE (`0.05` = 5 points) for `--baseline` checks. Default: `0.05`. |
+| `--probe` | Print external-tool availability (poppler, ImageMagick, typst) and exit. |
 | `--help` | Show usage. |
 
 ## Reading the report
