@@ -6,9 +6,11 @@
 
 ## Project Overview
 
-.NET 9 (9.0.313) suite for creating and editing Office documents — **DOCX, PPTX, XLSX** — via instruction sets (JSON/YAML) or fluent C# APIs. Also exports PPTX → Typst → PDF/PNG/SVG.
+.NET 9 (9.0.313) suite for creating and editing Office documents — **DOCX, PPTX, XLSX** — via instruction sets (JSON/YAML), fluent C# APIs, or a **declarative JSON vocabulary for generating beautiful PPTX from scratch** (Phase 5). Also: edit existing PPTX with smart text/image replacement, extract brand profiles, convert PPTX → Typst → PDF/PNG/SVG, and verify visual fidelity with a per-primitive RMSE parity suite.
 
 The repo folder is named `DocxEditor/` for historical reasons; the product is **OfficeEditor** (see `README.md`).
+
+For the full Phase 5 specification, see `plan.md` (Slide Layout Engine & Generation Vocabulary).
 
 ## Setup Verification (mandatory first step)
 
@@ -38,7 +40,8 @@ git status                # expect clean or only intended changes
 
 ## Architecture Patterns
 
-- **Instruction Pattern** — operations modeled as instruction objects (see `DocxEditor.Core/Instructions/`, `PptxEditor.Core/Models/`)
+- **Instruction Pattern** — operations modeled as instruction objects (see `DocxEditor.Core/Instructions/`, `PptxEditor.Core/Instructions/`)
+- **Generation Pipeline** — JSON → parse (schema + loud validator) → expand (archetypes → components → primitives) → layout (pure C#, once) → emit (OOXML + Typst dual path). See `PptxEditor.Core/Generation/` and `plan.md`.
 - **Builder Pattern** — fluent API for composing operations (see `*.Builders/`)
 - **Strategy Pattern** — different executors per instruction type
 - **Repository Pattern** — abstract document storage (file system, stream)
@@ -60,17 +63,18 @@ DocxEditor/                         # repo folder (historical name)
 ├── DocxEditor.Cli/                 # DOCX CLI
 ├── DocxEditor.Tests/               # xUnit tests (unit + integration)
 ├── PptxEditor.Core/                # PPTX: Builders, Converters, Models, Services, Variables
+│   └── Generation/                 #   Phase 5: Model, Schema, Layout, Emit/Ooxml, Emit/Typst, Components, Archetypes, Fixtures, Design
 ├── XlsxEditor.Core/                # XLSX: Builders, Variables
 ├── OfficeEditor.Core/              # Shared services (TypstCompilerService, Variables, Exceptions)
-├── OfficeEditor.Cli/               # Multi-format CLI entry point
+├── OfficeEditor.Cli/               # Multi-format CLI (create, edit, detect, merge, generate)
 ├── OfficeEditor.Api/               # ASP.NET Core API: deck sessions, slide previews/thumbnails, instruction/anatomy endpoints
 ├── OfficeEditor.Api.Tests/         # xUnit tests for the API
-├── OfficeEditor.Mcp/               # MCP stdio host (JSON-RPC): deck anatomy/edit/render tools
+├── OfficeEditor.Mcp/               # MCP stdio host (JSON-RPC): deck_anatomize, deck_replace_element, deck_render_slide, deck_generate
 ├── OfficeEditor.Mcp.Tests/         # xUnit tests for the MCP host
 ├── OfficeEditor.Web.Client/        # Vite + Tailwind web frontend
 ├── TypstBridge/                    # Native + managed wrapper around Typst (primary backend)
 ├── examples/                       # Sample programs + REF/ for visual regression
-├── tools/                          # Build/dev scripts
+├── tools/                          # visual-diff suite, pptx-benchmark, convert tools
 ├── .rtk/                           # RTK filter config (filters.toml)
 └── RTK.md                          # Shell token-saving rules
 ```
@@ -86,10 +90,17 @@ DocxEditor/                         # repo folder (historical name)
 - Imperative (fluent API) + declarative (JSON/YAML) interfaces
 - Preserve all existing styles when editing documents
 - Template-based document creation
+- **Layout once, emit twice** — single C# layout pass shared by OOXML (delivery) and Typst (#place-only preview) emitters (plan.md §2)
+- **Every primitive ships with both emitters + parity fixture** — no half-tested features
+- **Typst preview is the spec of record** for ambiguous OOXML rendering — match OOXML to the preview, not vice versa
 
 ## Reference Files
 
 - `examples/REF/PPTX/REMOVED.{pptx,pdf}` and `pres-pro.{pptx,pdf}` — PPTX smoke tests
+- `examples/REF/PPTX/AetherLink-Glass-Shareholder-Overview.{pptx,pdf}` and `FusionFest-Architecture-Overview.{pptx,pdf}` — brand/token mining REF decks
 - `examples/REF/DOCX/gestion-risques-entreprise-bcp-pme.{docx,pdf}`, `Monitoring Report Template.{docx,pdf}`, `Annual reporting template ENGLISH_0.{docx,pdf}` — DOCX regression
 - Generated outputs: `examples/output/ref/`
 - PNG mode: `--format png` generates per-slide images at the configured PPI
+- Token sets: `PptxEditor.Core/Generation/Design/` — mined from REF decks (pres-pro, AetherLink, REMOVED)
+- Generation fixtures: `PptxEditor.Core/Generation/Fixtures/` — per-primitive parity test decks
+- CLI demo decks: `office-editor-full-deck.json` (20 slides, all features), `repo-intro-deck.json` (8 slides)
