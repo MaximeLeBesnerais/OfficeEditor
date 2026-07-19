@@ -1,0 +1,121 @@
+{
+  "slides": [
+    {
+      "widthPt": 960,
+      "heightPt": 540,
+      "root": {
+        "kind": "container",
+        "x": 0,
+        "y": 0,
+        "w": 960,
+        "h": 540,
+        "overflow": "error",
+        "children": [
+          {
+            "kind": "rect",
+            "x": 0,
+            "y": 25,
+            "w": 225,
+            "h": 100,
+            "fill": {
+              "type": "solid",
+              "color": "#0B3D91"
+            }
+          },
+          {
+            "kind": "rect",
+            "x": 245,
+            "y": 0,
+            "w": 225,
+            "h": 150,
+            "fill": {
+              "type": "solid",
+              "color": "#0B3D91"
+            }
+          },
+          {
+            "kind": "rect",
+            "x": 552.5,
+            "y": 35,
+            "w": 100,
+            "h": 80,
+            "fill": {
+              "type": "solid",
+              "color": "#0B3D91"
+            }
+          },
+          {
+            "kind": "rect",
+            "x": 735,
+            "y": 0,
+            "w": 225,
+            "h": 150,
+            "fill": {
+              "type": "solid",
+              "color": "#0B3D91"
+            }
+          },
+          {
+            "kind": "rect",
+            "x": 0,
+            "y": 158,
+            "w": 225,
+            "h": 382,
+            "fill": {
+              "type": "solid",
+              "color": "#0B3D91"
+            }
+          },
+          {
+            "kind": "rect",
+            "x": 245,
+            "y": 158,
+            "w": 225,
+            "h": 382,
+            "fill": {
+              "type": "solid",
+              "color": "#0B3D91"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "widthPt": 960,
+      "heightPt": 540,
+      "root": {
+        "kind": "container",
+        "x": 0,
+        "y": 0,
+        "w": 960,
+        "h": 540,
+        "overflow": "error",
+        "children": [
+          {
+            "kind": "rect",
+            "x": 0,
+            "y": 0,
+            "w": 475,
+            "h": 100,
+            "fill": {
+              "type": "solid",
+              "color": "#0B3D91"
+            }
+          },
+          {
+            "kind": "rect",
+            "x": 485,
+            "y": 0,
+            "w": 475,
+            "h": 120,
+            "fill": {
+              "type": "solid",
+              "color": "#0B3D91"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "warnings": []
+}
