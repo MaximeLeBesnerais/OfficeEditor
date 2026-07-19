@@ -31,7 +31,9 @@ internal sealed record CliOptions(
     string? FontPath,
     string? CheckMetricsPath,
     string? BaselinePath,
-    double Margin)
+    double Margin,
+    string? ThresholdsPath,
+    bool RenderTypst)
 {
     public const double DefaultMargin = 0.05;
 
@@ -48,6 +50,8 @@ internal sealed record CliOptions(
         string? check = null;
         string? baseline = null;
         double margin = DefaultMargin;
+        string? thresholds = null;
+        bool render = false;
         bool probe = false;
         bool help = args.Length == 0;
 
@@ -103,6 +107,12 @@ internal sealed record CliOptions(
                         throw new InvalidOperationException("--margin must be a non-negative number (normalized RMSE units; 0.05 = 5 percentage points).");
                     }
                     break;
+                case "--thresholds":
+                    thresholds = RequireValue(args, ref i, arg);
+                    break;
+                case "--render":
+                    render = true;
+                    break;
                 default:
                     throw new InvalidOperationException($"Unknown argument '{arg}'.");
             }
@@ -111,7 +121,7 @@ internal sealed record CliOptions(
         if (help)
         {
             return new CliOptions(CliMode.Help, suite, reference, generated,
-                output ?? "examples/output/visual-diff/docx", name, dpi, generate, fontPath, check, baseline, margin);
+                output ?? "examples/output/visual-diff/docx", name, dpi, generate, fontPath, check, baseline, margin, thresholds, render);
         }
 
         if (probe)
@@ -122,23 +132,28 @@ internal sealed record CliOptions(
             }
 
             return new CliOptions(CliMode.Probe, null, null, null,
-                output ?? "examples/output/visual-diff/docx", null, dpi, false, null, null, null, margin);
+                output ?? "examples/output/visual-diff/docx", null, dpi, false, null, null, null, margin, null, false);
+        }
+
+        if (baseline is not null && thresholds is not null)
+        {
+            throw new InvalidOperationException("--baseline and --thresholds are mutually exclusive: baseline is the machine-dependent REF-deck gate, thresholds the per-primitive parity gate.");
         }
 
         if (check is not null)
         {
             if (suite is not null || reference is not null || generated is not null)
             {
-                throw new InvalidOperationException("--check cannot be combined with a comparison run; pass only --check, --baseline and optionally --margin.");
+                throw new InvalidOperationException("--check cannot be combined with a comparison run; pass only --check plus --baseline or --thresholds.");
             }
 
-            if (baseline is null)
+            if (baseline is null && thresholds is null)
             {
-                throw new InvalidOperationException("--check requires --baseline <metrics.json>.");
+                throw new InvalidOperationException("--check requires --baseline <metrics.json> or --thresholds <thresholds.json>.");
             }
 
             return new CliOptions(CliMode.Check, null, null, null,
-                output ?? "examples/output/visual-diff/docx", null, dpi, false, null, check, baseline, margin);
+                output ?? "examples/output/visual-diff/docx", null, dpi, false, null, check, baseline, margin, thresholds, false);
         }
 
         // Run mode validation.
@@ -149,12 +164,13 @@ internal sealed record CliOptions(
 
         if (suite is null && (reference is null || generated is null))
         {
-            throw new InvalidOperationException("Provide either '--suite <docx|pptx>' or both '--ref <path>' and '--gen <path>'.");
+            throw new InvalidOperationException("Provide either '--suite <docx|pptx|gen>' or both '--ref <path>' and '--gen <path>'.");
         }
 
-        if (generate && !string.Equals(suite, "pptx", StringComparison.OrdinalIgnoreCase))
+        if (generate && !string.Equals(suite, "pptx", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(suite, "gen", StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidOperationException("--generate only applies to '--suite pptx'.");
+            throw new InvalidOperationException("--generate only applies to '--suite pptx' and '--suite gen'.");
         }
 
         if (fontPath is not null && !generate)
@@ -162,15 +178,26 @@ internal sealed record CliOptions(
             throw new InvalidOperationException("--font-path only makes sense together with --generate.");
         }
 
+        if (render && !string.Equals(suite, "gen", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("--render only applies to '--suite gen' (it renders fixture .typ sources via the typst CLI).");
+        }
+
+        if (thresholds is not null && suite is not null && !string.Equals(suite, "gen", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("--thresholds is the per-primitive parity gate and only applies to '--suite gen'.");
+        }
+
         output ??= suite switch
         {
             not null when string.Equals(suite, "docx", StringComparison.OrdinalIgnoreCase) => "examples/output/visual-diff/docx",
             not null when string.Equals(suite, "pptx", StringComparison.OrdinalIgnoreCase) => "examples/output/visual-diff/pptx",
-            not null => throw new InvalidOperationException($"Unknown suite '{suite}'. Supported suites: docx, pptx."),
+            not null when string.Equals(suite, "gen", StringComparison.OrdinalIgnoreCase) => "examples/output/visual-diff/gen",
+            not null => throw new InvalidOperationException($"Unknown suite '{suite}'. Supported suites: docx, pptx, gen."),
             _ => throw new InvalidOperationException("--out is required when comparing an arbitrary pair.")
         };
 
-        return new CliOptions(CliMode.Run, suite, reference, generated, output, name, dpi, generate, fontPath, null, baseline, margin);
+        return new CliOptions(CliMode.Run, suite, reference, generated, output, name, dpi, generate, fontPath, null, baseline, margin, thresholds, render);
     }
 
     private static string RequireValue(string[] args, ref int index, string option)
@@ -190,11 +217,11 @@ internal sealed record CliOptions(
         visual-diff - render and compare PDF pages or PNG image pairs.
 
         Usage:
-          visual-diff --suite <docx|pptx> [--out <dir>] [--dpi 150] [--generate] [--font-path <dir>]
-                      [--baseline <metrics.json>] [--margin 0.05]
+          visual-diff --suite <docx|pptx|gen> [--out <dir>] [--dpi 150] [--generate] [--font-path <dir>]
+                      [--render] [--baseline <metrics.json>] [--margin 0.05] [--thresholds <thresholds.json>]
           visual-diff --ref <ref.pdf|ref.png|ref-dir> --gen <gen.pdf|gen.png|gen-dir>
                       --out <dir> [--name <name>] [--dpi 150] [--baseline <metrics.json>] [--margin 0.05]
-          visual-diff --check <metrics.json> --baseline <metrics.json> [--margin 0.05]
+          visual-diff --check <metrics.json> (--baseline <metrics.json> | --thresholds <thresholds.json>) [--margin 0.05]
           visual-diff --probe
           visual-diff --help
 
@@ -205,30 +232,43 @@ internal sealed record CliOptions(
                  tools/convert-pptx) or manually:
                    dotnet run --project tools/convert-pptx -- examples/REF/PPTX/<deck>.pptx \
                      examples/output/ref/pptx/<deck>.pdf --format pdf
+          gen    Phase 5 parity fixtures (PptxEditor.Core/Generation/Fixtures catalog):
+                 PowerPoint ground-truth PNGs vs Typst preview PNGs per primitive deck under
+                 examples/output/gen/parity/<fixture>/. --generate writes fixture.pptx /
+                 fixture.typ / manifest.json / assets in-process; --render additionally renders
+                 the Typst side via the typst CLI (probed, opt-in). Ground truth is produced
+                 with PowerPoint manually - the suite prints the exact steps per fixture.
 
         Options:
-          --suite <name>     Run a built-in comparison suite (docx, pptx).
+          --suite <name>     Run a built-in comparison suite (docx, pptx, gen).
           --ref <path>       Reference PDF, single PNG, or directory of PNGs.
           --gen <path>       Generated PDF, single PNG, or directory of PNGs (same kind as --ref).
                              PNG inputs skip the poppler rendering step entirely.
           --out <path>       Output directory. Defaults to examples/output/visual-diff/<suite> for suites.
           --name <name>      Display/report name for an arbitrary pair.
-          --dpi <number>     Rasterization DPI for PDF inputs. Default: 150.
-          --generate         (suite pptx) Build missing generated PDFs via tools/convert-pptx.
+          --dpi <number>     Rasterization DPI for PDF inputs and --render. Default: 150.
+          --generate         (suites pptx, gen) Build missing inputs (pptx: convert-pptx PDFs;
+                             gen: fixture decks + Typst sources, in-process).
           --font-path <dir>  Extra font directory passed to tools/convert-pptx with --generate.
-          --check <file>     Threshold-check an existing metrics.json against --baseline.
+          --render           (suite gen) Render fixture .typ sources to PNG pages via the typst CLI.
+          --check <file>     Threshold-check an existing metrics.json against --baseline or --thresholds.
           --baseline <file>  Baseline metrics.json. After a run: check the fresh metrics against it.
+          --thresholds <f>   Per-primitive thresholds.json (gen suite). After a run: check the fresh
+                             metrics against the per-primitive RMSE ceilings. Mutually exclusive
+                             with --baseline. Defaults for --suite gen to the committed
+                             tools/visual-diff/baselines/gen/thresholds.json when present.
           --margin <number>  Absolute margin on normalized RMSE (0.05 = 5 percentage points).
-                             Default: 0.05.
-          --probe            Print external-tool availability (poppler, ImageMagick) and exit.
+                             Default: 0.05. (--baseline checks only.)
+          --probe            Print external-tool availability (poppler, ImageMagick, typst) and exit.
           --help             Show this help text.
 
         Exit codes:
           0  success (report written; thresholds, if checked, satisfied)
           1  operational or usage error (missing tools, missing files, bad arguments)
           2  threshold check ran and at least one page/document exceeded baseline + margin
+             or its per-primitive threshold
 
-        Note: without --baseline/--check the tool is report-only and never fails on RMSE values.
+        Note: without --baseline/--thresholds/--check the tool is report-only and never fails on RMSE values.
         """);
     }
 }

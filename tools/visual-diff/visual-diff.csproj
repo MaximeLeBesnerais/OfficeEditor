@@ -5,4 +5,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
+  <ItemGroup>
+    <!-- Phase 5 parity harness (P7): the gen suite generates fixtures in-process via
+         the catalog + both emitters. Runtime rendering stays external (PowerPoint for
+         ground truth, the typst CLI for the preview) and opt-in. -->
+    <ProjectReference Include="..\..\PptxEditor.Core\PptxEditor.Core.csproj" />
+  </ItemGroup>
 </Project>
