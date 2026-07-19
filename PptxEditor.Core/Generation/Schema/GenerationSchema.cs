@@ -1,0 +1,385 @@
+namespace PptxEditor.Core.Generation.Schema;
+
+/// <summary>
+/// The JSON Schema contract of the generation vocabulary (plan.md §3.4), handed to
+/// structured-outputs/tool-calling consumers. <see cref="SchemaJson"/> mirrors the
+/// canonical <see cref="FileName"/> artifact next to this file — a test keeps them in
+/// sync (the project file is outside P1 ownership, so no embedded resource is used).
+/// </summary>
+public static class GenerationSchema
+{
+    /// <summary>File name of the canonical schema artifact.</summary>
+    public const string FileName = "deck.schema.json";
+
+    /// <summary>Vocabulary version the schema describes.</summary>
+    public const string Version = "2.0";
+
+    /// <summary>The full JSON Schema document (draft 2020-12).</summary>
+    public const string SchemaJson =
+        """
+        {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "$id": "https://officeeditor.dev/schemas/deck-2.0.json",
+          "title": "OfficeEditor deck generation document",
+          "description": "Generation vocabulary v2.0 (plan.md §3): design tokens + container tree + Tier-1 primitives + linear gradients. Layout is resolved once in C#; pt units only. Non-goals: percentages, wrap, z-index, CSS input, Tier-3 rendering. Unknown properties are rejected.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["version", "design", "slides"],
+          "properties": {
+            "version": { "const": "2.0" },
+            "slideSize": { "enum": ["16:9", "4:3"], "default": "16:9" },
+            "design": { "$ref": "#/$defs/design" },
+            "slides": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "$ref": "#/$defs/container" }
+            }
+          },
+          "$defs": {
+            "color": {
+              "type": "string",
+              "description": "Palette token name (preferred) or #RRGGBB hex literal (accepted, warned: off-token drift, plan.md §3.1)."
+            },
+            "design": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["palette"],
+              "properties": {
+                "palette": {
+                  "type": "object",
+                  "description": "Token name → #RRGGBB. Content references colors by token name.",
+                  "additionalProperties": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" }
+                },
+                "fonts": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "display": { "type": "string" },
+                    "body": { "type": "string" }
+                  }
+                },
+                "shape": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "cornerRadius": { "type": "number", "minimum": 0, "default": 0 },
+                    "cardStyle": { "enum": ["flat", "outline", "shadow"], "default": "flat" }
+                  }
+                },
+                "metrics": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "marginPt": { "type": "number", "minimum": 0, "default": 43 },
+                    "gutterPt": { "type": "number", "minimum": 0, "default": 18 },
+                    "titleSizePt": { "type": "number", "exclusiveMinimum": 0, "default": 30 },
+                    "bodySizePt": { "type": "number", "exclusiveMinimum": 0, "default": 14 }
+                  }
+                }
+              }
+            },
+            "layout": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["mode"],
+              "properties": {
+                "mode": { "enum": ["row", "column", "grid"] },
+                "gap": { "type": "number", "minimum": 0, "default": 0 },
+                "cols": { "type": "integer", "minimum": 1, "description": "Grid only; required for grid layouts." },
+                "rowGap": { "type": "number", "minimum": 0, "description": "Grid only." },
+                "columnGap": { "type": "number", "minimum": 0, "description": "Grid only." },
+                "justify": { "enum": ["start", "center", "end", "space-between", "space-evenly"], "default": "start" },
+                "align": { "enum": ["start", "center", "end", "stretch"], "default": "stretch" }
+              }
+            },
+            "size": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "Child size constraints (plan.md §3.2). All dimensions in pt.",
+              "properties": {
+                "w": { "type": "number", "exclusiveMinimum": 0 },
+                "h": { "type": "number", "exclusiveMinimum": 0 },
+                "grow": { "type": "number", "minimum": 0, "description": "Share of remaining space on the layout axis after fixed children." },
+                "aspect": { "type": "string", "pattern": "^\\d+(\\.\\d+)?:\\d+(\\.\\d+)?$", "description": "\"W:H\", e.g. \"16:9\"." },
+                "alignSelf": { "enum": ["start", "center", "end", "stretch"] }
+              }
+            },
+            "at": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["x", "y"],
+              "description": "Absolute placement escape hatch; only on children of layout-less parents (plan.md §2 rule 3).",
+              "properties": {
+                "x": { "type": "number", "minimum": 0 },
+                "y": { "type": "number", "minimum": 0 }
+              }
+            },
+            "edgeInsets": {
+              "description": "pt insets: a single number (all edges), [v, h] or [top, right, bottom, left].",
+              "oneOf": [
+                { "type": "number", "minimum": 0 },
+                {
+                  "type": "array",
+                  "items": { "type": "number", "minimum": 0 },
+                  "minItems": 2,
+                  "maxItems": 2
+                },
+                {
+                  "type": "array",
+                  "items": { "type": "number", "minimum": 0 },
+                  "minItems": 4,
+                  "maxItems": 4
+                }
+              ]
+            },
+            "fill": {
+              "oneOf": [
+                { "$ref": "#/$defs/color" },
+                { "$ref": "#/$defs/gradient" }
+              ]
+            },
+            "gradient": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["angle", "stops"],
+              "description": "Linear gradient only (Tier-3 gradients are a non-goal).",
+              "properties": {
+                "angle": { "type": "number", "description": "Degrees; OOXML a:lin ang ↔ Typst gradient.linear angle." },
+                "stops": {
+                  "type": "array",
+                  "minItems": 2,
+                  "items": { "$ref": "#/$defs/gradientStop" }
+                }
+              }
+            },
+            "gradientStop": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["color", "offset"],
+              "properties": {
+                "color": { "$ref": "#/$defs/color" },
+                "offset": { "type": "number", "minimum": 0, "maximum": 1 },
+                "alpha": { "type": "number", "minimum": 0, "maximum": 1 }
+              }
+            },
+            "stroke": {
+              "oneOf": [
+                { "$ref": "#/$defs/color" },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["color"],
+                  "properties": {
+                    "color": { "$ref": "#/$defs/color" },
+                    "width": { "type": "number", "exclusiveMinimum": 0, "default": 1 }
+                  }
+                }
+              ]
+            },
+            "radius": {
+              "description": "Per-corner radius in pt: a single number or per-corner object (plan.md §8 Q3).",
+              "oneOf": [
+                { "type": "number", "minimum": 0 },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "tl": { "type": "number", "minimum": 0 },
+                    "tr": { "type": "number", "minimum": 0 },
+                    "br": { "type": "number", "minimum": 0 },
+                    "bl": { "type": "number", "minimum": 0 }
+                  }
+                }
+              ]
+            },
+            "shadow": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["color"],
+              "description": "Native a:effectLst/outerShdw in OOXML; faked offset rect in Typst preview (never in the PPTX).",
+              "properties": {
+                "color": { "$ref": "#/$defs/color" },
+                "dx": { "type": "number", "default": 0 },
+                "dy": { "type": "number", "default": 0 },
+                "blur": { "type": "number", "minimum": 0, "default": 0 },
+                "alpha": { "type": "number", "minimum": 0, "maximum": 1 }
+              }
+            },
+            "overflow": {
+              "enum": ["error", "shrink", "clip"],
+              "description": "Per-container overflow policy. Defaults: shrink for text, error for layout containers (plan.md §3.2)."
+            },
+            "textRun": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["text"],
+              "properties": {
+                "text": { "type": "string" },
+                "font": { "type": "string", "description": "Font slot token (display|body) or raw family name." },
+                "fontSize": { "type": "number", "exclusiveMinimum": 0 },
+                "color": { "$ref": "#/$defs/color" },
+                "bold": { "type": "boolean", "default": false },
+                "italic": { "type": "boolean", "default": false }
+              }
+            },
+            "container": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["type", "children"],
+              "description": "Layout container; the slide root is a container. Without 'layout' it is a free canvas whose children require 'at' + fixed 'size'.",
+              "properties": {
+                "type": { "const": "container" },
+                "layout": { "$ref": "#/$defs/layout" },
+                "padding": { "$ref": "#/$defs/edgeInsets" },
+                "overflow": { "$ref": "#/$defs/overflow", "default": "error" },
+                "children": {
+                  "type": "array",
+                  "items": { "$ref": "#/$defs/element" }
+                },
+                "fill": { "$ref": "#/$defs/fill" },
+                "stroke": { "$ref": "#/$defs/stroke" },
+                "radius": { "$ref": "#/$defs/radius" },
+                "shadow": { "$ref": "#/$defs/shadow" },
+                "size": { "$ref": "#/$defs/size" },
+                "at": { "$ref": "#/$defs/at" }
+              }
+            },
+            "text": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["type"],
+              "oneOf": [
+                { "required": ["text"] },
+                { "required": ["runs"] }
+              ],
+              "description": "Box + anchor + align + insets; textAlign lives here, never on containers (plan.md §3.3).",
+              "properties": {
+                "type": { "const": "text" },
+                "text": { "type": "string" },
+                "runs": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": { "$ref": "#/$defs/textRun" }
+                },
+                "font": { "type": "string", "description": "Font slot token (display|body) or raw family name." },
+                "fontSize": { "type": "number", "exclusiveMinimum": 0 },
+                "color": { "$ref": "#/$defs/color" },
+                "bold": { "type": "boolean", "default": false },
+                "italic": { "type": "boolean", "default": false },
+                "textAlign": { "enum": ["left", "center", "right"], "default": "left" },
+                "anchor": { "enum": ["top", "middle", "bottom"], "default": "top" },
+                "insets": { "$ref": "#/$defs/edgeInsets" },
+                "overflow": { "$ref": "#/$defs/overflow", "default": "shrink" },
+                "shadow": { "$ref": "#/$defs/shadow" },
+                "size": { "$ref": "#/$defs/size" },
+                "at": { "$ref": "#/$defs/at" }
+              }
+            },
+            "rect": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["type"],
+              "properties": {
+                "type": { "const": "rect" },
+                "fill": { "$ref": "#/$defs/fill" },
+                "stroke": { "$ref": "#/$defs/stroke" },
+                "radius": { "$ref": "#/$defs/radius" },
+                "shadow": { "$ref": "#/$defs/shadow" },
+                "size": { "$ref": "#/$defs/size" },
+                "at": { "$ref": "#/$defs/at" }
+              }
+            },
+            "ellipse": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["type"],
+              "properties": {
+                "type": { "const": "ellipse" },
+                "fill": { "$ref": "#/$defs/fill" },
+                "stroke": { "$ref": "#/$defs/stroke" },
+                "shadow": { "$ref": "#/$defs/shadow" },
+                "size": { "$ref": "#/$defs/size" },
+                "at": { "$ref": "#/$defs/at" }
+              }
+            },
+            "line": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["type"],
+              "description": "Straight line or connector; straight only in v1 (plan.md §3.3).",
+              "properties": {
+                "type": { "enum": ["line", "connector"] },
+                "orientation": { "enum": ["horizontal", "vertical"], "default": "horizontal" },
+                "stroke": { "$ref": "#/$defs/stroke" },
+                "size": { "$ref": "#/$defs/size" },
+                "at": { "$ref": "#/$defs/at" }
+              }
+            },
+            "image": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["type", "src"],
+              "properties": {
+                "type": { "const": "image" },
+                "src": { "type": "string", "minLength": 1, "description": "Path, URL or base64 payload; interpreted by emitters." },
+                "fit": { "enum": ["fill", "crop", "contain"], "default": "fill" },
+                "crop": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["left", "top", "right", "bottom"],
+                  "description": "Source crop in 1/1000ths of a percent (spcPct scale family); only with fit=crop.",
+                  "properties": {
+                    "left": { "type": "integer", "minimum": 0, "maximum": 100000 },
+                    "top": { "type": "integer", "minimum": 0, "maximum": 100000 },
+                    "right": { "type": "integer", "minimum": 0, "maximum": 100000 },
+                    "bottom": { "type": "integer", "minimum": 0, "maximum": 100000 }
+                  }
+                },
+                "alt": { "type": "string" },
+                "size": { "$ref": "#/$defs/size" },
+                "at": { "$ref": "#/$defs/at" }
+              }
+            },
+            "group": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["type", "children"],
+              "description": "Layout-less grouping; paint order = document order. Children are placed with 'at'.",
+              "properties": {
+                "type": { "const": "group" },
+                "children": {
+                  "type": "array",
+                  "items": { "$ref": "#/$defs/element" }
+                },
+                "size": { "$ref": "#/$defs/size" },
+                "at": { "$ref": "#/$defs/at" }
+              }
+            },
+            "component": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["type"],
+              "description": "Prebuilt component (plan.md §4): C# function over primitives, not a second layout system.",
+              "properties": {
+                "type": { "enum": ["card", "kpi", "title_block", "bullet_list", "divider", "badge", "image_card", "table_block"] },
+                "content": { "type": "object", "description": "Component payload; strongly typed by the component layer." },
+                "size": { "$ref": "#/$defs/size" },
+                "at": { "$ref": "#/$defs/at" }
+              }
+            },
+            "element": {
+              "oneOf": [
+                { "$ref": "#/$defs/container" },
+                { "$ref": "#/$defs/text" },
+                { "$ref": "#/$defs/rect" },
+                { "$ref": "#/$defs/ellipse" },
+                { "$ref": "#/$defs/line" },
+                { "$ref": "#/$defs/image" },
+                { "$ref": "#/$defs/group" },
+                { "$ref": "#/$defs/component" }
+              ]
+            }
+          }
+        }
+        """;
+}
