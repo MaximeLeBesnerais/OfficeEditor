@@ -1,0 +1,80 @@
+{
+  "slides": [
+    {
+      "widthPt": 960,
+      "heightPt": 540,
+      "root": {
+        "kind": "container",
+        "x": 0,
+        "y": 0,
+        "w": 960,
+        "h": 540,
+        "overflow": "error",
+        "children": [
+          {
+            "kind": "rect",
+            "x": 50,
+            "y": 50,
+            "w": 860,
+            "h": 440,
+            "fill": {
+              "type": "solid",
+              "color": "#0B3D91"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "widthPt": 960,
+      "heightPt": 540,
+      "root": {
+        "kind": "container",
+        "x": 0,
+        "y": 0,
+        "w": 960,
+        "h": 540,
+        "overflow": "error",
+        "children": [
+          {
+            "kind": "rect",
+            "x": 40,
+            "y": 20,
+            "w": 880,
+            "h": 500,
+            "fill": {
+              "type": "solid",
+              "color": "#0B3D91"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "widthPt": 960,
+      "heightPt": 540,
+      "root": {
+        "kind": "container",
+        "x": 0,
+        "y": 0,
+        "w": 960,
+        "h": 540,
+        "overflow": "error",
+        "children": [
+          {
+            "kind": "rect",
+            "x": 40,
+            "y": 10,
+            "w": 900,
+            "h": 500,
+            "fill": {
+              "type": "solid",
+              "color": "#0B3D91"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "warnings": []
+}

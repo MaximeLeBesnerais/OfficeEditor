@@ -1,0 +1,32 @@
+{
+  "version": "2.0",
+  "design": {
+    "palette": { "primary": "#0B3D91", "paper": "#FFFFFF" }
+  },
+  "slides": [
+    {
+      "type": "container",
+      "padding": 50,
+      "layout": { "mode": "row" },
+      "children": [
+        { "type": "rect", "size": { "grow": 1 }, "fill": "primary" }
+      ]
+    },
+    {
+      "type": "container",
+      "padding": [20, 40],
+      "layout": { "mode": "row" },
+      "children": [
+        { "type": "rect", "size": { "grow": 1 }, "fill": "primary" }
+      ]
+    },
+    {
+      "type": "container",
+      "padding": [10, 20, 30, 40],
+      "layout": { "mode": "row" },
+      "children": [
+        { "type": "rect", "size": { "grow": 1 }, "fill": "primary" }
+      ]
+    }
+  ]
+}

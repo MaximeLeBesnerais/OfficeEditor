@@ -1,0 +1,24 @@
+{
+  "version": "2.0",
+  "design": {
+    "palette": { "primary": "#0B3D91", "paper": "#FFFFFF" },
+    "fonts": { "display": "Aptos Display", "body": "Aptos" }
+  },
+  "slides": [
+    {
+      "type": "container",
+      "padding": 43,
+      "layout": { "mode": "column", "gap": 18 },
+      "children": [
+        { "type": "text", "text": "Quarterly results", "font": "display", "fontSize": 30, "size": { "h": 40 } },
+        { "type": "container", "size": { "grow": 1 }, "padding": 10,
+          "layout": { "mode": "row", "gap": 18 },
+          "children": [
+            { "type": "rect", "size": { "grow": 1 }, "fill": "primary" },
+            { "type": "rect", "size": { "grow": 1 }, "fill": "primary" }
+          ]
+        }
+      ]
+    }
+  ]
+}
