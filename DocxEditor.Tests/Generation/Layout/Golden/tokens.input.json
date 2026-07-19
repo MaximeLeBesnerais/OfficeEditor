@@ -1,0 +1,38 @@
+{
+  "version": "2.0",
+  "design": {
+    "palette":  { "primary": "#0B3D91", "accent": "#FF6B00", "ink": "#1A1A1A",
+                  "paper": "#FFFFFF", "muted": "#8A94A6" },
+    "fonts":    { "display": "Aptos Display", "body": "Aptos" },
+    "shape":    { "cornerRadius": 0, "cardStyle": "flat" },
+    "metrics":  { "marginPt": 43, "gutterPt": 18, "titleSizePt": 30, "bodySizePt": 14 }
+  },
+  "slides": [
+    {
+      "type": "container",
+      "children": [
+        { "type": "text", "text": "Hello", "font": "display", "color": "primary",
+          "at": { "x": 10, "y": 10 }, "size": { "w": 200, "h": 30 } },
+        { "type": "text", "fontSize": 12, "color": "ink",
+          "runs": [
+            { "text": "A", "bold": true },
+            { "text": "B", "color": "accent", "fontSize": 20 }
+          ],
+          "at": { "x": 10, "y": 50 }, "size": { "w": 200, "h": 40 } },
+        { "type": "container", "at": { "x": 300, "y": 10 }, "size": { "w": 200, "h": 100 },
+          "fill": "primary",
+          "stroke": { "color": "accent", "width": 2 },
+          "radius": 8,
+          "shadow": { "color": "ink", "dx": 2, "dy": 3, "blur": 6, "alpha": 0.5 },
+          "children": [] },
+        { "type": "rect", "at": { "x": 300, "y": 130 }, "size": { "w": 200, "h": 60 },
+          "fill": { "angle": 45, "stops": [
+            { "color": "primary", "offset": 0 },
+            { "color": "#123456", "offset": 1, "alpha": 0.8 }
+          ] } },
+        { "type": "line", "at": { "x": 10, "y": 120 }, "size": { "w": 200, "h": 2 },
+          "stroke": { "color": "muted" } }
+      ]
+    }
+  ]
+}
