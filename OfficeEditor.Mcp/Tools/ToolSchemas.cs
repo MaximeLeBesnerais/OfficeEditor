@@ -11,6 +11,7 @@ public static class ToolSchemas
     public const string AnatomizeName = "deck_anatomize";
     public const string ReplaceElementName = "deck_replace_element";
     public const string RenderSlideName = "deck_render_slide";
+    public const string GenerateName = "deck_generate";
 
     private const string DeckSourceProperties = """
         "pptxBase64": {
@@ -90,11 +91,32 @@ public static class ToolSchemas
         """)
     };
 
+    private static readonly JsonObject Generate = new()
+    {
+        ["name"] = GenerateName,
+        ["description"] = "Generates a PPTX deck from scratch out of a generation document (deck.schema.json v2.0: design tokens + container tree; layout resolved server-side). Returns the deck as pptxBase64 plus per-slide SVG/PNG previews rendered through the Typst pipeline (best-effort: previewError is set when no Typst backend is available). Invalid documents are rejected with the validator's actionable errors. A deck session is created; the returned deckHandle works with every other deck_* tool.",
+        ["inputSchema"] = JsonNode.Parse("""
+        {
+          "type": "object",
+          "properties": {
+            "document": {
+              "type": "object",
+              "description": "Generation document per deck.schema.json v2.0 (version/design/slides; pt units only). Unknown properties are rejected with path + suggestion."
+            },
+            "previewFormat": { "type": "string", "enum": ["svg", "png"], "default": "svg" },
+            "ppi": { "type": "number", "minimum": 36, "maximum": 600, "default": 150 }
+          },
+          "required": ["document"]
+        }
+        """)
+    };
+
     public static JsonArray ListAll()
     {
         return new JsonArray(
             Anatomize.DeepClone(),
             ReplaceElement.DeepClone(),
-            RenderSlide.DeepClone());
+            RenderSlide.DeepClone(),
+            Generate.DeepClone());
     }
 }
