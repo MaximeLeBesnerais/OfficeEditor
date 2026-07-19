@@ -9,7 +9,8 @@ internal enum ToolRequirements
 {
     None = 0,
     PdfRenderer = 1,
-    ImageCompare = 2
+    ImageCompare = 2,
+    Typst = 4
 }
 
 /// <summary>
@@ -18,13 +19,15 @@ internal enum ToolRequirements
 /// prefix on Apple Silicon (<c>/opt/homebrew/bin</c>). When ImageMagick 7's
 /// legacy <c>compare</c> binary is absent but <c>magick</c> exists,
 /// <see cref="ComparePrefixArgs"/> carries <c>["compare"]</c> so callers can
-/// invoke <c>magick compare ...</c> transparently.
+/// invoke <c>magick compare ...</c> transparently. <see cref="Typst"/> is the
+/// typst CLI, only required by the gen suite's opt-in <c>--render</c> step.
 /// </summary>
 internal sealed record ToolPaths(
     string? PdfToCairo,
     string? PdfToPpm,
     string? Compare,
-    IReadOnlyList<string> ComparePrefixArgs)
+    IReadOnlyList<string> ComparePrefixArgs,
+    string? Typst)
 {
     private static readonly string[] FixedProbeDirectories = ["/usr/bin", "/opt/homebrew/bin"];
 
@@ -33,6 +36,7 @@ internal sealed record ToolPaths(
         string? cairo = FindExecutable("pdftocairo");
         string? ppm = FindExecutable("pdftoppm");
         (string? compare, IReadOnlyList<string> prefix) = FindCompare();
+        string? typst = FindExecutable("typst");
 
         if (requirements.HasFlag(ToolRequirements.PdfRenderer) && cairo is null && ppm is null)
         {
@@ -51,7 +55,16 @@ internal sealed record ToolPaths(
                 + ProbedNote());
         }
 
-        return new ToolPaths(cairo, ppm, compare, prefix);
+        if (requirements.HasFlag(ToolRequirements.Typst) && typst is null)
+        {
+            throw new InvalidOperationException(
+                "--render needs the typst CLI: install it (macOS: 'brew install typst'; "
+                + "see https://github.com/typst/typst for other platforms). "
+                + "Without --render the gen suite still diffs any previously rendered PNG pages. "
+                + ProbedNote());
+        }
+
+        return new ToolPaths(cairo, ppm, compare, prefix, typst);
     }
 
     /// <summary>Human-readable availability report for <c>--probe</c>.</summary>
@@ -74,6 +87,7 @@ internal sealed record ToolPaths(
               pdftoppm:   {ppm ?? "MISSING"}
               compare:    {compare ?? "MISSING"}
               magick:     {FindExecutable("magick") ?? "MISSING"}
+              typst:      {FindExecutable("typst") ?? "MISSING (only needed for --suite gen --render)"}
             Probed locations: fixed directories [{string.Join(", ", FixedProbeDirectories)}], then PATH.
             PDF rendering: {renderer}
             Image compare: {comparer}
