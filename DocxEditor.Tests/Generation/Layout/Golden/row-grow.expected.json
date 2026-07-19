@@ -1,0 +1,52 @@
+{
+  "slides": [
+    {
+      "widthPt": 960,
+      "heightPt": 540,
+      "root": {
+        "kind": "container",
+        "x": 0,
+        "y": 0,
+        "w": 960,
+        "h": 540,
+        "overflow": "error",
+        "children": [
+          {
+            "kind": "rect",
+            "x": 40,
+            "y": 40,
+            "w": 100,
+            "h": 50,
+            "fill": {
+              "type": "solid",
+              "color": "#0B3D91"
+            }
+          },
+          {
+            "kind": "rect",
+            "x": 160,
+            "y": 40,
+            "w": 185,
+            "h": 460,
+            "fill": {
+              "type": "solid",
+              "color": "#0B3D91"
+            }
+          },
+          {
+            "kind": "rect",
+            "x": 365,
+            "y": 40,
+            "w": 555,
+            "h": 460,
+            "fill": {
+              "type": "solid",
+              "color": "#0B3D91"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "warnings": []
+}

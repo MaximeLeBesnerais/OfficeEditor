@@ -1,0 +1,28 @@
+{
+  "version": "2.0",
+  "design": {
+    "palette": { "primary": "#0B3D91", "paper": "#FFFFFF" }
+  },
+  "slides": [
+    {
+      "type": "container",
+      "layout": { "mode": "grid", "cols": 4, "gap": 12, "columnGap": 20, "rowGap": 8, "justify": "center", "align": "center" },
+      "children": [
+        { "type": "rect", "size": { "h": 100 }, "fill": "primary" },
+        { "type": "rect", "fill": "primary" },
+        { "type": "rect", "size": { "w": 100, "h": 80 }, "fill": "primary" },
+        { "type": "rect", "size": { "aspect": "3:2" }, "fill": "primary" },
+        { "type": "rect", "fill": "primary" },
+        { "type": "rect", "fill": "primary" }
+      ]
+    },
+    {
+      "type": "container",
+      "layout": { "mode": "grid", "cols": 2, "gap": 10 },
+      "children": [
+        { "type": "rect", "size": { "h": 100 }, "fill": "primary" },
+        { "type": "rect", "size": { "h": 120 }, "fill": "primary" }
+      ]
+    }
+  ]
+}
