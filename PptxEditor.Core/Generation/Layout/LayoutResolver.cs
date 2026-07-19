@@ -547,7 +547,7 @@ public sealed class LayoutResolver
 
         var insets = text.Insets ?? new EdgeInsets(0, 0, 0, 0);
         var scale = 1.0;
-        if (_textMeasurer is not null && text.Overflow != OverflowPolicy.Clip)
+        if (_textMeasurer is not null)
         {
             var request = new TextMeasureRequest
             {
@@ -556,16 +556,29 @@ public sealed class LayoutResolver
                 BoxHeightPt = Math.Max(rect.H - insets.Top - insets.Bottom, 0),
                 MinScale = MinFontScale
             };
-            scale = Math.Clamp(_textMeasurer.FitScale(request), 0.01, 1.0);
-            if (scale < 1 - Eps && text.Overflow == OverflowPolicy.Error)
+            var fit = Math.Clamp(_textMeasurer.FitScale(request), 0.01, 1.0);
+            if (text.Overflow == OverflowPolicy.Clip)
             {
-                throw new LayoutException(path,
-                    $"text does not fit its box ({Round(rect.W)}×{Round(rect.H)} pt) and its overflow policy is \"error\".");
+                // Clip passes through unscaled, but never silently (plan.md §7.5).
+                if (fit < 1 - Eps)
+                {
+                    _warnings.Add(
+                        $"{path}: text does not fit its box ({Round(rect.W)}×{Round(rect.H)} pt) and its overflow policy is \"clip\"; content is clipped at the box edge (plan.md §3.2).");
+                }
             }
-            if (scale < MinFontScale - Eps && text.Overflow == OverflowPolicy.Shrink)
+            else
             {
-                _warnings.Add(
-                    $"{path}: text shrunk to fontScale {Round(scale)} below MinScale {MinFontScale}; content may still overflow (plan.md §3.2).");
+                scale = fit;
+                if (scale < 1 - Eps && text.Overflow == OverflowPolicy.Error)
+                {
+                    throw new LayoutException(path,
+                        $"text does not fit its box ({Round(rect.W)}×{Round(rect.H)} pt) and its overflow policy is \"error\".");
+                }
+                if (scale < MinFontScale - Eps && text.Overflow == OverflowPolicy.Shrink)
+                {
+                    _warnings.Add(
+                        $"{path}: text shrunk to fontScale {Round(scale)} below MinScale {MinFontScale}; content may still overflow (plan.md §3.2).");
+                }
             }
         }
 
