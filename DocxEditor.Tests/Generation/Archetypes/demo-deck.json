@@ -1,0 +1,107 @@
+{
+  "version": "2.0",
+  "design": {
+    "palette": {
+      "primary": "#CEBA80",
+      "accent": "#169C9A",
+      "ink": "#2C3932",
+      "paper": "#FFFFFF",
+      "muted": "#7A7567"
+    },
+    "fonts": {
+      "display": "Aptos Light",
+      "body": "Aptos"
+    },
+    "shape": {
+      "cornerRadius": 0,
+      "cardStyle": "flat"
+    },
+    "metrics": {
+      "marginPt": 43,
+      "gutterPt": 18,
+      "titleSizePt": 40,
+      "bodySizePt": 14
+    }
+  },
+  "slides": [
+    {
+      "type": "cover",
+      "content": {
+        "kicker": "NORTHWIND TRADERS",
+        "title": "Q3 Business Review",
+        "subtitle": "Prepared for the executive team · October 2026"
+      }
+    },
+    {
+      "type": "kpi_row",
+      "content": {
+        "title": "The quarter at a glance",
+        "subtitle": "vs Q3 2025",
+        "kpis": [
+          { "value": "+34%", "label": "Revenue", "delta": "+12% vs LY" },
+          { "value": "12.4k", "label": "Active users", "delta": "+8% vs LY" },
+          { "value": "98.2%", "label": "Uptime", "delta": "+0.4 pts" },
+          { "value": "4.1d", "label": "Sales cycle", "delta": "-1.2 days" }
+        ]
+      }
+    },
+    {
+      "type": "two_col",
+      "content": {
+        "title": "What moved the quarter",
+        "weights": [3, 2],
+        "left": {
+          "type": "bullet_list",
+          "content": {
+            "title": "Tailwinds",
+            "items": [
+              "Enterprise renewals landed two quarters early",
+              "Self-serve signups doubled after the July launch",
+              "EMEA pipeline grew 41% on partner referrals",
+              "Churn fell to 2.1%, the lowest in two years"
+            ]
+          }
+        },
+        "right": {
+          "type": "card",
+          "content": {
+            "title": "Watch item",
+            "subtitle": "EMEA delivery costs",
+            "body": "Freight and compliance added 3 pts of cost. Mitigation lands with the Q4 budget review."
+          }
+        }
+      }
+    },
+    {
+      "type": "table_slide",
+      "content": {
+        "title": "Regional performance",
+        "columns": ["Region", "Revenue", "Growth", "Pipeline"],
+        "rows": [
+          ["North America", "$8.2M", "+38%", "$5.1M"],
+          ["EMEA", "$4.6M", "+41%", "$3.8M"],
+          ["APAC", "$2.9M", "+22%", "$2.2M"],
+          ["LatAm", "$1.1M", "+17%", "$0.9M"]
+        ],
+        "columnWeights": [2, 1, 1, 1]
+      }
+    },
+    {
+      "type": "section",
+      "content": {
+        "index": "02",
+        "kicker": "OUTLOOK",
+        "title": "What is next",
+        "subtitle": "Three bets for Q4"
+      }
+    },
+    {
+      "type": "cover",
+      "content": {
+        "kicker": "Q3 2026",
+        "title": "Thank you",
+        "subtitle": "Appendix and data pack available on request"
+      }
+    }
+  ]
+}
