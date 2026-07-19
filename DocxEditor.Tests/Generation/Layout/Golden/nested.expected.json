@@ -1,0 +1,77 @@
+{
+  "slides": [
+    {
+      "widthPt": 960,
+      "heightPt": 540,
+      "root": {
+        "kind": "container",
+        "x": 0,
+        "y": 0,
+        "w": 960,
+        "h": 540,
+        "overflow": "error",
+        "children": [
+          {
+            "kind": "text",
+            "x": 43,
+            "y": 43,
+            "w": 874,
+            "h": 40,
+            "runs": [
+              {
+                "text": "Quarterly results",
+                "font": "Aptos Display",
+                "size": 30,
+                "bold": false,
+                "italic": false
+              }
+            ],
+            "textAlign": "left",
+            "anchor": "top",
+            "insets": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "overflow": "shrink",
+            "fontScale": 1
+          },
+          {
+            "kind": "container",
+            "x": 43,
+            "y": 101,
+            "w": 874,
+            "h": 396,
+            "overflow": "error",
+            "children": [
+              {
+                "kind": "rect",
+                "x": 53,
+                "y": 111,
+                "w": 418,
+                "h": 376,
+                "fill": {
+                  "type": "solid",
+                  "color": "#0B3D91"
+                }
+              },
+              {
+                "kind": "rect",
+                "x": 489,
+                "y": 111,
+                "w": 418,
+                "h": 376,
+                "fill": {
+                  "type": "solid",
+                  "color": "#0B3D91"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "warnings": []
+}
