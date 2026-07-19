@@ -1,6 +1,11 @@
 using System.Text.Json;
 using DocxEditor.Core.Builders;
 using PptxEditor.Core.Builders;
+using PptxEditor.Core.Generation.Archetypes;
+using PptxEditor.Core.Generation.Components;
+using PptxEditor.Core.Generation.Emit.Ooxml;
+using PptxEditor.Core.Generation.Layout;
+using PptxEditor.Core.Generation.Schema;
 using XlsxEditor.Core.Builders;
 using OfficeEditor.Core.Models;
 using Spectre.Console;
@@ -31,6 +36,8 @@ class Program
                     return HandleDetect(args) ? 0 : 1;
                 case "merge":
                     return HandleMerge(args) ? 0 : 1;
+                case "generate":
+                    return HandleGenerate(args) ? 0 : 1;
                 case "help":
                 case "--help":
                 case "-h":
@@ -49,13 +56,63 @@ class Program
         }
     }
 
+    static bool HandleGenerate(string[] args)
+    {
+        if (args.Length < 2)
+        {
+            AnsiConsole.MarkupLine("[red]Input JSON file path is required.[/]");
+            AnsiConsole.MarkupLine("Usage: officeeditor generate <input.json> [--output <output.pptx>]");
+            return false;
+        }
+
+        var inputPath = args[1];
+        var outputPath = GetArgumentValue(args, "--output") ?? Path.ChangeExtension(inputPath, ".pptx");
+
+        if (!File.Exists(inputPath))
+        {
+            AnsiConsole.MarkupLine($"[red]File not found: {Markup.Escape(inputPath)}[/]");
+            return false;
+        }
+
+        var json = File.ReadAllText(inputPath);
+
+        AnsiConsole.Status()
+            .Start("Generating...", ctx =>
+            {
+                var result = new GenerationDocumentParser().Validate(json);
+                if (!result.IsValid)
+                {
+                    AnsiConsole.MarkupLine("[red]Validation errors:[/]");
+                    foreach (var e in result.Errors)
+                        AnsiConsole.MarkupLine($"  [red]{Markup.Escape(e.ToString())}[/]");
+                    return;
+                }
+
+                var doc = result.Document!;
+                var archetyped = ArchetypeExpander.Expand(doc);
+                var componentized = ComponentExpander.Expand(archetyped);
+                var layout = new LayoutResolver().Resolve(componentized);
+                var emitResult = new OoxmlEmitter().Emit(layout);
+                File.WriteAllBytes(outputPath, emitResult.Bytes);
+
+                AnsiConsole.MarkupLine($"[green]{layout.Slides.Count} slides[/]  " +
+                    $"[green]{emitResult.Bytes.Length} bytes[/]  " +
+                    (layout.Warnings.Count + emitResult.Warnings.Count == 0
+                        ? "[green]0 warnings[/]"
+                        : $"[yellow]{layout.Warnings.Count + emitResult.Warnings.Count} warnings[/]"));
+            });
+
+        AnsiConsole.MarkupLine($"[green]Saved: {Markup.Escape(outputPath)}[/]");
+        return true;
+    }
+
     static void ShowHelp()
     {
         AnsiConsole.WriteLine("OfficeEditor CLI - Unified Office Document Editor");
         AnsiConsole.WriteLine();
         AnsiConsole.WriteLine("Usage:");
         AnsiConsole.WriteLine("  officeeditor create <output.file> [--type docx|pptx|xlsx] [--text \"content\"] [--title \"title\"] [--sheet \"name\"]");
-        AnsiConsole.WriteLine("  officeeditor edit <input.file> --instructions <file.json|file.yaml>");
+        AnsiConsole.WriteLine("  officeeditor generate <input.json> [--output <output.pptx>]");
         AnsiConsole.WriteLine("  officeeditor detect <template.file>");
         AnsiConsole.WriteLine("  officeeditor merge <template.file> <data.json> <output.file>");
         AnsiConsole.WriteLine();
