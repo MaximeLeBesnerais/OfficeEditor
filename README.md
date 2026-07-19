@@ -505,7 +505,7 @@ Each format has its own Core project that references OfficeEditor.Core:
 dotnet test
 ```
 
-80+ unit tests covering:
+1,218 tests across 4 test projects (xUnit), 0 failures, covering:
 - Document creation and manipulation (DOCX, PPTX, XLSX)
 - Content block rendering
 - Markdown conversion
@@ -519,6 +519,36 @@ dotnet test
   - Typst source generation
   - Font extraction and fallback
 
+### Coverage
+
+Measured with coverlet + ReportGenerator on the main test suite (DocxEditor.Tests, which exercises all Core assemblies): **89.2% line coverage** (15,643 / 17,524 lines), **74.8% branch coverage**, **93.7% method coverage**. Per-assembly line coverage: PptxEditor.Core 90.3%, XlsxEditor.Core 92.3%, DocxEditor.Core 89.5%, OfficeEditor.Core 81.4%, TypstBridge.Managed 58% (native interop layer).
+
+```bash
+dotnet test --collect:"XPlat Code Coverage" --results-directory coverage
+reportgenerator "-reports:coverage/*/coverage.cobertura.xml" "-targetdir:coverage/report" "-reporttypes:TextSummary"
+```
+
+(`reportgenerator` is a dotnet global tool: `dotnet-reportgenerator-globaltool`.)
+
+## Performance
+
+PPTX render pipeline (PptxEditor → Typst → PNG/PDF) benchmarked against headless LibreOffice
+(`tools/pptx-benchmark`, median of 5 warm runs per deck, Apple Silicon, .NET 9 — single machine,
+treat as orders of magnitude):
+
+| Deck | Slides | OfficeEditor warm (total) | Per slide | LibreOffice warm (total) | Per slide | Speedup |
+|---|---|---|---|---|---|---|
+| REMOVED.pptx | 8 | 233.9 ms | 29.2 ms | 1,967.9 ms | 246.0 ms | ~8× |
+| pres-pro.pptx | 16 | 189.5 ms | 11.8 ms | 2,661.5 ms | 166.3 ms | ~14× |
+
+Preview path = open + whole-deck PNG @150ppi. Product target: <500 ms per slide — comfortably met.
+The LibreOffice leg (`soffice --headless --convert-to pdf`) includes full process start and profile
+cost. Cold starts (fresh process, JIT + backend probes): 783 ms / 655 ms per deck.
+
+Reproduce: `dotnet run --project tools/pptx-benchmark` (full methodology and limitations in
+`tools/pptx-benchmark/README.md`; latest full report: `examples/output/benchmark/report.md`,
+gitignored).
+
 ## Typst Compilation Backend
 
 `TypstCompilerService` uses TypstBridge as the primary in-process backend for PPTX exports. TypstBridge supports PDF, SVG, PNG, multi-page outputs, working-directory assets, explicit font paths, PNG PPI, and diagnostics.
@@ -529,9 +559,10 @@ dotnet test
 
 **Version:** 0.1.0 (pre-1.0). The public API may change between versions.
 
-**Platform Support:**
-- **linux-x64** — Primary target, actively tested.
-- **Windows / macOS** — Planned, not yet verified.
+**Platform Support:** pure managed .NET 9 — no platform-specific code, so the suite is expected to run anywhere .NET runs.
+- **macOS (arm64)** — Current development platform; tests, benchmarks and coverage actively run here.
+- **linux-x64** — Previously tested.
+- **Windows** — Expected to work, not yet verified.
 
 **Rendering (PPTX → Typst → PDF/PNG/SVG):**
 - Text, images, shapes, and tables render with good fidelity.
