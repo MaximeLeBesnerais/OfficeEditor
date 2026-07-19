@@ -78,6 +78,15 @@ public sealed class GenerationDocumentParser
         ["divider"] = "divider", ["badge"] = "badge", ["image_card"] = "image_card", ["table_block"] = "table_block"
     };
 
+    // P10 (archetype slide functions, plan.md §4/§8 Q5): slide-root-only types. The parser
+    // wraps them as a bare container holding one archetype-named component marker; the
+    // archetype layer (ArchetypeExpander) owns expansion. Archetype names are NOT valid
+    // child element types.
+    private static readonly IReadOnlyDictionary<string, string> ArchetypeSlideNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["cover"] = "cover", ["section"] = "section", ["kpi_row"] = "kpi_row", ["two_col"] = "two_col", ["table_slide"] = "table_slide"
+    };
+
     private static readonly IReadOnlyDictionary<string, string> CssIsms = new Dictionary<string, string>(StringComparer.Ordinal)
     {
         ["flexwrap"] = "CSS 'flex-wrap' is not supported: layout never wraps (v1 non-goal, plan.md §1).",
@@ -125,6 +134,7 @@ public sealed class GenerationDocumentParser
     private static readonly IReadOnlySet<string> CropProps = Set("left", "top", "right", "bottom");
     private static readonly IReadOnlySet<string> GroupProps = Set("type", "children", "size", "at", "overflow");
     private static readonly IReadOnlySet<string> ComponentProps = Set("type", "content", "size", "at");
+    private static readonly IReadOnlySet<string> ArchetypeSlideProps = Set("type", "content");
     private static readonly IReadOnlySet<string> GradientProps = Set("angle", "stops");
     private static readonly IReadOnlySet<string> StopProps = Set("color", "offset", "alpha");
     private static readonly IReadOnlySet<string> StrokeProps = Set("color", "width");
@@ -360,15 +370,45 @@ public sealed class GenerationDocumentParser
         }
         if (!TryGet(el, "type", out var typeEl) || typeEl.ValueKind != JsonValueKind.String)
         {
-            Error(path, "each slide's root requires \"type\": \"container\" (the root is the slide canvas, plan.md §3.2).");
+            Error(path, "each slide's root requires \"type\": \"container\" (the root is the slide canvas, plan.md §3.2) or an archetype slide type (cover, section, kpi_row, two_col, table_slide, plan.md §4).");
             return null;
         }
-        if (!string.Equals(typeEl.GetString(), "container", StringComparison.OrdinalIgnoreCase))
+        var slideType = typeEl.GetString()!;
+        if (ArchetypeSlideNames.TryGetValue(slideType, out var archetype))
         {
-            Error(path, $"each slide's root must be a 'container' element (got '{typeEl.GetString()}').");
+            return ParseArchetypeSlide(el, path, archetype);
+        }
+        if (!string.Equals(slideType, "container", StringComparison.OrdinalIgnoreCase))
+        {
+            Error(path, $"each slide's root must be a 'container' element or an archetype slide type ({string.Join(", ", ArchetypeSlideNames.Values)}) (got '{slideType}').");
             return null;
         }
         return ParseContainer(el, path, isRoot: true, parentHasLayout: false);
+    }
+
+    private ContainerElement ParseArchetypeSlide(JsonElement el, string path, string name)
+    {
+        CheckUnknownProps(el, path, $"a '{name}' archetype slide", ArchetypeSlideProps);
+
+        JsonElement? content = null;
+        if (TryGet(el, "content", out var contentEl))
+        {
+            if (contentEl.ValueKind != JsonValueKind.Object)
+            {
+                Error($"{path}.content", "must be an object (archetype payload, plan.md §4).");
+            }
+            else
+            {
+                content = contentEl.Clone();
+            }
+        }
+
+        // Marker shape the archetype layer (P10) recognizes: a bare root container whose
+        // only child is the archetype-named component node. ArchetypeExpander composes it.
+        return new ContainerElement
+        {
+            Children = [new ComponentElement { Name = name, Content = content }]
+        };
     }
 
     private GenElement? ParseElement(JsonElement el, string path, bool parentHasLayout)
@@ -407,6 +447,11 @@ public sealed class GenerationDocumentParser
                 if (ComponentNames.TryGetValue(type, out var canonical))
                 {
                     return ParseComponent(el, path, canonical, parentHasLayout);
+                }
+                if (ArchetypeSlideNames.ContainsKey(type))
+                {
+                    Error(path, $"'{type}' is an archetype slide type: it is only valid as a slide root, not as a child element (plan.md §4).");
+                    return null;
                 }
                 Error(
                     path,
