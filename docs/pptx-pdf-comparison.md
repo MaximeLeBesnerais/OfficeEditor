@@ -89,9 +89,6 @@ pdftocairo -png -r 150 \
 
 Repeat the two commands above for `pres-pro.pptx`, replacing `REMOVED` with `pres-pro` in the output paths.
 
-> `rtk` prefixes you may see elsewhere in this repo are an optional shell
-> token-saving wrapper — the plain commands above work as-is.
-
 ### Recompute the RMSE table
 
 With ImageMagick installed, the visual-diff tool's PNG-pair mode recomputes
