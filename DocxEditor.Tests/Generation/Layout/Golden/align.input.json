@@ -1,0 +1,44 @@
+{
+  "version": "2.0",
+  "design": {
+    "palette": { "primary": "#0B3D91", "paper": "#FFFFFF" }
+  },
+  "slides": [
+    {
+      "type": "container",
+      "layout": { "mode": "row", "align": "start" },
+      "children": [
+        { "type": "rect", "size": { "w": 50, "h": 40 }, "fill": "primary" }
+      ]
+    },
+    {
+      "type": "container",
+      "layout": { "mode": "row", "align": "center" },
+      "children": [
+        { "type": "rect", "size": { "w": 50, "h": 40 }, "fill": "primary" }
+      ]
+    },
+    {
+      "type": "container",
+      "layout": { "mode": "row", "align": "end" },
+      "children": [
+        { "type": "rect", "size": { "w": 50, "h": 40 }, "fill": "primary" }
+      ]
+    },
+    {
+      "type": "container",
+      "layout": { "mode": "row", "align": "stretch" },
+      "children": [
+        { "type": "rect", "size": { "w": 50 }, "fill": "primary" }
+      ]
+    },
+    {
+      "type": "container",
+      "layout": { "mode": "row", "align": "center" },
+      "children": [
+        { "type": "rect", "size": { "w": 50, "h": 40 }, "fill": "primary" },
+        { "type": "rect", "size": { "w": 60, "h": 60, "alignSelf": "end" }, "fill": "primary" }
+      ]
+    }
+  ]
+}

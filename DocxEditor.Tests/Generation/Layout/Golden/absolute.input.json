@@ -1,0 +1,27 @@
+{
+  "version": "2.0",
+  "design": {
+    "palette": { "primary": "#0B3D91", "paper": "#FFFFFF" }
+  },
+  "slides": [
+    {
+      "type": "container",
+      "padding": 20,
+      "children": [
+        { "type": "rect", "at": { "x": 10, "y": 10 }, "size": { "w": 100, "h": 50 }, "fill": "primary" },
+        { "type": "image", "src": "assets/logo.png", "at": { "x": 200, "y": 100 }, "size": { "w": 300, "aspect": "16:9" } }
+      ]
+    },
+    {
+      "type": "container",
+      "children": [
+        { "type": "group", "at": { "x": 50, "y": 50 }, "size": { "w": 200, "h": 100 },
+          "children": [
+            { "type": "rect", "at": { "x": 0, "y": 0 }, "size": { "w": 50, "h": 50 }, "fill": "primary" },
+            { "type": "ellipse", "at": { "x": 100, "y": 25 }, "size": { "w": 80, "h": 50 }, "fill": "primary" }
+          ]
+        }
+      ]
+    }
+  ]
+}
