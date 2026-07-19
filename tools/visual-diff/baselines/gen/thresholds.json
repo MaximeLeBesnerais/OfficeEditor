@@ -1,0 +1,13 @@
+{
+  "Version": 1,
+  "Thresholds": {
+    "rect-radii": 0.04,
+    "gradient": 0.05,
+    "text-anchors": 0.08,
+    "line-connector": 0.04,
+    "ellipse": 0.04,
+    "image-fit": 0.06,
+    "group": 0.05,
+    "shadow": 0.12
+  }
+}

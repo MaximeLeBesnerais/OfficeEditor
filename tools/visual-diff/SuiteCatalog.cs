@@ -13,7 +13,7 @@ internal static class SuiteCatalog
         ("pitch-deck", "examples/REF/PPTX/pitch-deck.pptx", "examples/REF/PPTX/pitch-deck.pdf", "examples/output/ref/pptx/pitch-deck.pdf")
     ];
 
-    public static List<ComparisonInput> BuildInputs(CliOptions options)
+    public static List<ComparisonInput> BuildInputs(CliOptions options, ToolPaths tools)
     {
         if (options.Suite is not null)
         {
@@ -32,7 +32,12 @@ internal static class SuiteCatalog
                 return BuildPptxSuite(options);
             }
 
-            throw new InvalidOperationException($"Unknown suite '{options.Suite}'. Supported suites: docx, pptx.");
+            if (string.Equals(options.Suite, "gen", StringComparison.OrdinalIgnoreCase))
+            {
+                return GenSuite.BuildInputs(options, tools);
+            }
+
+            throw new InvalidOperationException($"Unknown suite '{options.Suite}'. Supported suites: docx, pptx, gen.");
         }
 
         InputKind referenceKind = DetectKind(options.ReferencePath!);
@@ -58,6 +63,14 @@ internal static class SuiteCatalog
     /// </summary>
     public static ToolRequirements RequirementsFor(CliOptions options)
     {
+        // The gen suite compares PNG-pair directories (PowerPoint ground truth vs Typst
+        // preview), so it never needs a PDF renderer; --render additionally needs the
+        // typst CLI.
+        if (string.Equals(options.Suite, "gen", StringComparison.OrdinalIgnoreCase))
+        {
+            return ToolRequirements.ImageCompare | (options.RenderTypst ? ToolRequirements.Typst : ToolRequirements.None);
+        }
+
         bool needsRenderer = options.Suite is not null
             || DetectKind(options.ReferencePath!) == InputKind.Pdf;
         return ToolRequirements.ImageCompare | (needsRenderer ? ToolRequirements.PdfRenderer : ToolRequirements.None);
