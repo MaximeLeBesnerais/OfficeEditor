@@ -257,6 +257,38 @@ public sealed class LayoutResolverErrorTests
         Assert.Equal(30, measurer.LastRequest.BoxHeightPt);
     }
 
+    [Fact]
+    public void Resolve_ClipTextNotFitting_PassesThroughWithWarning()
+    {
+        var text = new TextElement
+        {
+            Value = "hello",
+            Overflow = OverflowPolicy.Clip,
+            Size = new SizeSpec { Width = 100, Height = 40 }
+        };
+        var result = Resolve(RootRow(text), new StubMeasurer(0.9));
+
+        var resolved = Assert.IsType<ResolvedText>(result.Slides[0].Root.Children[0]);
+        Assert.Equal(1, resolved.FontScale); // clip never shrinks
+        var warning = Assert.Single(result.Warnings);
+        Assert.Contains("clip", warning, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("slides[0].children[0]", warning);
+    }
+
+    [Fact]
+    public void Resolve_ClipTextFitting_NoWarning()
+    {
+        var text = new TextElement
+        {
+            Value = "hello",
+            Overflow = OverflowPolicy.Clip,
+            Size = new SizeSpec { Width = 100, Height = 40 }
+        };
+        var result = Resolve(RootRow(text), new StubMeasurer(1));
+
+        Assert.Empty(result.Warnings);
+    }
+
     private sealed class StubMeasurer : ITextMeasurer
     {
         private readonly double _scale;
