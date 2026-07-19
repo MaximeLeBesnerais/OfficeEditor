@@ -30,6 +30,7 @@ builder.Services.AddSingleton<ISlideRenderer, BuilderSlideRenderer>();
 builder.Services.AddSingleton<IDeckPreviewService, DeckPreviewService>();
 builder.Services.AddSingleton<IDeckService, DeckService>();
 builder.Services.AddSingleton<IDeckEditService, DeckEditService>();
+builder.Services.AddSingleton<IDeckGenerationService, DeckGenerationService>();
 
 var app = builder.Build();
 
@@ -285,6 +286,92 @@ app.MapGet("/api/decks/{id:guid}/anatomy", (Guid id, IDeckService deckService) =
     return anatomy is null ? Results.NotFound() : Results.Ok(anatomy);
 });
 
+app.MapPost("/api/decks/generate", async (
+    HttpContext context,
+    IDeckGenerationService deckGenerationService,
+    IDeckSessionStore deckSessionStore,
+    CancellationToken ct) =>
+{
+    using var reader = new StreamReader(context.Request.Body);
+    var body = await reader.ReadToEndAsync(ct);
+
+    // Envelope mirrors the MCP deck_generate arguments:
+    // { "document": {…generation JSON, plan.md §3.4…}, "previewFormat": "svg"|"png", "ppi": 150 }.
+    string? documentJson = null;
+    string? requestedFormat = null;
+    int? requestedPpi = null;
+    try
+    {
+        using var envelope = JsonDocument.Parse(body);
+        if (envelope.RootElement.ValueKind == JsonValueKind.Object)
+        {
+            if (envelope.RootElement.TryGetProperty("document", out var document)
+                && document.ValueKind == JsonValueKind.Object)
+            {
+                // Raw text keeps the P1 validator's error paths byte-accurate.
+                documentJson = document.GetRawText();
+            }
+            if (envelope.RootElement.TryGetProperty("previewFormat", out var format)
+                && format.ValueKind == JsonValueKind.String)
+            {
+                requestedFormat = format.GetString();
+            }
+            if (envelope.RootElement.TryGetProperty("ppi", out var ppi)
+                && ppi.ValueKind == JsonValueKind.Number
+                && ppi.TryGetInt32(out var ppiValue))
+            {
+                requestedPpi = ppiValue;
+            }
+        }
+    }
+    catch (JsonException)
+    {
+        // Falls through to the envelope error below.
+    }
+
+    if (documentJson is null)
+    {
+        return Results.BadRequest(new GenerateDeckResponse(
+            Success: false,
+            ErrorMessage: "Request body must be a JSON object with a 'document' property containing the generation document (plan.md §3.4)."));
+    }
+
+    // The generation surface is the SVG live-preview path (P9), so it defaults to svg —
+    // unlike the deck-session preview endpoint, which defaults to png.
+    if (!DeckPreviewValidators.TryNormalizeFormat(requestedFormat ?? "svg", out var normalizedFormat, out var formatError))
+    {
+        return Results.BadRequest(new GenerateDeckResponse(Success: false, ErrorMessage: formatError));
+    }
+    var clampedPpi = DeckPreviewValidators.ClampPpi(requestedPpi);
+
+    var generation = deckGenerationService.Generate(documentJson, normalizedFormat, clampedPpi);
+    if (!generation.Success)
+    {
+        return Results.BadRequest(new GenerateDeckResponse(
+            Success: false,
+            Errors: ToDtos(generation.Errors),
+            Warnings: ToDtos(generation.Warnings),
+            TotalMilliseconds: generation.TotalMilliseconds));
+    }
+
+    var deckId = deckSessionStore.Store(generation.PptxBytes!, "generated.pptx", generation.SlideCount);
+    var downloadUrl = $"{context.Request.Scheme}://{context.Request.Host}/api/decks/{deckId}/file";
+
+    return Results.Ok(new GenerateDeckResponse(
+        Success: true,
+        DeckId: deckId,
+        SlideCount: generation.SlideCount,
+        DownloadUrl: downloadUrl,
+        Previews: generation.Previews
+            .Select(p => new GeneratedSlidePreviewDto(p.Slide, p.Format, p.ContentType, Convert.ToBase64String(p.Bytes)))
+            .ToList(),
+        Warnings: ToDtos(generation.Warnings),
+        PipelineWarnings: generation.PipelineWarnings,
+        PreviewError: generation.PreviewError,
+        GenerationMilliseconds: generation.GenerationMilliseconds,
+        TotalMilliseconds: generation.TotalMilliseconds));
+});
+
 app.MapPost("/api/decks/{id:guid}/instructions", async (
     Guid id,
     HttpContext context,
@@ -318,6 +405,9 @@ app.MapGet("/api/decks/{id:guid}/file", (Guid id, IDeckService deckService) =>
 });
 
 app.Run();
+
+static IReadOnlyList<GenerationIssueDto> ToDtos(IReadOnlyList<PptxEditor.Core.Generation.Schema.GenerationIssue> issues) =>
+    issues.Select(i => new GenerationIssueDto(i.Path, i.Message, i.Suggestion, i.Severity.ToString())).ToList();
 
 static bool TryParseTargetFormat(string value, out ConversionTargetFormat targetFormat)
 {
