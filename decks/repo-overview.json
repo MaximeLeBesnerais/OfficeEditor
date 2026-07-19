@@ -1,0 +1,736 @@
+{
+  "version": "2.0",
+  "design": {
+    "palette": { "primary": "#147C7A", "accent": "#C79A3B", "ink": "#2C3932", "paper": "#FFFFFF", "muted": "#7A7567" },
+    "fonts": { "display": "Aptos Light", "body": "Aptos" },
+    "shape": { "cornerRadius": 0, "cardStyle": "outline" },
+    "metrics": { "marginPt": 46, "gutterPt": 18, "titleSizePt": 44, "bodySizePt": 16 }
+  },
+  "slides": [
+    {
+      "type": "container",
+      "fill": "paper",
+      "layout": { "mode": "row", "gap": 24, "align": "stretch" },
+      "padding": [56, 56, 56, 56],
+      "children": [
+        {
+          "type": "container",
+          "layout": { "mode": "column", "gap": 14, "justify": "center", "align": "start" },
+          "overflow": "clip",
+          "size": { "grow": 1 },
+          "children": [
+            {
+              "type": "text",
+              "text": ".NET 9 · C# 12 · MIT",
+              "fontSize": 14,
+              "color": "accent",
+              "bold": true,
+              "size": { "h": 20 }
+            },
+            {
+              "type": "text",
+              "text": "OfficeEditor",
+              "font": "display",
+              "fontSize": 54,
+              "color": "ink",
+              "size": { "h": 68 }
+            },
+            {
+              "type": "text",
+              "text": "Programmatic Office documents — without hand-writing OpenXML.",
+              "fontSize": 18,
+              "color": "ink",
+              "size": { "h": 28 }
+            },
+            {
+              "type": "text",
+              "text": "Create, edit and render DOCX, PPTX and XLSX via JSON/YAML instructions or fluent C# APIs.",
+              "fontSize": 14,
+              "color": "muted",
+              "size": { "h": 44 }
+            },
+            {
+              "type": "container",
+              "layout": { "mode": "row", "gap": 10, "justify": "start", "align": "center" },
+              "size": { "h": 30 },
+              "children": [
+                { "type": "badge", "content": { "text": "DOCX" }, "size": { "w": 68, "h": 26 } },
+                { "type": "badge", "content": { "text": "PPTX" }, "size": { "w": 68, "h": 26 } },
+                { "type": "badge", "content": { "text": "XLSX" }, "size": { "w": 68, "h": 26 } }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "container",
+          "layout": { "mode": "column", "justify": "center", "align": "center" },
+          "overflow": "clip",
+          "size": { "w": 260 },
+          "children": [
+            {
+              "type": "container",
+              "layout": { "mode": "row", "gap": 30, "justify": "center", "align": "center" },
+              "size": { "w": 240, "h": 240 },
+              "children": [
+                {
+                  "type": "text",
+                  "text": "{",
+                  "font": "display",
+                  "fontSize": 200,
+                  "color": "muted",
+                  "textAlign": "center",
+                  "size": { "w": 100, "h": 240 }
+                },
+                {
+                  "type": "text",
+                  "text": "}",
+                  "font": "display",
+                  "fontSize": 200,
+                  "color": "muted",
+                  "textAlign": "center",
+                  "size": { "w": 100, "h": 240 }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "two_col",
+      "content": {
+        "title": "The problem",
+        "weights": [3, 2],
+        "left": {
+          "type": "bullet_list",
+          "content": {
+            "title": "Office automation is fragmented",
+            "items": [
+              "Each format has its own low-level API",
+              "Generation, editing and rendering live in separate tools",
+              "Template automation gets fragile at scale",
+              "Preview and final output use unrelated layout engines"
+            ]
+          }
+        },
+        "right": {
+          "type": "card",
+          "content": {
+            "title": "One programmable workflow",
+            "body": "OfficeEditor unifies creation, editing and rendering across DOCX, PPTX and XLSX — one instruction model, one layout engine, two emitters."
+          }
+        }
+      }
+    },
+    {
+      "type": "container",
+      "fill": "paper",
+      "layout": { "mode": "column", "gap": 16 },
+      "padding": [46, 46, 46, 46],
+      "children": [
+        {
+          "type": "title_block",
+          "content": {
+            "kicker": "END TO END",
+            "title": "Template + data → finished documents"
+          },
+          "size": { "h": 86 }
+        },
+        {
+          "type": "container",
+          "layout": { "mode": "row", "gap": 12, "justify": "center", "align": "center" },
+          "overflow": "clip",
+          "size": { "grow": 1 },
+          "children": [
+            {
+              "type": "card",
+              "content": { "title": "Inputs", "body": "template.pptx · data.json" },
+              "size": { "w": 230, "h": 110 }
+            },
+            {
+              "type": "text",
+              "text": "→",
+              "fontSize": 28,
+              "color": "accent",
+              "textAlign": "center",
+              "size": { "w": 28, "h": 36 }
+            },
+            {
+              "type": "card",
+              "content": { "title": "officeeditor merge", "body": "detect · replace · render" },
+              "size": { "w": 230, "h": 110 }
+            },
+            {
+              "type": "text",
+              "text": "→",
+              "fontSize": 28,
+              "color": "accent",
+              "textAlign": "center",
+              "size": { "w": 28, "h": 36 }
+            },
+            {
+              "type": "card",
+              "content": { "title": "Outputs", "body": "report.pptx · report.pdf" },
+              "size": { "w": 230, "h": 110 }
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": "The same instruction model drives DOCX, PPTX and XLSX.",
+          "fontSize": 13,
+          "color": "muted",
+          "textAlign": "center",
+          "size": { "h": 18 }
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "fill": "paper",
+      "layout": { "mode": "column", "gap": 18 },
+      "padding": [46, 46, 46, 46],
+      "children": [
+        {
+          "type": "title_block",
+          "content": { "title": "Core capabilities" },
+          "size": { "h": 64 }
+        },
+        {
+          "type": "container",
+          "layout": { "mode": "row", "gap": 18, "align": "stretch" },
+          "overflow": "clip",
+          "size": { "grow": 1 },
+          "children": [
+            {
+              "type": "container",
+              "layout": { "mode": "column", "gap": 0 },
+              "overflow": "clip",
+              "size": { "grow": 1 },
+              "children": [
+                { "type": "rect", "fill": "accent", "size": { "h": 3 } },
+                {
+                  "type": "card",
+                  "content": {
+                    "title": "Create",
+                    "body": "Decks from declarative JSON. Documents from instruction sets."
+                  },
+                  "size": { "grow": 1 }
+                }
+              ]
+            },
+            {
+              "type": "container",
+              "layout": { "mode": "column", "gap": 0 },
+              "overflow": "clip",
+              "size": { "grow": 1 },
+              "children": [
+                { "type": "rect", "fill": "accent", "size": { "h": 3 } },
+                {
+                  "type": "card",
+                  "content": {
+                    "title": "Edit",
+                    "body": "Smart text/image replacement. Variables, mail merge, template logic."
+                  },
+                  "size": { "grow": 1 }
+                }
+              ]
+            },
+            {
+              "type": "container",
+              "layout": { "mode": "column", "gap": 0 },
+              "overflow": "clip",
+              "size": { "grow": 1 },
+              "children": [
+                { "type": "rect", "fill": "accent", "size": { "h": 3 } },
+                {
+                  "type": "card",
+                  "content": {
+                    "title": "Export",
+                    "body": "PPTX → PDF / PNG / SVG. Thumbnails and brand profiles."
+                  },
+                  "size": { "grow": 1 }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "fill": "paper",
+      "layout": { "mode": "column", "gap": 12 },
+      "padding": [46, 46, 46, 46],
+      "children": [
+        {
+          "type": "title_block",
+          "content": {
+            "kicker": "PROOF",
+            "title": "Rendered by OfficeEditor"
+          },
+          "size": { "h": 86 }
+        },
+        {
+          "type": "container",
+          "layout": { "mode": "grid", "cols": 2, "gap": 14 },
+          "overflow": "clip",
+          "size": { "grow": 1 },
+          "children": [
+            {
+              "type": "image",
+              "src": "~/Work/DocxEditor/docs/assets/pptx-comparison/generated//slide-01.png",
+              "fit": "contain"
+            },
+            {
+              "type": "image",
+              "src": "~/Work/DocxEditor/docs/assets/pptx-comparison/generated//slide-16.png",
+              "fit": "contain"
+            },
+            {
+              "type": "image",
+              "src": "~/Work/DocxEditor/docs/assets/pptx-comparison/generated//slide-01.png",
+              "fit": "contain"
+            },
+            {
+              "type": "image",
+              "src": "~/Work/DocxEditor/docs/assets/pptx-comparison/generated//slide-04.png",
+              "fit": "contain"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": "Real PPTX files → Typst pipeline → PNG. Sources:  (16 slides) ·  (8 slides).",
+          "fontSize": 13,
+          "color": "muted",
+          "textAlign": "center",
+          "size": { "h": 18 }
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "fill": "paper",
+      "layout": { "mode": "column", "gap": 12 },
+      "padding": [46, 46, 46, 46],
+      "children": [
+        {
+          "type": "title_block",
+          "content": {
+            "kicker": "ARCHITECTURE",
+            "title": "Layout once, emit twice"
+          },
+          "size": { "h": 86 }
+        },
+        {
+          "type": "container",
+          "layout": { "mode": "row", "gap": 8, "justify": "center", "align": "center" },
+          "overflow": "clip",
+          "size": { "h": 66 },
+          "children": [
+            {
+              "type": "container",
+              "fill": "paper",
+              "stroke": { "color": "muted", "width": 1 },
+              "layout": { "mode": "column", "justify": "center", "align": "center" },
+              "padding": [6, 8, 6, 8],
+              "size": { "w": 170, "h": 64 },
+              "children": [
+                { "type": "text", "text": "JSON / YAML", "fontSize": 13, "color": "ink", "textAlign": "center", "anchor": "middle", "size": { "h": 48 } }
+              ]
+            },
+            { "type": "text", "text": "→", "fontSize": 20, "color": "accent", "textAlign": "center", "size": { "w": 22, "h": 28 } },
+            {
+              "type": "container",
+              "fill": "paper",
+              "stroke": { "color": "muted", "width": 1 },
+              "layout": { "mode": "column", "justify": "center", "align": "center" },
+              "padding": [6, 8, 6, 8],
+              "size": { "w": 170, "h": 64 },
+              "children": [
+                { "type": "text", "text": "Parse & validate", "fontSize": 13, "color": "ink", "textAlign": "center", "anchor": "middle", "size": { "h": 48 } }
+              ]
+            },
+            { "type": "text", "text": "→", "fontSize": 20, "color": "accent", "textAlign": "center", "size": { "w": 22, "h": 28 } },
+            {
+              "type": "container",
+              "fill": "paper",
+              "stroke": { "color": "muted", "width": 1 },
+              "layout": { "mode": "column", "justify": "center", "align": "center" },
+              "padding": [6, 8, 6, 8],
+              "size": { "w": 170, "h": 64 },
+              "children": [
+                { "type": "text", "text": "Expand: archetypes → components → primitives", "fontSize": 13, "color": "ink", "textAlign": "center", "anchor": "middle", "size": { "h": 48 } }
+              ]
+            },
+            { "type": "text", "text": "→", "fontSize": 20, "color": "accent", "textAlign": "center", "size": { "w": 22, "h": 28 } },
+            {
+              "type": "container",
+              "fill": "paper",
+              "stroke": { "color": "muted", "width": 1 },
+              "layout": { "mode": "column", "justify": "center", "align": "center" },
+              "padding": [6, 8, 6, 8],
+              "size": { "w": 170, "h": 64 },
+              "children": [
+                { "type": "text", "text": "Resolved layout tree — single C# pass", "fontSize": 13, "color": "ink", "textAlign": "center", "anchor": "middle", "size": { "h": 48 } }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": "↓",
+          "fontSize": 20,
+          "color": "accent",
+          "textAlign": "center",
+          "size": { "h": 26 }
+        },
+        {
+          "type": "container",
+          "layout": { "mode": "row", "gap": 24, "justify": "center", "align": "center" },
+          "overflow": "clip",
+          "size": { "h": 64 },
+          "children": [
+            {
+              "type": "container",
+              "fill": "paper",
+              "stroke": { "color": "primary", "width": 1 },
+              "layout": { "mode": "column", "gap": 2, "justify": "center", "align": "center" },
+              "padding": [6, 10, 6, 10],
+              "size": { "w": 380, "h": 62 },
+              "children": [
+                { "type": "text", "text": "OOXML emitter", "fontSize": 14, "color": "ink", "bold": true, "textAlign": "center", "size": { "h": 18 } },
+                { "type": "text", "text": "native .pptx / .docx / .xlsx", "fontSize": 12, "color": "muted", "textAlign": "center", "size": { "h": 16 } }
+              ]
+            },
+            {
+              "type": "container",
+              "fill": "paper",
+              "stroke": { "color": "primary", "width": 1 },
+              "layout": { "mode": "column", "gap": 2, "justify": "center", "align": "center" },
+              "padding": [6, 10, 6, 10],
+              "size": { "w": 380, "h": 62 },
+              "children": [
+                { "type": "text", "text": "Typst emitter", "fontSize": 14, "color": "ink", "bold": true, "textAlign": "center", "size": { "h": 18 } },
+                { "type": "text", "text": "PDF · PNG · SVG preview", "fontSize": 12, "color": "muted", "textAlign": "center", "size": { "h": 16 } }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": "Deterministic preview from the same resolved layout — no second layout engine.",
+          "fontSize": 13,
+          "color": "muted",
+          "textAlign": "center",
+          "size": { "h": 18 }
+        }
+      ]
+    },
+    {
+      "type": "table_slide",
+      "content": {
+        "title": "What works where",
+        "columns": ["Capability", "PPTX", "DOCX", "XLSX"],
+        "rows": [
+          ["Create from scratch", "✓", "✓", "✓"],
+          ["Edit existing documents", "✓", "✓", "✓"],
+          ["Variables & mail merge", "✓", "✓", "✓"],
+          ["Template logic (if/each)", "✓", "✓", "✓"],
+          ["Instruction sets", "✓", "✓", "—"],
+          ["Markdown import", "—", "✓", "—"],
+          ["Declarative JSON generation", "✓", "—", "—"],
+          ["Typst preview & PDF/PNG/SVG", "✓", "—", "—"]
+        ],
+        "columnWeights": [4, 1, 1, 1]
+      }
+    },
+    {
+      "type": "container",
+      "fill": "paper",
+      "layout": { "mode": "column", "gap": 14 },
+      "padding": [46, 46, 46, 46],
+      "children": [
+        {
+          "type": "title_block",
+          "content": {
+            "kicker": "VISUAL FIDELITY",
+            "title": "PowerPoint vs OfficeEditor — side by side"
+          },
+          "size": { "h": 86 }
+        },
+        { "type": "rect", "fill": "accent", "size": { "w": 72, "h": 3 } },
+        {
+          "type": "text",
+          "text": "Geometry and positioning come from the shared layout pass — residual differences are mostly font metrics and rasterization.",
+          "fontSize": 14,
+          "color": "ink",
+          "size": { "h": 20 }
+        },
+        {
+          "type": "container",
+          "layout": { "mode": "row", "gap": 18, "align": "stretch" },
+          "overflow": "clip",
+          "size": { "grow": 1 },
+          "children": [
+            {
+              "type": "container",
+              "layout": { "mode": "column", "gap": 8 },
+              "overflow": "clip",
+              "size": { "grow": 1 },
+              "children": [
+                {
+                  "type": "image",
+                  "src": "~/Work/DocxEditor/docs/assets/pptx-comparison/official//page-01.png",
+                  "fit": "contain",
+                  "size": { "grow": 1 }
+                },
+                {
+                  "type": "text",
+                  "text": "PowerPoint render —  slide 1",
+                  "fontSize": 13,
+                  "color": "muted",
+                  "textAlign": "center",
+                  "size": { "h": 18 }
+                }
+              ]
+            },
+            {
+              "type": "container",
+              "layout": { "mode": "column", "gap": 8 },
+              "overflow": "clip",
+              "size": { "grow": 1 },
+              "children": [
+                {
+                  "type": "image",
+                  "src": "~/Work/DocxEditor/docs/assets/pptx-comparison/generated//slide-01.png",
+                  "fit": "contain",
+                  "size": { "grow": 1 }
+                },
+                {
+                  "type": "text",
+                  "text": "OfficeEditor Typst render — RMSE 14.03%",
+                  "fontSize": 13,
+                  "color": "muted",
+                  "textAlign": "center",
+                  "size": { "h": 18 }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": "Average RMSE: 10.56% (, 8 slides) · 17.29% (, 16 slides) — a coarse regression signal, not pixel parity.",
+          "fontSize": 14,
+          "color": "ink",
+          "textAlign": "center",
+          "size": { "h": 20 }
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "fill": "paper",
+      "layout": { "mode": "column", "gap": 18 },
+      "padding": [46, 46, 46, 46],
+      "children": [
+        {
+          "type": "title_block",
+          "content": {
+            "kicker": "FOR DEVELOPERS",
+            "title": "Four ways in"
+          },
+          "size": { "h": 86 }
+        },
+        {
+          "type": "container",
+          "layout": { "mode": "grid", "cols": 2, "gap": 18 },
+          "overflow": "clip",
+          "size": { "grow": 1 },
+          "children": [
+            {
+              "type": "card",
+              "content": {
+                "title": "CLI",
+                "body": "officeeditor merge template.pptx data.json out.pptx"
+              }
+            },
+            {
+              "type": "card",
+              "content": {
+                "title": "Fluent C# API",
+                "body": "builder.MergeVariables(data); builder.ExportToPdf();"
+              }
+            },
+            {
+              "type": "card",
+              "content": {
+                "title": "ASP.NET Core + MCP",
+                "body": "deck_generate · deck_render_slide · deck_anatomize"
+              }
+            },
+            {
+              "type": "card",
+              "content": {
+                "title": "Web client",
+                "body": "Vite + Tailwind browser deck editor"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "two_col",
+      "content": {
+        "title": "Positioning",
+        "weights": [1, 1],
+        "left": {
+          "type": "card",
+          "content": {
+            "title": "Built on the Open XML SDK",
+            "body": "Not a replacement. OfficeEditor adds higher-level instructions, reusable layout, template logic and deterministic preview on top of native OOXML."
+          }
+        },
+        "right": {
+          "type": "bullet_list",
+          "content": {
+            "title": "The niche",
+            "items": [
+              "Fully programmatic — no Office installation needed",
+              "One abstraction across three formats",
+              "Preview and delivery share one layout engine",
+              "MIT-licensed, in-memory APIs for services"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "container",
+      "fill": "paper",
+      "layout": { "mode": "column", "gap": 16 },
+      "padding": [46, 46, 46, 46],
+      "children": [
+        {
+          "type": "title_block",
+          "content": { "title": "Status & roadmap" },
+          "size": { "h": 64 }
+        },
+        {
+          "type": "container",
+          "layout": { "mode": "row", "gap": 18, "align": "stretch" },
+          "overflow": "clip",
+          "size": { "grow": 1 },
+          "children": [
+            {
+              "type": "bullet_list",
+              "content": {
+                "title": "Works today",
+                "items": [
+                   "v0.1.0 — developed & tested on macOS",
+                  "Create, edit, merge across 3 formats",
+                  "PPTX → PDF / PNG / SVG via TypstBridge",
+                  "1,218 tests green, visual-diff suite"
+                ]
+              },
+              "size": { "grow": 1 }
+            },
+            {
+              "type": "bullet_list",
+              "content": {
+                "title": "Next",
+                "items": [
+                  "NuGet packages + dotnet tool",
+                   "Windows verification (pure managed code)",
+                  "Richer chart & SmartArt rendering",
+                  "Stable v1 generation schema"
+                ]
+              },
+              "size": { "grow": 1 }
+            }
+          ]
+        },
+        {
+          "type": "container",
+          "layout": { "mode": "row", "gap": 12, "justify": "start", "align": "center" },
+          "size": { "h": 30 },
+          "children": [
+            { "type": "badge", "content": { "text": "v0.1.0" }, "size": { "w": 80, "h": 26 } },
+            { "type": "badge", "content": { "text": "MIT" }, "size": { "w": 60, "h": 26 } },
+             { "type": "badge", "content": { "text": "macOS · Linux" }, "size": { "w": 125, "h": 26 } }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "fill": "paper",
+      "layout": { "mode": "column", "gap": 12, "justify": "center", "align": "center" },
+      "padding": [46, 46, 46, 46],
+      "children": [
+        {
+          "type": "text",
+          "text": "OPEN SOURCE · MIT",
+          "fontSize": 14,
+          "color": "accent",
+          "bold": true,
+          "textAlign": "center",
+          "size": { "h": 20 }
+        },
+        {
+          "type": "text",
+          "text": "Try it",
+          "font": "display",
+          "fontSize": 44,
+          "color": "ink",
+          "textAlign": "center",
+          "size": { "h": 56 }
+        },
+        {
+          "type": "text",
+          "text": "dotnet run --project OfficeEditor.Cli -- create demo.pptx --title \"Hello\"",
+          "fontSize": 16,
+          "color": "ink",
+          "textAlign": "center",
+          "size": { "h": 24 }
+        },
+        {
+          "type": "text",
+          "text": "github.com/maximeleb/OfficeEditor",
+          "fontSize": 14,
+          "color": "muted",
+          "textAlign": "center",
+          "size": { "h": 20 }
+        },
+        {
+          "type": "container",
+          "layout": { "mode": "row", "gap": 24, "justify": "center", "align": "center" },
+          "size": { "w": 140, "h": 92 },
+          "children": [
+            {
+              "type": "text",
+              "text": "{",
+              "font": "display",
+              "fontSize": 80,
+              "color": "muted",
+              "textAlign": "center",
+              "size": { "w": 50, "h": 92 }
+            },
+            {
+              "type": "text",
+              "text": "}",
+              "font": "display",
+              "fontSize": 80,
+              "color": "muted",
+              "textAlign": "center",
+              "size": { "w": 50, "h": 92 }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
