@@ -520,11 +520,14 @@ public sealed class OoxmlEmitterTests : IDisposable
             Warnings = []
         };
         using var document = EmitAndOpen(layout, out _);
+        // A solid-filled root becomes a real p:bg (no full-slide rect); the child is the
+        // only shape, and the background still paints below it by definition.
+        var commonSlideData = document.PresentationPart!.SlideParts.First().Slide!.CommonSlideData!;
+        var background = Assert.IsType<P.BackgroundProperties>(commonSlideData.Background?.BackgroundProperties);
+        Assert.Equal("FFFFFF", Attr(background.Elements<Drawing.SolidFill>().Single(), "val"));
         var shapes = FirstShapeTree(document).Elements<P.Shape>().ToList();
-        Assert.Equal(2, shapes.Count);
-        // Paint order = document order: the container surface (FFFFFF) is below the child.
-        Assert.Equal("FFFFFF", Attr(shapes[0].ShapeProperties!.Elements<Drawing.SolidFill>().Single(), "val"));
-        Assert.Equal("0B3D91", Attr(shapes[1].ShapeProperties!.Elements<Drawing.SolidFill>().Single(), "val"));
+        var shape = Assert.Single(shapes);
+        Assert.Equal("0B3D91", Attr(shape.ShapeProperties!.Elements<Drawing.SolidFill>().Single(), "val"));
     }
 
     [Fact]
@@ -532,6 +535,36 @@ public sealed class OoxmlEmitterTests : IDisposable
     {
         using var document = EmitAndOpen(LayoutWith(new ResolvedRect { X = 0, Y = 0, Width = 10, Height = 10 }), out _);
         Assert.Single(FirstShapeTree(document).Elements<P.Shape>());
+    }
+
+    [Fact]
+    public void Root_GradientFill_KeepsFullSlideRectSurface()
+    {
+        // Known limitation: only solid root fills become p:bg; gradients keep the rect.
+        var layout = new LayoutResult
+        {
+            Slides = [new ResolvedSlide
+            {
+                WidthPt = 960, HeightPt = 540,
+                Root = new ResolvedContainer
+                {
+                    X = 0, Y = 0, Width = 960, Height = 540,
+                    Fill = new LinearGradientFill
+                    {
+                        Angle = 90,
+                        Stops = [new GradientStop { Color = "#FFFFFF", Offset = 0 }, new GradientStop { Color = "#000000", Offset = 1 }]
+                    },
+                    Overflow = OverflowPolicy.Error,
+                    Children = []
+                }
+            }],
+            Warnings = []
+        };
+        using var document = EmitAndOpen(layout, out _);
+        var commonSlideData = document.PresentationPart!.SlideParts.First().Slide!.CommonSlideData!;
+        Assert.Null(commonSlideData.Background);
+        var shape = Assert.Single(FirstShapeTree(document).Elements<P.Shape>());
+        Assert.Single(shape.ShapeProperties!.Elements<Drawing.GradientFill>());
     }
 
     [Fact]
@@ -722,8 +755,12 @@ public sealed class OoxmlEmitterTests : IDisposable
         using var package = PresentationDocument.Open(new MemoryStream(result.Bytes), false);
         AssertValidates(package);
 
-        var tree = package.PresentationPart!.SlideParts.First().Slide.CommonSlideData!.ShapeTree!;
-        Assert.Equal(4, tree.ChildElements.OfType<P.Shape>().Count()); // container surface + text + rect + text
+        var commonSlideData = package.PresentationPart!.SlideParts.First().Slide!.CommonSlideData!;
+        // The solid "paper" root fill becomes a real slide background, not a rect shape.
+        var background = Assert.IsType<P.BackgroundProperties>(commonSlideData.Background?.BackgroundProperties);
+        Assert.Equal("FFFFFF", Attr(background.Elements<Drawing.SolidFill>().Single(), "val"));
+        var tree = commonSlideData.ShapeTree!;
+        Assert.Equal(3, tree.ChildElements.OfType<P.Shape>().Count()); // text + rect + text (root surface is now p:bg)
         Assert.Contains(tree.Elements<P.Shape>(), s => s.ShapeProperties!.Elements<Drawing.GradientFill>().Any());
     }
 

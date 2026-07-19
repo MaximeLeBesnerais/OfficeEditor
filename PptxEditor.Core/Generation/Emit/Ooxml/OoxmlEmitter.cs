@@ -220,11 +220,40 @@ public sealed class OoxmlEmitter
     {
         var slidePart = presentationPart.AddNewPart<SlidePart>();
         var shapeTree = CreateEmptyShapeTree();
-        slidePart.Slide = new Slide(new CommonSlideData(shapeTree));
         slidePart.AddPart(slideLayoutPart);
 
         _nextShapeId = 2;
-        EmitContainer(slidePart, shapeTree, slide.Root);
+
+        // A solid-filled root container with no stroke/shadow is the slide's background:
+        // emit it as a real p:bg (first child of cSld, schema order: bg then spTree)
+        // instead of a full-slide rectangle shape, so PowerPoint's Format Background and
+        // slide sorter show the actual paper color. Known limitation: a gradient root
+        // fill, or a root with stroke/shadow, keeps the full-slide rect surface.
+        P.Background? background = null;
+        var emitRootSurface = true;
+        if (slide.Root.Fill is SolidFill rootSolid && slide.Root.Stroke is null && slide.Root.Shadow is null)
+        {
+            background = new P.Background(new P.BackgroundProperties(
+                new Drawing.SolidFill(new Drawing.RgbColorModelHex { Val = Hex(rootSolid.Color) }),
+                new Drawing.EffectList()));
+            emitRootSurface = false;
+        }
+
+        slidePart.Slide = background is null
+            ? new Slide(new CommonSlideData(shapeTree))
+            : new Slide(new CommonSlideData(background, shapeTree));
+
+        if (emitRootSurface)
+        {
+            EmitContainer(slidePart, shapeTree, slide.Root);
+        }
+        else
+        {
+            foreach (var child in slide.Root.Children)
+            {
+                EmitElement(slidePart, shapeTree, child);
+            }
+        }
 
         presentationPart.Presentation!.SlideIdList!.Append(new SlideId
         {
