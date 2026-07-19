@@ -63,6 +63,11 @@ DocxEditor/                         # repo folder (historical name)
 ├── XlsxEditor.Core/                # XLSX: Builders, Variables
 ├── OfficeEditor.Core/              # Shared services (TypstCompilerService, Variables, Exceptions)
 ├── OfficeEditor.Cli/               # Multi-format CLI entry point
+├── OfficeEditor.Api/               # ASP.NET Core API: deck sessions, slide previews/thumbnails, instruction/anatomy endpoints
+├── OfficeEditor.Api.Tests/         # xUnit tests for the API
+├── OfficeEditor.Mcp/               # MCP stdio host (JSON-RPC): deck anatomy/edit/render tools
+├── OfficeEditor.Mcp.Tests/         # xUnit tests for the MCP host
+├── OfficeEditor.Web.Client/        # Vite + Tailwind web frontend
 ├── TypstBridge/                    # Native + managed wrapper around Typst (primary backend)
 ├── examples/                       # Sample programs + REF/ for visual regression
 ├── tools/                          # Build/dev scripts
