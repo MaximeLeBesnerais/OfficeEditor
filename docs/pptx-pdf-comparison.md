@@ -17,12 +17,6 @@ Expected differences come from different layout engines, font metrics, and embed
 |-----------|--------|--------------|
 | [pres-pro.pptx](#pres-propptx) | 16 | 17.29% |
 
-## Removed reference deck
-
-> The `REMOVED.pptx` reference deck was removed from the repository for
-> provenance reasons (third-party content). Historical comparison data for it
-> is no longer available.
-
 ## pres-pro.pptx
 
 - **Source PPTX**: `examples/REF/PPTX/pres-pro.pptx`
