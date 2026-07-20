@@ -38,7 +38,7 @@ Run from the repository root:
 # DOCX suite: examples/REF/DOCX/*.pdf vs examples/output/ref/docx/*.pdf
 dotnet run --project tools/visual-diff -- --suite docx
 
-# PPTX suite: examples/REF/PPTX/{REMOVED,pres-pro}.pdf vs examples/output/ref/pptx/*.pdf
+# PPTX suite: examples/REF/PPTX/pres-pro.pdf vs examples/output/ref/pptx/*.pdf
 dotnet run --project tools/visual-diff -- --suite pptx
 
 # GEN suite (Phase 5 parity fixtures): PowerPoint ground truth vs Typst preview,
@@ -73,11 +73,11 @@ Missing renders are loud per-fixture skips with the exact production steps; if n
 
 ### The PPTX suite and generated PDFs
 
-`--suite pptx` diffs the two committed reference PDFs (`examples/REF/PPTX/REMOVED.pdf`, `pres-pro.pdf`) against generated PDFs under `examples/output/ref/pptx/`. Generated PDFs are produced by the repo's existing converter, `tools/convert-pptx`. If one is missing, the suite prints the exact command and skips that deck:
+`--suite pptx` diffs the committed reference PDF (`examples/REF/PPTX/pres-pro.pdf`) against generated PDFs under `examples/output/ref/pptx/`. Generated PDFs are produced by the repo's existing converter, `tools/convert-pptx`. If one is missing, the suite prints the exact command and skips that deck:
 
 ```bash
-dotnet run --project tools/convert-pptx -- examples/REF/PPTX/REMOVED.pptx \
-  examples/output/ref/pptx/REMOVED.pdf --format pdf
+dotnet run --project tools/convert-pptx -- examples/REF/PPTX/pres-pro.pptx \
+  examples/output/ref/pptx/pres-pro.pdf --format pdf
 ```
 
 Or let visual-diff invoke the converter itself for any missing deck:
@@ -105,10 +105,10 @@ dotnet run --project tools/visual-diff -- \
 
 ```bash
 dotnet run --project tools/visual-diff -- \
-  --ref docs/assets/pptx-comparison/official/REMOVED \
-  --gen examples/output/pptx-comparison/generated/REMOVED \
-  --out examples/output/visual-diff/pptx-comparison/REMOVED \
-  --name REMOVED
+  --ref docs/assets/pptx-comparison/official/pres-pro \
+  --gen examples/output/pptx-comparison/generated/pres-pro \
+  --out examples/output/visual-diff/pptx-comparison/pres-pro \
+  --name pres-pro
 ```
 
 `--ref` and `--gen` must be the same kind of input (both PDFs, both PNG files, or both directories).

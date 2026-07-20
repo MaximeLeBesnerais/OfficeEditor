@@ -23,20 +23,13 @@ Deck uses the stock Office theme, so values come from shape-level mining:
 - font: `Public Sans` (51 uses; `Public Sans Bold` 77 uses — bold is a run
   property, the family is the token)
 
-### `REMOVED.tokens.json` — source: `REMOVED.pptx`
-Stock theme as well; values from shape-level mining:
-- primary `#5678F0` (29 uses), accent `#948BE2` (7 uses),
-  muted `#93CEF1` (6 uses), ink `#303030` (59 uses), paper `#FFFFFF`
-- fonts: `Lemonade Display` (display accents), `Arimo` (body;
-  `Arimo Bold` is the bold run variant)
-
 ## Hand-tuning (metrics/radii only, per P8 acceptance)
 
 Palette and font values are exactly as extracted — nothing invented. The
 following were tuned by hand:
 - `shape.cornerRadius` / `cardStyle`: not extractable as a single value;
   chosen to match each deck's visual character (0 editorial for pres-pro,
-  8 corporate for AetherLink, 12 playful for REMOVED). All `flat`
+  8 corporate for AetherLink). All `flat`
   (v1 `cardStyle` enum: `flat | outline | shadow`, plan §8.2).
 - `metrics`: extractor reports master level-0 sizes (54/18 pres-pro; 44/32
   stock) which overstate generated-slide needs; tuned to plan §3.1 scale

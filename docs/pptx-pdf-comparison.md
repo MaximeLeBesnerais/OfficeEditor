@@ -15,25 +15,13 @@ Expected differences come from different layout engines, font metrics, and embed
 
 | PPTX file | Slides | Average RMSE |
 |-----------|--------|--------------|
-| [REMOVED.pptx](#REMOVEDpptx) | 8 | 10.56% |
 | [pres-pro.pptx](#pres-propptx) | 16 | 17.29% |
 
-## REMOVED.pptx
+## Removed reference deck
 
-- **Source PPTX**: `examples/REF/PPTX/REMOVED.pptx`
-- **Reference PDF**: `examples/REF/PPTX/REMOVED.pdf`
-- **Total slides**: 8
-
-| Slide | Official PDF (PNG) | Generated PNG | RMSE % |
-|:-----:|--------------------|---------------|--------|
-| 1 | <img src="assets/pptx-comparison/official/REMOVED/page-1.png" width="400" alt="official slide 1"> | <img src="assets/pptx-comparison/generated/REMOVED/slide-01.png" width="400" alt="generated slide 1"> | 8.66% |
-| 2 | <img src="assets/pptx-comparison/official/REMOVED/page-2.png" width="400" alt="official slide 2"> | <img src="assets/pptx-comparison/generated/REMOVED/slide-02.png" width="400" alt="generated slide 2"> | 11.03% |
-| 3 | <img src="assets/pptx-comparison/official/REMOVED/page-3.png" width="400" alt="official slide 3"> | <img src="assets/pptx-comparison/generated/REMOVED/slide-03.png" width="400" alt="generated slide 3"> | 12.24% |
-| 4 | <img src="assets/pptx-comparison/official/REMOVED/page-4.png" width="400" alt="official slide 4"> | <img src="assets/pptx-comparison/generated/REMOVED/slide-04.png" width="400" alt="generated slide 4"> | 10.73% |
-| 5 | <img src="assets/pptx-comparison/official/REMOVED/page-5.png" width="400" alt="official slide 5"> | <img src="assets/pptx-comparison/generated/REMOVED/slide-05.png" width="400" alt="generated slide 5"> | 10.78% |
-| 6 | <img src="assets/pptx-comparison/official/REMOVED/page-6.png" width="400" alt="official slide 6"> | <img src="assets/pptx-comparison/generated/REMOVED/slide-06.png" width="400" alt="generated slide 6"> | 11.76% |
-| 7 | <img src="assets/pptx-comparison/official/REMOVED/page-7.png" width="400" alt="official slide 7"> | <img src="assets/pptx-comparison/generated/REMOVED/slide-07.png" width="400" alt="generated slide 7"> | 8.45% |
-| 8 | <img src="assets/pptx-comparison/official/REMOVED/page-8.png" width="400" alt="official slide 8"> | <img src="assets/pptx-comparison/generated/REMOVED/slide-08.png" width="400" alt="generated slide 8"> | 10.81% |
+> The `REMOVED.pptx` reference deck was removed from the repository for
+> provenance reasons (third-party content). Historical comparison data for it
+> is no longer available.
 
 ## pres-pro.pptx
 
@@ -64,7 +52,7 @@ Expected differences come from different layout engines, font metrics, and embed
 
 - The generated slides reproduce the overall structure and content of the reference PDFs, but visible differences are expected because PowerPoint and Typst use different text layout engines and font rasterizers.
 - Differences are larger on slides with complex layouts, embedded images, or non-standard fonts.
-- `pres-pro.pptx` shows a higher average RMSE than `REMOVED.pptx`, reflecting its more varied and visually dense slides.
+- `pres-pro.pptx` shows a relatively high average RMSE, reflecting its varied and visually dense slides.
 - These metrics are intended as a coarse regression signal, not a pixel-perfect pass/fail criterion.
 
 ## How to regenerate
@@ -73,8 +61,8 @@ Run from the repository root. Generate PNG slides from a PPTX file:
 
 ```bash
 dotnet run --project tools/convert-pptx -- \
-  examples/REF/PPTX/REMOVED.pptx \
-  examples/output/pptx-comparison/generated/REMOVED \
+  examples/REF/PPTX/pres-pro.pptx \
+  examples/output/pptx-comparison/generated/pres-pro \
   --format png \
   --font-path /usr/share/fonts
 ```
@@ -83,11 +71,9 @@ Rasterize the reference PDF to PNGs at 150 DPI (requires poppler):
 
 ```bash
 pdftocairo -png -r 150 \
-  examples/REF/PPTX/REMOVED.pdf \
-  examples/output/pptx-comparison/official/REMOVED/page
+  examples/REF/PPTX/pres-pro.pdf \
+  examples/output/pptx-comparison/official/pres-pro/page
 ```
-
-Repeat the two commands above for `pres-pro.pptx`, replacing `REMOVED` with `pres-pro` in the output paths.
 
 ### Recompute the RMSE table
 
@@ -97,13 +83,13 @@ per-slide RMSE without needing poppler (the committed official PNGs under
 
 ```bash
 dotnet run --project tools/visual-diff -- \
-  --ref docs/assets/pptx-comparison/official/REMOVED \
-  --gen examples/output/pptx-comparison/generated/REMOVED \
-  --out examples/output/visual-diff/pptx-comparison/REMOVED \
-  --name REMOVED
+  --ref docs/assets/pptx-comparison/official/pres-pro \
+  --gen examples/output/pptx-comparison/generated/pres-pro \
+  --out examples/output/visual-diff/pptx-comparison/pres-pro \
+  --name pres-pro
 ```
 
-Per-slide `PercentRmse` values in `examples/output/visual-diff/pptx-comparison/REMOVED/metrics.json`
+Per-slide `PercentRmse` values in `examples/output/visual-diff/pptx-comparison/pres-pro/metrics.json`
 map 1:1 to the RMSE % column above. RMSE values are machine-dependent (fonts,
 rendering backend), so expect small drift from the committed numbers; see
 `tools/visual-diff/baselines/README.md`.

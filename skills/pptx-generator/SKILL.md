@@ -198,7 +198,7 @@ Study these in the repo for real examples:
 
 - `office-editor-full-deck.json` — 20-slide deck exercising every feature (archetypes, components, primitives, gradients, groups, image fits)
 - `repo-intro-deck.json` — 8-slide overview deck (compact)
-- `PptxEditor.Core/Generation/Design/*.tokens.json` — pre-mined design token sets (pres-pro, AetherLink, REMOVED)
+- `PptxEditor.Core/Generation/Design/*.tokens.json` — pre-mined design token sets (pres-pro, AetherLink)
 
 ## Output
 

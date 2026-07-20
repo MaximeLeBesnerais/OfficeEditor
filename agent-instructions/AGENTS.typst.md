@@ -29,4 +29,4 @@ Treat `typstsharp` removal as a separate dependency cleanup, **not** part of Typ
 
 ## Verification
 
-After any change to the compile path, run a smoke test on `examples/REF/PPTX/REMOVED.pptx` and `pres-pro.pptx`. Diff generated PDFs against the reference PDFs in `examples/REF/PPTX/`.
+After any change to the compile path, run a smoke test on `examples/REF/PPTX/pres-pro.pptx` and `AetherLink-Glass-Shareholder-Overview.pptx`. Diff generated PDFs against the reference PDFs in `examples/REF/PPTX/`.
