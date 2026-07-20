@@ -102,9 +102,9 @@ public sealed class ConversionModelTests
     [Fact]
     public void SampleFileDto_MapsPositionalProperties()
     {
-        var dto = new SampleFileDto("REMOVED.pptx", "pptx", "A sample deck.");
+        var dto = new SampleFileDto("pres-pro.pptx", "pptx", "A sample deck.");
 
-        Assert.Equal("REMOVED.pptx", dto.Name);
+        Assert.Equal("pres-pro.pptx", dto.Name);
         Assert.Equal("pptx", dto.Format);
         Assert.Equal("A sample deck.", dto.Description);
     }

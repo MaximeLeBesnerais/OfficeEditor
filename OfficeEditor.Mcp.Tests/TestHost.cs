@@ -65,7 +65,7 @@ internal static class TestHost
         // Same resolution pattern as DocxEditor.Tests: bin/Debug/net9.0 -> repo root.
         var path = Path.GetFullPath(Path.Combine(
             AppContext.BaseDirectory, "..", "..", "..", "..",
-            "examples", "REF", "PPTX", "REMOVED.pptx"));
+            "examples", "REF", "PPTX", "pres-pro.pptx"));
         Assert.True(File.Exists(path), $"Reference deck not found at {path}");
         return File.ReadAllBytes(path);
     }
