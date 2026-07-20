@@ -18,7 +18,7 @@ dotnet run --project tools/pptx-benchmark -- --runs 5 --update-baseline
 
 ## What it measures
 
-Per deck (`examples/REF/PPTX/REMOVED.pptx`, `pres-pro.pptx`), in a fresh child process:
+Per deck (`examples/REF/PPTX/pres-pro.pptx`, `AetherLink-Glass-Shareholder-Overview.pptx`, `FusionFest-Architecture-Overview.pptx`, `pitch-deck.pptx`), in a fresh child process:
 
 - **Cold**: iteration 0 — `PresentationBuilder.Open`, `ExportThumbnails` (whole-deck PNG @150ppi), `ExportToPdf`.
 - **Warm**: median of N repeat iterations in the same process.

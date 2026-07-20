@@ -30,8 +30,6 @@ on Debian/Ubuntu):
 
 ```bash
 # 1. Produce the generated PDFs (once, or after converter changes)
-dotnet run --project tools/convert-pptx -- examples/REF/PPTX/REMOVED.pptx \
-  examples/output/ref/pptx/REMOVED.pdf --format pdf
 dotnet run --project tools/convert-pptx -- examples/REF/PPTX/pres-pro.pptx \
   examples/output/ref/pptx/pres-pro.pdf --format pdf
 
