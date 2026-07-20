@@ -5,11 +5,6 @@ public sealed class SampleFileService : ISampleFileService
     private static readonly IReadOnlyList<SampleFile> SampleFiles = new List<SampleFile>
     {
         new(
-            "",
-            "examples/REF/PPTX/",
-            OfficeEditor.Core.Services.OfficeDocumentFormat.Pptx,
-            "A sample PowerPoint presentation for smoke testing PPTX exports."),
-        new(
             ".pptx",
             "examples/REF/PPTX/.pptx",
             OfficeEditor.Core.Services.OfficeDocumentFormat.Pptx,

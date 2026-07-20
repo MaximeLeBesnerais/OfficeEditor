@@ -289,19 +289,19 @@
             },
             {
               "type": "image",
-              "src": "~/Work/DocxEditor/docs/assets/pptx-comparison/generated//slide-01.png",
+               "src": "~/Work/DocxEditor/docs/assets/pptx-comparison/generated//slide-04.png",
               "fit": "contain"
             },
             {
               "type": "image",
-              "src": "~/Work/DocxEditor/docs/assets/pptx-comparison/generated//slide-04.png",
+               "src": "~/Work/DocxEditor/docs/assets/pptx-comparison/generated//slide-08.png",
               "fit": "contain"
             }
           ]
         },
         {
           "type": "text",
-          "text": "Real PPTX files → Typst pipeline → PNG. Sources:  (16 slides) ·  (8 slides).",
+           "text": "Real PPTX file → Typst pipeline → PNG. Source:  (16 slides).",
           "fontSize": 13,
           "color": "muted",
           "textAlign": "center",
@@ -522,7 +522,7 @@
         },
         {
           "type": "text",
-          "text": "Average RMSE: 10.56% (, 8 slides) · 17.29% (, 16 slides) — a coarse regression signal, not pixel parity.",
+           "text": "Average RMSE: 17.29% (, 16 slides) — a coarse regression signal, not pixel parity.",
           "fontSize": 14,
           "color": "ink",
           "textAlign": "center",

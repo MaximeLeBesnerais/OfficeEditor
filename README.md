@@ -538,12 +538,11 @@ treat as orders of magnitude):
 
 | Deck | Slides | OfficeEditor warm (total) | Per slide | LibreOffice warm (total) | Per slide | Speedup |
 |---|---|---|---|---|---|---|
-|  | 8 | 233.9 ms | 29.2 ms | 1,967.9 ms | 246.0 ms | ~8× |
 | .pptx | 16 | 189.5 ms | 11.8 ms | 2,661.5 ms | 166.3 ms | ~14× |
 
 Preview path = open + whole-deck PNG @150ppi. Product target: <500 ms per slide — comfortably met.
 The LibreOffice leg (`soffice --headless --convert-to pdf`) includes full process start and profile
-cost. Cold starts (fresh process, JIT + backend probes): 783 ms / 655 ms per deck.
+cost. Cold starts (fresh process, JIT + backend probes): ~650–800 ms per deck.
 
 Reproduce: `dotnet run --project tools/pptx-benchmark` (full methodology and limitations in
 `tools/pptx-benchmark/README.md`; latest full report: `examples/output/benchmark/report.md`,

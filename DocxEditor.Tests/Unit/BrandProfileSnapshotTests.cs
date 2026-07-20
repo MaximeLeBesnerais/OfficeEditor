@@ -6,7 +6,7 @@ using PptxEditor.Core.Services;
 namespace DocxEditor.Tests.Unit;
 
 /// <summary>
-/// Snapshot tests: extract the <see cref="BrandProfile"/> from both reference decks and
+/// Snapshot tests: extract the <see cref="BrandProfile"/> from the reference deck(s) and
 /// compare against committed brand.json fixtures. Set OE_UPDATE_SNAPSHOTS=1 to regenerate
 /// the fixtures (review the diff before committing).
 /// </summary>
@@ -15,7 +15,6 @@ public sealed class BrandProfileSnapshotTests
     private const string UpdateSnapshotsEnvVar = "OE_UPDATE_SNAPSHOTS";
 
     [Theory]
-    [InlineData("", ".brand.json")]
     [InlineData(".pptx", ".brand.json")]
     public void Extract_ReferenceDeck_MatchesCommittedBrandSnapshot(string deckFileName, string snapshotFileName)
     {

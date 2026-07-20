@@ -14,7 +14,7 @@ public sealed class PptxImageFrameSizingTests
     [Fact]
     public void GenerateTypstSource_LowResolutionImage_UsesFrameDimensions()
     {
-        using var document = PresentationDocument.Open(ReferencePath(""), false);
+        using var document = PresentationDocument.Open(ReferencePath(".pptx"), false);
         using var converter = new PptxToTypstConverter(document);
         var presentation = new TypstPresentation
         {
@@ -50,25 +50,15 @@ public sealed class PptxImageFrameSizingTests
     }
 
     [Fact]
-    public void Convert_Slide1BackgroundImage_UsesFullSlideFrame()
+    public void Convert_AetherLinkSlide1BackgroundImage_UsesFullSlideFrame()
     {
-        var (presentation, source) = ConvertReference("");
+        var (presentation, source) = ConvertReference("AetherLink-Glass-Shareholder-Overview.pptx");
         var slide = presentation.Slides[0];
-        var imageElement = Assert.Single(slide.Elements, element => element.Type == "Image");
+        var imageElement = Assert.Single(slide.Elements,
+            element => element.Type == "Image" && element.X == 0 && element.Y == 0);
 
         Assert.InRange(imageElement.Width, slide.Layout.Width - 2, slide.Layout.Width + 2);
         Assert.InRange(imageElement.Height, slide.Layout.Height - 2, slide.Layout.Height + 2);
-        AssertImageUsesElementFrame(source, imageElement);
-    }
-
-    [Fact]
-    public void Convert_Slide2GroupedImage_UsesTransformedFrame()
-    {
-        var (presentation, source) = ConvertReference("");
-        var imageElement = Assert.Single(presentation.Slides[1].Elements, element => element.Type == "Image");
-
-        Assert.Equal(1335.36, imageElement.Width, 2);
-        Assert.Equal(417.29, imageElement.Height, 2);
         AssertImageUsesElementFrame(source, imageElement);
     }
 
@@ -83,8 +73,9 @@ public sealed class PptxImageFrameSizingTests
     [Fact]
     public void Convert_NativePixelMetadataDoesNotOverrideImageFrameGeometry()
     {
-        var (presentation, source) = ConvertReference("");
-        var imageElement = Assert.Single(presentation.Slides[0].Elements, element => element.Type == "Image");
+        var (presentation, source) = ConvertReference("AetherLink-Glass-Shareholder-Overview.pptx");
+        var imageElement = Assert.Single(presentation.Slides[0].Elements,
+            element => element.Type == "Image" && element.X == 0 && element.Y == 0);
         Assert.NotNull(imageElement.Image);
         var image = imageElement.Image!;
 

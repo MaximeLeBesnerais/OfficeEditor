@@ -16,26 +16,6 @@ Product target for the instant-preview pipeline: **<500 ms per slide** (whole-de
 | TypstBridge | 0.1.0 |
 | LibreOffice | not available on this machine |
 
-##  (8 slides)
-
-### This pipeline (PptxEditor → Typst)
-
-| Stage | Cold (ms) | Warm median (ms, N=5) | Warm per-slide (ms) |
-|---|---|---|---|
-| PresentationBuilder.Open | 119.9 | 17.6 | 2.2 |
-| ExportThumbnails (whole-deck PNG @150ppi) | 361.2 | 234.9 | 29.4 |
-| ↳ png.compile (backend: bridge) | 156.4 | 108.5 | — |
-| ExportToPdf | 149.3 | 125.9 | 15.7 |
-| ↳ pdf.compile (backend: bridge) | 22.2 | 7.3 | — |
-| **Total preview path (Open + PNG)** | **481.1** | **252.5** | **31.6** |
-
-`*.compile` rows are the Typst compile (TypstBridge backend) inside the stage above,
-captured via the `OFFICEEDITOR_TIMING` hooks in `TypstCompilerService`.
-
-### LibreOffice (soffice --headless --convert-to pdf)
-
-> LibreOffice not available on this machine (soffice not found on PATH or at /Applications/LibreOffice.app/Contents/MacOS/soffice) — leg skipped.
-
 ## .pptx (16 slides)
 
 ### This pipeline (PptxEditor → Typst)
@@ -60,7 +40,6 @@ captured via the `OFFICEEDITOR_TIMING` hooks in `TypstCompilerService`.
 
 | Deck | Slides | Cold total (ms) | Warm median total (ms, N=5) | Derived per-slide (ms) | LibreOffice warm median (ms) |
 |---|---|---|---|---|---|
-|  | 8 | 481.1 | 252.5 | 31.6 | n/a (not installed) |
 | .pptx | 16 | 634.4 | 283.7 | 17.7 | n/a (not installed) |
 
 ## Methodology

@@ -2,7 +2,7 @@ using System.Globalization;
 using PptxBenchmark;
 
 // pptx-benchmark — pre-optimization latency ground truth for the PPTX render pipeline.
-// Parent mode: benchmarks both REF decks (each in a fresh child process) + LibreOffice leg, writes a markdown report.
+// Parent mode: benchmarks the REF decks (each in a fresh child process) + LibreOffice leg, writes a markdown report.
 // Child mode (--child): single fresh-process measurement pass, emits parseable RESULT lines.
 
 var runs = 5;
@@ -51,7 +51,9 @@ if (runs < 1)
 var repoRoot = FindRepoRoot();
 var deckPaths = new[]
 {
-    Path.Combine(repoRoot, "examples", "REF", "PPTX", ""),
+    Path.Combine(repoRoot, "examples", "REF", "PPTX", ".pptx"),
+    Path.Combine(repoRoot, "examples", "REF", "PPTX", "AetherLink-Glass-Shareholder-Overview.pptx"),
+    Path.Combine(repoRoot, "examples", "REF", "PPTX", "-Architecture-Overview.pptx"),
     Path.Combine(repoRoot, "examples", "REF", "PPTX", ".pptx"),
 };
 
@@ -123,7 +125,7 @@ static string FindRepoRoot()
         var directory = new DirectoryInfo(start);
         while (directory is not null)
         {
-            if (File.Exists(Path.Combine(directory.FullName, "examples", "REF", "PPTX", "")))
+            if (File.Exists(Path.Combine(directory.FullName, "examples", "REF", "PPTX", ".pptx")))
             {
                 return directory.FullName;
             }
@@ -132,5 +134,5 @@ static string FindRepoRoot()
     }
 
     throw new DirectoryNotFoundException(
-        "Could not locate the repository root (no ancestor directory contains examples/REF/PPTX/).");
+        "Could not locate the repository root (no ancestor directory contains examples/REF/PPTX/.pptx).");
 }

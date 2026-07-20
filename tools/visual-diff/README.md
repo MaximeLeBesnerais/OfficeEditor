@@ -38,7 +38,7 @@ Run from the repository root:
 # DOCX suite: examples/REF/DOCX/*.pdf vs examples/output/ref/docx/*.pdf
 dotnet run --project tools/visual-diff -- --suite docx
 
-# PPTX suite: examples/REF/PPTX/{,}.pdf vs examples/output/ref/pptx/*.pdf
+# PPTX suite: examples/REF/PPTX/.pdf vs examples/output/ref/pptx/*.pdf
 dotnet run --project tools/visual-diff -- --suite pptx
 
 # GEN suite (Phase 5 parity fixtures): PowerPoint ground truth vs Typst preview,
@@ -73,10 +73,10 @@ Missing renders are loud per-fixture skips with the exact production steps; if n
 
 ### The PPTX suite and generated PDFs
 
-`--suite pptx` diffs the two committed reference PDFs (`examples/REF/PPTX/.pdf`, `.pdf`) against generated PDFs under `examples/output/ref/pptx/`. Generated PDFs are produced by the repo's existing converter, `tools/convert-pptx`. If one is missing, the suite prints the exact command and skips that deck:
+`--suite pptx` diffs the committed reference PDF (`examples/REF/PPTX/.pdf`) against generated PDFs under `examples/output/ref/pptx/`. Generated PDFs are produced by the repo's existing converter, `tools/convert-pptx`. If one is missing, the suite prints the exact command and skips that deck:
 
 ```bash
-dotnet run --project tools/convert-pptx -- examples/REF/PPTX/ \
+dotnet run --project tools/convert-pptx -- examples/REF/PPTX/.pptx \
   examples/output/ref/pptx/.pdf --format pdf
 ```
 

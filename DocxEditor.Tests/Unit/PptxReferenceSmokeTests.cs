@@ -8,8 +8,8 @@ namespace DocxEditor.Tests.Unit;
 /// <summary>
 /// Smoke tests for every reference PPTX in examples/REF/PPTX.
 /// Ensures each file can be opened, converted to a Typst model, and rendered
-/// to non-empty Typst source. The two original reference files are also
-/// compiled to PDF to verify end-to-end generation.
+/// to non-empty Typst source. The two original reference files ( and
+/// AetherLink) are also compiled to PDF to verify end-to-end generation.
 /// </summary>
 public sealed class PptxReferenceSmokeTests : IDisposable
 {
@@ -18,8 +18,8 @@ public sealed class PptxReferenceSmokeTests : IDisposable
 
     private static readonly string[] OriginalReferenceFileNames =
     [
-        "",
-        ".pptx"
+        ".pptx",
+        "AetherLink-Glass-Shareholder-Overview.pptx"
     ];
 
     public PptxReferenceSmokeTests()
