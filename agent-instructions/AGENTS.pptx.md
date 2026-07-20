@@ -33,10 +33,9 @@ These are load-bearing — they prevent hours of debugging.
 
 | File | Use |
 |---|---|
-| `examples/REF/PPTX/REMOVED.pptx` + `.pdf` | Smoke test source |
 | `examples/REF/PPTX/pres-pro.pptx` + `.pdf` | Smoke test source |
 
-Smoke tests must pass on **both** files after any change to the conversion pipeline. Generated outputs go in `examples/output/ref/`.
+Smoke tests must pass on this file after any change to the conversion pipeline. Generated outputs go in `examples/output/ref/`.
 
 ## PNG Mode
 

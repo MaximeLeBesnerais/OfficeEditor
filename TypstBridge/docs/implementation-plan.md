@@ -100,7 +100,7 @@ On Linux x64, building `TypstBridge.Managed` or a referencing project can run th
 
 ## Remaining work
 
-- Verify reference PPTX conversions through the OfficeEditor.Core path for `examples/REF/REMOVED.pptx` and `examples/REF/pres-pro.pptx`.
+- Verify reference PPTX conversions through the OfficeEditor.Core path for `examples/REF/PPTX/pres-pro.pptx` and `examples/REF/PPTX/AetherLink-Glass-Shareholder-Overview.pptx`.
 - Confirm publish output includes the correct native runtime asset for each supported RID.
 - Expand and verify the platform matrix before distributing native packages.
 - Document any final font precedence decisions after reference verification.

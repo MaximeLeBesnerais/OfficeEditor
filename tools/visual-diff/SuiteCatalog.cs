@@ -8,7 +8,6 @@ internal static class SuiteCatalog
 {
     private static readonly (string Name, string Pptx, string RefPdf, string GenPdf)[] PptxDecks =
     [
-        ("REMOVED", "examples/REF/PPTX/REMOVED.pptx", "examples/REF/PPTX/REMOVED.pdf", "examples/output/ref/pptx/REMOVED.pdf"),
         ("pres-pro", "examples/REF/PPTX/pres-pro.pptx", "examples/REF/PPTX/pres-pro.pdf", "examples/output/ref/pptx/pres-pro.pdf"),
         ("pitch-deck", "examples/REF/PPTX/pitch-deck.pptx", "examples/REF/PPTX/pitch-deck.pdf", "examples/output/ref/pptx/pitch-deck.pdf")
     ];

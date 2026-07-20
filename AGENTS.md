@@ -45,7 +45,7 @@ git status                # expect clean or only intended changes
 
 - **Never commit unless explicitly asked.** Inspect `git status` and `git diff` first.
 - **Incremental, targeted fixes only** — never broad visual-fidelity sweeps.
-- Run `dotnet test` after every change. Smoke tests must pass on `examples/REF/PPTX/REMOVED.pptx` and `pres-pro.pptx`.
+- Run `dotnet test` after every change. Smoke tests must pass on `examples/REF/PPTX/pres-pro.pptx` and `AetherLink-Glass-Shareholder-Overview.pptx`.
 - Run conversions **sequentially** — parallel `dotnet run` causes build file locks.
 - Visual fixes: always verify against reference PDFs in `examples/REF/` before claiming done.
 - Use conventional commits (`feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`) — explain **why**, not what.
@@ -89,11 +89,11 @@ DocxEditor/                         # repo folder (historical name)
 
 ## Reference Files
 
-- `examples/REF/PPTX/REMOVED.{pptx,pdf}` and `pres-pro.{pptx,pdf}` — PPTX smoke tests
+- `examples/REF/PPTX/pres-pro.{pptx,pdf}` and `AetherLink-Glass-Shareholder-Overview.{pptx,pdf}` — PPTX smoke tests
 - `examples/REF/PPTX/AetherLink-Glass-Shareholder-Overview.{pptx,pdf}` and `FusionFest-Architecture-Overview.{pptx,pdf}` — brand/token mining REF decks
 - `examples/REF/DOCX/gestion-risques-entreprise-bcp-pme.{docx,pdf}`, `Monitoring Report Template.{docx,pdf}`, `Annual reporting template ENGLISH_0.{docx,pdf}` — DOCX regression
 - Generated outputs: `examples/output/ref/`
 - PNG mode: `--format png` generates per-slide images at the configured PPI
-- Token sets: `PptxEditor.Core/Generation/Design/` — mined from REF decks (pres-pro, AetherLink, REMOVED)
+- Token sets: `PptxEditor.Core/Generation/Design/` — mined from REF decks (pres-pro, AetherLink)
 - Generation fixtures: `PptxEditor.Core/Generation/Fixtures/` — per-primitive parity test decks
 - CLI demo decks: `office-editor-full-deck.json` (20 slides, all features), `repo-intro-deck.json` (8 slides)
