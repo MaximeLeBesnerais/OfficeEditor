@@ -1,7 +1,12 @@
 name: release
 
-# NOTE: the NUGET_API_KEY secret must be configured in repo settings
-# (Settings -> Secrets and variables -> Actions) before tag pushes can publish.
+# NOTE: publishing uses NuGet Trusted Publishing (keyless OIDC) — no long-lived
+# API key. One-time setup on nuget.org: Profile -> Trusted Publishing -> add policy
+#   Repository Owner: MaximeLeBesnerais
+#   Repository:       OfficeEditor
+#   Workflow File:    release.yml        (file name only, no path)
+#   Environment:      (leave empty — this workflow uses no environment)
+# Also add the NUGET_USER Actions secret: your nuget.org *profile name* (not email).
 
 on:
   push:
@@ -70,6 +75,8 @@ jobs:
   pack-push:
     needs: native
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write  # required for GitHub OIDC token issuance (NuGet Trusted Publishing)
     steps:
       - uses: actions/checkout@v4
 
@@ -127,5 +134,13 @@ jobs:
             unzip -l "$pkg"
           done
 
+      # Exchange the GitHub OIDC token for a short-lived (1h) NuGet API key,
+      # matched against the Trusted Publishing policy configured on nuget.org.
+      - name: NuGet login (OIDC → temp API key)
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ secrets.NUGET_USER }}
+
       - name: Push to NuGet
-        run: dotnet nuget push "nupkgs/*.nupkg" --source https://api.nuget.org/v3/index.json --api-key ${{ secrets.NUGET_API_KEY }} --skip-duplicate
+        run: dotnet nuget push "nupkgs/*.nupkg" --source https://api.nuget.org/v3/index.json --api-key ${{ steps.login.outputs.NUGET_API_KEY }} --skip-duplicate
