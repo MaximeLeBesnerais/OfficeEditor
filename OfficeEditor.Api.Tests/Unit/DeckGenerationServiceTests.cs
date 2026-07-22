@@ -290,6 +290,52 @@ public sealed class DeckGenerationServiceTests
     }
 
     [Fact]
+    public void Generate_ImageSlideWithRepoRelativeSrc_GeneratesPptxAndPreviews()
+    {
+        // Regression test: the src is repo-root-relative and the file ships with the repo.
+        // The OOXML pass resolves it against the repository root; the Typst preview compile
+        // uses the repository root as its project root (CompileOptions.WorkingDirectory), so
+        // the same relative path resolves there too — previously the preview compile failed
+        // with "file not found (searched at <api-cwd>/<absolute-src>)".
+        var document = """
+            {
+              "version": "2.0",
+              "design": {
+                "palette": { "primary": "#0B3D91", "ink": "#1A1A1A", "paper": "#FFFFFF", "muted": "#8A94A6" }
+              },
+              "slides": [
+                {
+                  "type": "container",
+                  "fill": "paper",
+                  "layout": { "mode": "column" },
+                  "padding": 43,
+                  "children": [
+                    { "type": "image", "src": "demo/assets/dashboard.png", "fit": "contain", "size": { "grow": 1 } }
+                  ]
+                }
+              ]
+            }
+            """;
+
+        var result = new DeckGenerationService().Generate(document, "svg", 150);
+
+        Assert.True(result.Success,
+            $"generation failed: {string.Join("; ", result.Errors.Select(e => $"{e.Path}: {e.Message}"))}");
+        Assert.Equal(1, result.SlideCount);
+        Assert.NotNull(result.PptxBytes);
+        Assert.True(result.PptxBytes!.Length > 0);
+
+        using var builder = PresentationBuilder.Open(result.PptxBytes);
+        Assert.Equal(1, builder.SlideCount);
+
+        if (Environment.GetEnvironmentVariable(EnableRenderEnvVar) == "1")
+        {
+            Assert.Null(result.PreviewError);
+            Assert.Equal(result.SlideCount, result.Previews.Count);
+        }
+    }
+
+    [Fact]
     public void Generate_InvalidFormat_Throws()
     {
         Assert.Throws<ArgumentException>(
