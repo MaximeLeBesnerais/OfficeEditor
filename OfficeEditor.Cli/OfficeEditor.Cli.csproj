@@ -9,7 +9,7 @@
     <Version>0.1.0</Version>
     <Authors>MaximeLB</Authors>
     <Description>Multi-format Office document CLI tool (DOCX, PPTX, XLSX)</Description>
-    <RepositoryUrl>https://github.com/MaximeLeBesnerais/DocxEditor</RepositoryUrl>
+    <RepositoryUrl>https://github.com/MaximeLeBesnerais/OfficeEditor</RepositoryUrl>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>officeeditor</ToolCommandName>
