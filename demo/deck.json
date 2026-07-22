@@ -1,0 +1,282 @@
+{
+  "version": "2.0",
+  "design": {
+    "palette": { "primary": "#147C7A", "accent": "#C79A3B", "ink": "#22302A", "paper": "#FFFFFF", "muted": "#8A8578" },
+    "fonts": { "display": "Avenir Next", "body": "Helvetica Neue" },
+    "shape": { "cornerRadius": 0, "cardStyle": "outline" },
+    "metrics": { "marginPt": 46, "gutterPt": 18, "titleSizePt": 44, "bodySizePt": 16 }
+  },
+  "slides": [
+    {
+      "type": "container",
+      "fill": "ink",
+      "layout": { "mode": "row", "gap": 24, "align": "stretch" },
+      "padding": [56, 56, 56, 56],
+      "children": [
+        {
+          "type": "container",
+          "layout": { "mode": "column", "gap": 16, "justify": "center", "align": "start" },
+          "overflow": "clip",
+          "size": { "grow": 1 },
+          "children": [
+            {
+              "type": "text",
+              "text": "OFFICEEDITOR · LIVE DEMO",
+              "fontSize": 14,
+              "color": "accent",
+              "bold": true,
+              "size": { "h": 20 }
+            },
+            {
+              "type": "text",
+              "text": "Documents as code",
+              "font": "display",
+              "fontSize": 58,
+              "color": "paper",
+              "size": { "h": 74 }
+            },
+            {
+              "type": "text",
+              "text": "Create, edit and render DOCX, PPTX and XLSX from declarative JSON — no Office required.",
+              "fontSize": 17,
+              "color": "muted",
+              "size": { "h": 48 }
+            },
+            {
+              "type": "container",
+              "layout": { "mode": "row", "gap": 10, "justify": "start", "align": "center" },
+              "size": { "h": 30 },
+              "children": [
+                { "type": "badge", "content": { "text": "DOCX" }, "size": { "w": 68, "h": 26 } },
+                { "type": "badge", "content": { "text": "PPTX" }, "size": { "w": 68, "h": 26 } },
+                { "type": "badge", "content": { "text": "XLSX" }, "size": { "w": 68, "h": 26 } }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "container",
+          "layout": { "mode": "column", "justify": "center", "align": "center" },
+          "overflow": "clip",
+          "size": { "w": 240 },
+          "children": [
+            {
+              "type": "container",
+              "layout": { "mode": "row", "gap": 26, "justify": "center", "align": "center" },
+              "size": { "w": 220, "h": 220 },
+              "children": [
+                { "type": "text", "text": "{", "font": "display", "fontSize": 180, "color": "primary", "textAlign": "center", "size": { "w": 90, "h": 220 } },
+                { "type": "text", "text": "}", "font": "display", "fontSize": 180, "color": "primary", "textAlign": "center", "size": { "w": 90, "h": 220 } }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "two_col",
+      "content": {
+        "title": "What this demo shows",
+        "weights": [3, 2],
+        "left": {
+          "type": "bullet_list",
+          "content": {
+            "title": "Two pipelines, one Makefile",
+            "items": [
+              "Render an existing deck: .pptx → PDF + per-slide PNGs",
+              "Generate a new deck from this JSON instruction set",
+              "Same OfficeEditor Engine pipeline drives both renders",
+              "Everything lands under demo/output/"
+            ]
+          }
+        },
+        "right": {
+          "type": "card",
+          "content": {
+            "title": "Layout once, emit twice",
+            "body": "A single C# layout pass feeds the OOXML emitter (delivery .pptx) and the OfficeEditor Engine emitter (PDF/PNG preview). No second layout engine."
+          }
+        }
+      }
+    },
+    {
+      "type": "container",
+      "fill": "paper",
+      "layout": { "mode": "column", "gap": 18 },
+      "padding": [46, 46, 46, 46],
+      "children": [
+        {
+          "type": "title_block",
+          "content": { "kicker": "CAPABILITIES", "title": "Create · Edit · Render" },
+          "size": { "h": 86 }
+        },
+        {
+          "type": "container",
+          "layout": { "mode": "row", "gap": 18, "align": "stretch" },
+          "overflow": "clip",
+          "size": { "grow": 1 },
+          "children": [
+            {
+              "type": "container",
+              "layout": { "mode": "column", "gap": 0 },
+              "overflow": "clip",
+              "size": { "grow": 1 },
+              "children": [
+                { "type": "rect", "fill": "accent", "size": { "h": 3 } },
+                {
+                  "type": "card",
+                  "content": { "title": "Create", "body": "Decks from declarative JSON. Documents from instruction sets. Fluent C# builders." },
+                  "size": { "grow": 1 }
+                }
+              ]
+            },
+            {
+              "type": "container",
+              "layout": { "mode": "column", "gap": 0 },
+              "overflow": "clip",
+              "size": { "grow": 1 },
+              "children": [
+                { "type": "rect", "fill": "accent", "size": { "h": 3 } },
+                {
+                  "type": "card",
+                  "content": { "title": "Edit", "body": "Smart text and image replacement. Variables, mail merge, template logic." },
+                  "size": { "grow": 1 }
+                }
+              ]
+            },
+            {
+              "type": "container",
+              "layout": { "mode": "column", "gap": 0 },
+              "overflow": "clip",
+              "size": { "grow": 1 },
+              "children": [
+                { "type": "rect", "fill": "accent", "size": { "h": 3 } },
+                {
+                  "type": "card",
+                  "content": { "title": "Render", "body": "PPTX → PDF / PNG / SVG through the native OfficeEditor Engine pipeline." },
+                  "size": { "grow": 1 }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "table_slide",
+      "content": {
+        "title": "What works where",
+        "columns": ["Capability", "PPTX", "DOCX", "XLSX"],
+        "rows": [
+          ["Create from scratch", "✓", "✓", "✓"],
+          ["Edit existing files", "✓", "✓", "✓"],
+          ["Variables & mail merge", "✓", "✓", "✓"],
+          ["Declarative JSON generation", "✓", "—", "—"],
+          ["PDF / PNG / SVG preview", "✓", "—", "—"]
+        ],
+        "columnWeights": [4, 1, 1, 1]
+      }
+    },
+    {
+      "type": "container",
+      "fill": "paper",
+      "layout": { "mode": "column", "gap": 16 },
+      "padding": [46, 46, 46, 46],
+      "children": [
+        {
+          "type": "title_block",
+          "content": { "kicker": "BY THE NUMBERS", "title": "One suite, three formats" },
+          "size": { "h": 86 }
+        },
+        {
+          "type": "container",
+          "layout": { "mode": "row", "gap": 18, "align": "stretch" },
+          "overflow": "clip",
+          "size": { "grow": 1 },
+          "children": [
+            {
+              "type": "container",
+              "layout": { "mode": "column", "gap": 6, "justify": "center", "align": "center" },
+              "overflow": "clip",
+              "size": { "grow": 1 },
+              "children": [
+                { "type": "text", "text": "3", "font": "display", "fontSize": 64, "color": "primary", "textAlign": "center", "size": { "h": 78 } },
+                { "type": "text", "text": "Office formats", "fontSize": 15, "color": "muted", "textAlign": "center", "size": { "h": 22 } }
+              ]
+            },
+            {
+              "type": "container",
+              "layout": { "mode": "column", "gap": 6, "justify": "center", "align": "center" },
+              "overflow": "clip",
+              "size": { "grow": 1 },
+              "children": [
+                { "type": "text", "text": "2", "font": "display", "fontSize": 64, "color": "primary", "textAlign": "center", "size": { "h": 78 } },
+                { "type": "text", "text": "emitters — OOXML + OfficeEditor Engine", "fontSize": 15, "color": "muted", "textAlign": "center", "size": { "h": 22 } }
+              ]
+            },
+            {
+              "type": "container",
+              "layout": { "mode": "column", "gap": 6, "justify": "center", "align": "center" },
+              "overflow": "clip",
+              "size": { "grow": 1 },
+              "children": [
+                { "type": "text", "text": "1", "font": "display", "fontSize": 64, "color": "primary", "textAlign": "center", "size": { "h": 78 } },
+                { "type": "text", "text": "shared layout pass", "fontSize": 15, "color": "muted", "textAlign": "center", "size": { "h": 22 } }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": "This very deck was generated from demo/deck.json and rendered by the OfficeEditor Engine.",
+          "fontSize": 13,
+          "color": "muted",
+          "textAlign": "center",
+          "size": { "h": 18 }
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "fill": "ink",
+      "layout": { "mode": "column", "gap": 14, "justify": "center", "align": "center" },
+      "padding": [46, 46, 46, 46],
+      "children": [
+        {
+          "type": "text",
+          "text": "GET STARTED",
+          "fontSize": 14,
+          "color": "accent",
+          "bold": true,
+          "textAlign": "center",
+          "size": { "h": 20 }
+        },
+        {
+          "type": "text",
+          "text": "Try it yourself",
+          "font": "display",
+          "fontSize": 46,
+          "color": "paper",
+          "textAlign": "center",
+          "size": { "h": 60 }
+        },
+        {
+          "type": "text",
+          "text": "make -f Makefile.demo demo",
+          "fontSize": 19,
+          "color": "paper",
+          "textAlign": "center",
+          "size": { "h": 28 }
+        },
+        {
+          "type": "text",
+          "text": "JSON in · PPTX + PDF + PNG out · all under demo/output/",
+          "fontSize": 14,
+          "color": "muted",
+          "textAlign": "center",
+          "size": { "h": 20 }
+        }
+      ]
+    }
+  ]
+}
