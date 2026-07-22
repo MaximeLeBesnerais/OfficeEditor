@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using OfficeEditor.Core.Services;
+using PptxEditor.Core.Generation.Archetypes;
 using PptxEditor.Core.Generation.Components;
 using PptxEditor.Core.Generation.Emit.Ooxml;
 using PptxEditor.Core.Generation.Emit.Typst;
@@ -97,7 +98,8 @@ public sealed class DeckGenerationService : IDeckGenerationService
             // The whole stack is rebuilt per call: resolver/measurer/catalog carry per-run
             // state and are not thread-safe; the system-font scan behind the catalog is
             // cached per process, so this stays cheap on the warm path.
-            var expanded = ComponentExpander.Expand(validation.Document!);
+            var archetyped = ArchetypeExpander.Expand(validation.Document!);
+            var expanded = ComponentExpander.Expand(archetyped);
             layout = new LayoutResolver(new TextMeasure(new FontMetricsCatalog())).Resolve(expanded);
         }
         catch (ComponentException ex)
