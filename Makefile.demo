@@ -1,0 +1,146 @@
+# Makefile.demo — OfficeEditor demo plumbing.
+#
+# Wraps EXISTING tools only (tools/convert-pptx + OfficeEditor.Cli generate);
+# no new features. All artifacts land under demo/output/.
+#
+# Usage (from the repo root):
+#   make -f Makefile.demo setup      # preflight + restore + Release build
+#   make -f Makefile.demo convert    # pres-pro.pptx → PNGs + PDF  → demo/output/render/
+#   make -f Makefile.demo generate   # demo/deck.json → PPTX → PNGs + PDF → demo/output/gen/
+#   make -f Makefile.demo clean      # wipe demo/output/
+#   make -f Makefile.demo demo       # setup + convert + generate
+#
+# Overrides: FONT_PATH=... (extra Typst font dirs), OPEN=: (don't open PDFs)
+
+DEMO_DIR    := demo
+OUT_DIR     := $(DEMO_DIR)/output
+RENDER_DIR  := $(OUT_DIR)/render
+GEN_DIR     := $(OUT_DIR)/gen
+
+REF_PPTX    := examples/REF/PPTX/pres-pro.pptx
+DECK_JSON   := $(DEMO_DIR)/deck.json
+DECK_PPTX   := $(GEN_DIR)/office-editor-demo.pptx
+
+CLI_DLL     := OfficeEditor.Cli/bin/Release/net9.0/OfficeEditor.Cli.dll
+CONVERT_DLL := tools/convert-pptx/bin/Release/net9.0/convert-pptx.dll
+
+# Font dirs handed to the TypstBridge compile (its native side keeps system
+# fonts off by default, so we pass them explicitly — same mechanism as
+# `convert-pptx --font-path`).
+FONT_PATH   ?= /System/Library/Fonts:/Library/Fonts:$(HOME)/Library/Fonts
+
+# Set OPEN=: to skip opening the resulting PDFs.
+OPEN        ?= open
+
+# Native TypstBridge library for this machine's RID.
+UNAME_S := $(shell uname -s)
+UNAME_M := $(shell uname -m)
+ifeq ($(UNAME_S),Darwin)
+  ifeq ($(UNAME_M),arm64)
+    RID := osx-arm64
+  else
+    RID := osx-x64
+  endif
+  NATIVE_LIB := TypstBridge/runtimes/$(RID)/native/libtypst_bridge.dylib
+else ifeq ($(UNAME_S),Linux)
+  RID := linux-x64
+  NATIVE_LIB := TypstBridge/runtimes/$(RID)/native/libtypst_bridge.so
+else
+  RID := unknown
+  NATIVE_LIB := TypstBridge/runtimes/$(RID)/native/libtypst_bridge
+endif
+
+DOTNET_RUN := DOTNET_ROLL_FORWARD=Major dotnet
+
+.PHONY: setup convert generate clean demo help
+
+help:
+	@echo "OfficeEditor demo (wraps existing tools only)"
+	@echo ""
+	@echo "  make -f Makefile.demo setup      Preflight (.NET, TypstBridge lib, fonts) + restore + build Release"
+	@echo "  make -f Makefile.demo convert    Render $(REF_PPTX) → PNGs + PDF into $(RENDER_DIR)/"
+	@echo "  make -f Makefile.demo generate   Build $(DECK_JSON) → PPTX, render it, into $(GEN_DIR)/"
+	@echo "  make -f Makefile.demo clean      Wipe $(OUT_DIR)/"
+	@echo "  make -f Makefile.demo demo       setup + convert + generate"
+	@echo ""
+	@echo "Overrides: FONT_PATH='$(FONT_PATH)'  OPEN=open (use OPEN=: to skip)"
+
+## Preflight: fail loudly on any missing piece, then restore + build Release.
+setup:
+	@echo "── OfficeEditor demo · setup ──────────────────────────────"
+	@command -v dotnet >/dev/null 2>&1 || { echo "✘ dotnet CLI not found. Install the .NET 9 SDK."; exit 1; }
+	@sdk=$$(dotnet --version); major=$${sdk%%.*}; \
+		echo "  ✔ .NET SDK $$sdk"; \
+		[ "$$major" -ge 9 ] || { echo "✘ .NET SDK 9.0+ required, found $$sdk."; exit 1; }
+	@[ -f "$(REF_PPTX)" ] || { echo "✘ $(REF_PPTX) not found — run from the repo root."; exit 1; }
+	@[ "$(RID)" != "unknown" ] || { echo "✘ Unsupported platform $(UNAME_S)/$(UNAME_M) for TypstBridge."; exit 1; }
+	@[ -f "$(NATIVE_LIB)" ] || { echo "✘ TypstBridge native lib missing: $(NATIVE_LIB)"; \
+		echo "  Build it: cd TypstBridge/native && cargo build --release, then copy the lib into runtimes/$(RID)/native/"; exit 1; }
+	@echo "  ✔ TypstBridge native lib ($(RID))"
+	@command -v perl >/dev/null 2>&1 || { echo "✘ perl not found (used for wall-clock timing)."; exit 1; }
+	@font_count=$$(echo "$(FONT_PATH)" | tr ':' '\n' | while read -r dir; do \
+			[ -d "$$dir" ] && find "$$dir" -maxdepth 2 \( -name '*.ttf' -o -name '*.ttc' -o -name '*.otf' \) 2>/dev/null; \
+		done | wc -l | tr -d ' '); \
+		[ "$$font_count" -gt 0 ] || { echo "✘ No fonts found in FONT_PATH ($(FONT_PATH))."; exit 1; }; \
+		echo "  ✔ Fonts detected ($$font_count files in FONT_PATH)"
+	@[ -f "/System/Library/Fonts/HelveticaNeue.ttc" ] || { echo "✘ 'Helvetica Neue' not found — the demo deck body font (deck design.fonts.body)."; exit 1; }
+	@[ -f "/System/Library/Fonts/Avenir Next.ttc" ] || { echo "✘ 'Avenir Next' not found — the demo deck display font (deck design.fonts.display)."; exit 1; }
+	@echo "  ✔ Deck fonts present (Avenir Next, Helvetica Neue)"
+	@dotnet restore OfficeEditor.Cli/OfficeEditor.Cli.csproj --nologo -v q
+	@dotnet restore tools/convert-pptx/convert-pptx.csproj --nologo -v q
+	@dotnet build -c Release --no-restore --nologo -v m OfficeEditor.Cli/OfficeEditor.Cli.csproj
+	@dotnet build -c Release --no-restore --nologo -v m tools/convert-pptx/convert-pptx.csproj
+	@[ -f "$(CLI_DLL)" ] && [ -f "$(CONVERT_DLL)" ] || { echo "✘ Build output missing."; exit 1; }
+	@echo "  ✔ Release build OK"
+	@echo "── setup done ─────────────────────────────────────────────"
+
+## Render the reference deck to per-slide PNGs + one PDF, then open the PDF.
+convert:
+	@echo "── OfficeEditor demo · convert ────────────────────────────"
+	@[ -f "$(CONVERT_DLL)" ] || { echo "✘ $(CONVERT_DLL) missing — run 'make -f Makefile.demo setup' first."; exit 1; }
+	@set -e; \
+		mkdir -p "$(RENDER_DIR)/pres-pro"; \
+		start=$$(perl -MTime::HiRes=time -e 'printf "%d", time() * 1000'); \
+		$(DOTNET_RUN) "$(CONVERT_DLL)" "$(REF_PPTX)" "$(RENDER_DIR)/pres-pro" --format png --font-path "$(FONT_PATH)"; \
+		$(DOTNET_RUN) "$(CONVERT_DLL)" "$(REF_PPTX)" "$(RENDER_DIR)/pres-pro.pdf" --font-path "$(FONT_PATH)"; \
+		end=$$(perl -MTime::HiRes=time -e 'printf "%d", time() * 1000'); \
+		slides=$$(ls "$(RENDER_DIR)"/pres-pro/slide-*.png | wc -l | tr -d ' '); \
+		ms=$$((end - start)); \
+		per_slide=$$(awk "BEGIN { printf \"%.1f\", $$ms / $$slides }"); \
+		echo ""; \
+		echo "  ✔ $$slides slides in $${ms}ms, $${per_slide}ms/slide  →  $(RENDER_DIR)/"; \
+		$(OPEN) "$(RENDER_DIR)/pres-pro.pdf"
+
+## Build a PPTX from demo/deck.json, render it the same way, open the PDF.
+generate:
+	@echo "── OfficeEditor demo · generate ───────────────────────────"
+	@[ -f "$(CLI_DLL)" ] && [ -f "$(CONVERT_DLL)" ] || { echo "✘ Build output missing — run 'make -f Makefile.demo setup' first."; exit 1; }
+	@[ -f "$(DECK_JSON)" ] || { echo "✘ $(DECK_JSON) not found."; exit 1; }
+	@set -e; \
+		mkdir -p "$(GEN_DIR)/render"; \
+		b_start=$$(perl -MTime::HiRes=time -e 'printf "%d", time() * 1000'); \
+		$(DOTNET_RUN) "$(CLI_DLL)" generate "$(DECK_JSON)" --output "$(DECK_PPTX)"; \
+		b_end=$$(perl -MTime::HiRes=time -e 'printf "%d", time() * 1000'); \
+		r_start=$$(perl -MTime::HiRes=time -e 'printf "%d", time() * 1000'); \
+		$(DOTNET_RUN) "$(CONVERT_DLL)" "$(DECK_PPTX)" "$(GEN_DIR)/render" --format png --font-path "$(FONT_PATH)"; \
+		$(DOTNET_RUN) "$(CONVERT_DLL)" "$(DECK_PPTX)" "$(GEN_DIR)/office-editor-demo.pdf" --font-path "$(FONT_PATH)"; \
+		r_end=$$(perl -MTime::HiRes=time -e 'printf "%d", time() * 1000'); \
+		slides=$$(ls "$(GEN_DIR)"/render/slide-*.png | wc -l | tr -d ' '); \
+		b_ms=$$((b_end - b_start)); \
+		r_ms=$$((r_end - r_start)); \
+		b_per=$$(awk "BEGIN { printf \"%.1f\", $$b_ms / $$slides }"); \
+		r_per=$$(awk "BEGIN { printf \"%.1f\", $$r_ms / $$slides }"); \
+		echo ""; \
+		echo "  ✔ build  · $$slides slides in $${b_ms}ms, $${b_per}ms/slide  →  $(DECK_PPTX)"; \
+		echo "  ✔ render · $$slides slides in $${r_ms}ms, $${r_per}ms/slide  →  $(GEN_DIR)/"; \
+		$(OPEN) "$(GEN_DIR)/office-editor-demo.pdf"
+
+## Wipe all demo output.
+clean:
+	@rm -rf "$(OUT_DIR)"
+	@echo "  ✔ wiped $(OUT_DIR)/"
+
+## Full run: setup + convert + generate.
+demo: setup convert generate
+	@echo ""
+	@echo "── demo complete · artifacts under $(OUT_DIR)/ ────────────"
