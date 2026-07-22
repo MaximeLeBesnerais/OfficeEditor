@@ -1,0 +1,911 @@
+{
+  "version": "2.0",
+  "design": {
+    "palette": {
+      "ink": "#1E2A32",
+      "paper": "#FFFFFF",
+      "primary": "#0E7C7B",
+      "accent": "#D9A441",
+      "muted": "#7A8288",
+      "mist": "#EDF2F2",
+      "glow": "#35B5B3"
+    },
+    "fonts": { "display": "Avenir Next", "body": "Helvetica Neue" },
+    "shape": { "cornerRadius": 0, "cardStyle": "outline" },
+    "metrics": { "marginPt": 48, "gutterPt": 18, "titleSizePt": 42, "bodySizePt": 16 }
+  },
+  "slides": [
+    {
+      "type": "container",
+      "fill": "ink",
+      "layout": { "mode": "column", "gap": 16, "justify": "center", "align": "start" },
+      "padding": [56, 64, 56, 64],
+      "children": [
+        {
+          "type": "text",
+          "text": "NORTHWIND LABS · RENEWABLE FLEET INTELLIGENCE",
+          "fontSize": 14,
+          "color": "glow",
+          "bold": true,
+          "size": { "h": 20 }
+        },
+        {
+          "type": "text",
+          "text": "{{DECK_TITLE}}",
+          "font": "display",
+          "fontSize": 58,
+          "color": "paper",
+          "size": { "h": 148 }
+        },
+        { "type": "rect", "fill": "accent", "size": { "w": 84, "h": 4 } },
+        {
+          "type": "text",
+          "text": "Investor briefing · FY2025 results and the road to 3,000 connected sites",
+          "fontSize": 17,
+          "color": "muted",
+          "size": { "h": 26 }
+        },
+        {
+          "type": "container",
+          "layout": { "mode": "row", "gap": 10, "justify": "start", "align": "center" },
+          "size": { "h": 30 },
+          "children": [
+            { "type": "badge", "content": { "text": "WIND" }, "size": { "w": 64, "h": 26 } },
+            { "type": "badge", "content": { "text": "SOLAR" }, "size": { "w": 68, "h": 26 } },
+            { "type": "badge", "content": { "text": "STORAGE" }, "size": { "w": 92, "h": 26 } }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "fill": "paper",
+      "layout": { "mode": "column", "gap": 18 },
+      "padding": [48, 56, 48, 56],
+      "children": [
+        {
+          "type": "title_block",
+          "content": { "kicker": "AGENDA", "title": "What we will cover" },
+          "size": { "h": 86 }
+        },
+        {
+          "type": "container",
+          "layout": { "mode": "column", "gap": 14, "justify": "center" },
+          "size": { "grow": 1 },
+          "children": [
+            {
+              "type": "container",
+              "layout": { "mode": "row", "gap": 20, "align": "center" },
+              "size": { "h": 58 },
+              "children": [
+                { "type": "text", "text": "01", "font": "display", "fontSize": 30, "color": "accent", "size": { "w": 52, "h": 40 } },
+                {
+                  "type": "container",
+                  "layout": { "mode": "column", "gap": 2, "justify": "center" },
+                  "size": { "grow": 1 },
+                  "children": [
+                    { "type": "text", "text": "The business", "fontSize": 19, "color": "ink", "bold": true, "size": { "h": 26 } },
+                    { "type": "text", "text": "Who we are, what we operate, and the market we serve", "fontSize": 13, "color": "muted", "size": { "h": 18 } }
+                  ]
+                }
+              ]
+            },
+            { "type": "rect", "fill": "mist", "size": { "h": 1 } },
+            {
+              "type": "container",
+              "layout": { "mode": "row", "gap": 20, "align": "center" },
+              "size": { "h": 58 },
+              "children": [
+                { "type": "text", "text": "02", "font": "display", "fontSize": 30, "color": "accent", "size": { "w": 52, "h": 40 } },
+                {
+                  "type": "container",
+                  "layout": { "mode": "column", "gap": 2, "justify": "center" },
+                  "size": { "grow": 1 },
+                  "children": [
+                    { "type": "text", "text": "The numbers", "fontSize": 19, "color": "ink", "bold": true, "size": { "h": 26 } },
+                    { "type": "text", "text": "FY2025 revenue, growth and unit economics", "fontSize": 13, "color": "muted", "size": { "h": 18 } }
+                  ]
+                }
+              ]
+            },
+            { "type": "rect", "fill": "mist", "size": { "h": 1 } },
+            {
+              "type": "container",
+              "layout": { "mode": "row", "gap": 20, "align": "center" },
+              "size": { "h": 58 },
+              "children": [
+                { "type": "text", "text": "03", "font": "display", "fontSize": 30, "color": "accent", "size": { "w": 52, "h": 40 } },
+                {
+                  "type": "container",
+                  "layout": { "mode": "column", "gap": 2, "justify": "center" },
+                  "size": { "grow": 1 },
+                  "children": [
+                    { "type": "text", "text": "The product", "fontSize": 19, "color": "ink", "bold": true, "size": { "h": 26 } },
+                    { "type": "text", "text": "Northwind Pulse — platform tour and roadmap", "fontSize": 13, "color": "muted", "size": { "h": 18 } }
+                  ]
+                }
+              ]
+            },
+            { "type": "rect", "fill": "mist", "size": { "h": 1 } },
+            {
+              "type": "container",
+              "layout": { "mode": "row", "gap": 20, "align": "center" },
+              "size": { "h": 58 },
+              "children": [
+                { "type": "text", "text": "04", "font": "display", "fontSize": 30, "color": "accent", "size": { "w": 52, "h": 40 } },
+                {
+                  "type": "container",
+                  "layout": { "mode": "column", "gap": 2, "justify": "center" },
+                  "size": { "grow": 1 },
+                  "children": [
+                    { "type": "text", "text": "Why now", "fontSize": 19, "color": "ink", "bold": true, "size": { "h": 26 } },
+                    { "type": "text", "text": "The outlook for 2026 and how to work with us", "fontSize": 13, "color": "muted", "size": { "h": 18 } }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "fill": "paper",
+      "layout": { "mode": "column", "gap": 16 },
+      "padding": [48, 56, 48, 56],
+      "children": [
+        {
+          "type": "title_block",
+          "content": { "kicker": "THE BUSINESS", "title": "Northwind Labs at a glance" },
+          "size": { "h": 86 }
+        },
+        {
+          "type": "container",
+          "layout": { "mode": "row", "gap": 18, "align": "stretch" },
+          "overflow": "clip",
+          "size": { "grow": 1 },
+          "children": [
+            {
+              "type": "container",
+              "layout": { "mode": "column", "gap": 6, "justify": "center", "align": "center" },
+              "overflow": "clip",
+              "size": { "grow": 1 },
+              "children": [
+                { "type": "text", "text": "1,284", "font": "display", "fontSize": 52, "color": "primary", "textAlign": "center", "size": { "h": 64 } },
+                { "type": "text", "text": "turbines & arrays monitored", "fontSize": 14, "color": "muted", "textAlign": "center", "size": { "h": 40 } }
+              ]
+            },
+            {
+              "type": "container",
+              "layout": { "mode": "column", "gap": 6, "justify": "center", "align": "center" },
+              "overflow": "clip",
+              "size": { "grow": 1 },
+              "children": [
+                { "type": "text", "text": "4.1 GW", "font": "display", "fontSize": 52, "color": "primary", "textAlign": "center", "size": { "h": 64 } },
+                { "type": "text", "text": "capacity under management", "fontSize": 14, "color": "muted", "textAlign": "center", "size": { "h": 40 } }
+              ]
+            },
+            {
+              "type": "container",
+              "layout": { "mode": "column", "gap": 6, "justify": "center", "align": "center" },
+              "overflow": "clip",
+              "size": { "grow": 1 },
+              "children": [
+                { "type": "text", "text": "14", "font": "display", "fontSize": 52, "color": "primary", "textAlign": "center", "size": { "h": 64 } },
+                { "type": "text", "text": "markets across EU & North America", "fontSize": 14, "color": "muted", "textAlign": "center", "size": { "h": 40 } }
+              ]
+            },
+            {
+              "type": "container",
+              "layout": { "mode": "column", "gap": 6, "justify": "center", "align": "center" },
+              "overflow": "clip",
+              "size": { "grow": 1 },
+              "children": [
+                { "type": "text", "text": "212", "font": "display", "fontSize": 52, "color": "primary", "textAlign": "center", "size": { "h": 64 } },
+                { "type": "text", "text": "people in Oslo, Berlin & Chicago", "fontSize": 14, "color": "muted", "textAlign": "center", "size": { "h": 40 } }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": "Founded 2016 · Independent power producers, utilities and O&M providers run their fleets on Northwind Pulse.",
+          "fontSize": 13,
+          "color": "muted",
+          "textAlign": "center",
+          "size": { "h": 18 }
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "fill": "paper",
+      "layout": { "mode": "column", "gap": 16 },
+      "padding": [48, 56, 48, 56],
+      "children": [
+        {
+          "type": "title_block",
+          "content": { "kicker": "THE BUSINESS", "title": "What we do" },
+          "size": { "h": 86 }
+        },
+        {
+          "type": "container",
+          "layout": { "mode": "row", "gap": 32, "align": "stretch" },
+          "overflow": "clip",
+          "size": { "grow": 1 },
+          "children": [
+            {
+              "type": "container",
+              "layout": { "mode": "column", "justify": "center" },
+              "size": { "grow": 1 },
+              "children": [
+                {
+                  "type": "bullet_list",
+                  "size": { "h": 250 },
+                  "content": {
+                    "title": "One data layer for mixed renewable fleets",
+                    "items": [
+                      "SCADA, sensor and grid data ingested every 10 seconds",
+                      "Anomaly detection flags underperformance weeks before failure",
+                      "Production forecasts tuned per site, per turbine model",
+                      "Compliance and availability reporting generated automatically"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "type": "container",
+              "layout": { "mode": "column", "justify": "center" },
+              "size": { "w": 330 },
+              "children": [
+                {
+                  "type": "card",
+                  "content": {
+                    "title": "Why operators switch",
+                    "body": "Fleets on Northwind Pulse recover an average of 3.8% of lost production in the first year — mostly from faults that legacy monitoring never surfaced."
+                  },
+                  "size": { "h": 210 }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "fill": "paper",
+      "layout": { "mode": "column", "gap": 16 },
+      "padding": [48, 56, 48, 56],
+      "children": [
+        {
+          "type": "title_block",
+          "content": { "kicker": "THE BUSINESS", "title": "A market that keeps compounding" },
+          "size": { "h": 86 }
+        },
+        { "type": "rect", "fill": "paper", "size": { "grow": 1 } },
+        {
+          "type": "container",
+          "layout": { "mode": "row", "gap": 18, "align": "stretch" },
+          "overflow": "clip",
+          "size": { "h": 230 },
+          "children": [
+            {
+              "type": "container",
+              "layout": { "mode": "column", "gap": 0 },
+              "overflow": "clip",
+              "size": { "grow": 1 },
+              "children": [
+                { "type": "rect", "fill": "accent", "size": { "h": 3 } },
+                {
+                  "type": "card",
+                  "content": { "title": "€9.2B by 2028", "body": "Renewable asset-management software spend, growing ~14% per year as fleets age and digitize." },
+                  "size": { "grow": 1 }
+                }
+              ]
+            },
+            {
+              "type": "container",
+              "layout": { "mode": "column", "gap": 0 },
+              "overflow": "clip",
+              "size": { "grow": 1 },
+              "children": [
+                { "type": "rect", "fill": "accent", "size": { "h": 3 } },
+                {
+                  "type": "card",
+                  "content": { "title": "61% still on legacy", "body": "Most fleets above 50 MW run on fragmented SCADA exports and spreadsheets — our replacement wedge." },
+                  "size": { "grow": 1 }
+                }
+              ]
+            },
+            {
+              "type": "container",
+              "layout": { "mode": "column", "gap": 0 },
+              "overflow": "clip",
+              "size": { "grow": 1 },
+              "children": [
+                { "type": "rect", "fill": "accent", "size": { "h": 3 } },
+                {
+                  "type": "card",
+                  "content": { "title": "2.4× data growth", "body": "Sensor density per MW has more than doubled since 2021 — operators need tooling built for this volume." },
+                  "size": { "grow": 1 }
+                }
+              ]
+            }
+          ]
+        },
+        { "type": "rect", "fill": "paper", "size": { "grow": 1 } },
+        {
+          "type": "text",
+          "text": "Sources: company analysis of public tender data and customer interviews, Q1 2026.",
+          "fontSize": 12,
+          "color": "muted",
+          "textAlign": "center",
+          "size": { "h": 16 }
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "fill": "paper",
+      "layout": { "mode": "column", "gap": 16 },
+      "padding": [48, 56, 48, 56],
+      "children": [
+        {
+          "type": "title_block",
+          "content": { "kicker": "THE BUSINESS", "title": "Who we serve" },
+          "size": { "h": 86 }
+        },
+        {
+          "type": "container",
+          "layout": { "mode": "row", "gap": 32, "align": "stretch" },
+          "overflow": "clip",
+          "size": { "grow": 1 },
+          "children": [
+            {
+              "type": "container",
+              "layout": { "mode": "column", "justify": "center" },
+              "size": { "w": 330 },
+              "children": [
+                {
+                  "type": "card",
+                  "content": {
+                    "title": "Anchor customers",
+                    "body": "Meridian Renewables, Kaskade Energy, Bluefjord Vind, Helios Grid Partners and 38 other operators across 14 markets."
+                  },
+                  "size": { "h": 190 }
+                }
+              ]
+            },
+            {
+              "type": "container",
+              "layout": { "mode": "column", "justify": "center" },
+              "size": { "grow": 1 },
+              "children": [
+                {
+                  "type": "bullet_list",
+                  "size": { "h": 250 },
+                  "content": {
+                    "title": "Three segments, one platform",
+                    "items": [
+                      "Independent power producers — portfolio-wide performance",
+                      "Utilities — regulated reporting and grid compliance",
+                      "O&M providers — white-label monitoring for their clients",
+                      "Average contract: €212K ARR across 3.2 sites"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "fill": "paper",
+      "layout": { "mode": "column", "gap": 16 },
+      "padding": [48, 56, 48, 56],
+      "children": [
+        {
+          "type": "title_block",
+          "content": { "kicker": "THE NUMBERS", "title": "FY2025 scoreboard" },
+          "size": { "h": 86 }
+        },
+        {
+          "type": "container",
+          "layout": { "mode": "row", "gap": 18, "align": "stretch" },
+          "overflow": "clip",
+          "size": { "grow": 1 },
+          "children": [
+            {
+              "type": "container",
+              "fill": "mist",
+              "layout": { "mode": "column", "gap": 6, "justify": "center", "align": "center" },
+              "padding": [16, 12, 16, 12],
+              "overflow": "clip",
+              "size": { "grow": 1 },
+              "children": [
+                { "type": "text", "text": "€18.4M", "font": "display", "fontSize": 44, "color": "primary", "textAlign": "center", "size": { "h": 56 } },
+                { "type": "text", "text": "ARR, up 42% YoY", "fontSize": 14, "color": "muted", "textAlign": "center", "size": { "h": 20 } }
+              ]
+            },
+            {
+              "type": "container",
+              "fill": "mist",
+              "layout": { "mode": "column", "gap": 6, "justify": "center", "align": "center" },
+              "padding": [16, 12, 16, 12],
+              "overflow": "clip",
+              "size": { "grow": 1 },
+              "children": [
+                { "type": "text", "text": "118%", "font": "display", "fontSize": 44, "color": "primary", "textAlign": "center", "size": { "h": 56 } },
+                { "type": "text", "text": "net revenue retention", "fontSize": 14, "color": "muted", "textAlign": "center", "size": { "h": 20 } }
+              ]
+            },
+            {
+              "type": "container",
+              "fill": "mist",
+              "layout": { "mode": "column", "gap": 6, "justify": "center", "align": "center" },
+              "padding": [16, 12, 16, 12],
+              "overflow": "clip",
+              "size": { "grow": 1 },
+              "children": [
+                { "type": "text", "text": "71%", "font": "display", "fontSize": 44, "color": "primary", "textAlign": "center", "size": { "h": 56 } },
+                { "type": "text", "text": "gross margin", "fontSize": 14, "color": "muted", "textAlign": "center", "size": { "h": 20 } }
+              ]
+            },
+            {
+              "type": "container",
+              "fill": "mist",
+              "layout": { "mode": "column", "gap": 6, "justify": "center", "align": "center" },
+              "padding": [16, 12, 16, 12],
+              "overflow": "clip",
+              "size": { "grow": 1 },
+              "children": [
+                { "type": "text", "text": "87", "font": "display", "fontSize": 44, "color": "primary", "textAlign": "center", "size": { "h": 56 } },
+                { "type": "text", "text": "fleet customers, +19 in FY25", "fontSize": 14, "color": "muted", "textAlign": "center", "size": { "h": 20 } }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": "Audited figures, fiscal year ending December 2025.",
+          "fontSize": 12,
+          "color": "muted",
+          "textAlign": "center",
+          "size": { "h": 16 }
+        }
+      ]
+    },
+    {
+      "type": "table_slide",
+      "content": {
+        "title": "Quarterly revenue by segment (€K)",
+        "columns": ["Quarter", "Wind", "Solar", "Storage", "Total"],
+        "rows": [
+          ["Q1 FY25", "2,140", "980", "310", "3,430"],
+          ["Q2 FY25", "2,460", "1,150", "420", "4,030"],
+          ["Q3 FY25", "2,720", "1,390", "560", "4,670"],
+          ["Q4 FY25", "3,050", "1,620", "740", "5,410"],
+          ["FY25 total", "10,370", "5,140", "2,030", "17,540"],
+          ["FY24 total", "7,610", "3,420", "1,180", "12,210"]
+        ],
+        "columnWeights": [3, 2, 2, 2, 2]
+      }
+    },
+    {
+      "type": "container",
+      "fill": "paper",
+      "layout": { "mode": "column", "gap": 16 },
+      "padding": [48, 56, 48, 56],
+      "children": [
+        {
+          "type": "title_block",
+          "content": { "kicker": "THE NUMBERS", "title": "Quality of the growth" },
+          "size": { "h": 86 }
+        },
+        {
+          "type": "container",
+          "layout": { "mode": "row", "gap": 32, "align": "stretch" },
+          "overflow": "clip",
+          "size": { "grow": 1 },
+          "children": [
+            {
+              "type": "container",
+              "layout": { "mode": "column", "justify": "center" },
+              "size": { "grow": 1 },
+              "children": [
+                {
+                  "type": "bullet_list",
+                  "size": { "h": 250 },
+                  "content": {
+                    "title": "What sits behind the numbers",
+                    "items": [
+                      "Storage segment grew 72% — fastest-growing line",
+                      "Expansion revenue drove 58% of net new ARR",
+                      "Logo churn held at 4.1%, all sub-€50K accounts",
+                      "CAC payback steady at 13 months"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "type": "container",
+              "layout": { "mode": "column", "justify": "center" },
+              "size": { "w": 330 },
+              "children": [
+                {
+                  "type": "card",
+                  "content": {
+                    "title": "Unit economics",
+                    "body": "Average contract €212K ARR · 71% gross margin · 13-month CAC payback. Every cohort since 2021 has turned contribution-positive within 18 months."
+                  },
+                  "size": { "h": 210 }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "fill": "paper",
+      "layout": { "mode": "column", "gap": 14 },
+      "padding": [48, 56, 48, 56],
+      "children": [
+        {
+          "type": "title_block",
+          "content": { "kicker": "THE NUMBERS", "title": "Four years of compounding" },
+          "size": { "h": 86 }
+        },
+        {
+          "type": "container",
+          "layout": { "mode": "row", "gap": 40, "justify": "center", "align": "end" },
+          "size": { "grow": 1 },
+          "children": [
+            {
+              "type": "container",
+              "layout": { "mode": "column", "gap": 6, "justify": "end", "align": "center" },
+              "size": { "w": 130 },
+              "children": [
+                { "type": "text", "text": "€5.2M", "fontSize": 14, "color": "ink", "bold": true, "textAlign": "center", "size": { "h": 18 } },
+                { "type": "rect", "fill": "primary", "size": { "w": 96, "h": 62 } },
+                { "type": "text", "text": "FY22", "fontSize": 13, "color": "muted", "textAlign": "center", "size": { "h": 18 } }
+              ]
+            },
+            {
+              "type": "container",
+              "layout": { "mode": "column", "gap": 6, "justify": "end", "align": "center" },
+              "size": { "w": 130 },
+              "children": [
+                { "type": "text", "text": "€8.6M", "fontSize": 14, "color": "ink", "bold": true, "textAlign": "center", "size": { "h": 18 } },
+                { "type": "rect", "fill": "primary", "size": { "w": 96, "h": 102 } },
+                { "type": "text", "text": "FY23", "fontSize": 13, "color": "muted", "textAlign": "center", "size": { "h": 18 } }
+              ]
+            },
+            {
+              "type": "container",
+              "layout": { "mode": "column", "gap": 6, "justify": "end", "align": "center" },
+              "size": { "w": 130 },
+              "children": [
+                { "type": "text", "text": "€12.9M", "fontSize": 14, "color": "ink", "bold": true, "textAlign": "center", "size": { "h": 18 } },
+                { "type": "rect", "fill": "primary", "size": { "w": 96, "h": 154 } },
+                { "type": "text", "text": "FY24", "fontSize": 13, "color": "muted", "textAlign": "center", "size": { "h": 18 } }
+              ]
+            },
+            {
+              "type": "container",
+              "layout": { "mode": "column", "gap": 6, "justify": "end", "align": "center" },
+              "size": { "w": 130 },
+              "children": [
+                { "type": "text", "text": "€18.4M", "fontSize": 14, "color": "ink", "bold": true, "textAlign": "center", "size": { "h": 18 } },
+                { "type": "rect", "fill": "accent", "size": { "w": 96, "h": 220 } },
+                { "type": "text", "text": "FY25", "fontSize": 13, "color": "muted", "textAlign": "center", "size": { "h": 18 } }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": "Annual recurring revenue, year-end. FY25 mix: 59% wind · 29% solar · 12% storage.",
+          "fontSize": 13,
+          "color": "muted",
+          "textAlign": "center",
+          "size": { "h": 18 }
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "fill": "paper",
+      "layout": { "mode": "column", "gap": 18 },
+      "padding": [48, 56, 48, 56],
+      "children": [
+        {
+          "type": "title_block",
+          "content": { "kicker": "THE PRODUCT", "title": "Northwind Pulse — three layers" },
+          "size": { "h": 86 }
+        },
+        { "type": "rect", "fill": "paper", "size": { "grow": 1 } },
+        {
+          "type": "container",
+          "layout": { "mode": "row", "gap": 18, "align": "stretch" },
+          "overflow": "clip",
+          "size": { "h": 230 },
+          "children": [
+            {
+              "type": "container",
+              "layout": { "mode": "column", "gap": 0 },
+              "overflow": "clip",
+              "size": { "grow": 1 },
+              "children": [
+                { "type": "rect", "fill": "primary", "size": { "h": 3 } },
+                {
+                  "type": "card",
+                  "content": { "title": "Pulse Edge", "body": "On-site collectors that normalize SCADA, vibration and met-mast feeds — even over intermittent links." },
+                  "size": { "grow": 1 }
+                }
+              ]
+            },
+            {
+              "type": "container",
+              "layout": { "mode": "column", "gap": 0 },
+              "overflow": "clip",
+              "size": { "grow": 1 },
+              "children": [
+                { "type": "rect", "fill": "primary", "size": { "h": 3 } },
+                {
+                  "type": "card",
+                  "content": { "title": "Pulse Cloud", "body": "Fleet analytics: anomaly detection, production forecasting and automated availability reporting." },
+                  "size": { "grow": 1 }
+                }
+              ]
+            },
+            {
+              "type": "container",
+              "layout": { "mode": "column", "gap": 0 },
+              "overflow": "clip",
+              "size": { "grow": 1 },
+              "children": [
+                { "type": "rect", "fill": "primary", "size": { "h": 3 } },
+                {
+                  "type": "card",
+                  "content": { "title": "Pulse API", "body": "Every metric, alert and forecast over a versioned API — feeds trading desks, ERP and BI stacks." },
+                  "size": { "grow": 1 }
+                }
+              ]
+            }
+          ]
+        },
+        { "type": "rect", "fill": "paper", "size": { "grow": 1 } },
+        {
+          "type": "text",
+          "text": "Deployed at 1,284 sites; median time from contract to live data is 11 days.",
+          "fontSize": 13,
+          "color": "muted",
+          "textAlign": "center",
+          "size": { "h": 18 }
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "fill": "paper",
+      "layout": { "mode": "column", "gap": 12 },
+      "padding": [48, 56, 48, 56],
+      "children": [
+        {
+          "type": "title_block",
+          "content": { "kicker": "THE PRODUCT", "title": "Inside the operations view" },
+          "size": { "h": 86 }
+        },
+        {
+          "type": "container",
+          "fill": "ink",
+          "layout": { "mode": "column", "justify": "center", "align": "center" },
+          "padding": [10, 10, 10, 10],
+          "size": { "grow": 1 },
+          "children": [
+            {
+              "type": "image",
+              "src": "demo/assets/dashboard.png",
+              "fit": "contain",
+              "size": { "grow": 1 }
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": "Northwind Pulse fleet overview — live generation, alerts and uptime across a 1,284-asset portfolio.",
+          "fontSize": 13,
+          "color": "muted",
+          "textAlign": "center",
+          "size": { "h": 18 }
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "fill": "paper",
+      "layout": { "mode": "column", "gap": 16 },
+      "padding": [48, 56, 48, 56],
+      "children": [
+        {
+          "type": "title_block",
+          "content": { "kicker": "THE PRODUCT", "title": "Roadmap to 2027" },
+          "size": { "h": 86 }
+        },
+        {
+          "type": "container",
+          "layout": { "mode": "row", "gap": 8, "justify": "center", "align": "center" },
+          "overflow": "clip",
+          "size": { "grow": 1 },
+          "children": [
+            {
+              "type": "container",
+              "fill": "mist",
+              "layout": { "mode": "column", "gap": 4, "justify": "center" },
+              "padding": [12, 14, 12, 14],
+              "size": { "w": 182, "h": 150 },
+              "children": [
+                { "type": "text", "text": "H2 2026", "fontSize": 12, "color": "accent", "bold": true, "size": { "h": 16 } },
+                { "type": "text", "text": "Storage dispatch", "fontSize": 15, "color": "ink", "bold": true, "size": { "h": 22 } },
+                { "type": "text", "text": "Battery charge/discharge optimization against day-ahead prices.", "fontSize": 12, "color": "muted", "size": { "h": 66 } }
+              ]
+            },
+            { "type": "text", "text": "→", "fontSize": 22, "color": "accent", "textAlign": "center", "size": { "w": 24, "h": 30 } },
+            {
+              "type": "container",
+              "fill": "mist",
+              "layout": { "mode": "column", "gap": 4, "justify": "center" },
+              "padding": [12, 14, 12, 14],
+              "size": { "w": 182, "h": 150 },
+              "children": [
+                { "type": "text", "text": "Q4 2026", "fontSize": 12, "color": "accent", "bold": true, "size": { "h": 16 } },
+                { "type": "text", "text": "Fleet copilot", "fontSize": 15, "color": "ink", "bold": true, "size": { "h": 22 } },
+                { "type": "text", "text": "Natural-language queries over live and historical fleet data.", "fontSize": 12, "color": "muted", "size": { "h": 66 } }
+              ]
+            },
+            { "type": "text", "text": "→", "fontSize": 22, "color": "accent", "textAlign": "center", "size": { "w": 24, "h": 30 } },
+            {
+              "type": "container",
+              "fill": "mist",
+              "layout": { "mode": "column", "gap": 4, "justify": "center" },
+              "padding": [12, 14, 12, 14],
+              "size": { "w": 182, "h": 150 },
+              "children": [
+                { "type": "text", "text": "H1 2027", "fontSize": 12, "color": "accent", "bold": true, "size": { "h": 16 } },
+                { "type": "text", "text": "Grid services", "fontSize": 15, "color": "ink", "bold": true, "size": { "h": 22 } },
+                { "type": "text", "text": "Automated bidding into balancing and capacity markets.", "fontSize": 12, "color": "muted", "size": { "h": 66 } }
+              ]
+            },
+            { "type": "text", "text": "→", "fontSize": 22, "color": "accent", "textAlign": "center", "size": { "w": 24, "h": 30 } },
+            {
+              "type": "container",
+              "fill": "mist",
+              "layout": { "mode": "column", "gap": 4, "justify": "center" },
+              "padding": [12, 14, 12, 14],
+              "size": { "w": 182, "h": 150 },
+              "children": [
+                { "type": "text", "text": "H2 2027", "fontSize": 12, "color": "accent", "bold": true, "size": { "h": 16 } },
+                { "type": "text", "text": "3,000 sites", "fontSize": 15, "color": "ink", "bold": true, "size": { "h": 22 } },
+                { "type": "text", "text": "Self-serve onboarding for fleets under 20 MW.", "fontSize": 12, "color": "muted", "size": { "h": 66 } }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": "Shipped on a 6-week release train; every feature above is already in private preview with anchor customers.",
+          "fontSize": 13,
+          "color": "muted",
+          "textAlign": "center",
+          "size": { "h": 18 }
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "fill": "paper",
+      "layout": { "mode": "column", "gap": 16 },
+      "padding": [48, 56, 48, 56],
+      "children": [
+        {
+          "type": "title_block",
+          "content": { "kicker": "OUTLOOK", "title": "Why now" },
+          "size": { "h": 86 }
+        },
+        {
+          "type": "container",
+          "layout": { "mode": "row", "gap": 32, "align": "stretch" },
+          "overflow": "clip",
+          "size": { "grow": 1 },
+          "children": [
+            {
+              "type": "container",
+              "layout": { "mode": "column", "justify": "center" },
+              "size": { "grow": 1 },
+              "children": [
+                {
+                  "type": "bullet_list",
+                  "size": { "h": 250 },
+                  "content": {
+                    "title": "The window is open",
+                    "items": [
+                      "Fleet repowering wave starts 2026 — monitoring gets rebuilt",
+                      "Grid codes tighten: automated reporting becomes mandatory",
+                      "Storage attach rate on new solar passed 40% in 2025",
+                      "Our storage product line is 18 months ahead of the pack"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "type": "container",
+              "layout": { "mode": "column", "justify": "center" },
+              "size": { "w": 330 },
+              "children": [
+                {
+                  "type": "card",
+                  "content": {
+                    "title": "The plan",
+                    "body": "Series B of €24M funds the storage launch, US expansion and the self-serve tier — targeting €30M ARR by end of 2027."
+                  },
+                  "size": { "h": 190 }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "fill": "ink",
+      "layout": { "mode": "column", "gap": 16, "justify": "center", "align": "center" },
+      "padding": [56, 64, 56, 64],
+      "children": [
+        {
+          "type": "text",
+          "text": "NORTHWIND LABS",
+          "fontSize": 14,
+          "color": "glow",
+          "bold": true,
+          "textAlign": "center",
+          "size": { "h": 20 }
+        },
+        {
+          "type": "text",
+          "text": "Let's put your fleet on Pulse",
+          "font": "display",
+          "fontSize": 44,
+          "color": "paper",
+          "textAlign": "center",
+          "size": { "h": 58 }
+        },
+        { "type": "rect", "fill": "accent", "size": { "w": 84, "h": 4 } },
+        {
+          "type": "text",
+          "text": "30-minute demo with your own portfolio data — no slides, just the product.",
+          "fontSize": 16,
+          "color": "muted",
+          "textAlign": "center",
+          "size": { "h": 24 }
+        },
+        {
+          "type": "text",
+          "text": "hello@northwindlabs.io · northwindlabs.io · Oslo · Berlin · Chicago",
+          "fontSize": 14,
+          "color": "paper",
+          "textAlign": "center",
+          "size": { "h": 20 }
+        }
+      ]
+    }
+  ]
+}
