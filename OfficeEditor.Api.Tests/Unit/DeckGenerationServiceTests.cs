@@ -222,6 +222,74 @@ public sealed class DeckGenerationServiceTests
     }
 
     [Fact]
+    public void Generate_ArchetypeSlide_ExpandsBeforeComponentPass()
+    {
+        // Archetypes (table_slide, two_col, …) are a documented layer of the vocabulary:
+        // the pipeline must run archetype expansion before component expansion, like the CLI.
+        var document = """
+            {
+              "version": "2.0",
+              "design": {
+                "palette": { "primary": "#0B3D91", "accent": "#FF6B00", "ink": "#1A1A1A", "paper": "#FFFFFF", "muted": "#8A94A6" },
+                "fonts": { "display": "Aptos Display", "body": "Aptos" },
+                "metrics": { "marginPt": 43, "gutterPt": 18, "titleSizePt": 30, "bodySizePt": 14 }
+              },
+              "slides": [
+                {
+                  "type": "table_slide",
+                  "content": {
+                    "title": "Regional performance",
+                    "columns": ["Region", "Revenue", "Growth", "Pipeline"],
+                    "rows": [
+                      ["North America", "$8.2M", "+38%", "$5.1M"],
+                      ["EMEA", "$4.6M", "+41%", "$3.8M"]
+                    ],
+                    "columnWeights": [2, 1, 1, 1]
+                  }
+                }
+              ]
+            }
+            """;
+
+        var result = new DeckGenerationService().Generate(document, "svg", 150);
+
+        Assert.True(result.Success);
+        Assert.Equal(1, result.SlideCount);
+        Assert.Empty(result.Errors);
+        Assert.NotNull(result.PptxBytes);
+
+        using var builder = PresentationBuilder.Open(result.PptxBytes);
+        Assert.Equal(1, builder.SlideCount);
+    }
+
+    [Fact]
+    public void Generate_ArchetypeContentError_SurfacesAsRejectedResult()
+    {
+        // Archetype expansion throws ComponentException — it must map to the same rejected
+        // result path as component errors, not escape.
+        var document = """
+            {
+              "version": "2.0",
+              "design": { "palette": { "primary": "#0B3D91" } },
+              "slides": [
+                {
+                  "type": "table_slide",
+                  "content": { "columns": ["A", "B"] }
+                }
+              ]
+            }
+            """;
+
+        var result = new DeckGenerationService().Generate(document, "svg", 150);
+
+        Assert.False(result.Success);
+        Assert.Null(result.PptxBytes);
+        var error = Assert.Single(result.Errors);
+        Assert.Equal("slides[0]", error.Path);
+        Assert.Contains("rows", error.Message);
+    }
+
+    [Fact]
     public void Generate_InvalidFormat_Throws()
     {
         Assert.Throws<ArgumentException>(
