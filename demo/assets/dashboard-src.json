@@ -1,0 +1,254 @@
+{
+  "version": "2.0",
+  "design": {
+    "palette": {
+      "ink": "#151D24",
+      "panel": "#1F2A33",
+      "sidebar": "#10171D",
+      "line": "#32424E",
+      "paper": "#F2F5F6",
+      "primary": "#2FB3B1",
+      "accent": "#D9A441",
+      "muted": "#7E8C95",
+      "good": "#4CAF7D"
+    },
+    "fonts": { "display": "Avenir Next", "body": "Helvetica Neue" },
+    "shape": { "cornerRadius": 0, "cardStyle": "flat" },
+    "metrics": { "marginPt": 24, "gutterPt": 14, "titleSizePt": 20, "bodySizePt": 12 }
+  },
+  "slides": [
+    {
+      "type": "container",
+      "fill": "ink",
+      "layout": { "mode": "row", "gap": 0, "align": "stretch" },
+      "padding": [0, 0, 0, 0],
+      "children": [
+        {
+          "type": "container",
+          "fill": "sidebar",
+          "layout": { "mode": "column", "gap": 14, "justify": "start", "align": "center" },
+          "padding": [18, 0, 18, 0],
+          "size": { "w": 52 },
+          "children": [
+            { "type": "rect", "fill": "primary", "size": { "w": 22, "h": 22 } },
+            { "type": "rect", "fill": "line", "size": { "w": 22, "h": 2 } },
+            { "type": "rect", "fill": "muted", "size": { "w": 14, "h": 14 } },
+            { "type": "rect", "fill": "line", "size": { "w": 14, "h": 14 } },
+            { "type": "rect", "fill": "line", "size": { "w": 14, "h": 14 } },
+            { "type": "rect", "fill": "line", "size": { "w": 14, "h": 14 } }
+          ]
+        },
+        {
+          "type": "container",
+          "layout": { "mode": "column", "gap": 12 },
+          "padding": [18, 22, 18, 22],
+          "size": { "grow": 1 },
+          "children": [
+            {
+              "type": "container",
+              "layout": { "mode": "row", "gap": 12, "justify": "space-between", "align": "center" },
+              "size": { "h": 30 },
+              "children": [
+                {
+                  "type": "container",
+                  "layout": { "mode": "row", "gap": 10, "align": "center" },
+                  "size": { "w": 320, "h": 30 },
+                  "children": [
+                    { "type": "rect", "fill": "primary", "size": { "w": 8, "h": 18 } },
+                    { "type": "text", "text": "Northwind Pulse — Fleet Overview", "font": "display", "fontSize": 17, "color": "paper", "size": { "w": 290, "h": 24 } }
+                  ]
+                },
+                { "type": "text", "text": "LIVE · updated 14s ago", "fontSize": 11, "color": "good", "textAlign": "right", "size": { "w": 180, "h": 16 } }
+              ]
+            },
+            {
+              "type": "container",
+              "layout": { "mode": "row", "gap": 12, "align": "stretch" },
+              "size": { "h": 92 },
+              "children": [
+                {
+                  "type": "container",
+                  "fill": "panel",
+                  "layout": { "mode": "column", "gap": 3, "justify": "center" },
+                  "padding": [10, 14, 10, 14],
+                  "size": { "grow": 1 },
+                  "children": [
+                    { "type": "text", "text": "ACTIVE TURBINES", "fontSize": 10, "color": "muted", "bold": true, "size": { "h": 13 } },
+                    { "type": "text", "text": "1,284", "font": "display", "fontSize": 30, "color": "paper", "size": { "h": 38 } },
+                    { "type": "text", "text": "+38 this quarter", "fontSize": 11, "color": "good", "size": { "h": 14 } }
+                  ]
+                },
+                {
+                  "type": "container",
+                  "fill": "panel",
+                  "layout": { "mode": "column", "gap": 3, "justify": "center" },
+                  "padding": [10, 14, 10, 14],
+                  "size": { "grow": 1 },
+                  "children": [
+                    { "type": "text", "text": "AVG CAPACITY FACTOR", "fontSize": 10, "color": "muted", "bold": true, "size": { "h": 13 } },
+                    { "type": "text", "text": "41.7%", "font": "display", "fontSize": 30, "color": "paper", "size": { "h": 38 } },
+                    { "type": "text", "text": "+2.3 pts YoY", "fontSize": 11, "color": "good", "size": { "h": 14 } }
+                  ]
+                },
+                {
+                  "type": "container",
+                  "fill": "panel",
+                  "layout": { "mode": "column", "gap": 3, "justify": "center" },
+                  "padding": [10, 14, 10, 14],
+                  "size": { "grow": 1 },
+                  "children": [
+                    { "type": "text", "text": "OPEN ALERTS", "fontSize": 10, "color": "muted", "bold": true, "size": { "h": 13 } },
+                    { "type": "text", "text": "17", "font": "display", "fontSize": 30, "color": "accent", "size": { "h": 38 } },
+                    { "type": "text", "text": "3 critical · 14 advisory", "fontSize": 11, "color": "muted", "size": { "h": 14 } }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "container",
+              "fill": "panel",
+              "layout": { "mode": "column", "gap": 8 },
+              "padding": [12, 16, 14, 16],
+              "size": { "grow": 1 },
+              "children": [
+                {
+                  "type": "container",
+                  "layout": { "mode": "row", "justify": "space-between", "align": "center" },
+                  "size": { "h": 16 },
+                  "children": [
+                    { "type": "text", "text": "Generation by site — last 12 months (GWh)", "fontSize": 11, "color": "muted", "size": { "w": 340, "h": 15 } },
+                    { "type": "text", "text": "GWh", "fontSize": 10, "color": "muted", "textAlign": "right", "size": { "w": 60, "h": 14 } }
+                  ]
+                },
+                {
+                  "type": "container",
+                  "layout": { "mode": "row", "gap": 14, "justify": "center", "align": "end" },
+                  "size": { "grow": 1 },
+                  "children": [
+                    { "type": "rect", "fill": "primary", "size": { "w": 42, "h": 62 } },
+                    { "type": "rect", "fill": "primary", "size": { "w": 42, "h": 78 } },
+                    { "type": "rect", "fill": "primary", "size": { "w": 42, "h": 71 } },
+                    { "type": "rect", "fill": "primary", "size": { "w": 42, "h": 96 } },
+                    { "type": "rect", "fill": "primary", "size": { "w": 42, "h": 118 } },
+                    { "type": "rect", "fill": "primary", "size": { "w": 42, "h": 104 } },
+                    { "type": "rect", "fill": "primary", "size": { "w": 42, "h": 132 } },
+                    { "type": "rect", "fill": "primary", "size": { "w": 42, "h": 148 } },
+                    { "type": "rect", "fill": "primary", "size": { "w": 42, "h": 126 } },
+                    { "type": "rect", "fill": "primary", "size": { "w": 42, "h": 156 } },
+                    { "type": "rect", "fill": "primary", "size": { "w": 42, "h": 172 } },
+                    { "type": "rect", "fill": "accent", "size": { "w": 42, "h": 188 } }
+                  ]
+                },
+                {
+                  "type": "container",
+                  "layout": { "mode": "row", "gap": 14, "justify": "center", "align": "center" },
+                  "size": { "h": 14 },
+                  "children": [
+                    { "type": "text", "text": "Jul", "fontSize": 9, "color": "muted", "textAlign": "center", "size": { "w": 42, "h": 12 } },
+                    { "type": "text", "text": "Aug", "fontSize": 9, "color": "muted", "textAlign": "center", "size": { "w": 42, "h": 12 } },
+                    { "type": "text", "text": "Sep", "fontSize": 9, "color": "muted", "textAlign": "center", "size": { "w": 42, "h": 12 } },
+                    { "type": "text", "text": "Oct", "fontSize": 9, "color": "muted", "textAlign": "center", "size": { "w": 42, "h": 12 } },
+                    { "type": "text", "text": "Nov", "fontSize": 9, "color": "muted", "textAlign": "center", "size": { "w": 42, "h": 12 } },
+                    { "type": "text", "text": "Dec", "fontSize": 9, "color": "muted", "textAlign": "center", "size": { "w": 42, "h": 12 } },
+                    { "type": "text", "text": "Jan", "fontSize": 9, "color": "muted", "textAlign": "center", "size": { "w": 42, "h": 12 } },
+                    { "type": "text", "text": "Feb", "fontSize": 9, "color": "muted", "textAlign": "center", "size": { "w": 42, "h": 12 } },
+                    { "type": "text", "text": "Mar", "fontSize": 9, "color": "muted", "textAlign": "center", "size": { "w": 42, "h": 12 } },
+                    { "type": "text", "text": "Apr", "fontSize": 9, "color": "muted", "textAlign": "center", "size": { "w": 42, "h": 12 } },
+                    { "type": "text", "text": "May", "fontSize": 9, "color": "muted", "textAlign": "center", "size": { "w": 42, "h": 12 } },
+                    { "type": "text", "text": "Jun", "fontSize": 9, "color": "muted", "textAlign": "center", "size": { "w": 42, "h": 12 } }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "container",
+              "layout": { "mode": "row", "gap": 12, "align": "stretch" },
+              "size": { "h": 84 },
+              "children": [
+                {
+                  "type": "container",
+                  "fill": "panel",
+                  "layout": { "mode": "column", "gap": 6 },
+                  "padding": [10, 14, 10, 14],
+                  "size": { "grow": 1 },
+                  "children": [
+                    { "type": "text", "text": "GRID UPTIME — 30 DAYS", "fontSize": 10, "color": "muted", "bold": true, "size": { "h": 13 } },
+                    {
+                      "type": "container",
+                      "layout": { "mode": "row", "gap": 4, "align": "end" },
+                      "size": { "grow": 1 },
+                      "children": [
+                        { "type": "rect", "fill": "primary", "size": { "w": 10, "h": 14 } },
+                        { "type": "rect", "fill": "primary", "size": { "w": 10, "h": 18 } },
+                        { "type": "rect", "fill": "primary", "size": { "w": 10, "h": 12 } },
+                        { "type": "rect", "fill": "primary", "size": { "w": 10, "h": 22 } },
+                        { "type": "rect", "fill": "primary", "size": { "w": 10, "h": 17 } },
+                        { "type": "rect", "fill": "primary", "size": { "w": 10, "h": 25 } },
+                        { "type": "rect", "fill": "accent", "size": { "w": 10, "h": 9 } },
+                        { "type": "rect", "fill": "primary", "size": { "w": 10, "h": 21 } },
+                        { "type": "rect", "fill": "primary", "size": { "w": 10, "h": 27 } },
+                        { "type": "rect", "fill": "primary", "size": { "w": 10, "h": 19 } },
+                        { "type": "rect", "fill": "primary", "size": { "w": 10, "h": 24 } },
+                        { "type": "rect", "fill": "primary", "size": { "w": 10, "h": 30 } },
+                        { "type": "rect", "fill": "primary", "size": { "w": 10, "h": 26 } },
+                        { "type": "rect", "fill": "primary", "size": { "w": 10, "h": 32 } },
+                        { "type": "rect", "fill": "primary", "size": { "w": 10, "h": 28 } },
+                        { "type": "rect", "fill": "primary", "size": { "w": 10, "h": 34 } },
+                        { "type": "rect", "fill": "primary", "size": { "w": 10, "h": 31 } },
+                        { "type": "rect", "fill": "primary", "size": { "w": 10, "h": 36 } }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "container",
+                  "fill": "panel",
+                  "layout": { "mode": "column", "gap": 6 },
+                  "padding": [10, 14, 10, 14],
+                  "size": { "w": 300 },
+                  "children": [
+                    { "type": "text", "text": "TOP SITES — OUTPUT", "fontSize": 10, "color": "muted", "bold": true, "size": { "h": 13 } },
+                    {
+                      "type": "container",
+                      "layout": { "mode": "column", "gap": 6, "justify": "center" },
+                      "size": { "grow": 1 },
+                      "children": [
+                        {
+                          "type": "container",
+                          "layout": { "mode": "row", "gap": 8, "align": "center" },
+                          "size": { "h": 10 },
+                          "children": [
+                            { "type": "text", "text": "Kvitøy", "fontSize": 10, "color": "paper", "size": { "w": 64, "h": 10 } },
+                            { "type": "rect", "fill": "primary", "size": { "w": 150, "h": 8 } }
+                          ]
+                        },
+                        {
+                          "type": "container",
+                          "layout": { "mode": "row", "gap": 8, "align": "center" },
+                          "size": { "h": 10 },
+                          "children": [
+                            { "type": "text", "text": "Albion Ridge", "fontSize": 10, "color": "paper", "size": { "w": 64, "h": 10 } },
+                            { "type": "rect", "fill": "primary", "size": { "w": 112, "h": 8 } }
+                          ]
+                        },
+                        {
+                          "type": "container",
+                          "layout": { "mode": "row", "gap": 8, "align": "center" },
+                          "size": { "h": 10 },
+                          "children": [
+                            { "type": "text", "text": "Mara Flats", "fontSize": 10, "color": "paper", "size": { "w": 64, "h": 10 } },
+                            { "type": "rect", "fill": "primary", "size": { "w": 84, "h": 8 } }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
