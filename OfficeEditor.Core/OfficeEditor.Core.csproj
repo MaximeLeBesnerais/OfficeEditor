@@ -8,7 +8,7 @@
     <Version>0.1.0</Version>
     <Authors>MaximeLB</Authors>
     <Description>Shared services and models for OfficeEditor document manipulation</Description>
-    <RepositoryUrl>https://github.com/MaximeLeBesnerais/DocxEditor</RepositoryUrl>
+    <RepositoryUrl>https://github.com/MaximeLeBesnerais/OfficeEditor</RepositoryUrl>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
 
