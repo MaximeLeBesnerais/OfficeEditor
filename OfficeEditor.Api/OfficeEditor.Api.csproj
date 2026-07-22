@@ -7,6 +7,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="OfficeEditor.Api.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\OfficeEditor.Core\OfficeEditor.Core.csproj" />
     <ProjectReference Include="..\DocxEditor.Core\DocxEditor.Core.csproj" />
     <ProjectReference Include="..\PptxEditor.Core\PptxEditor.Core.csproj" />

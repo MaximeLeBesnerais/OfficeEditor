@@ -30,7 +30,15 @@ builder.Services.AddSingleton<ISlideRenderer, BuilderSlideRenderer>();
 builder.Services.AddSingleton<IDeckPreviewService, DeckPreviewService>();
 builder.Services.AddSingleton<IDeckService, DeckService>();
 builder.Services.AddSingleton<IDeckEditService, DeckEditService>();
-builder.Services.AddSingleton<IDeckGenerationService, DeckGenerationService>();
+builder.Services.AddSingleton<IDeckGenerationService>(
+    _ => new DeckGenerationService(builder.Configuration["Demo:FontDirectory"]));
+builder.Services.AddSingleton<IDemoDeckService, DemoDeckService>();
+builder.Services.AddSingleton<ILibreOfficeCompareService, LibreOfficeCompareService>();
+builder.Services.AddSingleton(sp => new RenderWarmupService(
+    new OfficeEditor.Core.Services.TypstCompilerService(),
+    builder.Configuration["Demo:FontDirectory"],
+    sp.GetRequiredService<ILogger<RenderWarmupService>>()));
+builder.Services.AddHostedService(sp => sp.GetRequiredService<RenderWarmupService>());
 
 var app = builder.Build();
 
@@ -404,10 +412,501 @@ app.MapGet("/api/decks/{id:guid}/file", (Guid id, IDeckService deckService) =>
         $"{id}.pptx");
 });
 
+app.MapGet("/api/demo/decks", (IDemoDeckService demoDeckService) =>
+{
+    var decks = demoDeckService.ListDecks()
+        .Select(d => new DemoDeckDto(d.Name, d.FileName, d.Description, d.SlideCount))
+        .ToList();
+
+    return Results.Ok(new { decks });
+});
+
+app.MapPost("/api/demo/render", async (
+    HttpContext context,
+    IDemoDeckService demoDeckService,
+    CancellationToken ct) =>
+{
+    using var reader = new StreamReader(context.Request.Body);
+    var body = await reader.ReadToEndAsync(ct);
+
+    // Envelope: { "name": "pres-pro", "ppi": 110, "format": "svg" } — ppi and format
+    // optional, parsed defensively like the /api/decks/generate envelope.
+    string? name = null;
+    int? requestedPpi = null;
+    string? requestedFormat = null;
+    try
+    {
+        using var envelope = JsonDocument.Parse(body);
+        if (envelope.RootElement.ValueKind == JsonValueKind.Object)
+        {
+            if (envelope.RootElement.TryGetProperty("name", out var nameElement)
+                && nameElement.ValueKind == JsonValueKind.String)
+            {
+                name = nameElement.GetString();
+            }
+            if (envelope.RootElement.TryGetProperty("ppi", out var ppiElement)
+                && ppiElement.ValueKind == JsonValueKind.Number
+                && ppiElement.TryGetInt32(out var ppiValue))
+            {
+                requestedPpi = ppiValue;
+            }
+            if (envelope.RootElement.TryGetProperty("format", out var formatElement)
+                && formatElement.ValueKind == JsonValueKind.String)
+            {
+                requestedFormat = formatElement.GetString();
+            }
+        }
+    }
+    catch (JsonException)
+    {
+        // Falls through to the envelope error below.
+    }
+
+    if (string.IsNullOrWhiteSpace(name))
+    {
+        return Results.BadRequest(new { error = "Request body must be a JSON object with a 'name' property naming a demo deck (see GET /api/demo/decks)." });
+    }
+
+    if (!DeckPreviewValidators.TryNormalizeFormat(requestedFormat, out var normalizedFormat, out var formatError))
+    {
+        return Results.BadRequest(new { error = formatError });
+    }
+
+    DemoRenderResult result;
+    try
+    {
+        result = demoDeckService.RenderDeck(name, requestedPpi ?? DeckPreviewValidators.DefaultPpi, normalizedFormat);
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { error = ex.Message });
+    }
+    catch (FileNotFoundException ex)
+    {
+        return Results.BadRequest(new { error = ex.Message });
+    }
+    catch (Exception ex)
+    {
+        // Render failures (Typst backend errors, …) are surfaced, never swallowed.
+        return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status500InternalServerError);
+    }
+
+    return Results.Ok(new DemoRenderResponse(
+        Success: true,
+        DeckId: result.DeckId,
+        SlideCount: result.SlideCount,
+        TotalMilliseconds: result.TotalMilliseconds,
+        Previews: result.Pages
+            .Select((bytes, index) => new GeneratedSlidePreviewDto(
+                index + 1,
+                result.Format,
+                DeckPreviewValidators.ContentTypeForFormat(result.Format),
+                Convert.ToBase64String(bytes)))
+            .ToList()));
+});
+
+app.MapPost("/api/demo/render-upload", async (
+    HttpContext context,
+    IDemoDeckService demoDeckService,
+    CancellationToken ct) =>
+{
+    var form = await context.Request.ReadFormAsync(ct);
+
+    var file = form.Files.GetFile("file");
+    if (file is null)
+    {
+        return Results.BadRequest(new { error = "A 'file' form field with a .pptx upload is required." });
+    }
+
+    if (!file.FileName.EndsWith(".pptx", StringComparison.OrdinalIgnoreCase))
+    {
+        return Results.BadRequest(new { error = "Only .pptx files are supported." });
+    }
+
+    if (!DeckPreviewValidators.TryNormalizeFormat(form["format"].FirstOrDefault(), out var normalizedFormat, out var formatError))
+    {
+        return Results.BadRequest(new { error = formatError });
+    }
+
+    var requestedPpi = int.TryParse(form["ppi"].FirstOrDefault(), out var ppiValue) ? ppiValue : (int?)null;
+    var clampedPpi = DeckPreviewValidators.ClampPpi(requestedPpi);
+
+    // Read the upload like POST /api/decks does (OpenReadStream -> MemoryStream).
+    byte[] sourceBytes;
+    await using (var stream = file.OpenReadStream())
+    {
+        using var memoryStream = new MemoryStream();
+        await stream.CopyToAsync(memoryStream, ct);
+        sourceBytes = memoryStream.ToArray();
+    }
+
+    DemoRenderResult result;
+    try
+    {
+        result = demoDeckService.RenderUploadedDeck(sourceBytes, file.FileName, normalizedFormat, clampedPpi);
+    }
+    catch (ArgumentException ex)
+    {
+        // Client-side problems: invalid deck, empty deck, over the slide cap.
+        return Results.BadRequest(new { error = ex.Message });
+    }
+    catch (Exception ex)
+    {
+        // Render failures (Typst backend errors, …) are surfaced, never swallowed.
+        return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status500InternalServerError);
+    }
+
+    return Results.Ok(new DemoRenderResponse(
+        Success: true,
+        DeckId: result.DeckId,
+        SlideCount: result.SlideCount,
+        TotalMilliseconds: result.TotalMilliseconds,
+        Previews: result.Pages
+            .Select((bytes, index) => new GeneratedSlidePreviewDto(
+                index + 1,
+                result.Format,
+                DeckPreviewValidators.ContentTypeForFormat(result.Format),
+                Convert.ToBase64String(bytes)))
+            .ToList()));
+});
+
+app.MapGet("/api/demo/compare/capabilities", (ILibreOfficeCompareService libreOfficeCompareService) =>
+{
+    var probe = libreOfficeCompareService.Probe();
+    return Results.Ok(new CompareCapabilitiesDto(
+        probe.Available, probe.Version, probe.PdfToPpmAvailable, probe.SkipReason));
+});
+
+app.MapPost("/api/demo/compare/libreoffice", async (
+    HttpContext context,
+    IDemoDeckService demoDeckService,
+    ILibreOfficeCompareService libreOfficeCompareService,
+    IConversionResultStore resultStore,
+    CancellationToken ct) =>
+{
+    using var reader = new StreamReader(context.Request.Body);
+    var body = await reader.ReadToEndAsync(ct);
+
+    // Envelope: { "name": "pres-pro", "ppi": 110 } — parsed defensively like /api/demo/render.
+    string? name = null;
+    int? requestedPpi = null;
+    try
+    {
+        using var envelope = JsonDocument.Parse(body);
+        if (envelope.RootElement.ValueKind == JsonValueKind.Object)
+        {
+            if (envelope.RootElement.TryGetProperty("name", out var nameElement)
+                && nameElement.ValueKind == JsonValueKind.String)
+            {
+                name = nameElement.GetString();
+            }
+            if (envelope.RootElement.TryGetProperty("ppi", out var ppiElement)
+                && ppiElement.ValueKind == JsonValueKind.Number
+                && ppiElement.TryGetInt32(out var ppiValue))
+            {
+                requestedPpi = ppiValue;
+            }
+        }
+    }
+    catch (JsonException)
+    {
+        // Falls through to the envelope error below.
+    }
+
+    if (string.IsNullOrWhiteSpace(name))
+    {
+        return Results.BadRequest(new { error = "Request body must be a JSON object with a 'name' property naming a demo deck (see GET /api/demo/decks)." });
+    }
+
+    if (demoDeckService is not DemoDeckService concreteDemoDeckService
+        || !concreteDemoDeckService.TryGetDeckFile(name, out var deckFile))
+    {
+        return Results.BadRequest(new { error = $"Unknown or missing demo deck '{name}'." });
+    }
+
+    var clampedPpi = DeckPreviewValidators.ClampPpi(requestedPpi);
+    var deckBytes = await File.ReadAllBytesAsync(deckFile, ct);
+    var deckFileName = Path.GetFileName(deckFile);
+
+    // Open once for the real slide count: the client needs it for per-slide math even
+    // when pdftoppm is missing and the rasterized page count is 0.
+    int slideCount;
+    using (var presentationBuilder = PresentationBuilder.Open(deckBytes))
+    {
+        slideCount = presentationBuilder.SlideCount;
+    }
+
+    // LibreOffice leg only: headless PDF conversion + pdftoppm rasterization. Never
+    // throws for missing tools or conversion failures — failures ride on the result.
+    var loResult = libreOfficeCompareService.RenderDeck(deckBytes, deckFileName, clampedPpi);
+    return Results.Ok(ToLibreOfficeLegResponse(context, resultStore, loResult, name, slideCount));
+});
+
+app.MapPost("/api/demo/compare/libreoffice-upload", async (
+    HttpContext context,
+    ILibreOfficeCompareService libreOfficeCompareService,
+    IConversionResultStore resultStore,
+    CancellationToken ct) =>
+{
+    var form = await context.Request.ReadFormAsync(ct);
+
+    // Validation mirrors POST /api/demo/render-upload.
+    var file = form.Files.GetFile("file");
+    if (file is null)
+    {
+        return Results.BadRequest(new { error = "A 'file' form field with a .pptx upload is required." });
+    }
+
+    if (!file.FileName.EndsWith(".pptx", StringComparison.OrdinalIgnoreCase))
+    {
+        return Results.BadRequest(new { error = "Only .pptx files are supported." });
+    }
+
+    var requestedPpi = int.TryParse(form["ppi"].FirstOrDefault(), out var ppiValue) ? ppiValue : (int?)null;
+    var clampedPpi = DeckPreviewValidators.ClampPpi(requestedPpi);
+
+    byte[] sourceBytes;
+    await using (var stream = file.OpenReadStream())
+    {
+        using var memoryStream = new MemoryStream();
+        await stream.CopyToAsync(memoryStream, ct);
+        sourceBytes = memoryStream.ToArray();
+    }
+
+    // Open once to reject garbage decks with a clear 400 instead of a soffice failure.
+    int slideCount;
+    try
+    {
+        using var builder = PresentationBuilder.Open(sourceBytes);
+        slideCount = builder.SlideCount;
+    }
+    catch (Exception ex)
+    {
+        return Results.BadRequest(new { error = $"The uploaded file is not a valid PPTX deck: {ex.Message}" });
+    }
+
+    if (slideCount < 1)
+    {
+        return Results.BadRequest(new { error = "The deck contains no slides." });
+    }
+
+    if (slideCount > DemoDeckService.MaxUploadSlides)
+    {
+        return Results.BadRequest(new { error = $"Decks with more than {DemoDeckService.MaxUploadSlides} slides are not supported in the demo compare (got {slideCount})." });
+    }
+
+    var loResult = libreOfficeCompareService.RenderDeck(sourceBytes, file.FileName, clampedPpi);
+    return Results.Ok(ToLibreOfficeLegResponse(context, resultStore, loResult, file.FileName, slideCount));
+});
+
+app.MapPost("/api/demo/compare/typst", async (
+    HttpContext context,
+    IDemoDeckService demoDeckService,
+    IConversionResultStore resultStore,
+    CancellationToken ct) =>
+{
+    using var reader = new StreamReader(context.Request.Body);
+    var body = await reader.ReadToEndAsync(ct);
+
+    // Envelope: { "name": "pres-pro", "ppi": 110 } — parsed defensively like the
+    // /api/demo/compare/libreoffice envelope.
+    string? name = null;
+    int? requestedPpi = null;
+    try
+    {
+        using var envelope = JsonDocument.Parse(body);
+        if (envelope.RootElement.ValueKind == JsonValueKind.Object)
+        {
+            if (envelope.RootElement.TryGetProperty("name", out var nameElement)
+                && nameElement.ValueKind == JsonValueKind.String)
+            {
+                name = nameElement.GetString();
+            }
+            if (envelope.RootElement.TryGetProperty("ppi", out var ppiElement)
+                && ppiElement.ValueKind == JsonValueKind.Number
+                && ppiElement.TryGetInt32(out var ppiValue))
+            {
+                requestedPpi = ppiValue;
+            }
+        }
+    }
+    catch (JsonException)
+    {
+        // Falls through to the envelope error below.
+    }
+
+    if (string.IsNullOrWhiteSpace(name))
+    {
+        return Results.BadRequest(new { error = "Request body must be a JSON object with a 'name' property naming a demo deck (see GET /api/demo/decks)." });
+    }
+
+    if (demoDeckService is not DemoDeckService concreteDemoDeckService
+        || !concreteDemoDeckService.TryGetDeckFile(name, out var deckFile))
+    {
+        return Results.BadRequest(new { error = $"Unknown or missing demo deck '{name}'." });
+    }
+
+    var clampedPpi = DeckPreviewValidators.ClampPpi(requestedPpi);
+    var deckBytes = await File.ReadAllBytesAsync(deckFile, ct);
+
+    TypstLegResult result;
+    try
+    {
+        result = demoDeckService.RenderTypstLeg(deckBytes, Path.GetFileName(deckFile), clampedPpi);
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { error = ex.Message });
+    }
+    catch (Exception ex)
+    {
+        // PNG render failures (Typst backend errors, …) are surfaced, never swallowed.
+        return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status500InternalServerError);
+    }
+
+    return Results.Ok(ToTypstLegResponse(context, resultStore, result, name));
+});
+
+app.MapPost("/api/demo/compare/typst-upload", async (
+    HttpContext context,
+    IDemoDeckService demoDeckService,
+    IConversionResultStore resultStore,
+    CancellationToken ct) =>
+{
+    var form = await context.Request.ReadFormAsync(ct);
+
+    // Validation mirrors POST /api/demo/compare/libreoffice-upload.
+    var file = form.Files.GetFile("file");
+    if (file is null)
+    {
+        return Results.BadRequest(new { error = "A 'file' form field with a .pptx upload is required." });
+    }
+
+    if (!file.FileName.EndsWith(".pptx", StringComparison.OrdinalIgnoreCase))
+    {
+        return Results.BadRequest(new { error = "Only .pptx files are supported." });
+    }
+
+    var requestedPpi = int.TryParse(form["ppi"].FirstOrDefault(), out var ppiValue) ? ppiValue : (int?)null;
+    var clampedPpi = DeckPreviewValidators.ClampPpi(requestedPpi);
+
+    byte[] sourceBytes;
+    await using (var stream = file.OpenReadStream())
+    {
+        using var memoryStream = new MemoryStream();
+        await stream.CopyToAsync(memoryStream, ct);
+        sourceBytes = memoryStream.ToArray();
+    }
+
+    TypstLegResult result;
+    try
+    {
+        result = demoDeckService.RenderTypstLeg(sourceBytes, file.FileName, clampedPpi);
+    }
+    catch (ArgumentException ex)
+    {
+        // Client-side problems: invalid deck, empty deck, over the slide cap.
+        return Results.BadRequest(new { error = ex.Message });
+    }
+    catch (Exception ex)
+    {
+        // PNG render failures (Typst backend errors, …) are surfaced, never swallowed.
+        return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status500InternalServerError);
+    }
+
+    return Results.Ok(ToTypstLegResponse(context, resultStore, result, file.FileName));
+});
+
+app.MapGet("/api/demo/deck-template", (IDemoDeckService demoDeckService) =>
+{
+    try
+    {
+        return Results.Content(demoDeckService.GetDeckTemplateJson(), "application/json");
+    }
+    catch (FileNotFoundException ex)
+    {
+        return Results.NotFound(new { error = ex.Message });
+    }
+});
+
 app.Run();
 
 static IReadOnlyList<GenerationIssueDto> ToDtos(IReadOnlyList<PptxEditor.Core.Generation.Schema.GenerationIssue> issues) =>
     issues.Select(i => new GenerationIssueDto(i.Path, i.Message, i.Suggestion, i.Severity.ToString())).ToList();
+
+// Maps a LibreOffice compare render to the flat endpoint DTO: stores the PDF for
+// download when produced. SlideCount is the real deck slide count (opened by the
+// endpoint), NOT the rasterized page count — the client needs it for per-slide math
+// even when pdftoppm did not run (previews are then null and the client falls back
+// to the PDF).
+static LibreOfficeLegResponse ToLibreOfficeLegResponse(
+    HttpContext context,
+    IConversionResultStore resultStore,
+    LibreOfficeRenderResult loResult,
+    string deck,
+    int slideCount)
+{
+    string? pdfDownloadUrl = null;
+    if (loResult.PdfBytes is not null)
+    {
+        var id = resultStore.Store(loResult.PdfBytes, "application/pdf", $"{deck}-libreoffice.pdf");
+        pdfDownloadUrl = $"{context.Request.Scheme}://{context.Request.Host}/api/download/{id}";
+    }
+
+    var previews = loResult.PngPages.Count > 0
+        ? loResult.PngPages
+            .Select((bytes, index) => new GeneratedSlidePreviewDto(
+                index + 1, "png", "image/png", Convert.ToBase64String(bytes)))
+            .ToList()
+        : null;
+
+    return new LibreOfficeLegResponse(
+        Success: loResult.Available && loResult.Error is null,
+        Deck: deck,
+        SlideCount: slideCount,
+        Available: loResult.Available,
+        Version: loResult.Version,
+        PdfToPpmAvailable: loResult.PdfToPpmAvailable,
+        ConversionMilliseconds: loResult.Available ? loResult.ConversionMilliseconds : null,
+        RasterizationMilliseconds: loResult.RasterizationMilliseconds,
+        TotalMilliseconds: loResult.Available ? loResult.TotalMilliseconds : null,
+        Previews: previews,
+        PdfDownloadUrl: pdfDownloadUrl,
+        Error: loResult.Error);
+}
+
+// Maps a Typst compare render to the flat endpoint DTO: stores the PDF for download
+// when the best-effort export produced one; PdfError carries the failure otherwise.
+// Success reflects the PNG leg (a PDF failure never fails the leg).
+static TypstLegResponse ToTypstLegResponse(
+    HttpContext context,
+    IConversionResultStore resultStore,
+    TypstLegResult result,
+    string deck)
+{
+    string? pdfDownloadUrl = null;
+    if (result.PdfBytes is not null)
+    {
+        var id = resultStore.Store(result.PdfBytes, "application/pdf", $"{deck}-typst.pdf");
+        pdfDownloadUrl = $"{context.Request.Scheme}://{context.Request.Host}/api/download/{id}";
+    }
+
+    return new TypstLegResponse(
+        Success: true,
+        Deck: deck,
+        SlideCount: result.SlideCount,
+        PngMilliseconds: result.PngMilliseconds,
+        PdfMilliseconds: result.PdfMilliseconds,
+        // Wall-clock of the parallel pair (PNG and PDF legs run concurrently) — NOT the
+        // sum of the per-phase times.
+        TotalMilliseconds: result.TotalMilliseconds,
+        Previews: result.PngPages
+            .Select((bytes, index) => new GeneratedSlidePreviewDto(
+                index + 1, "png", "image/png", Convert.ToBase64String(bytes)))
+            .ToList(),
+        PdfDownloadUrl: pdfDownloadUrl,
+        PdfError: result.PdfError);
+}
 
 static bool TryParseTargetFormat(string value, out ConversionTargetFormat targetFormat)
 {
