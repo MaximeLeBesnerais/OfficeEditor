@@ -7,16 +7,13 @@
 `TypstCompilerService.Compile()` (in `OfficeEditor.Core/Services/`) tries backends in this order:
 
 1. **TypstBridge** (primary) — native wrapper, fastest, full feature set (PDF, PNG, SVG, fonts, working-dir).
-2. **`typstsharp` (legacy PDF fallback)** — only attempted if TypstBridge fails AND output is PDF AND no `--font-path` was supplied. Probed at static init; gracefully absent if NuGet type can't load.
-3. **Typst CLI** (safety net) — only if both above fail or are unavailable.
+2. **Typst CLI** (safety net) — only if TypstBridge fails or is unavailable.
 
-Treat `typstsharp` removal as a separate dependency cleanup, **not** part of TypstBridge work. It is still referenced from `PptxEditor.Core.csproj` and `OfficeEditor.Core.csproj`.
+The legacy managed-wrapper PDF fallback dependency has been removed; the backend chain is TypstBridge → Typst CLI only.
 
 ## Common Pitfalls (active)
 
-- **Legacy `typstsharp` can fail on hardened Linux** (e.g., missing glibc, restricted containers). TypstBridge is the primary path for this reason; CLI is the safety net.
-- **Native vs CLI/legacy output may differ slightly** (e.g., font metrics, kerning). Always verify reference outputs after backend changes.
-- **Don't pass `--font-path` when relying on `typstsharp` fallback** — the legacy path doesn't support custom fonts and will be skipped silently.
+- **Native vs CLI output may differ slightly** (e.g., font metrics, kerning). Always verify reference outputs after backend changes.
 - **`CompileOptions.ProcessTimeout` is 2 minutes by default.** Large documents may need it raised.
 
 ## Output Formats

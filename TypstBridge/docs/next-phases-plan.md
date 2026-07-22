@@ -25,7 +25,6 @@ Implemented in the bridge:
 ## Scope boundaries
 
 - Keep the external Typst CLI fallback as the safety net.
-- Keep `typstsharp` as fallback/legacy unless a separate dependency-removal decision is made.
 - Treat the package/platform matrix as preliminary until each RID is built and verified.
 - Generated runtime assets under `TypstBridge/runtimes/` are local build outputs and should not be committed unless packaging policy changes.
 - Do not commit unless explicitly requested by the user.
@@ -73,6 +72,6 @@ cargo test --manifest-path TypstBridge/native/Cargo.toml
 
 ### 4. Dependency and packaging cleanup
 
-- Remove `typstsharp` only if a separate dependency-removal effort is approved and fallback behavior remains acceptable.
+- The legacy managed-wrapper PDF fallback dependency has been removed; the backend chain is TypstBridge → Typst CLI.
 - Verify publish output includes the correct native runtime asset.
 - Expand and confirm the platform matrix before distributing packages.
