@@ -63,6 +63,16 @@ public interface IDeckGenerationService
 
 public sealed class DeckGenerationService : IDeckGenerationService
 {
+    /// <summary>
+    /// Repository root (located once per process by walking up from the app base directory
+    /// for a .git folder, same pattern as SampleFileService/DemoDeckService). Used as the
+    /// Typst project root so repo-root-relative asset paths in generation documents resolve
+    /// inside the repository sandbox — and to absolutize the same paths for the OOXML pass,
+    /// which reads image files relative to the process CWD. Null when no .git folder is
+    /// found: the compile then keeps the compiler default (process CWD), the pre-fix behavior.
+    /// </summary>
+    private static readonly Lazy<string?> RepositoryRoot = new(FindRepositoryRoot);
+
     private readonly TypstCompilerService _compiler;
 
     public DeckGenerationService()
@@ -111,7 +121,14 @@ public sealed class DeckGenerationService : IDeckGenerationService
             return Rejected([Issue(ex)], validation.Warnings, totalTimer);
         }
 
-        var emission = new OoxmlEmitter().Emit(layout);
+        // The OOXML emitter reads image files from disk relative to the process CWD, while
+        // the Typst preview resolves them against the Typst project root (the repository
+        // root). Repo-root-relative image sources are therefore absolutized for the OOXML
+        // pass only; the Typst pass keeps the authored repo-relative paths.
+        var ooxmlLayout = RepositoryRoot.Value is { } repoRoot
+            ? AbsolutizeImageSources(layout, repoRoot)
+            : layout;
+        var emission = new OoxmlEmitter().Emit(ooxmlLayout);
         var generationMs = generationTimer.Elapsed.TotalMilliseconds;
 
         var (previews, previewError) = RenderPreviews(layout, normalizedFormat, ppi);
@@ -147,7 +164,8 @@ public sealed class DeckGenerationService : IDeckGenerationService
         var result = _compiler.Compile(source, new CompileOptions
         {
             Format = normalizedFormat == "svg" ? OutputFormat.Svg : OutputFormat.Png,
-            Ppi = ppi
+            Ppi = ppi,
+            WorkingDirectory = RepositoryRoot.Value
         });
 
         if (!result.Success)
@@ -167,6 +185,53 @@ public sealed class DeckGenerationService : IDeckGenerationService
         }
         return (previews, null);
     }
+
+    private static string? FindRepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            if (Directory.Exists(Path.Combine(directory.FullName, ".git")))
+            {
+                return directory.FullName;
+            }
+
+            directory = directory.Parent;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Returns a copy of the layout with every repo-root-relative image file source
+    /// absolutized under <paramref name="repoRoot"/>. Data URIs, URLs and already-absolute
+    /// paths pass through untouched. Records make this a pure structural map.
+    /// </summary>
+    private static LayoutResult AbsolutizeImageSources(LayoutResult layout, string repoRoot)
+    {
+        ResolvedElement Map(ResolvedElement element) => element switch
+        {
+            ResolvedImage image when IsRelativeFileSource(image.Source) =>
+                image with { Source = Path.GetFullPath(Path.Combine(repoRoot, image.Source)) },
+            ResolvedContainer container =>
+                container with { Children = [.. container.Children.Select(Map)] },
+            ResolvedGroup group =>
+                group with { Children = [.. group.Children.Select(Map)] },
+            _ => element
+        };
+
+        return layout with
+        {
+            Slides = [.. layout.Slides.Select(slide => slide with { Root = (ResolvedContainer)Map(slide.Root) })]
+        };
+    }
+
+    private static bool IsRelativeFileSource(string source) =>
+        !string.IsNullOrWhiteSpace(source)
+        && !Path.IsPathRooted(source)
+        && !source.StartsWith("data:", StringComparison.OrdinalIgnoreCase)
+        && !source.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+        && !source.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
 
     private static GenerationIssue Issue(ComponentException ex) =>
         new(ex.Path, StripPathPrefix(ex.Path, ex.Message), null, GenerationIssueSeverity.Error);
