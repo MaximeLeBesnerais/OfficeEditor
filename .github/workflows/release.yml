@@ -1,0 +1,131 @@
+name: release
+
+# NOTE: the NUGET_API_KEY secret must be configured in repo settings
+# (Settings -> Secrets and variables -> Actions) before tag pushes can publish.
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-14, rid: osx-arm64, ext: dylib }
+          - { os: ubuntu-latest, rid: linux-x64, ext: so }
+          - { os: windows-latest, rid: win-x64, ext: dll }
+          # - { os: macos-13, rid: osx-x64, ext: dylib }   # add on demand (Intel Mac)
+          # - { os: ubuntu-24.04-arm, rid: linux-arm64, ext: so }  # add on demand (ARM servers)
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        # All active matrix RIDs are host-default targets for their runners.
+        # For on-demand cross targets, add: with: targets: <rust-triple>
+
+      - name: Build native crate (linux)
+        if: runner.os == 'Linux'
+        run: TypstBridge/packaging/build-native.sh ${{ matrix.rid }}
+
+      - name: Build native crate (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: TypstBridge/packaging/build-native.ps1 -Rid ${{ matrix.rid }}
+
+      - name: Build native crate (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          case "${{ matrix.rid }}" in
+            osx-arm64) TARGET=aarch64-apple-darwin ;;
+            osx-x64)   TARGET=x86_64-apple-darwin ;;
+            *) echo "unsupported rid ${{ matrix.rid }}" >&2; exit 1 ;;
+          esac
+          cargo build --release --target "$TARGET" --manifest-path TypstBridge/native/Cargo.toml
+          mkdir -p "TypstBridge/runtimes/${{ matrix.rid }}/native"
+          cp "TypstBridge/native/target/$TARGET/release/libtypst_bridge.dylib" \
+             "TypstBridge/runtimes/${{ matrix.rid }}/native/libtypst_bridge.dylib"
+
+      - name: Verify artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          ART="TypstBridge/runtimes/${{ matrix.rid }}/native/libtypst_bridge.${{ matrix.ext }}"
+          if [[ "${{ matrix.ext }}" == "dll" ]]; then
+            ART="TypstBridge/runtimes/${{ matrix.rid }}/native/typst_bridge.dll"
+          fi
+          [[ -f "$ART" ]] || { echo "missing native artifact: $ART" >&2; exit 1; }
+          ls -la "$ART"
+
+      - name: Upload native artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.rid }}
+          path: TypstBridge/runtimes/${{ matrix.rid }}/native/
+
+  pack-push:
+    needs: native
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Download native artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: native-*
+          merge-multiple: true
+          path: /tmp/native-artifacts
+
+      - name: Place native artifacts into runtimes/
+        run: |
+          set -euo pipefail
+          mkdir -p TypstBridge/runtimes/{osx-arm64,linux-x64,win-x64}/native
+          cp /tmp/native-artifacts/libtypst_bridge.dylib TypstBridge/runtimes/osx-arm64/native/
+          cp /tmp/native-artifacts/libtypst_bridge.so    TypstBridge/runtimes/linux-x64/native/
+          cp /tmp/native-artifacts/typst_bridge.dll      TypstBridge/runtimes/win-x64/native/
+          for f in \
+            TypstBridge/runtimes/osx-arm64/native/libtypst_bridge.dylib \
+            TypstBridge/runtimes/linux-x64/native/libtypst_bridge.so \
+            TypstBridge/runtimes/win-x64/native/typst_bridge.dll; do
+            [[ -f "$f" ]] || { echo "missing native lib: $f" >&2; exit 1; }
+          done
+          find TypstBridge/runtimes -type f
+
+      - name: Compute version from tag
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Pack
+        run: |
+          set -euo pipefail
+          for proj in \
+            TypstBridge/managed/TypstBridge.Managed.csproj \
+            OfficeEditor.Core/OfficeEditor.Core.csproj \
+            DocxEditor.Core/DocxEditor.Core.csproj \
+            PptxEditor.Core/PptxEditor.Core.csproj \
+            XlsxEditor.Core/XlsxEditor.Core.csproj \
+            OfficeEditor.Cli/OfficeEditor.Cli.csproj; do
+            dotnet pack "$proj" -c Release --no-restore -o nupkgs /p:Version="$VERSION"
+          done
+
+      - name: List nupkgs
+        run: |
+          set -euo pipefail
+          ls -la nupkgs/
+          for pkg in nupkgs/*.nupkg; do
+            echo "== $pkg =="
+            unzip -l "$pkg"
+          done
+
+      - name: Push to NuGet
+        run: dotnet nuget push "nupkgs/*.nupkg" --source https://api.nuget.org/v3/index.json --api-key ${{ secrets.NUGET_API_KEY }} --skip-duplicate
