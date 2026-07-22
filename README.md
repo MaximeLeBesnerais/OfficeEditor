@@ -497,7 +497,6 @@ Each format has its own Core project that references OfficeEditor.Core:
 - **YamlDotNet** - YAML parser
 - **Spectre.Console** - CLI output (optional)
 - **TypstBridge.Managed** - Primary in-process Typst compiler bridge for PPTX PDF/SVG/PNG export
-- **typstsharp** - Legacy/fallback Typst compiler reference for PPTX export
 
 ## Testing
 
@@ -552,7 +551,7 @@ gitignored).
 
 `TypstCompilerService` uses TypstBridge as the primary in-process backend for PPTX exports. TypstBridge supports PDF, SVG, PNG, multi-page outputs, working-directory assets, explicit font paths, PNG PPI, and diagnostics.
 
-`typstsharp` remains referenced for fallback/legacy compatibility, and the external `typst` CLI remains a safety net when native compilation is unavailable. Install the `typst` binary if you need CLI fallback support in your environment.
+The external `typst` CLI remains a safety net when native compilation is unavailable. Install the `typst` binary if you need CLI fallback support in your environment.
 
 ## Status & Limitations
 

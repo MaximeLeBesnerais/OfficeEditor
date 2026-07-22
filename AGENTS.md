@@ -21,7 +21,7 @@ git status                # expect clean or only intended changes
 
 - .NET 9, C# 12 (primary constructors, collection expressions)
 - DocumentFormat.OpenXml — DOCX, PPTX, XLSX
-- TypstBridge (primary) → `typstsharp` (legacy PDF fallback) → `typst` CLI (safety net)
+- TypstBridge (primary) → `typst` CLI (safety net)
 - System.Text.Json, YamlDotNet, Spectre.Console
 - xUnit for tests
 

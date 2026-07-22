@@ -61,7 +61,7 @@ captured via the `OFFICEEDITOR_TIMING` hooks in `TypstCompilerService`.
 ## Limitations
 
 - Single machine, single pass — absolute numbers carry normal OS/JIT noise; treat as orders of magnitude.
-- Cold runs include one-time costs (assembly load/JIT, TypstBridge probe, legacy typstsharp probe,
+- Cold runs include one-time costs (assembly load/JIT, TypstBridge probe,
   system-font discovery) exactly as a fresh API process would experience them.
 - `soffice --convert-to png` historically renders only slide 1 for Impress decks, so the LibreOffice
   leg converts to PDF and per-slide LO numbers are derived from the PDF total ÷ slide count.
