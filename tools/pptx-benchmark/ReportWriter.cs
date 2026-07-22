@@ -153,7 +153,7 @@ public static class ReportWriter
         sb.AppendLine("## Limitations");
         sb.AppendLine();
         sb.AppendLine("- Single machine, single pass — absolute numbers carry normal OS/JIT noise; treat as orders of magnitude.");
-        sb.AppendLine("- Cold runs include one-time costs (assembly load/JIT, TypstBridge probe, legacy typstsharp probe,");
+        sb.AppendLine("- Cold runs include one-time costs (assembly load/JIT, TypstBridge probe,");
         sb.AppendLine("  system-font discovery) exactly as a fresh API process would experience them.");
         sb.AppendLine("- `soffice --convert-to png` historically renders only slide 1 for Impress decks, so the LibreOffice");
         sb.AppendLine("  leg converts to PDF and per-slide LO numbers are derived from the PDF total ÷ slide count.");

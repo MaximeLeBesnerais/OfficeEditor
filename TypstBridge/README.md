@@ -17,7 +17,6 @@ It is not a C# reimplementation of Typst. OfficeEditor.Core's `TypstCompilerServ
 - Diagnostics and error messages are exposed through the ABI and managed wrapper.
 - OfficeEditor.Core uses TypstBridge as the primary `TypstCompilerService` backend.
 - The external Typst CLI remains the safety-net fallback.
-- `typstsharp` remains present as a legacy PDF-only fallback path and has not been removed.
 - Linux x64 builds can auto-generate the native runtime asset when `TypstBridge.Managed` is built and the asset is missing.
 - Managed tests cover native loading, PDF/SVG/PNG rendering, multi-page outputs, PPI, and diagnostics. Asset/font behavior and repeated compile/free stability are covered by native-side checks or remain future managed-test coverage where gaps exist.
 - **ABI v3** adds persistent compile sessions (warm worlds), a process-wide parsed-font cache, and bounded comemo memoization eviction for long-lived processes; see below and [`docs/abi.md`](docs/abi.md).
@@ -30,7 +29,6 @@ It is not a C# reimplementation of Typst. OfficeEditor.Core's `TypstCompilerServ
 
 Current limits:
 
-- `typstsharp` is still in the repository for fallback/legacy behavior.
 - Package/platform support is preliminary; the runtime asset layout exists, but the full platform matrix still needs verification.
 
 ## Layout
