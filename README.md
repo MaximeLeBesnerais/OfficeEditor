@@ -232,7 +232,7 @@ await File.WriteAllBytesAsync("output.docx", doc.Bytes);
 
 ```bash
 # Clone and build from source
-git clone https://github.com/maximeleb/OfficeEditor.git
+git clone https://github.com/MaximeLeBesnerais/OfficeEditor.git
 cd OfficeEditor
 dotnet build
 
