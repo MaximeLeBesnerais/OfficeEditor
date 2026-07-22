@@ -74,16 +74,24 @@ public sealed class DeckGenerationService : IDeckGenerationService
     private static readonly Lazy<string?> RepositoryRoot = new(FindRepositoryRoot);
 
     private readonly TypstCompilerService _compiler;
+    private readonly string? _fontDirectory;
 
-    public DeckGenerationService()
-        : this(new TypstCompilerService())
+    public DeckGenerationService(string? fontDirectory = null)
+        : this(new TypstCompilerService(), fontDirectory)
     {
     }
 
-    internal DeckGenerationService(TypstCompilerService compiler)
+    internal DeckGenerationService(TypstCompilerService compiler, string? fontDirectory = null)
     {
         _compiler = compiler;
+        _fontDirectory = string.IsNullOrWhiteSpace(fontDirectory) ? null : fontDirectory;
     }
+
+    /// <summary>
+    /// Optional font directory (Path.PathSeparator-separated list) handed to the Typst
+    /// preview compile. Null/empty keeps the compiler's default font resolution.
+    /// </summary>
+    internal string? FontDirectory => _fontDirectory;
 
     public DeckGenerationResult Generate(string documentJson, string normalizedFormat, int ppi)
     {
@@ -165,6 +173,7 @@ public sealed class DeckGenerationService : IDeckGenerationService
         {
             Format = normalizedFormat == "svg" ? OutputFormat.Svg : OutputFormat.Png,
             Ppi = ppi,
+            FontDirectory = _fontDirectory,
             WorkingDirectory = RepositoryRoot.Value
         });
 
