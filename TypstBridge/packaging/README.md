@@ -5,7 +5,7 @@ library as .NET runtime assets.
 
 The scripts prepare the native runtime layout consumed by the managed P/Invoke
 wrapper, managed tests, and OfficeEditor.Core through its `TypstBridge.Managed`
-reference. They do not remove `typstsharp`, provide full platform packaging, or
+reference. They do not provide full platform packaging or
 replace the external Typst CLI fallback.
 
 TypstBridge renders PDF, SVG, and PNG through the native Rust cdylib and is the
@@ -103,8 +103,8 @@ Linux builds must not request an executable stack. The Bash build script adds:
 -C link-arg=-Wl,-z,noexecstack
 ```
 
-This is required for hardened Linux kernels and avoids reproducing the native
-loading failure that affected `typstsharp`. When available, verify a Linux
+This is required for hardened Linux kernels and avoids native
+loading failures on restricted systems. When available, verify a Linux
 artifact with:
 
 ```bash

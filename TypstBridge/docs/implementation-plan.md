@@ -15,7 +15,6 @@ This document records the TypstBridge implementation plan and its current status
 - Diagnostics are exposed through the native ABI and mapped into managed results.
 - OfficeEditor.Core's `TypstCompilerService` tries TypstBridge first.
 - The external Typst CLI remains the safety-net fallback.
-- `typstsharp` remains present as a fallback/legacy path and is not removed by the TypstBridge work.
 - Runtime asset scripts provide the expected .NET RID layout.
 - On Linux x64, the managed project can auto-build `runtimes/linux-x64/native/libtypst_bridge.so` when it is missing and Rust/`cargo` are available.
 
@@ -23,7 +22,6 @@ This document records the TypstBridge implementation plan and its current status
 
 - Do not reimplement Typst in C#.
 - Do not claim full platform packaging until each RID has been built and publish-verified.
-- Do not remove `typstsharp` as part of documentation or packaging updates. Any removal should be a separate cleanup with fallback and reference-output verification.
 - Do not remove the external Typst CLI fallback; it remains the safety net.
 
 ## Implemented compile surface
@@ -64,7 +62,6 @@ The layout is defined for all listed RIDs, but verified packaging support is sti
 flowchart TD
     A[OfficeEditor.Core TypstCompilerService] --> B{Backend selection}
     B -->|Primary| C[TypstBridge.Managed]
-    B -->|Legacy fallback| D[typstsharp]
     B -->|Safety-net fallback| E[Typst CLI]
     C --> F[P/Invoke C ABI]
     F --> G[TypstBridge native Rust cdylib]
@@ -105,7 +102,6 @@ On Linux x64, building `TypstBridge.Managed` or a referencing project can run th
 - Expand and verify the platform matrix before distributing native packages.
 - Document any final font precedence decisions after reference verification.
 - Keep CLI fallback behavior tested and visible in error messages.
-- Treat `typstsharp` removal as a separate dependency cleanup, not as part of TypstBridge integration.
 
 ## Risks and constraints
 
@@ -119,7 +115,7 @@ Linux builds must not request an executable stack. The Bash build script passes 
 
 ### Font discovery differences
 
-Native bridge output may differ from CLI or `typstsharp`. Verify reference PPTX outputs before changing fallback or dependency behavior.
+Native bridge output may differ from CLI output. Verify reference PPTX outputs before changing fallback or dependency behavior.
 
 ### Typst Rust API instability
 

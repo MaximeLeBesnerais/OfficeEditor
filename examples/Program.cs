@@ -415,7 +415,7 @@ This is a **bold** proposal for a new *innovative* project.
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"   Note: PDF export uses TypstBridge first, with legacy typstsharp/Typst CLI fallback.");
+                Console.WriteLine($"   Note: PDF export uses TypstBridge first, with Typst CLI fallback.");
                 Console.WriteLine($"   Error: {ex.Message}");
             }
         }
