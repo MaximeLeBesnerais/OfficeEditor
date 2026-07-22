@@ -15,7 +15,7 @@ public sealed record TypstCompileTiming
 {
     public required DateTimeOffset TimestampUtc { get; init; }
     public required OutputFormat Format { get; init; }
-    /// <summary>Backend that produced the result: "bridge", "legacy-typstsharp", or "cli".</summary>
+    /// <summary>Backend that produced the result: "bridge" or "cli".</summary>
     public required string Backend { get; init; }
     public required double TotalMilliseconds { get; init; }
     /// <summary>Time spent in the TypstBridge attempt (always tried first).</summary>
@@ -52,8 +52,6 @@ public sealed record CompileResult
 public sealed class TypstCompilerService : IDisposable
 {
     private bool _disposed;
-    private static readonly bool _legacyTypstSharpAvailable;
-    private dynamic? _legacyTypstSharpCompiler; // legacy typstsharp PDF fallback compiler
 
     // Opt-in compile timing (OFFICEEDITOR_TIMING env var or TimingEnabled property).
     // When off there is no allocation and no clock read on the Compile path.
@@ -91,28 +89,6 @@ public sealed class TypstCompilerService : IDisposable
             || string.Equals(value, "yes", StringComparison.OrdinalIgnoreCase);
     }
 
-    static TypstCompilerService()
-    {
-        // Probe whether the legacy typstsharp fallback can be loaded for PDF output.
-        try
-        {
-            var compilerType = Type.GetType("typstsharp.TypstCompiler, typstsharp");
-            if (compilerType != null)
-            {
-                var method = compilerType.GetMethod("FromSource", new[] { typeof(string) });
-                if (method != null)
-                {
-                    using var probe = (IDisposable?)method.Invoke(null, new object[] { "#text[probe]" });
-                    _legacyTypstSharpAvailable = probe != null;
-                }
-            }
-        }
-        catch
-        {
-            _legacyTypstSharpAvailable = false;
-        }
-    }
-
     public CompileResult Compile(string source, CompileOptions? options = null)
     {
         options ??= new CompileOptions();
@@ -129,11 +105,8 @@ public sealed class TypstCompilerService : IDisposable
             return bridgeResult;
         }
 
-        var useLegacyFallback = _legacyTypstSharpAvailable && options.Format == OutputFormat.Pdf && string.IsNullOrEmpty(options.FontDirectory);
         var fallbackTimer = _timingEnabled ? Stopwatch.StartNew() : null;
-        var fallbackResult = useLegacyFallback
-            ? CompileLegacyTypstSharp(source, options)
-            : CompileCli(source, options);
+        var fallbackResult = CompileCli(source, options);
         fallbackTimer?.Stop();
 
         if (!fallbackResult.Success)
@@ -144,9 +117,7 @@ public sealed class TypstCompilerService : IDisposable
             };
         }
 
-        // Note: CompileLegacyTypstSharp may internally degrade to the CLI on error,
-        // so "legacy-typstsharp" marks the entry path, not necessarily the final backend.
-        RecordTiming(totalTimer, bridgeTimer, fallbackTimer, useLegacyFallback ? "legacy-typstsharp" : "cli", options.Format, fallbackResult);
+        RecordTiming(totalTimer, bridgeTimer, fallbackTimer, "cli", options.Format, fallbackResult);
         return fallbackResult;
     }
 
@@ -280,50 +251,6 @@ public sealed class TypstCompilerService : IDisposable
         }
 
         return $"{fallbackError}{Environment.NewLine}TypstBridge error: {bridgeError}";
-    }
-
-    private CompileResult CompileLegacyTypstSharp(string source, CompileOptions options)
-    {
-        try
-        {
-            var compilerType = Type.GetType("typstsharp.TypstCompiler, typstsharp")
-                ?? throw new InvalidOperationException("typstsharp type not found");
-
-            var fromSource = compilerType.GetMethod("FromSource", new[] { typeof(string) })
-                ?? throw new InvalidOperationException("FromSource method not found");
-
-            if (_legacyTypstSharpCompiler is IDisposable previousCompiler)
-            {
-                previousCompiler.Dispose();
-            }
-
-            _legacyTypstSharpCompiler = fromSource.Invoke(null, new object[] { source });
-
-            var compileMethod = compilerType.GetMethod("Compile")
-                ?? throw new InvalidOperationException("Compile method not found");
-
-            var result = compileMethod.Invoke(_legacyTypstSharpCompiler, null)!;
-            var buffersProperty = result.GetType().GetProperty("Buffers")
-                ?? throw new InvalidOperationException("Buffers property not found");
-
-            var buffers = (System.Collections.IList)buffersProperty.GetValue(result)!;
-            var pages = new byte[buffers.Count][];
-            for (int i = 0; i < buffers.Count; i++)
-            {
-                pages[i] = (byte[])buffers[i]!;
-            }
-
-            return new CompileResult
-            {
-                Pages = pages,
-                Success = true
-            };
-        }
-        catch (Exception)
-        {
-            // Fall back to the Typst CLI safety net on any legacy typstsharp error.
-            return CompileCli(source, options);
-        }
     }
 
     private static CompileResult CompileCli(string source, CompileOptions options)
@@ -518,10 +445,6 @@ public sealed class TypstCompilerService : IDisposable
     {
         if (!_disposed)
         {
-            if (_legacyTypstSharpCompiler is IDisposable d)
-            {
-                d.Dispose();
-            }
             _disposed = true;
         }
     }

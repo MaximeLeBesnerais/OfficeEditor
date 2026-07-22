@@ -304,4 +304,3 @@ dotnet run
 **Prerequisites for Typst features:**
 - TypstBridge native runtime asset for your RID (built/copied by the project where supported)
 - Optional `typst` CLI in `PATH` for the external CLI fallback
-- `typstsharp` remains referenced for fallback/legacy compatibility
