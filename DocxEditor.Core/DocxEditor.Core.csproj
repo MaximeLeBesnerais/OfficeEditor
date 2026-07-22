@@ -8,7 +8,7 @@
     <Version>0.1.0</Version>
     <Authors>MaximeLB</Authors>
     <Description>DOCX document creation, editing, and manipulation library</Description>
-    <RepositoryUrl>https://github.com/MaximeLeBesnerais/DocxEditor</RepositoryUrl>
+    <RepositoryUrl>https://github.com/MaximeLeBesnerais/OfficeEditor</RepositoryUrl>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
 
