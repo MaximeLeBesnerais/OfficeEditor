@@ -1,12 +1,61 @@
 name: ci
 
+# Triggers: pushes to dev/feature branches burn NO CI — open the PR to run it.
+# CI runs on pull_request events (any target branch), on pushes to main,
+# and manually via workflow_dispatch.
 on:
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
+  workflow_dispatch:
+
+# Superseded runs on the same ref auto-cancel.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
+  # Cheap change-detection job (runs always, seconds). Sets output
+  # dotnet=true|false so build-test only runs on C#-affecting changes.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      dotnet: ${{ steps.filter.outputs.dotnet }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Detect dotnet-relevant changes
+        id: filter
+        run: |
+          set -e
+          files=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "Manual dispatch: forcing dotnet=true"
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+            files="$(git diff --name-only origin/${{ github.base_ref }}...${{ github.sha }})"
+          else
+            before="${{ github.event.before }}"
+            if [ "$before" = "0000000000000000000000000000000000000000" ]; then
+              echo "First push (all-zeros before): forcing dotnet=true"
+            else
+              files="$(git diff --name-only "$before" "${{ github.sha }}")"
+            fi
+          fi
+          echo "Changed files:"
+          echo "$files"
+          if [ -z "$files" ] || echo "$files" | grep -qE '\.cs$|\.csproj$|\.sln$|\.props$|\.targets$|^TypstBridge/|^scripts/check-coverage\.py$|^\.github/workflows/ci\.yml$'; then
+            echo "dotnet=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "dotnet=false" >> "$GITHUB_OUTPUT"
+          fi
+
   build-test:
+    needs: changes
+    # When skipped (docs-only change), GitHub treats the skipped job as
+    # SUCCESS for required status checks — docs-only PRs stay mergeable.
+    if: needs.changes.outputs.dotnet == 'true'
     runs-on: ubuntu-latest
     env:
       COVERAGE_THRESHOLD: 41 # floor — raise as coverage grows
