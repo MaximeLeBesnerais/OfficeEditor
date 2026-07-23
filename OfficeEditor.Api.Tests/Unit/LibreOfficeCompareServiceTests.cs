@@ -65,7 +65,7 @@ public sealed class LibreOfficeCompareServiceTests
     }
 
     [Fact]
-    public void RenderDeck_PresPro_ConvertsAndRasterizesAllSlides()
+    public void RenderDeck_Northwind_ConvertsAndRasterizesAllSlides()
     {
         if (Environment.GetEnvironmentVariable(EnableRenderEnvVar) != "1")
         {
@@ -80,10 +80,10 @@ public sealed class LibreOfficeCompareServiceTests
         }
 
         var demoDeckService = new DemoDeckService(new StubDeckSessionStore());
-        Assert.True(demoDeckService.TryGetDeckFile("pres-pro", out var deckPath));
+        Assert.True(demoDeckService.TryGetDeckFile("northwind", out var deckPath));
         var bytes = File.ReadAllBytes(deckPath);
 
-        var result = service.RenderDeck(bytes, "pres-pro.pptx", 110);
+        var result = service.RenderDeck(bytes, "northwind-demo.pptx", 110);
 
         Assert.True(result.Available);
         Assert.Null(result.Error);
@@ -100,7 +100,7 @@ public sealed class LibreOfficeCompareServiceTests
         {
             Assert.NotNull(result.RasterizationMilliseconds);
             Assert.True(result.RasterizationMilliseconds > 0);
-            Assert.Equal(16, result.PngPages.Count);
+            Assert.Equal(15, result.PngPages.Count);
             Assert.All(result.PngPages, page =>
             {
                 // PNG magic: 0x89 'P' 'N' 'G'

@@ -6,10 +6,14 @@ namespace VisualDiff;
 /// </summary>
 internal static class SuiteCatalog
 {
+    // NOTE: the pres-pro / pitch-deck / Annual reporting / Monitoring Report REF fixtures
+    // were removed pre-public-release (licensing). Their paths stay below so the suites
+    // still compile, but the baselines under baselines/pptx/ were purged and must be
+    // regenerated once replacement REF fixtures land. northwind-demo is the self-made
+    // working PPTX reference.
     private static readonly (string Name, string Pptx, string RefPdf, string GenPdf)[] PptxDecks =
     [
-        ("pres-pro", "examples/REF/PPTX/pres-pro.pptx", "examples/REF/PPTX/pres-pro.pdf", "examples/output/ref/pptx/pres-pro.pdf"),
-        ("pitch-deck", "examples/REF/PPTX/pitch-deck.pptx", "examples/REF/PPTX/pitch-deck.pdf", "examples/output/ref/pptx/pitch-deck.pdf")
+        ("northwind-demo", "examples/REF/PPTX/northwind-demo.pptx", "examples/REF/PPTX/northwind-demo.pdf", "examples/output/ref/pptx/northwind-demo.pdf")
     ];
 
     public static List<ComparisonInput> BuildInputs(CliOptions options, ToolPaths tools)
@@ -20,8 +24,6 @@ internal static class SuiteCatalog
             {
                 return
                 [
-                    new("Annual reporting template ENGLISH_0", "examples/REF/DOCX/Annual reporting template ENGLISH_0.pdf", "examples/output/ref/docx/Annual reporting template ENGLISH_0.pdf", InputKind.Pdf),
-                    new("Monitoring Report Template", "examples/REF/DOCX/Monitoring Report Template.pdf", "examples/output/ref/docx/Monitoring Report Template.pdf", InputKind.Pdf),
                     new("gestion-risques-entreprise-bcp-pme", "examples/REF/DOCX/gestion-risques-entreprise-bcp-pme.pdf", "examples/output/ref/docx/gestion-risques-entreprise-bcp-pme.pdf", InputKind.Pdf)
                 ];
             }

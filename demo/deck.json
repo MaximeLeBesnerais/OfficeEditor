@@ -83,7 +83,7 @@
           "content": {
             "title": "Two pipelines, one Makefile",
             "items": [
-              "Render an existing deck: pres-pro.pptx → PDF + per-slide PNGs",
+              "Render an existing deck: northwind-demo.pptx → PDF + per-slide PNGs",
               "Generate a new deck from this JSON instruction set",
               "Same OfficeEditor Engine pipeline drives both renders",
               "Everything lands under demo/output/"
