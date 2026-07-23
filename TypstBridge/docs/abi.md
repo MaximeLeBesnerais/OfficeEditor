@@ -11,6 +11,10 @@ The ABI is intentionally C-compatible. Rust-owned memory must always be released
 
 The v2 single-shot entry point remains supported in v3: the `typst_bridge_compile_request` layout is unchanged, and the native bridge accepts requests carrying `abi_version` 2 or 3. The managed wrapper enforces exact ABI equality (`TypstBridgeCompiler.SupportedAbiVersion`), so managed and native builds must ship in lockstep.
 
+## Pre-v1 policy: ABI is fluid
+
+**Until OfficeEditor v1.0, the ABI is expected to change — extend it eagerly.** When a Typst upgrade ships new capabilities (e.g. 0.15's `PdfOptions`: multi-standard PDF/A + PDF/UA, `creator`, `pretty`), the default action is to bump the ABI and wire them through to `CompileOptions`, never to leave them unwired "to preserve the ABI". Managed and native ship in lockstep anyway, so compatibility windows cost nothing — and unported upstream features are lost product. Hesitation here is a bug (this policy exists because 0.15.1's PDF options were initially skipped for exactly that reason).
+
 ## Design Rules
 
 - All string inputs are UTF-8 with explicit lengths.
