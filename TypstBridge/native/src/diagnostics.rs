@@ -32,7 +32,7 @@ pub fn from_typst(world: &dyn World, diagnostic: &SourceDiagnostic) -> TypstBrid
         .span
         .id()
         .and_then(|id| {
-            let file = id.vpath().as_rootless_path().display().to_string();
+            let file = id.vpath().get_without_slash().to_string();
             let source = world.source(id).ok()?;
             let start = world.range(diagnostic.span)?.start;
             let (line, column) = source.lines().byte_to_line_column(start)?;
