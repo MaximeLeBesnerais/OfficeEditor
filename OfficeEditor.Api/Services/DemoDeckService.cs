@@ -123,10 +123,20 @@ public sealed class DemoDeckService : IDemoDeckService
     ];
 
     private readonly IDeckSessionStore _sessionStore;
+    private readonly string? _fontDirectory;
 
-    public DemoDeckService(IDeckSessionStore sessionStore)
+    /// <summary>
+    /// <paramref name="fontDirectory"/> is an optional extra font search path (typically
+    /// the host's system font directories, e.g. "/System/Library/Fonts:/Library/Fonts")
+    /// forwarded to every thumbnail render so decks without embedded fonts render in their
+    /// declared sans/serif families instead of Typst's embedded serif fallback. It is
+    /// COMBINED with any embedded fonts by <see cref="PresentationBuilder"/> (embedded
+    /// first) — never an override. Null keeps the previous embedded-only behavior.
+    /// </summary>
+    public DemoDeckService(IDeckSessionStore sessionStore, string? fontDirectory = null)
     {
         _sessionStore = sessionStore;
+        _fontDirectory = fontDirectory;
     }
 
     public IReadOnlyList<DemoDeckInfo> ListDecks() =>
@@ -172,7 +182,7 @@ public sealed class DemoDeckService : IDemoDeckService
         using (var builder = PresentationBuilder.Open(bytes))
         {
             slideCount = builder.SlideCount;
-            pages = builder.ExportThumbnails(new ThumbnailOptions { Ppi = clampedPpi, Format = format });
+            pages = builder.ExportThumbnails(new ThumbnailOptions { Ppi = clampedPpi, Format = format, FontDirectory = _fontDirectory });
         }
         timer.Stop();
 
@@ -230,7 +240,7 @@ public sealed class DemoDeckService : IDemoDeckService
         var timer = Stopwatch.StartNew();
         using (var builder = PresentationBuilder.Open(sourceBytes))
         {
-            pages = builder.ExportThumbnails(new ThumbnailOptions { Ppi = clampedPpi, Format = format });
+            pages = builder.ExportThumbnails(new ThumbnailOptions { Ppi = clampedPpi, Format = format, FontDirectory = _fontDirectory });
         }
         timer.Stop();
 
@@ -287,7 +297,7 @@ public sealed class DemoDeckService : IDemoDeckService
             byte[][] pngPages;
             using (var builder = PresentationBuilder.Open(sourceBytes))
             {
-                pngPages = builder.ExportThumbnails(new ThumbnailOptions { Ppi = ppi, Format = "png" });
+                pngPages = builder.ExportThumbnails(new ThumbnailOptions { Ppi = ppi, Format = "png", FontDirectory = _fontDirectory });
             }
             pngTimer.Stop();
             return (Pages: pngPages, Milliseconds: pngTimer.Elapsed.TotalMilliseconds);

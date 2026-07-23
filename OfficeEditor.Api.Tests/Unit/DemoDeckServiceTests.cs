@@ -174,6 +174,36 @@ public sealed class DemoDeckServiceTests
     }
 
     [Fact]
+    public void Constructor_FontDirectory_IsOptionalAndAccepted()
+    {
+        // Existing call sites (no font directory) keep compiling and working.
+        var withoutFonts = new DemoDeckService(new StubDeckSessionStore());
+        Assert.Equal(4, withoutFonts.ListDecks().Count);
+
+        // A provided system-font path is accepted and does not affect non-render operations.
+        var withFonts = new DemoDeckService(new StubDeckSessionStore(), "/System/Library/Fonts:/Library/Fonts");
+        Assert.Equal(4, withFonts.ListDecks().Count);
+    }
+
+    [Fact]
+    public void RenderDeck_Northwind_WithFontDirectory_RendersAllSlides()
+    {
+        if (Environment.GetEnvironmentVariable(EnableRenderEnvVar) != "1")
+        {
+            return; // no Typst backend in this environment (see class summary)
+        }
+
+        // End-to-end: the configured font directory flows into the thumbnail compile.
+        var service = new DemoDeckService(new StubDeckSessionStore(), "/System/Library/Fonts:/Library/Fonts");
+
+        var result = service.RenderDeck("northwind", 110, "png");
+
+        Assert.Equal(15, result.SlideCount);
+        Assert.Equal(result.SlideCount, result.Pages.Count);
+        Assert.All(result.Pages, page => Assert.Equal(0x89, page[0]));
+    }
+
+    [Fact]
     public void RenderDeck_Northwind_RendersAllSlidesAndStoresSession()
     {
         if (Environment.GetEnvironmentVariable(EnableRenderEnvVar) != "1")
