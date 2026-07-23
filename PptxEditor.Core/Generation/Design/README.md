@@ -1,5 +1,7 @@
 # Design token sets (Phase 5, P8)
 
+> Note: the source decks (pres-pro, AetherLink, FusionFest) these token sets were mined from were removed pre-public-release (licensing). The mined token sets are retained as design facts.
+
 Pre-mined design tokens for the slide generator, conforming to plan.md §3.1
 (`palette`, `fonts`, `shape`, `metrics`). Seeded by `BrandProfileExtractor`
 (theme-level) plus a shape-level frequency mine of `a:srgbClr` / `a:latin`

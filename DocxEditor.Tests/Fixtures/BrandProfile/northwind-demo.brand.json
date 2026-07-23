@@ -1,0 +1,25 @@
+{
+  "themeColors": {
+    "accent1": "#4F81BD",
+    "accent2": "#C0504D",
+    "accent3": "#9BBB59",
+    "accent4": "#8064A2",
+    "accent5": "#4BACC6",
+    "accent6": "#F79646",
+    "dk1": "#000000",
+    "dk2": "#1F497D",
+    "folHlink": "#800080",
+    "hlink": "#0000FF",
+    "lt1": "#FFFFFF",
+    "lt2": "#EEECE1"
+  },
+  "majorFont": "Calibri",
+  "minorFont": "Calibri",
+  "title": null,
+  "body": null,
+  "other": null,
+  "backgroundColor": "#1E2A32",
+  "slideWidthPt": 960,
+  "slideHeightPt": 540,
+  "warnings": []
+}

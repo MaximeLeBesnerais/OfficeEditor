@@ -90,7 +90,7 @@ public sealed class PptxToTypstConverterSingleSlideTests : IDisposable
     [Fact]
     public void ConvertSingleSlide_EmitsCompilableOnePageDocument()
     {
-        var referencePath = Path.Combine(ResolveReferenceDirectory(), "pres-pro.pptx");
+        var referencePath = Path.Combine(ResolveReferenceDirectory(), "northwind-demo.pptx");
         Assert.True(File.Exists(referencePath), $"Reference PPTX file not found: {referencePath}");
 
         using var document = PresentationDocument.Open(referencePath, false);
