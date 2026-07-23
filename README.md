@@ -537,7 +537,7 @@ treat as orders of magnitude):
 
 | Deck | Slides | OfficeEditor warm (total) | Per slide | LibreOffice warm (total) | Per slide | Speedup |
 |---|---|---|---|---|---|---|
-| pres-pro.pptx (removed pre-public-release, licensing) | 16 | 189.5 ms | 11.8 ms | 2,661.5 ms | 166.3 ms | ~14× |
+| pres-pro.pptx | 16 | 189.5 ms | 11.8 ms | 2,661.5 ms | 166.3 ms | ~14× |
 
 Preview path = open + whole-deck PNG @150ppi. Product target: <500 ms per slide — comfortably met.
 The LibreOffice leg (`soffice --headless --convert-to pdf`) includes full process start and profile
@@ -559,7 +559,7 @@ The external `typst` CLI remains a safety net when native compilation is unavail
 
 **Platform Support:** pure managed .NET 9 — no platform-specific code, so the suite is expected to run anywhere .NET runs.
 - **macOS (arm64)** — Current development platform; tests, benchmarks and coverage actively run here.
-- **linux-x64** — Previously tested.
+- **linux-x64** — Tested.
 - **Windows** — Expected to work, not yet verified.
 
 **Rendering (PPTX → Typst → PDF/PNG/SVG):**

@@ -1,6 +1,6 @@
 # TypstBridge Implementation Status
 
-This document records the TypstBridge implementation plan and its current status. TypstBridge is no longer only a standalone experiment: OfficeEditor.Core's `TypstCompilerService` now uses it as the primary Typst backend.
+This document records the TypstBridge implementation plan and its current status. OfficeEditor.Core's `TypstCompilerService` uses TypstBridge as its primary Typst backend.
 
 ## Current state
 
@@ -97,7 +97,7 @@ On Linux x64, building `TypstBridge.Managed` or a referencing project can run th
 
 ## Remaining work
 
-- Verify reference PPTX conversions through the OfficeEditor.Core path for `examples/REF/PPTX/northwind-demo.pptx` (pres-pro / AetherLink REF decks removed pre-public-release for licensing; replacements pending).
+- Verify reference PPTX conversions through the OfficeEditor.Core path for `examples/REF/PPTX/sales_acceleration_deck.pptx`.
 - Confirm publish output includes the correct native runtime asset for each supported RID.
 - Expand and verify the platform matrix before distributing native packages.
 - Document any final font precedence decisions after reference verification.

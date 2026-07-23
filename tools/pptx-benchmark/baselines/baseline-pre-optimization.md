@@ -1,4 +1,4 @@
-> Note: pres-pro.pptx and the other third-party REF decks referenced below were removed pre-public-release (licensing). Historical numbers retained for reference.
+> Baseline captured before the render-pipeline optimization pass.
 
 # PPTX Render Benchmark — Baseline (Pre-Optimization)
 
