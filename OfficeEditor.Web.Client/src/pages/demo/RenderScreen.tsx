@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { extractApiError, fetchDemoDecks, renderDemoDeck } from '../../api.ts';
+import { extractApiError, fetchDemoDecks, fetchOfficialSlides, renderDemoDeck } from '../../api.ts';
 import { StatusMessage } from '../../components/StatusMessage.tsx';
+import { CompareGallery } from './CompareGallery.tsx';
 import { FormatToggle } from './FormatToggle.tsx';
 import { SlideGallery } from './SlideGallery.tsx';
 import type { GallerySlide } from './SlideGallery.tsx';
@@ -8,9 +9,14 @@ import { TimingReceipt } from './TimingReceipt.tsx';
 import type { TimingStats } from './TimingReceipt.tsx';
 import type { DemoDeck, PreviewFormat } from '../../types.ts';
 
+type GalleryView = 'engine' | 'official' | 'compare';
+
 interface RenderResult {
   deckName: string;
   slides: GallerySlide[];
+  // Official render (PowerPoint ground truth) of the same deck, null when the deck
+  // has no sibling PDF export or pdftoppm is unavailable on the server.
+  officialSlides: GallerySlide[] | null;
   stats: TimingStats;
 }
 
@@ -33,12 +39,47 @@ function Spinner() {
   );
 }
 
+const VIEW_OPTIONS: { id: GalleryView; label: string }[] = [
+  { id: 'engine', label: 'Engine' },
+  { id: 'official', label: 'Official' },
+  { id: 'compare', label: 'Side-by-side' },
+];
+
+function ViewToggle({
+  value,
+  onChange,
+}: {
+  value: GalleryView;
+  onChange: (view: GalleryView) => void;
+}) {
+  return (
+    <div className="inline-flex items-center rounded-full border border-slate-800 bg-slate-900 p-1">
+      {VIEW_OPTIONS.map((option) => (
+        <button
+          key={option.id}
+          type="button"
+          onClick={() => onChange(option.id)}
+          className={[
+            'rounded-full px-4 py-1.5 text-sm font-semibold transition-all duration-200',
+            value === option.id
+              ? 'bg-slate-700 text-white shadow-sm'
+              : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200',
+          ].join(' ')}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function RenderScreen() {
   const [decks, setDecks] = useState<DemoDeck[] | null>(null);
   const [decksError, setDecksError] = useState<string | null>(null);
   const [renderingDeck, setRenderingDeck] = useState<DemoDeck | null>(null);
   const [result, setResult] = useState<RenderResult | null>(null);
   const [renderError, setRenderError] = useState<string | null>(null);
+  const [view, setView] = useState<GalleryView>('compare');
   // REF decks contain photos, so raster previews are the sensible default.
   const [format, setFormat] = useState<PreviewFormat>('png');
 
@@ -61,13 +102,25 @@ export function RenderScreen() {
     setRenderError(null);
     setResult(null);
     try {
-      const response = await renderDemoDeck(deck.name, outputFormat);
+      // The official-render fetch runs in parallel and never rejects (it degrades to
+      // null) — the engine render neither waits on it nor fails because of it.
+      const [response, official] = await Promise.all([
+        renderDemoDeck(deck.name, outputFormat),
+        fetchOfficialSlides(deck.name),
+      ]);
+      setView('compare');
       setResult({
         deckName: deck.name,
         slides: response.previews.map((p) => ({
           slide: p.slide,
           dataUrl: `data:${p.contentType};base64,${p.contentBase64}`,
         })),
+        officialSlides: official
+          ? official.previews.map((p) => ({
+              slide: p.slide,
+              dataUrl: `data:${p.contentType};base64,${p.contentBase64}`,
+            }))
+          : null,
         stats: {
           slides: response.slideCount,
           totalMs: response.totalMilliseconds,
@@ -186,7 +239,38 @@ export function RenderScreen() {
       {result && (
         <div className="fade-in-up space-y-5">
           <TimingReceipt stats={result.stats} />
-          <SlideGallery slides={result.slides} title={result.deckName} />
+          {result.officialSlides ? (
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <span className="text-sm font-semibold text-slate-300">View</span>
+                <ViewToggle value={view} onChange={setView} />
+              </div>
+              {view === 'engine' && (
+                <SlideGallery slides={result.slides} title={`${result.deckName} — OfficeEditor Engine`} />
+              )}
+              {view === 'official' && (
+                <SlideGallery
+                  slides={result.officialSlides}
+                  title={`${result.deckName} — PowerPoint (official)`}
+                />
+              )}
+              {view === 'compare' && (
+                <CompareGallery
+                  typstSlides={result.slides}
+                  loSlides={result.officialSlides}
+                  loState="ready"
+                  loPlaceholder={null}
+                  loPendingSince={null}
+                  rightLabel="PowerPoint (official)"
+                />
+              )}
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <SlideGallery slides={result.slides} title={result.deckName} />
+              <p className="text-sm text-slate-500">No official render available for this deck.</p>
+            </div>
+          )}
         </div>
       )}
     </div>
