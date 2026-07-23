@@ -65,3 +65,4 @@ Date: 2026-07-23. Sources: typst/typst v0.15.0 release notes + https://typst.app
 | HTML `box`/`block` semantics, `html.script/style` strings-only | No (no HTML output) | — |
 | SVG `typst-*` classes removed, minified SVG | No (no class post-processing) | — |
 | MSRV 1.92 | Yes | Rust toolchain in CI/build |
+
