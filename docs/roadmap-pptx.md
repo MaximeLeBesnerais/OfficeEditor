@@ -23,33 +23,23 @@ Standing disciplines (apply to every item, per AGENTS.md):
 
 **Blocks:** everything. Phases 1–2 measure success against visual parity; without a licensed corpus there is nothing to measure against.
 
-The pre-public-release licensing purge removed the third-party REF decks (pres-pro, AetherLink,
-FusionFest, pitch-deck) from HEAD and history. Only the self-made `examples/REF/PPTX/northwind-demo.pptx`
-remains; `tools/visual-diff/baselines/pptx/` is gone (its README says regenerate once replacements land);
-`PptxReferenceSmokeTests` enumerates only decks present, so the purge silently shrank coverage.
-
-- **Self-made REF corpus** (per the fixture spec, an external deliverable to be written by external
-  AIs into `docs/`, not read here). Four decks:
-  - Primary ~16-slide deck stressing `PptxToTypstConverter` — tables, groups, SmartArt, charts, images, styled panels, mixed z-order.
-  - Styled deck for `BrandProfileExtractor` token mining (replaces pres-pro/AetherLink as token source).
-  - Architecture deck (dense diagrams, connector-heavy); pitch deck (image-forward, big display type).
-  Why: every phase below gates on visual parity.
-  **L** — Acceptance: 4+ decks in `examples/REF/PPTX/` with REF PDFs, built with OfficeEditor's own
-  tooling, committed with their generation sources so they can be regenerated.
-  **Ground-truth caveat:** RMSE-vs-PowerPoint needs PowerPoint-rendered "official" PDFs — decks
-  rendered by our own pipeline measure parity against ourselves. The corpus spec must name the
-  ground-truth renderer (a machine with PowerPoint, or LibreOffice explicitly accepted as the
-  reference).
-- **Regenerate visual-diff pptx baselines + REF PDFs.**
+The REF corpus is self-made and lives in `examples/REF/PPTX/`: `sales_acceleration_deck` (primary,
+16 slides, SmartArt on slide 15), `AetherLink-Glass-Shareholder-Overview`, `northwind-investor-40`,
+`northwind-launch-review`, plus the OfficeEditor-generated `northwind-demo`;
+`tools/visual-diff/baselines/pptx/` is generated per machine and not committed.
+be regenerated against the new corpus. The showeet-licensed SmartArt corpus stays local-only under
+`local-ref/smartarts/` (gitignored). Remaining work from this phase:
   Why: `baselines/gen` exists but `baselines/pptx` does not; the pptx suite has no gate. Baselines
   are machine-dependent — regenerate per the baselines README rules. REF PDFs double as ground
   truth for the `LibreOfficeCompareService` path.
   **S** — Acceptance: `--suite pptx` threshold-checked in CI on the new corpus.
-- **Un-skip the guarded tests** and make missing REF decks fail loudly instead of silently
-  shrinking theory data.
+- **Un-skip the remaining guarded tests** and make missing REF decks fail loudly instead of silently
+  shrinking theory data. (The SmartArt / solid-fill / AetherLink image tests were un-guarded on the
+  new corpus; `PresPro_Slide1_TitleFontSize_FromMaster` stays guarded — no license-clean deck uses
+  master-inherited title placeholders.)
   **S** — Acceptance: smoke + parity tests run against all new decks; zero tests skipped for missing files.
 - **Re-mine design tokens** — `Generation/Design/pres-pro.tokens.json` and
-  `aetherlink.tokens.json` were extracted from the purged decks. Re-run `BrandProfileExtractor`
+  `aetherlink.tokens.json` predate the current corpus. Re-run `BrandProfileExtractor`
   against the new styled deck and commit replacement token sets.
   **S** — Acceptance: token JSONs traceable to a deck in the repo; mining test round-trips.
 - **WebApplicationFactory smoke tests for `OfficeEditor.Api/Program.cs`** (938 lines, ~0% covered — the largest single coverage hole; no WebApplicationFactory usage today). Cover the 20 mapped endpoints at the happy-path + error-contract level:

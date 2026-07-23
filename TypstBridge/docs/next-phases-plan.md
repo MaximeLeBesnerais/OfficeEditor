@@ -67,7 +67,7 @@ cargo test --manifest-path TypstBridge/native/Cargo.toml
 
 ### 3. Reference verification
 
-- Run reference conversions for `examples/REF/PPTX/northwind-demo.pptx` (pres-pro / AetherLink REF decks removed pre-public-release for licensing; replacements pending).
+- Run reference conversions for `examples/REF/PPTX/sales_acceleration_deck.pptx`.
 - Verify PDF and PNG outputs before considering any fallback/dependency changes.
 
 ### 4. Dependency and packaging cleanup

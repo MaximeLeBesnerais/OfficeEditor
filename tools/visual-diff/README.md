@@ -1,6 +1,6 @@
 # Visual Diff Tool
 
-> Note: the pres-pro / pitch-deck REF fixtures and the committed `baselines/pptx/` baselines were removed pre-public-release (licensing). Regenerate baselines with `--update-baseline` once replacement REF fixtures land.
+> Note: pptx baselines are not committed — they are machine-dependent. Generate them with `--update-baseline` against `examples/REF/PPTX/` before using `--baseline` gates.
 
 Compares reference and generated output page-by-page and writes an HTML report plus JSON metrics. Inputs can be **PDFs** (rendered to PNG with poppler first) or **pre-rendered PNGs** (compared directly). Use it to review visual regressions in generated output, or — with `--baseline` — to enforce an RMSE threshold in a gate.
 
@@ -40,7 +40,8 @@ Run from the repository root:
 # DOCX suite: examples/REF/DOCX/*.pdf vs examples/output/ref/docx/*.pdf
 dotnet run --project tools/visual-diff -- --suite docx
 
-# PPTX suite: examples/REF/PPTX/northwind-demo.pdf vs examples/output/ref/pptx/*.pdf
+# PPTX suite: examples/REF/PPTX/*.pdf vs examples/output/ref/pptx/*.pdf
+# (sales_acceleration_deck, AetherLink, northwind-launch-review, northwind-demo)
 dotnet run --project tools/visual-diff -- --suite pptx
 
 # GEN suite (Phase 5 parity fixtures): PowerPoint ground truth vs Typst preview,
@@ -75,7 +76,7 @@ Missing renders are loud per-fixture skips with the exact production steps; if n
 
 ### The PPTX suite and generated PDFs
 
-`--suite pptx` diffs the committed reference PDF (`examples/REF/PPTX/northwind-demo.pdf`) against generated PDFs under `examples/output/ref/pptx/`. Generated PDFs are produced by the repo's existing converter, `tools/convert-pptx`. If one is missing, the suite prints the exact command and skips that deck:
+`--suite pptx` diffs the committed reference PDFs (`examples/REF/PPTX/*.pdf` — sales_acceleration_deck, AetherLink-Glass-Shareholder-Overview, northwind-launch-review, northwind-demo) against generated PDFs under `examples/output/ref/pptx/`. Generated PDFs are produced by the repo's existing converter, `tools/convert-pptx`. If one is missing, the suite prints the exact command and skips that deck:
 
 ```bash
 dotnet run --project tools/convert-pptx -- examples/REF/PPTX/northwind-demo.pptx \
@@ -107,10 +108,10 @@ dotnet run --project tools/visual-diff -- \
 
 ```bash
 dotnet run --project tools/visual-diff -- \
-  --ref docs/assets/pptx-comparison/official/pres-pro \  # NOTE: dir removed pre-public-release (licensing)
-  --gen examples/output/pptx-comparison/generated/pres-pro \
-  --out examples/output/visual-diff/pptx-comparison/pres-pro \
-  --name pres-pro
+  --ref docs/assets/pptx-comparison/official/sales \  # any directory of PNGs
+  --gen examples/output/pptx-comparison/generated/sales \
+  --out examples/output/visual-diff/pptx-comparison/sales \
+  --name sales
 ```
 
 `--ref` and `--gen` must be the same kind of input (both PDFs, both PNG files, or both directories).
