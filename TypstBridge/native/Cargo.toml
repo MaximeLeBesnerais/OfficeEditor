@@ -12,13 +12,13 @@ crate-type = ["cdylib", "rlib"]
 # Cargo.lock); promoted to a direct dependency so the bridge can drive
 # `comemo::evict` for bounded memoization in long-lived processes.
 comemo = "=0.5.1"
-typst = "=0.14.2"
-typst-kit = { version = "=0.14.2", default-features = false, features = ["fonts", "embed-fonts"] }
-typst-pdf = "=0.14.2"
-typst-render = "=0.14.2"
-typst-svg = "=0.14.2"
-typst-utils = "=0.14.2"
-tiny-skia = { version = "0.11.4", features = ["png"] }
+typst = "=0.15.1"
+typst-kit = { version = "=0.15.1", default-features = false, features = ["embedded-fonts"] }
+typst-layout = "=0.15.1"
+typst-pdf = "=0.15.1"
+typst-render = "=0.15.1"
+typst-svg = "=0.15.1"
+typst-utils = "=0.15.1"
 
 [profile.release]
 lto = true
