@@ -11,6 +11,10 @@ export interface CompareGalleryProps {
   // Timestamp (Date.now()) of the run start — drives the live chrono shown in
   // the LibreOffice panel while its leg is still in flight.
   loPendingSince: number | null;
+  // Panel labels — defaults keep the Typst-vs-LibreOffice duel wording; the Render
+  // tab's official-render comparison overrides the right one.
+  leftLabel?: string;
+  rightLabel?: string;
 }
 
 // Ticking elapsed timer for in-flight legs. Purely cosmetic: once the server
@@ -95,6 +99,8 @@ export function CompareGallery({
   loState,
   loPlaceholder,
   loPendingSince,
+  leftLabel = 'OfficeEditor Engine',
+  rightLabel = 'LibreOffice',
 }: CompareGalleryProps) {
   // LO rasterizes the PDF it produced, so its page count can theoretically
   // differ from the typst slide count — sync the pair on the smaller of the
@@ -155,12 +161,12 @@ export function CompareGallery({
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-2">
           <span className="inline-block rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-300 ring-1 ring-emerald-500/40">
-            OfficeEditor Engine
+            {leftLabel}
           </span>
           <div className="aspect-video overflow-hidden rounded-2xl bg-slate-900 shadow-2xl shadow-black/40 ring-1 ring-emerald-500/30">
             <img
               src={typst.dataUrl}
-              alt={`Slide ${typst.slide} rendered by the OfficeEditor Engine`}
+              alt={`Slide ${typst.slide} rendered by ${leftLabel}`}
               className="h-full w-full object-contain"
             />
           </div>
@@ -168,13 +174,13 @@ export function CompareGallery({
 
         <div className="space-y-2">
           <span className="inline-block rounded-full bg-slate-800 px-2.5 py-1 text-xs font-semibold text-slate-300">
-            LibreOffice
+            {rightLabel}
           </span>
           <div className="aspect-video overflow-hidden rounded-2xl bg-slate-900 shadow-2xl shadow-black/40 ring-1 ring-slate-700/60">
             {lo ? (
               <img
                 src={lo.dataUrl}
-                alt={`Slide ${lo.slide} rendered by LibreOffice`}
+                alt={`Slide ${lo.slide} rendered by ${rightLabel}`}
                 className="h-full w-full object-contain"
               />
             ) : loState === 'pending' && loPendingSince !== null ? (
@@ -184,7 +190,7 @@ export function CompareGallery({
                   startedAt={loPendingSince}
                   className="font-mono text-lg font-semibold text-slate-300"
                 />
-                <p className="text-center text-sm text-slate-500">LibreOffice rendering…</p>
+                <p className="text-center text-sm text-slate-500">{rightLabel} rendering…</p>
               </div>
             ) : (
               <div className="flex h-full w-full items-center justify-center p-6">

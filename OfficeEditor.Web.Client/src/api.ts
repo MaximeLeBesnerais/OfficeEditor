@@ -6,6 +6,7 @@ import type {
   GenerateDeckResponse,
   GenerationDocument,
   LibreOfficeLegResult,
+  OfficialSlidesResponse,
   PreviewFormat,
   TypstLegResult,
 } from './types.ts';
@@ -90,8 +91,22 @@ export async function renderAnyDeck(
   return handleResponse<DemoRenderResponse>(response);
 }
 
-export async function fetchCompareCapabilities(): Promise<CompareCapabilities> {
-  const response = await fetch(`${API_BASE}/api/demo/compare/capabilities`);
+// Official render (PowerPoint ground truth) of a whitelisted REF deck. Never throws:
+// a missing official render or unavailable pdftoppm degrades to null, and callers fall
+// back to the plain engine gallery with a muted note — never an error panel.
+export async function fetchOfficialSlides(name: string): Promise<OfficialSlidesResponse | null> {
+  try {
+    const response = await fetch(
+      `${API_BASE}/api/demo/decks/${encodeURIComponent(name)}/official-slides`,
+    );
+    if (!response.ok) return null;
+    return (await response.json()) as OfficialSlidesResponse;
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchCompareCapabilities(): Promise<CompareCapabilities> {  const response = await fetch(`${API_BASE}/api/demo/compare/capabilities`);
   return handleResponse<CompareCapabilities>(response);
 }
 

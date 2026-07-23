@@ -32,8 +32,11 @@ builder.Services.AddSingleton<IDeckService, DeckService>();
 builder.Services.AddSingleton<IDeckEditService, DeckEditService>();
 builder.Services.AddSingleton<IDeckGenerationService>(
     _ => new DeckGenerationService(builder.Configuration["Demo:FontDirectory"]));
-builder.Services.AddSingleton<IDemoDeckService, DemoDeckService>();
+builder.Services.AddSingleton<IDemoDeckService>(sp => new DemoDeckService(
+    sp.GetRequiredService<IDeckSessionStore>(),
+    builder.Configuration["Demo:FontDirectory"]));
 builder.Services.AddSingleton<ILibreOfficeCompareService, LibreOfficeCompareService>();
+builder.Services.AddSingleton<IOfficialRenderService, OfficialRenderService>();
 builder.Services.AddSingleton(sp => new RenderWarmupService(
     new OfficeEditor.Core.Services.TypstCompilerService(),
     builder.Configuration["Demo:FontDirectory"],
@@ -419,6 +422,42 @@ app.MapGet("/api/demo/decks", (IDemoDeckService demoDeckService) =>
         .ToList();
 
     return Results.Ok(new { decks });
+});
+
+app.MapGet("/api/demo/decks/{name}/official-slides", (
+    string name,
+    IDemoDeckService demoDeckService,
+    IOfficialRenderService officialRenderService) =>
+{
+    if (demoDeckService is not DemoDeckService concreteDemoDeckService
+        || !concreteDemoDeckService.TryGetDeckFile(name, out _))
+    {
+        return Results.NotFound(new { error = $"Unknown demo deck '{name}'." });
+    }
+
+    if (!officialRenderService.PdfToPpmAvailable)
+    {
+        return Results.Json(
+            new { error = "pdftoppm not found; official-render comparison unavailable." },
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+
+    if (!officialRenderService.TryGetOfficialSlides(name, out var official))
+    {
+        return Results.NotFound(new { error = $"No official render for '{name}'." });
+    }
+
+    return Results.Ok(new OfficialSlidesResponse(
+        official.Name,
+        official.SlideCount,
+        "PowerPoint PDF export",
+        official.Pages
+            .Select((bytes, index) => new GeneratedSlidePreviewDto(
+                index + 1,
+                "png",
+                "image/png",
+                Convert.ToBase64String(bytes)))
+            .ToList()));
 });
 
 app.MapPost("/api/demo/render", async (

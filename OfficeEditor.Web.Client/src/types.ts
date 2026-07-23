@@ -26,6 +26,13 @@ export interface DemoRenderResponse {
   previews: SlidePreviewDto[];
 }
 
+export interface OfficialSlidesResponse {
+  name: string;
+  slideCount: number;
+  source: string;
+  previews: SlidePreviewDto[];
+}
+
 export interface CompareCapabilities {
   available: boolean;
   version: string | null;
