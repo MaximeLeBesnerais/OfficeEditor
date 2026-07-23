@@ -18,7 +18,7 @@ dotnet run --project tools/pptx-benchmark -- --runs 5 --update-baseline
 
 ## What it measures
 
-Per deck (currently only `examples/REF/PPTX/northwind-demo.pptx`; the former third-party REF decks — , AetherLink, ,  — were removed for licensing, replacements pending), in a fresh child process:
+Per deck (the license-clean REF corpus under `examples/REF/PPTX/`: sales_acceleration_deck, AetherLink-Glass-Shareholder-Overview, northwind-launch-review, northwind-investor-40, northwind-demo), in a fresh child process:
 
 - **Cold**: iteration 0 — `PresentationBuilder.Open`, `ExportThumbnails` (whole-deck PNG @150ppi), `ExportToPdf`.
 - **Warm**: median of N repeat iterations in the same process.

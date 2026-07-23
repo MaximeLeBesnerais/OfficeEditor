@@ -1,4 +1,4 @@
-> Note: `baselines/pptx/` (derived from the  /  REF decks) was removed (licensing) and must be regenerated once replacement REF fixtures land.
+> Note: pptx baselines are generated per machine with `--update-baseline` against `examples/REF/PPTX/` (sales_acceleration_deck, AetherLink-Glass-Shareholder-Overview, northwind-launch-review, northwind-demo) and are not committed.
 
 # visual-diff baselines
 
