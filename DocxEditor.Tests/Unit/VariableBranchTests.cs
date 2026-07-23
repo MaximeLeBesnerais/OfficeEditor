@@ -70,16 +70,16 @@ public class VariableBranchTests : IDisposable
         }
 
         using var reopened = WordprocessingDocument.Open(path, false);
-        var allText = reopened.MainDocumentPart!.Document.InnerText
-            + string.Concat(reopened.MainDocumentPart.HeaderParts.Select(h => h.Header.InnerText))
-            + string.Concat(reopened.MainDocumentPart.FooterParts.Select(f => f.Footer.InnerText));
+        var allText = reopened.MainDocumentPart!.Document!.InnerText
+            + string.Concat(reopened.MainDocumentPart.HeaderParts.Select(h => h.Header!.InnerText))
+            + string.Concat(reopened.MainDocumentPart.FooterParts.Select(f => f.Footer!.InnerText));
 
         Assert.Contains("Hi Ada; repeated Ada", allText);
         Assert.Contains("Split One and Default and  and {{missing}}", allText);
         Assert.Contains("Header Fallback", allText);
         Assert.Contains("Footer Done", allText);
 
-        var textNodes = reopened.MainDocumentPart.Document.Body!.Descendants<W.Text>().ToList();
+        var textNodes = reopened.MainDocumentPart.Document!.Body!.Descendants<W.Text>().ToList();
         Assert.Contains(textNodes, t => t.Text.Contains("Split One") && t.Space?.Value == SpaceProcessingModeValues.Preserve);
     }
 
@@ -94,7 +94,7 @@ public class VariableBranchTests : IDisposable
         }
 
         using var reopened = WordprocessingDocument.Open(path, false);
-        Assert.Equal("Plain text", reopened.MainDocumentPart!.Document.Body!.InnerText);
+        Assert.Equal("Plain text", reopened.MainDocumentPart!.Document!.Body!.InnerText);
     }
 
     [Fact]
@@ -111,7 +111,7 @@ public class VariableBranchTests : IDisposable
 
         Assert.Equal(4, variables.Count);
         Assert.Contains(variables, v => v.Name == "shared" && v.DefaultValue == "SharedDefault" && v.Location == "sheet:Sheet1:cell:A1");
-        Assert.Single(variables.Where(v => v.Name == "name" && v.Location == "sheet:Sheet1:cell:B1"));
+        Assert.Single(variables, v => v.Name == "name" && v.Location == "sheet:Sheet1:cell:B1");
         Assert.Contains(variables, v => v.Name == "empty" && v.DefaultValue == "" && v.Location == "sheet:Sheet1:cell:C1");
         Assert.Contains(variables, v => v.Name == "noRef" && v.Location == "sheet:Sheet1:cell:Unknown");
     }
@@ -277,7 +277,7 @@ public class VariableBranchTests : IDisposable
         if (cell.DataType?.Value == CellValues.SharedString)
         {
             var index = int.Parse(cell.CellValue!.Text);
-            return workbookPart.SharedStringTablePart!.SharedStringTable.Elements<SharedStringItem>().ElementAt(index).InnerText;
+            return workbookPart.SharedStringTablePart!.SharedStringTable!.Elements<SharedStringItem>().ElementAt(index).InnerText;
         }
 
         return cell.CellValue?.Text ?? string.Empty;
