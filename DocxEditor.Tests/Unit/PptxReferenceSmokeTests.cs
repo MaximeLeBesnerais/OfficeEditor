@@ -9,8 +9,9 @@ namespace DocxEditor.Tests.Unit;
 /// Smoke tests for every reference PPTX in examples/REF/PPTX.
 /// Ensures each file can be opened, converted to a Typst model, and rendered
 /// to non-empty Typst source. The northwind-demo deck is also compiled to PDF
-/// to verify end-to-end generation. (The original third-party reference decks
-/// were removed for licensing; replacements pending.)
+/// to verify end-to-end generation. (The corpus is the license-clean set:
+/// sales_acceleration_deck, AetherLink-Glass-Shareholder-Overview,
+/// northwind-investor-40, northwind-launch-review, northwind-demo.)
 /// </summary>
 public sealed class PptxReferenceSmokeTests : IDisposable
 {

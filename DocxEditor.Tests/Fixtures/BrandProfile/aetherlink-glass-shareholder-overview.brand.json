@@ -1,0 +1,43 @@
+{
+  "themeColors": {
+    "accent1": "#22D3EE",
+    "accent2": "#8B5CF6",
+    "accent3": "#EC4899",
+    "accent4": "#6366F1",
+    "accent5": "#2DD4BF",
+    "accent6": "#7DD3FC",
+    "dk1": "#0B1026",
+    "dk2": "#131B3F",
+    "folHlink": "#8B5CF6",
+    "hlink": "#7DD3FC",
+    "lt1": "#FFFFFF",
+    "lt2": "#EAF2FF"
+  },
+  "majorFont": "Liter",
+  "minorFont": "QuattrocentoSans",
+  "title": {
+    "fontFamily": "Liter",
+    "fontSizePt": 44,
+    "bold": null,
+    "italic": null,
+    "color": "#0B1026"
+  },
+  "body": {
+    "fontFamily": "QuattrocentoSans",
+    "fontSizePt": 32,
+    "bold": null,
+    "italic": null,
+    "color": "#0B1026"
+  },
+  "other": {
+    "fontFamily": "QuattrocentoSans",
+    "fontSizePt": 18,
+    "bold": null,
+    "italic": null,
+    "color": "#0B1026"
+  },
+  "backgroundColor": null,
+  "slideWidthPt": 960,
+  "slideHeightPt": 540,
+  "warnings": []
+}

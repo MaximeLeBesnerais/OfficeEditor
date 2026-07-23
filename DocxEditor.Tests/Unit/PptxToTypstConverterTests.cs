@@ -1385,14 +1385,11 @@ public class PptxToTypstConverterTests : IDisposable
     }
 
     [Fact]
-    public void PresPro_Slide1_BackgroundColor_ResolvedFromLayout()
+    public void LaunchReview_Slide1_BackgroundColor_ResolvedFromSlide()
     {
         var baseDir = AppContext.BaseDirectory;
-        var path = Path.Combine(baseDir, "..", "..", "..", "..", "examples", "REF", ".pptx");
+        var path = Path.Combine(baseDir, "..", "..", "..", "..", "examples", "REF", "PPTX", "northwind-launch-review.pptx");
         path = Path.GetFullPath(path);
-        
-        if (!File.Exists(path))
-            return; // REF fixture purged  (licensing); replacement pending
 
         using var doc = PresentationDocument.Open(path, false);
         var converter = new PptxToTypstConverter(doc);
@@ -1400,9 +1397,9 @@ public class PptxToTypstConverterTests : IDisposable
 
         var slide1 = presentation.Slides.FirstOrDefault();
         Assert.NotNull(slide1);
-        
-        // Background should be resolved from layout (accent1 = #CEBA80)
-        Assert.Equal("#CEBA80", slide1.Layout.BackgroundColor);
+
+        // Slide 1 carries a slide-level solid background (#0B1F3A).
+        Assert.Equal("#0B1F3A", slide1.Layout.BackgroundColor);
     }
 
     [Fact]
@@ -1412,7 +1409,9 @@ public class PptxToTypstConverterTests : IDisposable
         var path = Path.Combine(baseDir, "..", "..", "..", "..", "examples", "REF", ".pptx");
         path = Path.GetFullPath(path);
         if (!File.Exists(path))
-            return; // REF fixture purged  (licensing); replacement pending
+            return; // REF fixture purged  (licensing); none of the license-clean
+                    // replacement decks use master-inherited title placeholders (all textboxes),
+                    // so this stays guarded until a placeholder-driven REF deck ships
 
         using var doc = PresentationDocument.Open(path, false);
         var converter = new PptxToTypstConverter(doc);

@@ -52,11 +52,6 @@ public sealed class PptxImageFrameSizingTests
     [Fact]
     public void Convert_AetherLinkSlide1BackgroundImage_UsesFullSlideFrame()
     {
-        if (!File.Exists(ReferencePath("AetherLink-Glass-Shareholder-Overview.pptx")))
-        {
-            return; // REF fixture purged  (licensing); replacement pending
-        }
-
         var (presentation, source) = ConvertReference("AetherLink-Glass-Shareholder-Overview.pptx");
         var slide = presentation.Slides[0];
         var imageElement = Assert.Single(slide.Elements,
@@ -68,26 +63,18 @@ public sealed class PptxImageFrameSizingTests
     }
 
     [Fact]
-    public void Convert_PresPro_SolidBackgroundStillEmitsPageFill()
+    public void Convert_LaunchReview_SolidBackgroundStillEmitsPageFill()
     {
-        if (!File.Exists(ReferencePath(".pptx")))
-        {
-            return; // REF fixture purged  (licensing); replacement pending
-        }
+        // northwind-launch-review.pptx slide 1 carries a slide-level solid background
+        // (#0B1F3A); the page fill must survive into the emitted Typst source.
+        var (_, source) = ConvertReference("northwind-launch-review.pptx");
 
-        var (_, source) = ConvertReference(".pptx");
-
-        Assert.Contains("#set page(fill: rgb(\"#CEBA80\"))", source);
+        Assert.Contains("#set page(fill: rgb(\"#0B1F3A\"))", source);
     }
 
     [Fact]
     public void Convert_NativePixelMetadataDoesNotOverrideImageFrameGeometry()
     {
-        if (!File.Exists(ReferencePath("AetherLink-Glass-Shareholder-Overview.pptx")))
-        {
-            return; // REF fixture purged  (licensing); replacement pending
-        }
-
         var (presentation, source) = ConvertReference("AetherLink-Glass-Shareholder-Overview.pptx");
         var imageElement = Assert.Single(presentation.Slides[0].Elements,
             element => element.Type == "Image" && element.X == 0 && element.Y == 0);
