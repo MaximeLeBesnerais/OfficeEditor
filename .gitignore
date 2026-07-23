@@ -21,3 +21,6 @@ examples/output/
 */output/*
 
 .DS_Store
+
+# Local-only reference material (unlicensed third-party decks)
+local-ref/

@@ -21,7 +21,7 @@ public sealed class DemoDeckServiceTests
         var decks = service.ListDecks();
 
         Assert.Equal(
-            ["northwind"],
+            ["northwind", "sales", "aetherlink", "launch-review"],
             decks.Select(d => d.Name));
         Assert.All(decks, d =>
         {
@@ -77,6 +77,18 @@ public sealed class DemoDeckServiceTests
         Assert.True(service.TryGetDeckFile("northwind", out var path));
         Assert.True(File.Exists(path));
         Assert.EndsWith("northwind-demo.pptx", path);
+
+        Assert.True(service.TryGetDeckFile("sales", out var salesPath));
+        Assert.True(File.Exists(salesPath));
+        Assert.EndsWith("sales_acceleration_deck.pptx", salesPath);
+
+        Assert.True(service.TryGetDeckFile("aetherlink", out var aetherPath));
+        Assert.True(File.Exists(aetherPath));
+        Assert.EndsWith("AetherLink-Glass-Shareholder-Overview.pptx", aetherPath);
+
+        Assert.True(service.TryGetDeckFile("launch-review", out var launchPath));
+        Assert.True(File.Exists(launchPath));
+        Assert.EndsWith("northwind-launch-review.pptx", launchPath);
     }
 
     [Theory]

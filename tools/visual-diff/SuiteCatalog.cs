@@ -6,13 +6,14 @@ namespace VisualDiff;
 /// </summary>
 internal static class SuiteCatalog
 {
-    // NOTE: the pres-pro / pitch-deck / Annual reporting / Monitoring Report REF fixtures
-    // were removed pre-public-release (licensing). Their paths stay below so the suites
-    // still compile, but the baselines under baselines/pptx/ were purged and must be
-    // regenerated once replacement REF fixtures land. northwind-demo is the self-made
-    // working PPTX reference.
+    // NOTE: the suite now runs on the license-clean REF corpus (self-made decks).
+    // The baselines under baselines/pptx/ were purged with the old third-party decks
+    // and must be regenerated against this corpus.
     private static readonly (string Name, string Pptx, string RefPdf, string GenPdf)[] PptxDecks =
     [
+        ("sales_acceleration_deck", "examples/REF/PPTX/sales_acceleration_deck.pptx", "examples/REF/PPTX/sales_acceleration_deck.pdf", "examples/output/ref/pptx/sales_acceleration_deck.pdf"),
+        ("aetherlink-glass-shareholder-overview", "examples/REF/PPTX/AetherLink-Glass-Shareholder-Overview.pptx", "examples/REF/PPTX/AetherLink-Glass-Shareholder-Overview.pdf", "examples/output/ref/pptx/aetherlink-glass-shareholder-overview.pdf"),
+        ("northwind-launch-review", "examples/REF/PPTX/northwind-launch-review.pptx", "examples/REF/PPTX/northwind-launch-review.pdf", "examples/output/ref/pptx/northwind-launch-review.pdf"),
         ("northwind-demo", "examples/REF/PPTX/northwind-demo.pptx", "examples/REF/PPTX/northwind-demo.pdf", "examples/output/ref/pptx/northwind-demo.pdf")
     ];
 
@@ -24,7 +25,8 @@ internal static class SuiteCatalog
             {
                 return
                 [
-                    new("gestion-risques-entreprise-bcp-pme", "examples/REF/DOCX/gestion-risques-entreprise-bcp-pme.pdf", "examples/output/ref/docx/gestion-risques-entreprise-bcp-pme.pdf", InputKind.Pdf)
+                    new("annual-report", "examples/REF/DOCX/annual-report.pdf", "examples/output/ref/docx/annual-report.pdf", InputKind.Pdf),
+                    new("monitoring-report", "examples/REF/DOCX/monitoring-report.pdf", "examples/output/ref/docx/monitoring-report.pdf", InputKind.Pdf)
                 ];
             }
 
