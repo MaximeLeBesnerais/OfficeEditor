@@ -60,6 +60,16 @@ public sealed record ThumbnailOptions
 {
     public float Ppi { get; init; } = 150;
     public string Format { get; init; } = "png";
+
+    /// <summary>
+    /// Optional additional font directory (or path-separator-joined list of directories)
+    /// passed to the Typst compiler alongside the deck's embedded fonts. The embedded-fonts
+    /// directory always comes first — this value is COMBINED, never an override (repo rule:
+    /// never replace embedded PPTX fonts via the font path). Null (default) keeps the
+    /// previous behavior: embedded fonts only, or the compiler's built-in fallback fonts
+    /// when the deck embeds none.
+    /// </summary>
+    public string? FontDirectory { get; init; }
 }
 
 public interface ISlideBuilder
@@ -505,6 +515,30 @@ public class PresentationBuilder : IPresentationBuilder
         return result.Pages[0];
     }
 
+    /// <summary>
+    /// Combines the deck's embedded-fonts directory with an externally provided font
+    /// directory (or pre-joined list) into a single <see cref="Path.PathSeparator"/>-joined
+    /// value for the Typst compiler. The embedded directory ALWAYS comes first — the
+    /// provided value extends the font search path, it never replaces the embedded fonts
+    /// (repo rule: never override embedded PPTX fonts via the font path). Null/blank
+    /// inputs are dropped; returns null when both are absent (compiler default behavior).
+    /// Internal static so the combination rule is unit-testable without a Typst compile.
+    /// </summary>
+    internal static string? CombineFontDirectories(string? embeddedFontsDirectory, string? providedFontDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(embeddedFontsDirectory))
+        {
+            return string.IsNullOrWhiteSpace(providedFontDirectory) ? null : providedFontDirectory;
+        }
+
+        if (string.IsNullOrWhiteSpace(providedFontDirectory))
+        {
+            return embeddedFontsDirectory;
+        }
+
+        return embeddedFontsDirectory + Path.PathSeparator + providedFontDirectory;
+    }
+
     public byte[][] ExportThumbnails(ThumbnailOptions? options = null)
     {
         options ??= new ThumbnailOptions();
@@ -527,7 +561,9 @@ public class PresentationBuilder : IPresentationBuilder
         {
             Format = outputFormat,
             Ppi = options.Ppi,
-            FontDirectory = presentation.FontFiles.Count > 0 ? Path.Combine(presentation.TempDirectory, "fonts") : null,
+            FontDirectory = CombineFontDirectories(
+                presentation.FontFiles.Count > 0 ? Path.Combine(presentation.TempDirectory, "fonts") : null,
+                options.FontDirectory),
             WorkingDirectory = presentation.TempDirectory
         };
 
@@ -578,7 +614,9 @@ public class PresentationBuilder : IPresentationBuilder
             {
                 Format = outputFormat,
                 Ppi = options.Ppi,
-                FontDirectory = presentation.FontFiles.Count > 0 ? Path.Combine(presentation.TempDirectory, "fonts") : null,
+                FontDirectory = CombineFontDirectories(
+                    presentation.FontFiles.Count > 0 ? Path.Combine(presentation.TempDirectory, "fonts") : null,
+                    options.FontDirectory),
                 WorkingDirectory = presentation.TempDirectory
             };
 
