@@ -119,14 +119,12 @@ public sealed class PptxToTypstConverterUnsupportedElementTests : IDisposable
     [Fact]
     public void Convert_ReferenceDeckWithSmartArt_KeepsApproximationAndWarns()
     {
-        // pres-pro.pptx slide 15 contains a SmartArt diagram that the converter
-        // approximates as positioned text. The approximation must be kept (no
-        // placeholder) and reported via Warnings.
-        var referencePath = Path.Combine(ResolveReferenceDirectory(), "pres-pro.pptx");
-        if (!File.Exists(referencePath))
-        {
-            return; // REF fixture purged pre-public-release (licensing); replacement pending
-        }
+        // sales_acceleration_deck.pptx slide 15 contains a SmartArt diagram ("Diagram 16",
+        // text: SUSTAIN / DIAGNOSE / DESIGN / DELIVER) that the converter approximates as
+        // positioned text. The approximation must be kept (no placeholder) and reported
+        // via Warnings.
+        var referencePath = Path.Combine(ResolveReferenceDirectory(), "sales_acceleration_deck.pptx");
+        Assert.True(File.Exists(referencePath), $"Reference deck not found: {referencePath}");
 
         using var document = PresentationDocument.Open(referencePath, false);
         using var converter = new PptxToTypstConverter(document);

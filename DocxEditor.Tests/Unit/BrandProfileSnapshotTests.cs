@@ -16,6 +16,7 @@ public sealed class BrandProfileSnapshotTests
 
     [Theory]
     [InlineData("northwind-demo.pptx", "northwind-demo.brand.json")]
+    [InlineData("AetherLink-Glass-Shareholder-Overview.pptx", "aetherlink-glass-shareholder-overview.brand.json")]
     public void Extract_ReferenceDeck_MatchesCommittedBrandSnapshot(string deckFileName, string snapshotFileName)
     {
         var deckPath = Path.Combine(ResolveReferenceDirectory(), deckFileName);

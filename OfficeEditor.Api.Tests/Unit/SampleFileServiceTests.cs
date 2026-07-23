@@ -12,12 +12,14 @@ public sealed class SampleFileServiceTests
     {
         var samples = _service.GetSampleFiles();
 
-        Assert.Equal(3, samples.Count);
+        Assert.Equal(5, samples.Count);
         Assert.Equal(
             new[]
             {
+                "sales_acceleration_deck.pptx",
                 "northwind-demo.pptx",
-                "gestion-risques-entreprise-bcp-pme.docx",
+                "annual-report.docx",
+                "monitoring-report.docx",
                 "sample.md"
             },
             samples.Select(s => s.Name));
@@ -39,8 +41,10 @@ public sealed class SampleFileServiceTests
     }
 
     [Theory]
+    [InlineData("sales_acceleration_deck.pptx", OfficeDocumentFormat.Pptx)]
     [InlineData("northwind-demo.pptx", OfficeDocumentFormat.Pptx)]
-    [InlineData("gestion-risques-entreprise-bcp-pme.docx", OfficeDocumentFormat.Docx)]
+    [InlineData("annual-report.docx", OfficeDocumentFormat.Docx)]
+    [InlineData("monitoring-report.docx", OfficeDocumentFormat.Docx)]
     [InlineData("sample.md", OfficeDocumentFormat.Markdown)]
     public void GetSampleFiles_DeclaresExpectedFormats(string name, OfficeDocumentFormat expectedFormat)
     {

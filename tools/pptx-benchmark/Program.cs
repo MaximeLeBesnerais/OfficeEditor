@@ -49,10 +49,13 @@ if (runs < 1)
 }
 
 var repoRoot = FindRepoRoot();
-// The former third-party REF decks (pres-pro, AetherLink, FusionFest, pitch-deck) were
-// removed pre-public-release (licensing); northwind-demo is the self-made replacement.
+// License-clean REF corpus (self-made decks); sales_acceleration_deck is the primary.
 var deckPaths = new[]
 {
+    Path.Combine(repoRoot, "examples", "REF", "PPTX", "sales_acceleration_deck.pptx"),
+    Path.Combine(repoRoot, "examples", "REF", "PPTX", "AetherLink-Glass-Shareholder-Overview.pptx"),
+    Path.Combine(repoRoot, "examples", "REF", "PPTX", "northwind-launch-review.pptx"),
+    Path.Combine(repoRoot, "examples", "REF", "PPTX", "northwind-investor-40.pptx"),
     Path.Combine(repoRoot, "examples", "REF", "PPTX", "northwind-demo.pptx"),
 };
 
