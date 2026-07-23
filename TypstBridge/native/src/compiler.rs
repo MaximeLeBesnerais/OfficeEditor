@@ -2,7 +2,7 @@ use std::ffi::c_char;
 use std::path::PathBuf;
 use std::{slice, str};
 
-use typst::layout::PagedDocument;
+use typst_layout::PagedDocument;
 
 use crate::abi::{
     TypstBridgeCompileRequest, TypstBridgeCompileResult, TypstBridgeOutputFormat,
