@@ -3,13 +3,19 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use typst::diag::{FileError, FileResult};
-use typst::foundations::{Bytes, Datetime};
-use typst::syntax::{FileId, Source, VirtualPath};
+use typst::foundations::{Bytes, Datetime, Duration};
+use typst::syntax::{FileId, RootedPath, Source, VirtualPath, VirtualRoot};
 use typst::text::{Font, FontBook};
 use typst::{Library, LibraryExt, World};
 use typst_utils::LazyHash;
 
 use crate::fonts::BridgeFonts;
+
+fn project_file_id(path: &str) -> FileId {
+    let vpath = VirtualPath::new(path)
+        .unwrap_or_else(|_| VirtualPath::new("main.typ").expect("literal path is valid"));
+    FileId::new(RootedPath::new(VirtualRoot::Project, vpath))
+}
 
 pub struct BridgeWorld {
     library: LazyHash<Library>,
@@ -33,11 +39,8 @@ impl BridgeWorld {
         let mut world = Self {
             library: LazyHash::new(Library::default()),
             fonts,
-            main_id: FileId::new(None, VirtualPath::new("main.typ")),
-            main_source: Source::new(
-                FileId::new(None, VirtualPath::new("main.typ")),
-                String::new(),
-            ),
+            main_id: project_file_id("main.typ"),
+            main_source: Source::new(project_file_id("main.typ"), String::new()),
             working_dir,
             canonical_working_dir,
         };
@@ -54,7 +57,7 @@ impl BridgeWorld {
         } else {
             root_name
         };
-        self.main_id = FileId::new(None, VirtualPath::new(root_name));
+        self.main_id = project_file_id(root_name);
         self.main_source = Source::new(self.main_id, source_text);
     }
 }
@@ -100,29 +103,29 @@ impl World for BridgeWorld {
         self.fonts.fonts.get(index).cloned()
     }
 
-    fn today(&self, _offset: Option<i64>) -> Option<Datetime> {
+    fn today(&self, _offset: Option<Duration>) -> Option<Datetime> {
         Datetime::from_ymd(1970, 1, 1)
     }
 }
 
 fn resolve(root: &Path, canonical_root: &Path, id: FileId) -> FileResult<PathBuf> {
-    if id.package().is_some() {
-        return Err(FileError::NotFound(
-            id.vpath().as_rootless_path().to_owned(),
-        ));
+    if matches!(id.root(), VirtualRoot::Package(_)) {
+        return Err(FileError::NotFound(PathBuf::from(
+            id.vpath().get_without_slash(),
+        )));
     }
 
     let path = id
         .vpath()
-        .resolve(root)
-        .ok_or_else(|| FileError::NotFound(id.vpath().as_rootless_path().to_owned()))?;
+        .realize(root)
+        .map_err(|_| FileError::NotFound(PathBuf::from(id.vpath().get_without_slash())))?;
 
     let canonical_path =
         fs::canonicalize(&path).map_err(|error| FileError::from_io(error, &path))?;
     if !canonical_path.starts_with(canonical_root) {
-        return Err(FileError::NotFound(
-            id.vpath().as_rootless_path().to_owned(),
-        ));
+        return Err(FileError::NotFound(PathBuf::from(
+            id.vpath().get_without_slash(),
+        )));
     }
 
     Ok(canonical_path)
@@ -154,7 +157,7 @@ mod tests {
             return;
         }
 
-        let id = FileId::new(None, VirtualPath::new("link.txt"));
+        let id = project_file_id("link.txt");
         let canonical_root = fs::canonicalize(&root).unwrap();
         assert!(matches!(
             resolve(&root, &canonical_root, id),
