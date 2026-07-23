@@ -88,7 +88,7 @@ public class ImageFitModeTests : IDisposable
         doc.PresentationPart!.SlideParts.First();
 
     private static P.Picture FindPicture(SlidePart slidePart, uint pictureId) =>
-        slidePart.Slide.CommonSlideData!.ShapeTree!.Elements<P.Picture>()
+        slidePart.Slide!.CommonSlideData!.ShapeTree!.Elements<P.Picture>()
             .Single(p => ReadElementId(p.NonVisualPictureProperties!) == pictureId);
 
     private static uint ReadElementId(DocumentFormat.OpenXml.OpenXmlElement nvProperties)
@@ -113,7 +113,7 @@ public class ImageFitModeTests : IDisposable
         }
         using (var doc = PresentationDocument.Open(path, true))
         {
-            var picture = FirstSlidePart(doc).Slide.CommonSlideData!.ShapeTree!
+            var picture = FirstSlidePart(doc).Slide!.CommonSlideData!.ShapeTree!
                 .Elements<P.Picture>().First();
             var xfrm = picture.ShapeProperties!.Transform2D!;
             xfrm.Extents!.Cx = cx;
