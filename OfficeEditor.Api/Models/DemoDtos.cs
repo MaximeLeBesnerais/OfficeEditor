@@ -15,6 +15,18 @@ public record DemoRenderResponse(
     double TotalMilliseconds,
     IReadOnlyList<GeneratedSlidePreviewDto> Previews);
 
+/// <summary>
+/// Response for GET /api/demo/decks/{name}/official-slides: the official render of a
+/// whitelisted REF deck — its sibling PDF export from online PowerPoint (ground truth),
+/// rasterized to one PNG per slide. Previews mirror the render response shape so the
+/// client can reuse its gallery components.
+/// </summary>
+public record OfficialSlidesResponse(
+    string Name,
+    int SlideCount,
+    string Source,
+    IReadOnlyList<GeneratedSlidePreviewDto> Previews);
+
 /// <summary>Capabilities of the LibreOffice compare leg (GET /api/demo/compare/capabilities).</summary>
 public record CompareCapabilitiesDto(bool Available, string? Version, bool PdfToPpmAvailable, string? SkipReason);
 
