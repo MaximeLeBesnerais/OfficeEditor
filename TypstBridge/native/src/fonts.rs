@@ -5,7 +5,6 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use typst::foundations::Bytes;
 use typst::text::{Font, FontBook};
-use typst_kit::fonts::FontSearcher;
 use typst_utils::LazyHash;
 
 pub struct BridgeFonts {
@@ -84,14 +83,9 @@ fn load_font_paths_uncached(paths: &[String], working_dir: &Path) -> Result<Brid
 
     // Keep system fonts disabled for deterministic behavior, but include Typst's
     // embedded fallback fonts so minimal documents can compile without a font path.
-    let embedded = FontSearcher::new()
-        .include_system_fonts(INCLUDE_SYSTEM_FONTS)
-        .search();
-    for slot in embedded.fonts {
-        if let Some(font) = slot.get() {
-            book.push(font.info().clone());
-            fonts.push(font);
-        }
+    for (font, info) in typst_kit::fonts::embedded() {
+        book.push(info);
+        fonts.push(font);
     }
 
     Ok(BridgeFonts {
