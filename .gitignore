@@ -19,3 +19,5 @@ coverage/
 examples/output/
 
 */output/*
+
+.DS_Store
