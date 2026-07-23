@@ -429,7 +429,7 @@ app.MapPost("/api/demo/render", async (
     using var reader = new StreamReader(context.Request.Body);
     var body = await reader.ReadToEndAsync(ct);
 
-    // Envelope: { "name": "pres-pro", "ppi": 110, "format": "svg" } — ppi and format
+    // Envelope: { "name": "northwind", "ppi": 110, "format": "svg" } — ppi and format
     // optional, parsed defensively like the /api/decks/generate envelope.
     string? name = null;
     int? requestedPpi = null;
@@ -587,7 +587,7 @@ app.MapPost("/api/demo/compare/libreoffice", async (
     using var reader = new StreamReader(context.Request.Body);
     var body = await reader.ReadToEndAsync(ct);
 
-    // Envelope: { "name": "pres-pro", "ppi": 110 } — parsed defensively like /api/demo/render.
+    // Envelope: { "name": "northwind", "ppi": 110 } — parsed defensively like /api/demo/render.
     string? name = null;
     int? requestedPpi = null;
     try
@@ -708,7 +708,7 @@ app.MapPost("/api/demo/compare/typst", async (
     using var reader = new StreamReader(context.Request.Body);
     var body = await reader.ReadToEndAsync(ct);
 
-    // Envelope: { "name": "pres-pro", "ppi": 110 } — parsed defensively like the
+    // Envelope: { "name": "northwind", "ppi": 110 } — parsed defensively like the
     // /api/demo/compare/libreoffice envelope.
     string? name = null;
     int? requestedPpi = null;

@@ -26,4 +26,4 @@ The legacy managed-wrapper PDF fallback dependency has been removed; the backend
 
 ## Verification
 
-After any change to the compile path, run a smoke test on `examples/REF/PPTX/pres-pro.pptx` and `AetherLink-Glass-Shareholder-Overview.pptx`. Diff generated PDFs against the reference PDFs in `examples/REF/PPTX/`.
+After any change to the compile path, run a smoke test on `examples/REF/PPTX/northwind-demo.pptx`. Diff generated PDFs against the reference PDFs in `examples/REF/PPTX/`. (The former third-party REF decks — pres-pro, AetherLink, FusionFest, pitch-deck — were removed pre-public-release for licensing; replacements pending.)

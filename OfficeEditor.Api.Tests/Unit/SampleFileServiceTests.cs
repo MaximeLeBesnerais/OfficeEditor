@@ -12,13 +12,11 @@ public sealed class SampleFileServiceTests
     {
         var samples = _service.GetSampleFiles();
 
-        Assert.Equal(5, samples.Count);
+        Assert.Equal(3, samples.Count);
         Assert.Equal(
             new[]
             {
-                "pres-pro.pptx",
-                "Annual reporting template ENGLISH_0.docx",
-                "Monitoring Report Template.docx",
+                "northwind-demo.pptx",
                 "gestion-risques-entreprise-bcp-pme.docx",
                 "sample.md"
             },
@@ -41,8 +39,8 @@ public sealed class SampleFileServiceTests
     }
 
     [Theory]
-    [InlineData("pres-pro.pptx", OfficeDocumentFormat.Pptx)]
-    [InlineData("Annual reporting template ENGLISH_0.docx", OfficeDocumentFormat.Docx)]
+    [InlineData("northwind-demo.pptx", OfficeDocumentFormat.Pptx)]
+    [InlineData("gestion-risques-entreprise-bcp-pme.docx", OfficeDocumentFormat.Docx)]
     [InlineData("sample.md", OfficeDocumentFormat.Markdown)]
     public void GetSampleFiles_DeclaresExpectedFormats(string name, OfficeDocumentFormat expectedFormat)
     {
@@ -62,7 +60,7 @@ public sealed class SampleFileServiceTests
     [Fact]
     public async Task LoadAsync_PptxSample_ReturnsZipPayload()
     {
-        var bytes = await _service.LoadAsync("pres-pro.pptx");
+        var bytes = await _service.LoadAsync("northwind-demo.pptx");
 
         Assert.NotEmpty(bytes);
         // PPTX is a ZIP container: expect the local-file-header signature.
@@ -85,6 +83,6 @@ public sealed class SampleFileServiceTests
         // Names are matched with the default (ordinal, case-sensitive) comparer;
         // a differently-cased name must not silently resolve to a sample.
         await Assert.ThrowsAsync<FileNotFoundException>(
-            () => _service.LoadAsync("Pres-Pro.pptx"));
+            () => _service.LoadAsync("Northwind-Demo.pptx"));
     }
 }

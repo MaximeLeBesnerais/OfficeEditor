@@ -227,7 +227,7 @@ internal sealed record CliOptions(
 
         Suites (run from the repository root):
           docx   examples/REF/DOCX/*.pdf  vs  examples/output/ref/docx/*.pdf
-          pptx   examples/REF/PPTX/{pres-pro,pitch-deck}.pdf  vs  examples/output/ref/pptx/*.pdf
+          pptx   examples/REF/PPTX/northwind-demo.pdf  vs  examples/output/ref/pptx/*.pdf
                  Missing generated PDFs can be built on demand with --generate (invokes
                  tools/convert-pptx) or manually:
                    dotnet run --project tools/convert-pptx -- examples/REF/PPTX/<deck>.pptx \
