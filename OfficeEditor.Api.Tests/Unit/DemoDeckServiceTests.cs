@@ -21,7 +21,7 @@ public sealed class DemoDeckServiceTests
         var decks = service.ListDecks();
 
         Assert.Equal(
-            ["", "aetherlink", "", ""],
+            ["northwind"],
             decks.Select(d => d.Name));
         Assert.All(decks, d =>
         {
@@ -38,7 +38,7 @@ public sealed class DemoDeckServiceTests
 
         var decks = service.ListDecks();
 
-        // All four REF decks ship with the repo; a 0 would mean the lazy open failed.
+        // The whitelisted REF deck ships with the repo; a 0 would mean the lazy open failed.
         Assert.All(decks, d => Assert.True(d.SlideCount > 0, $"{d.Name} reported 0 slides"));
     }
 
@@ -49,10 +49,7 @@ public sealed class DemoDeckServiceTests
 
         var ex = Assert.Throws<ArgumentException>(() => service.RenderDeck("no-such-deck", 110, "png"));
 
-        Assert.Contains("", ex.Message);
-        Assert.Contains("aetherlink", ex.Message);
-        Assert.Contains("", ex.Message);
-        Assert.Contains("", ex.Message);
+        Assert.Contains("northwind", ex.Message);
     }
 
     [Theory]
@@ -66,7 +63,7 @@ public sealed class DemoDeckServiceTests
         // DeckGenerationService.Generate) and rejects anything else before rendering.
         var service = new DemoDeckService(new StubDeckSessionStore());
 
-        var ex = Assert.Throws<ArgumentException>(() => service.RenderDeck("", 110, format));
+        var ex = Assert.Throws<ArgumentException>(() => service.RenderDeck("northwind", 110, format));
 
         Assert.Contains("normalized", ex.Message);
         Assert.Equal("format", ex.ParamName);
@@ -77,9 +74,9 @@ public sealed class DemoDeckServiceTests
     {
         var service = new DemoDeckService(new StubDeckSessionStore());
 
-        Assert.True(service.TryGetDeckFile("", out var path));
+        Assert.True(service.TryGetDeckFile("northwind", out var path));
         Assert.True(File.Exists(path));
-        Assert.EndsWith(".pptx", path);
+        Assert.EndsWith("northwind-demo.pptx", path);
     }
 
     [Theory]
@@ -165,7 +162,7 @@ public sealed class DemoDeckServiceTests
     }
 
     [Fact]
-    public void RenderDeck_PresPro_RendersAllSlidesAndStoresSession()
+    public void RenderDeck_Northwind_RendersAllSlidesAndStoresSession()
     {
         if (Environment.GetEnvironmentVariable(EnableRenderEnvVar) != "1")
         {
@@ -175,9 +172,9 @@ public sealed class DemoDeckServiceTests
         var store = new StubDeckSessionStore();
         var service = new DemoDeckService(store);
 
-        var result = service.RenderDeck("", 110, "png");
+        var result = service.RenderDeck("northwind", 110, "png");
 
-        Assert.True(result.SlideCount > 0);
+        Assert.Equal(15, result.SlideCount);
         Assert.Equal("png", result.Format);
         Assert.Equal(result.SlideCount, result.Pages.Count);
         Assert.True(result.TotalMilliseconds > 0);
@@ -193,11 +190,11 @@ public sealed class DemoDeckServiceTests
 
         Assert.True(store.TryGet(result.DeckId, out var session));
         Assert.Equal(result.SlideCount, session!.SlideCount);
-        Assert.Equal(".pptx", session.FileName);
+        Assert.Equal("northwind-demo.pptx", session.FileName);
     }
 
     [Fact]
-    public void RenderDeck_PresPro_SvgFormat_RendersSvgPages()
+    public void RenderDeck_Northwind_SvgFormat_RendersSvgPages()
     {
         if (Environment.GetEnvironmentVariable(EnableRenderEnvVar) != "1")
         {
@@ -207,9 +204,9 @@ public sealed class DemoDeckServiceTests
         var store = new StubDeckSessionStore();
         var service = new DemoDeckService(store);
 
-        var result = service.RenderDeck("", 110, "svg");
+        var result = service.RenderDeck("northwind", 110, "svg");
 
-        Assert.True(result.SlideCount > 0);
+        Assert.Equal(15, result.SlideCount);
         Assert.Equal("svg", result.Format);
         Assert.Equal(result.SlideCount, result.Pages.Count);
         Assert.All(result.Pages, page =>

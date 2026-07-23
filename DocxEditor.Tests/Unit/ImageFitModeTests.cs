@@ -541,14 +541,14 @@ public class ImageFitModeTests : IDisposable
     #region Integration: reference deck still renders after fit=fill
 
     [Fact]
-    public void Integration_ReplaceImageFitFill_PresProDeck_StillRenders()
+    public void Integration_ReplaceImageFitFill_NorthwindDeck_StillRenders()
     {
         var referencePath = Path.GetFullPath(Path.Combine(
-            AppContext.BaseDirectory, "..", "..", "..", "..", "examples", "REF", "PPTX", ".pptx"));
+            AppContext.BaseDirectory, "..", "..", "..", "..", "examples", "REF", "PPTX", "northwind-demo.pptx"));
         Assert.True(File.Exists(referencePath), $"Reference PPTX not found: {referencePath}");
 
         // Work on a copy — never mutate the reference deck.
-        var path = Path.Combine(_testDir, ".pptx");
+        var path = Path.Combine(_testDir, "northwind-demo.pptx");
         File.Copy(referencePath, path);
 
         int slideIndex1Based;

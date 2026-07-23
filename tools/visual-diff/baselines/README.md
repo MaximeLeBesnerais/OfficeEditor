@@ -1,3 +1,5 @@
+> Note: `baselines/pptx/` (derived from the  /  REF decks) was removed (licensing) and must be regenerated once replacement REF fixtures land.
+
 # visual-diff baselines
 
 Threshold-checked visual regression gates compare a fresh `metrics.json` against a
@@ -30,8 +32,8 @@ on Debian/Ubuntu):
 
 ```bash
 # 1. Produce the generated PDFs (once, or after converter changes)
-dotnet run --project tools/convert-pptx -- examples/REF/PPTX/.pptx \
-  examples/output/ref/pptx/.pdf --format pdf
+dotnet run --project tools/convert-pptx -- examples/REF/PPTX/northwind-demo.pptx \
+  examples/output/ref/pptx/northwind-demo.pdf --format pdf
 
 # 2. Run the suite (or add --generate to run step 1 automatically)
 dotnet run --project tools/visual-diff -- --suite pptx

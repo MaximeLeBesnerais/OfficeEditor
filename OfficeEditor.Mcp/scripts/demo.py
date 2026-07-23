@@ -21,7 +21,7 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = SCRIPT_DIR.parent
 REPO_ROOT = PROJECT_DIR.parent
-REF_DECK = REPO_ROOT / "examples" / "REF" / "PPTX" / ".pptx"
+REF_DECK = REPO_ROOT / "examples" / "REF" / "PPTX" / "northwind-demo.pptx"
 DLL = PROJECT_DIR / "bin" / "Debug" / "net9.0" / "OfficeEditor.Mcp.dll"
 OUT_PNG = Path("/tmp/officeeditor-mcp-slide1.png")
 

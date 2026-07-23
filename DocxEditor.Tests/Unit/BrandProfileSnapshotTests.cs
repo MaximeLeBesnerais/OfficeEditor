@@ -15,7 +15,7 @@ public sealed class BrandProfileSnapshotTests
     private const string UpdateSnapshotsEnvVar = "OE_UPDATE_SNAPSHOTS";
 
     [Theory]
-    [InlineData(".pptx", ".brand.json")]
+    [InlineData("northwind-demo.pptx", "northwind-demo.brand.json")]
     public void Extract_ReferenceDeck_MatchesCommittedBrandSnapshot(string deckFileName, string snapshotFileName)
     {
         var deckPath = Path.Combine(ResolveReferenceDirectory(), deckFileName);

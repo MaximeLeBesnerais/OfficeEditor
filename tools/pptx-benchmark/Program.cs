@@ -49,12 +49,11 @@ if (runs < 1)
 }
 
 var repoRoot = FindRepoRoot();
+// The former third-party REF decks (, AetherLink, , ) were
+// removed (licensing); northwind-demo is the self-made replacement.
 var deckPaths = new[]
 {
-    Path.Combine(repoRoot, "examples", "REF", "PPTX", ".pptx"),
-    Path.Combine(repoRoot, "examples", "REF", "PPTX", "AetherLink-Glass-Shareholder-Overview.pptx"),
-    Path.Combine(repoRoot, "examples", "REF", "PPTX", "-Architecture-Overview.pptx"),
-    Path.Combine(repoRoot, "examples", "REF", "PPTX", ".pptx"),
+    Path.Combine(repoRoot, "examples", "REF", "PPTX", "northwind-demo.pptx"),
 };
 
 outPath ??= Path.Combine(repoRoot, "examples", "output", "benchmark", "report.md");
@@ -125,7 +124,7 @@ static string FindRepoRoot()
         var directory = new DirectoryInfo(start);
         while (directory is not null)
         {
-            if (File.Exists(Path.Combine(directory.FullName, "examples", "REF", "PPTX", ".pptx")))
+            if (File.Exists(Path.Combine(directory.FullName, "examples", "REF", "PPTX", "northwind-demo.pptx")))
             {
                 return directory.FullName;
             }
@@ -134,5 +133,5 @@ static string FindRepoRoot()
     }
 
     throw new DirectoryNotFoundException(
-        "Could not locate the repository root (no ancestor directory contains examples/REF/PPTX/.pptx).");
+        "Could not locate the repository root (no ancestor directory contains examples/REF/PPTX/northwind-demo.pptx).");
 }

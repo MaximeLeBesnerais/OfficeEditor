@@ -1,3 +1,5 @@
+> Note: .pptx and the other third-party REF decks referenced below were removed (licensing). Historical numbers retained for reference.
+
 # PPTX Render Benchmark — Baseline (Pre-Optimization)
 
 Generated: 2026-07-18 11:38:31 UTC by `tools/pptx-benchmark`

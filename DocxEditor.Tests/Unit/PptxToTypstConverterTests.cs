@@ -1392,7 +1392,7 @@ public class PptxToTypstConverterTests : IDisposable
         path = Path.GetFullPath(path);
         
         if (!File.Exists(path))
-            return; // Skip if file doesn't exist
+            return; // REF fixture purged  (licensing); replacement pending
 
         using var doc = PresentationDocument.Open(path, false);
         var converter = new PptxToTypstConverter(doc);
@@ -1412,7 +1412,7 @@ public class PptxToTypstConverterTests : IDisposable
         var path = Path.Combine(baseDir, "..", "..", "..", "..", "examples", "REF", ".pptx");
         path = Path.GetFullPath(path);
         if (!File.Exists(path))
-            return;
+            return; // REF fixture purged  (licensing); replacement pending
 
         using var doc = PresentationDocument.Open(path, false);
         var converter = new PptxToTypstConverter(doc);

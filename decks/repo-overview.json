@@ -279,29 +279,29 @@
           "children": [
             {
               "type": "image",
-              "src": "~/Work/DocxEditor/docs/assets/pptx-comparison/generated//slide-01.png",
+              "src": "demo/assets/dashboard.png",
               "fit": "contain"
             },
             {
               "type": "image",
-              "src": "~/Work/DocxEditor/docs/assets/pptx-comparison/generated//slide-16.png",
+              "src": "demo/assets/dashboard.png",
               "fit": "contain"
             },
             {
               "type": "image",
-               "src": "~/Work/DocxEditor/docs/assets/pptx-comparison/generated//slide-04.png",
+               "src": "demo/assets/dashboard.png",
               "fit": "contain"
             },
             {
               "type": "image",
-               "src": "~/Work/DocxEditor/docs/assets/pptx-comparison/generated//slide-08.png",
+               "src": "demo/assets/dashboard.png",
               "fit": "contain"
             }
           ]
         },
         {
           "type": "text",
-           "text": "Real PPTX file → Typst pipeline → PNG. Source:  (16 slides).",
+           "text": "Real PPTX file → Typst pipeline → PNG. ( comparison renders removed.)",
           "fontSize": 13,
           "color": "muted",
           "textAlign": "center",
@@ -482,13 +482,13 @@
               "children": [
                 {
                   "type": "image",
-                  "src": "~/Work/DocxEditor/docs/assets/pptx-comparison/official//page-01.png",
+                  "src": "demo/assets/dashboard.png",
                   "fit": "contain",
                   "size": { "grow": 1 }
                 },
                 {
                   "type": "text",
-                  "text": "PowerPoint render —  slide 1",
+                  "text": "PowerPoint render (removed)",
                   "fontSize": 13,
                   "color": "muted",
                   "textAlign": "center",
@@ -504,13 +504,13 @@
               "children": [
                 {
                   "type": "image",
-                  "src": "~/Work/DocxEditor/docs/assets/pptx-comparison/generated//slide-01.png",
+                  "src": "demo/assets/dashboard.png",
                   "fit": "contain",
                   "size": { "grow": 1 }
                 },
                 {
                   "type": "text",
-                  "text": "OfficeEditor Typst render — RMSE 14.03%",
+                  "text": "OfficeEditor Typst render (comparison images removed)",
                   "fontSize": 13,
                   "color": "muted",
                   "textAlign": "center",
@@ -522,7 +522,7 @@
         },
         {
           "type": "text",
-           "text": "Average RMSE: 17.29% (, 16 slides) — a coarse regression signal, not pixel parity.",
+           "text": "RMSE comparison data removed (licensing) — regenerate against northwind-demo.",
           "fontSize": 14,
           "color": "ink",
           "textAlign": "center",

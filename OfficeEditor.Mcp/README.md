@@ -158,7 +158,7 @@ never pollutes stdout — see `scripts/demo.py`.)
 python3 OfficeEditor.Mcp/scripts/demo.py
 ```
 
-Runs the full workflow against `examples/REF/PPTX/.pptx`:
+Runs the full workflow against `examples/REF/PPTX/northwind-demo.pptx`:
 initialize → tools/list → anatomize → replaceText on slide 1 → render slide 1 to
 `/tmp/officeeditor-mcp-slide1.png`.
 

@@ -5,7 +5,7 @@
 #
 # Usage (from the repo root):
 #   make -f Makefile.demo setup      # preflight + restore + Release build
-#   make -f Makefile.demo convert    # .pptx → PNGs + PDF  → demo/output/render/
+#   make -f Makefile.demo convert    # northwind-demo.pptx → PNGs + PDF  → demo/output/render/
 #   make -f Makefile.demo generate   # demo/deck.json → PPTX → PNGs + PDF → demo/output/gen/
 #   make -f Makefile.demo clean      # wipe demo/output/
 #   make -f Makefile.demo demo       # setup + convert + generate
@@ -17,7 +17,7 @@ OUT_DIR     := $(DEMO_DIR)/output
 RENDER_DIR  := $(OUT_DIR)/render
 GEN_DIR     := $(OUT_DIR)/gen
 
-REF_PPTX    := examples/REF/PPTX/.pptx
+REF_PPTX    := examples/REF/PPTX/northwind-demo.pptx
 DECK_JSON   := $(DEMO_DIR)/deck.json
 DECK_PPTX   := $(GEN_DIR)/office-editor-demo.pptx
 
@@ -99,17 +99,17 @@ convert:
 	@echo "── OfficeEditor demo · convert ────────────────────────────"
 	@[ -f "$(CONVERT_DLL)" ] || { echo "✘ $(CONVERT_DLL) missing — run 'make -f Makefile.demo setup' first."; exit 1; }
 	@set -e; \
-		mkdir -p "$(RENDER_DIR)/"; \
+		mkdir -p "$(RENDER_DIR)/northwind-demo"; \
 		start=$$(perl -MTime::HiRes=time -e 'printf "%d", time() * 1000'); \
-		$(DOTNET_RUN) "$(CONVERT_DLL)" "$(REF_PPTX)" "$(RENDER_DIR)/" --format png --font-path "$(FONT_PATH)"; \
-		$(DOTNET_RUN) "$(CONVERT_DLL)" "$(REF_PPTX)" "$(RENDER_DIR)/.pdf" --font-path "$(FONT_PATH)"; \
+		$(DOTNET_RUN) "$(CONVERT_DLL)" "$(REF_PPTX)" "$(RENDER_DIR)/northwind-demo" --format png --font-path "$(FONT_PATH)"; \
+		$(DOTNET_RUN) "$(CONVERT_DLL)" "$(REF_PPTX)" "$(RENDER_DIR)/northwind-demo.pdf" --font-path "$(FONT_PATH)"; \
 		end=$$(perl -MTime::HiRes=time -e 'printf "%d", time() * 1000'); \
-		slides=$$(ls "$(RENDER_DIR)"//slide-*.png | wc -l | tr -d ' '); \
+		slides=$$(ls "$(RENDER_DIR)"/northwind-demo/slide-*.png | wc -l | tr -d ' '); \
 		ms=$$((end - start)); \
 		per_slide=$$(awk "BEGIN { printf \"%.1f\", $$ms / $$slides }"); \
 		echo ""; \
 		echo "  ✔ $$slides slides in $${ms}ms, $${per_slide}ms/slide  →  $(RENDER_DIR)/"; \
-		$(OPEN) "$(RENDER_DIR)/.pdf"
+		$(OPEN) "$(RENDER_DIR)/northwind-demo.pdf"
 
 ## Build a PPTX from demo/deck.json, render it the same way, open the PDF.
 generate:
