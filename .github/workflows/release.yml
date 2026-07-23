@@ -76,6 +76,7 @@ jobs:
     needs: native
     runs-on: ubuntu-latest
     permissions:
+      contents: read   # required for actions/checkout (job-level permissions zero everything else)
       id-token: write  # required for GitHub OIDC token issuance (NuGet Trusted Publishing)
     steps:
       - uses: actions/checkout@v4
