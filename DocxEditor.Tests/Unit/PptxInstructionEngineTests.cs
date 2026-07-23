@@ -181,7 +181,8 @@ public class PptxInstructionEngineTests : IDisposable
         using var doc = PresentationDocument.Open(path, false);
         var slidePart = SlideOpsTestHelpers.GetSlidePartsInOrder(doc)[0];
         var picture = slidePart.Slide!.Descendants<P.Picture>().First();
-        var embedId = picture.BlipFill!.Blip!.Embed!.Value;
+        var embedId = picture.BlipFill!.Blip!.Embed?.Value;
+        Assert.NotNull(embedId);
         Assert.IsType<ImagePart>(slidePart.GetPartById(embedId));
     }
 

@@ -43,13 +43,13 @@ public class PptxElementReplacerTests : IDisposable
         doc.PresentationPart!.SlideParts.First();
 
     private static P.Shape FirstShape(PresentationDocument doc) =>
-        FirstSlidePart(doc).Slide.CommonSlideData!.ShapeTree!.Elements<P.Shape>().First();
+        FirstSlidePart(doc).Slide!.CommonSlideData!.ShapeTree!.Elements<P.Shape>().First();
 
     private static P.Picture FirstPicture(SlidePart slidePart) =>
-        slidePart.Slide.CommonSlideData!.ShapeTree!.Elements<P.Picture>().First();
+        slidePart.Slide!.CommonSlideData!.ShapeTree!.Elements<P.Picture>().First();
 
     private static P.GraphicFrame FirstGraphicFrame(SlidePart slidePart) =>
-        slidePart.Slide.CommonSlideData!.ShapeTree!.Elements<P.GraphicFrame>().First();
+        slidePart.Slide!.CommonSlideData!.ShapeTree!.Elements<P.GraphicFrame>().First();
 
     private static Drawing.Table FirstTable(P.GraphicFrame frame) =>
         frame.Graphic!.GraphicData!.Elements<Drawing.Table>().First();
@@ -311,7 +311,7 @@ public class PptxElementReplacerTests : IDisposable
             slide2EmbedId = slideParts[1].GetIdOfPart(sharedPart);
             var clone = (P.Picture)picture.CloneNode(true);
             clone.BlipFill!.Blip!.Embed = slide2EmbedId;
-            slideParts[1].Slide.CommonSlideData!.ShapeTree!.Append(clone);
+            slideParts[1].Slide!.CommonSlideData!.ShapeTree!.Append(clone);
             doc.Save();
         }
 
@@ -540,7 +540,7 @@ public class PptxElementReplacerTests : IDisposable
         uint duplicatedId;
         using (var doc = PresentationDocument.Open(path, true))
         {
-            var shapes = FirstSlidePart(doc).Slide.CommonSlideData!.ShapeTree!
+            var shapes = FirstSlidePart(doc).Slide!.CommonSlideData!.ShapeTree!
                 .Elements<P.Shape>().ToList();
             Assert.True(shapes.Count >= 2, "expected at least two shapes");
             duplicatedId = ReadElementId(shapes[0].NonVisualShapeProperties!);

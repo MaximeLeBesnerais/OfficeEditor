@@ -83,7 +83,7 @@ public sealed class OoxmlEmitterTests : IDisposable
     }
 
     private static P.ShapeTree FirstShapeTree(PresentationDocument document) =>
-        document.PresentationPart!.SlideParts.First().Slide.CommonSlideData!.ShapeTree!;
+        document.PresentationPart!.SlideParts.First().Slide!.CommonSlideData!.ShapeTree!;
 
     private static void AssertValidates(PresentationDocument document)
     {
@@ -113,7 +113,7 @@ public sealed class OoxmlEmitterTests : IDisposable
     public void Emit_SetsSlideSizeFromResolvedSlide()
     {
         using var document = EmitAndOpen(LayoutWith(new ResolvedRect { X = 0, Y = 0, Width = 10, Height = 10 }), out _);
-        var slideSize = document.PresentationPart!.Presentation.SlideSize!;
+        var slideSize = document.PresentationPart!.Presentation!.SlideSize!;
         Assert.Equal(960 * 12700, slideSize.Cx!.Value);
         Assert.Equal(540 * 12700, slideSize.Cy!.Value);
     }

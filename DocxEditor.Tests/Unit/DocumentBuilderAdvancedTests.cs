@@ -225,7 +225,7 @@ public class DocumentBuilderAdvancedTests : IDisposable
 
         // Assert
         using var doc = WordprocessingDocument.Open(_testFilePath, false);
-        var paragraphs = doc.MainDocumentPart!.Document.Body!.Elements<DocumentFormat.OpenXml.Wordprocessing.Paragraph>().ToList();
+        var paragraphs = doc.MainDocumentPart!.Document!.Body!.Elements<DocumentFormat.OpenXml.Wordprocessing.Paragraph>().ToList();
         Assert.Single(paragraphs);
         Assert.Equal("Keep this", paragraphs[0].InnerText);
     }
@@ -245,7 +245,7 @@ public class DocumentBuilderAdvancedTests : IDisposable
 
         // Assert
         using var doc = WordprocessingDocument.Open(_testFilePath, false);
-        var paragraphs = doc.MainDocumentPart!.Document.Body!.Elements<DocumentFormat.OpenXml.Wordprocessing.Paragraph>().ToList();
+        var paragraphs = doc.MainDocumentPart!.Document!.Body!.Elements<DocumentFormat.OpenXml.Wordprocessing.Paragraph>().ToList();
         Assert.Equal(2, paragraphs.Count);
         Assert.Null(paragraphs[0].ParagraphProperties?.ParagraphStyleId);
         Assert.Equal("Quote", paragraphs[1].ParagraphProperties?.ParagraphStyleId?.Val?.Value);
@@ -269,7 +269,7 @@ public class DocumentBuilderAdvancedTests : IDisposable
         Assert.True(File.Exists(_testFilePath));
         Assert.True(File.Exists(clonePath));
         using var doc = WordprocessingDocument.Open(clonePath, false);
-        Assert.Contains("Clone me", doc.MainDocumentPart!.Document.Body!.InnerText);
+        Assert.Contains("Clone me", doc.MainDocumentPart!.Document!.Body!.InnerText);
     }
 
     [Fact]
@@ -305,8 +305,8 @@ public class DocumentBuilderAdvancedTests : IDisposable
         Assert.True(File.Exists(expectedB));
         using var firstDoc = WordprocessingDocument.Open(expectedA, false);
         using var secondDoc = WordprocessingDocument.Open(expectedB, false);
-        Assert.Contains("Hello Ada", firstDoc.MainDocumentPart!.Document.Body!.InnerText);
-        Assert.Contains("Hello Bob", secondDoc.MainDocumentPart!.Document.Body!.InnerText);
+        Assert.Contains("Hello Ada", firstDoc.MainDocumentPart!.Document!.Body!.InnerText);
+        Assert.Contains("Hello Bob", secondDoc.MainDocumentPart!.Document!.Body!.InnerText);
     }
 
     public void Dispose()
