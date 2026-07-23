@@ -231,7 +231,7 @@ public class WorkbookBuilderTests : IDisposable
 
         // Assert
         using var doc = SpreadsheetDocument.Open(_testFilePath, false);
-        var cells = doc.WorkbookPart!.WorksheetParts.First().Worksheet.GetFirstChild<SheetData>()!
+        var cells = doc.WorkbookPart!.WorksheetParts.First().Worksheet!.GetFirstChild<SheetData>()!
             .Elements<Row>()
             .SelectMany(r => r.Elements<Cell>())
             .Select(c => c.CellReference?.Value)
@@ -259,7 +259,7 @@ public class WorkbookBuilderTests : IDisposable
         Assert.True(File.Exists(_testFilePath));
         Assert.True(File.Exists(clonePath));
         using var doc = SpreadsheetDocument.Open(clonePath, false);
-        Assert.Single(doc.WorkbookPart!.Workbook.Sheets!.Elements<Sheet>());
+        Assert.Single(doc.WorkbookPart!.Workbook!.Sheets!.Elements<Sheet>());
     }
 
     [Fact]
@@ -278,7 +278,7 @@ public class WorkbookBuilderTests : IDisposable
 
         // Assert
         using var doc = SpreadsheetDocument.Open(_testFilePath, false);
-        var cells = doc.WorkbookPart!.WorksheetParts.First().Worksheet.GetFirstChild<SheetData>()!
+        var cells = doc.WorkbookPart!.WorksheetParts.First().Worksheet!.GetFirstChild<SheetData>()!
             .Elements<Row>().First().Elements<Cell>().ToDictionary(c => c.CellReference!.Value!);
         Assert.Equal(CellValues.Number, cells["A1"].DataType?.Value);
         Assert.Equal(CellValues.SharedString, cells["B1"].DataType?.Value);
@@ -302,7 +302,7 @@ public class WorkbookBuilderTests : IDisposable
 
         // Assert
         using var doc = SpreadsheetDocument.Open(_testFilePath, false);
-        var cells = doc.WorkbookPart!.WorksheetParts.First().Worksheet.GetFirstChild<SheetData>()!
+        var cells = doc.WorkbookPart!.WorksheetParts.First().Worksheet!.GetFirstChild<SheetData>()!
             .Elements<Row>().Single().Elements<Cell>().ToList();
         Assert.Equal(27, cells.Count);
         Assert.DoesNotContain(cells, c => c.CellReference?.Value == "B3");
@@ -328,7 +328,7 @@ public class WorkbookBuilderTests : IDisposable
         // Assert
         using var doc = SpreadsheetDocument.Open(_testFilePath, false);
         var worksheetPart = doc.WorkbookPart!.WorksheetParts.First();
-        var tableParts = worksheetPart.Worksheet.Elements<TableParts>().Single();
+        var tableParts = worksheetPart.Worksheet!.Elements<TableParts>().Single();
         Assert.Equal(2U, tableParts.Count?.Value);
         Assert.Equal(2, worksheetPart.TableDefinitionParts.Count());
         Assert.Contains(worksheetPart.TableDefinitionParts, p => p.Table?.DisplayName?.Value == "FirstTable");
@@ -365,7 +365,7 @@ public class WorkbookBuilderTests : IDisposable
         using var stream = new MemoryStream(bytes);
         using var doc = SpreadsheetDocument.Open(stream, false);
         Assert.NotNull(doc.WorkbookPart);
-        Assert.Single(doc.WorkbookPart!.Workbook.Sheets!.Elements<Sheet>());
+        Assert.Single(doc.WorkbookPart!.Workbook!.Sheets!.Elements<Sheet>());
     }
 
     [Fact]
@@ -388,7 +388,7 @@ public class WorkbookBuilderTests : IDisposable
         outputStream.Position = 0;
         using var doc = SpreadsheetDocument.Open(outputStream, false);
         Assert.NotNull(doc.WorkbookPart);
-        var sheetData = doc.WorkbookPart!.WorksheetParts.First().Worksheet.GetFirstChild<SheetData>();
+        var sheetData = doc.WorkbookPart!.WorksheetParts.First().Worksheet!.GetFirstChild<SheetData>();
         Assert.NotNull(sheetData);
         var cell = sheetData!.Elements<Row>().First().Elements<Cell>().First();
         Assert.Equal("A1", cell.CellReference?.Value);
@@ -416,7 +416,7 @@ public class WorkbookBuilderTests : IDisposable
         // Assert
         using var stream = new MemoryStream(modifiedBytes);
         using var doc = SpreadsheetDocument.Open(stream, false);
-        var cells = doc.WorkbookPart!.WorksheetParts.First().Worksheet.GetFirstChild<SheetData>()!
+        var cells = doc.WorkbookPart!.WorksheetParts.First().Worksheet!.GetFirstChild<SheetData>()!
             .Elements<Row>()
             .SelectMany(r => r.Elements<Cell>())
             .Select(c => c.CellReference?.Value)

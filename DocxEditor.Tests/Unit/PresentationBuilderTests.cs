@@ -143,7 +143,7 @@ public class PresentationBuilderTests : IDisposable
         }
 
         using var doc = PresentationDocument.Open(_testFilePath, false);
-        var slideIds = doc.PresentationPart!.Presentation.SlideIdList!.ChildElements.OfType<SlideId>().ToList();
+        var slideIds = doc.PresentationPart!.Presentation!.SlideIdList!.ChildElements.OfType<SlideId>().ToList();
         var firstSlide = (SlidePart)doc.PresentationPart.GetPartById(slideIds[0].RelationshipId!);
 
         Assert.Contains("Second", firstSlide.Slide!.InnerText);
@@ -323,7 +323,7 @@ public class PresentationBuilderTests : IDisposable
         using var stream = new MemoryStream(bytes);
         using var doc = PresentationDocument.Open(stream, false);
         Assert.NotNull(doc.PresentationPart);
-        Assert.Single(doc.PresentationPart!.Presentation.SlideIdList!.ChildElements.OfType<SlideId>());
+        Assert.Single(doc.PresentationPart!.Presentation!.SlideIdList!.ChildElements.OfType<SlideId>());
     }
 
     [Fact]

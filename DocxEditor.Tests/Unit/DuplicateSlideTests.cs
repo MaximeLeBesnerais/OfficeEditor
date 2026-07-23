@@ -40,7 +40,7 @@ public sealed class DuplicateSlideTests : IDisposable
 
         // Slide ids must stay unique.
         using var doc = PresentationDocument.Open(path, false);
-        var ids = doc.PresentationPart!.Presentation.SlideIdList!.ChildElements
+        var ids = doc.PresentationPart!.Presentation!.SlideIdList!.ChildElements
             .OfType<SlideId>()
             .Select(sid => sid.Id!.Value)
             .ToList();

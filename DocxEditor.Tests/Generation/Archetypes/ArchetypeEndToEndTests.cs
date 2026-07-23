@@ -189,7 +189,9 @@ public sealed class ArchetypeEndToEndTests
 
     private static void AssertAllResolved(ResolvedElement element)
     {
-        Assert.False(element is ComponentElement);
+        // Cast via object: ComponentElement (GenElement) is outside the ResolvedElement
+        // hierarchy, so a direct pattern is a compile-time tautology (CS0184).
+        Assert.False((object)element is ComponentElement);
         if (element is ResolvedContainer container)
         {
             foreach (var child in container.Children)
