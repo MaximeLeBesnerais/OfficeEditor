@@ -2923,7 +2923,7 @@ public class PptxToTypstConverterTests : IDisposable
 
         var presentation = converter.Convert();
 
-        Assert.Empty(presentation.Slides[0].Elements.Where(e => e.Type == "Text"));
+        Assert.DoesNotContain(presentation.Slides[0].Elements, e => e.Type == "Text");
     }
 
     [Fact]
@@ -3087,7 +3087,7 @@ public class PptxToTypstConverterTests : IDisposable
 
         var presentation = converter.Convert();
 
-        Assert.Empty(presentation.Slides[0].Elements.Where(e => e.Type == "Image"));
+        Assert.DoesNotContain(presentation.Slides[0].Elements, e => e.Type == "Image");
     }
 
     [Fact]
