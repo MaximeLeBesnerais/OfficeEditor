@@ -1,12 +1,34 @@
 using DocxEditor.Core.Builders;
 using DocxEditor.Core.Instructions;
 using DocxEditor.Core.Models;
+using DocxEditor.Core.Serialization;
 using OfficeEditor.Core.Models;
 
 namespace DocxEditor.Tests.Unit;
 
-public class InstructionEngineTests
+public class InstructionEngineTests : IDisposable
 {
+    private readonly string _testOutputDir;
+    private readonly List<string> _tempFiles = [];
+
+    public InstructionEngineTests()
+    {
+        _testOutputDir = Path.Combine(Path.GetTempPath(), $"docx_instructions_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(_testOutputDir);
+    }
+
+    public void Dispose()
+    {
+        foreach (var file in _tempFiles)
+        {
+            if (File.Exists(file)) File.Delete(file);
+        }
+
+        if (Directory.Exists(_testOutputDir))
+        {
+            try { Directory.Delete(_testOutputDir, true); } catch { }
+        }
+    }
     [Fact]
     public void Execute_ShouldExecuteMultipleOperationsInOrder()
     {
@@ -134,6 +156,46 @@ public class InstructionEngineTests
 
         // Assert
         Assert.Contains("unsupportedType", exception.Message);
+    }
+
+    [Fact]
+    public void SampleJson_ShouldParseAndExecuteEndToEnd()
+    {
+        var samplePath = Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory, "..", "..", "..", "..",
+            "examples", "Docx", "instructions", "sample.json"));
+        Assert.True(File.Exists(samplePath), $"sample.json not found at {samplePath}");
+
+        var json = File.ReadAllText(samplePath);
+        var parser = new DocxJsonInstructionParser();
+        var instructions = parser.Parse(json);
+
+        Assert.Equal(9, instructions.Operations.Count);
+
+        var outputPath = Path.Combine(_testOutputDir, "sample_output.docx");
+        _tempFiles.Add(outputPath);
+
+        {
+            using var builder = (DocumentBuilder)DocumentBuilder.Create(outputPath);
+            builder.AddParagraph("Company: {{companyName}} — Date: {{date}}", "Normal");
+
+            var engine = new InstructionEngine();
+            engine.Execute(builder, instructions);
+            builder.Save();
+        }
+
+        using var opened = DocumentFormat.OpenXml.Packaging.WordprocessingDocument.Open(outputPath, false);
+        var body = opened.MainDocumentPart!.Document!.Body!;
+        var fullText = body.InnerText;
+
+        Assert.Contains("Company: Acme Corporation", fullText);
+        Assert.Contains("Date: 2024-01-15", fullText);
+        Assert.Contains("This paragraph was added via JSON", fullText);
+        Assert.Contains("This line was inserted after the first paragraph", fullText);
+        Assert.Contains("Section Added by Instructions", fullText);
+        Assert.Contains("First bullet point", fullText);
+        Assert.Contains("Second bullet point", fullText);
+        Assert.Contains("Third bullet point", fullText);
     }
 
     private sealed record UnsupportedInstruction : Instruction;
