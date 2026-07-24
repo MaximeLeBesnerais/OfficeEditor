@@ -26,21 +26,21 @@ Standing disciplines (apply to every item, per AGENTS.md):
 The REF corpus is self-made and lives in `examples/REF/PPTX/`: `sales_acceleration_deck` (primary,
 16 slides, SmartArt on slide 15), `AetherLink-Glass-Shareholder-Overview`, `northwind-investor-40`,
 `northwind-launch-review`, plus the OfficeEditor-generated `northwind-demo`;
-`tools/visual-diff/baselines/pptx/` is generated per machine and not committed.
-be regenerated against the new corpus. The showeet-licensed SmartArt corpus stays local-only under
-`local-ref/smartarts/` (gitignored). Remaining work from this phase:
+`tools/visual-diff/baselines/pptx/` is generated per machine and not committed. The
+showeet-licensed SmartArt corpus stays local-only under `local-ref/smartarts/` (gitignored).
+Remaining work from this phase:
+- **Regenerate the pptx baselines against the new corpus.**
   Why: `baselines/gen` exists but `baselines/pptx` does not; the pptx suite has no gate. Baselines
   are machine-dependent — regenerate per the baselines README rules. REF PDFs double as ground
   truth for the `LibreOfficeCompareService` path.
   **S** — Acceptance: `--suite pptx` threshold-checked in CI on the new corpus.
 - **Un-skip the remaining guarded tests** and make missing REF decks fail loudly instead of silently
   shrinking theory data. (The SmartArt / solid-fill / AetherLink image tests were un-guarded on the
-  new corpus; `PresPro_Slide1_TitleFontSize_FromMaster` stays guarded — no license-clean deck uses
-  master-inherited title placeholders.)
+  new corpus; master-inherited title placeholders are covered by synthetic-deck StyleResolver tests.)
   **S** — Acceptance: smoke + parity tests run against all new decks; zero tests skipped for missing files.
-- **Re-mine design tokens** — `Generation/Design/pres-pro.tokens.json` and
-  `aetherlink.tokens.json` predate the current corpus. Re-run `BrandProfileExtractor`
-  against the new styled deck and commit replacement token sets.
+- **Re-mine design tokens** — `Generation/Design/aetherlink.tokens.json` predates the current
+  corpus. Re-run `BrandProfileExtractor` against the styled REF deck and commit the replacement
+  token set.
   **S** — Acceptance: token JSONs traceable to a deck in the repo; mining test round-trips.
 - **WebApplicationFactory smoke tests for `OfficeEditor.Api/Program.cs`** (938 lines, ~0% covered — the largest single coverage hole; no WebApplicationFactory usage today). Cover the 20 mapped endpoints at the happy-path + error-contract level:
   - Deck lifecycle: `POST/GET /api/decks`, anatomy, file, slides/{n}/preview, instructions.
