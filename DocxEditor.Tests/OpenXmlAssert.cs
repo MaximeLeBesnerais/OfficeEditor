@@ -20,10 +20,24 @@ public static class OpenXmlAssert
         Assert.True(errors.Count == 0, FormatErrors(errors));
     }
 
+    /// <summary>Asserts the document produces zero OpenXmlValidator errors.</summary>
+    public static void NoValidationErrors(WordprocessingDocument document)
+    {
+        var errors = new OpenXmlValidator().Validate(document).ToList();
+        Assert.True(errors.Count == 0, FormatErrors(errors));
+    }
+
     /// <summary>Opens the file read-only and asserts it produces zero OpenXmlValidator errors.</summary>
     public static void NoValidationErrors(string path)
     {
         using var document = SpreadsheetDocument.Open(path, false);
+        NoValidationErrors(document);
+    }
+
+    /// <summary>Opens the DOCX file read-only and asserts it produces zero OpenXmlValidator errors.</summary>
+    public static void NoDocxValidationErrors(string path)
+    {
+        using var document = WordprocessingDocument.Open(path, false);
         NoValidationErrors(document);
     }
 
