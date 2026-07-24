@@ -198,6 +198,73 @@ public class InstructionEngineTests : IDisposable
         Assert.Contains("Third bullet point", fullText);
     }
 
+    [Fact]
+    public void Execute_WithAddRichContentInstruction_ShouldCallAddRichContent()
+    {
+        var builder = new RecordingDocumentBuilder();
+        var blocks = new List<ContentBlock>
+        {
+            new ParagraphBlock { Text = "Hello" },
+            new HeadingBlock { Level = 1, Text = "Title" }
+        };
+        var instructions = new DocumentInstructions
+        {
+            Operations = [new AddRichContentInstruction { Blocks = blocks }]
+        };
+        var engine = new InstructionEngine();
+
+        engine.Execute(builder, instructions);
+
+        Assert.Equal(["AddRichContent:2"], builder.Calls);
+    }
+
+    [Fact]
+    public void Execute_WithReplaceWithRichContentInstruction_ShouldCallReplaceWithRichContent()
+    {
+        var builder = new RecordingDocumentBuilder();
+        var blocks = new List<ContentBlock>
+        {
+            new ParagraphBlock { Text = "Replacement" }
+        };
+        var instructions = new DocumentInstructions
+        {
+            Operations = [new ReplaceWithRichContentInstruction { Target = "old text", Blocks = blocks }]
+        };
+        var engine = new InstructionEngine();
+
+        engine.Execute(builder, instructions);
+
+        Assert.Equal(["ReplaceWithRichContent:old text:1"], builder.Calls);
+    }
+
+    [Fact]
+    public void Execute_WithAllSixOps_ShouldDispatchAll()
+    {
+        var builder = new RecordingDocumentBuilder();
+        var instructions = new DocumentInstructions
+        {
+            Operations =
+            [
+                new AddParagraphInstruction { Text = "Para" },
+                new ReplaceTextInstruction { Find = "{{x}}", Replace = "y" },
+                new InsertAfterInstruction { Target = "Para", Content = new ParagraphContent { Text = "After" } },
+                new AddRichContentInstruction { Blocks = [new ParagraphBlock { Text = "Rich" }] },
+                new ReplaceWithRichContentInstruction { Target = "old", Blocks = [new ParagraphBlock { Text = "New" }] },
+                new CreateDocumentInstruction()
+            ]
+        };
+        var engine = new InstructionEngine();
+
+        engine.Execute(builder, instructions);
+
+        Assert.Equal(5, builder.Calls.Count);
+        Assert.Equal("AddParagraph:Para:", builder.Calls[0]);
+        Assert.Equal("ReplaceText:{{x}}:y", builder.Calls[1]);
+        Assert.Equal("InsertAfter:Para:After:", builder.Calls[2]);
+        Assert.Equal("AddRichContent:1", builder.Calls[3]);
+        Assert.Equal("ReplaceWithRichContent:old:1", builder.Calls[4]);
+    }
+
     private sealed record UnsupportedInstruction : Instruction;
 
     private sealed class RecordingDocumentBuilder : IDocumentBuilder
@@ -230,9 +297,17 @@ public class InstructionEngineTests : IDisposable
 
         public IDocumentBuilder ApplyStyle(string styleId) => this;
 
-        public IDocumentBuilder AddRichContent(List<ContentBlock> blocks) => this;
+        public IDocumentBuilder AddRichContent(List<ContentBlock> blocks)
+        {
+            Calls.Add($"AddRichContent:{blocks.Count}");
+            return this;
+        }
 
-        public IDocumentBuilder ReplaceWithRichContent(string targetText, List<ContentBlock> blocks) => this;
+        public IDocumentBuilder ReplaceWithRichContent(string targetText, List<ContentBlock> blocks)
+        {
+            Calls.Add($"ReplaceWithRichContent:{targetText}:{blocks.Count}");
+            return this;
+        }
 
         public IDocumentBuilder AddMarkdown(string markdown, StyleMapping? styleMap = null) => this;
 
