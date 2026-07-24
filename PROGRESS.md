@@ -9,4 +9,5 @@ Pre-existing condition: 16 DocxEditor.Tests failures (TypstBridge native lib not
 | Phase 0: Fix OfficeEditor.Api.Tests image path resolution | DONE | 7160eea | `OoxmlEmitter.ResolveImageSource` handles worktree `.git` file detection for relative image paths |
 | Phase 0: Regenerate pptx baselines | BLOCKED | — | Typst CLI and TypstBridge native lib unavailable in this environment. Cannot produce PDFs from PPTX. Needs typst binary or `--font-path` + native lib. |
 | Phase 0: Un-skip remaining guarded tests | DONE | — | No file-based guards found. All env-gated tests use correct `OE_RUN_TYPST_COMPILE_TESTS` pattern for Typst-dependent tests. |
-| Phase 0: Re-mine design tokens | DONE | TBD | TokenMiner created in PptxEditor.Core; combines BrandProfileExtractor (theme) + shape-level frequency mining. aetherlink.tokens.json regenerated from refreshed corpus. Round-trip test added in OfficeEditor.Api.Tests. |
+| Phase 0: Re-mine design tokens | DONE | 0ae199c | TokenMiner created; aetherlink.tokens.json regenerated from refreshed corpus. Round-trip test added. |
+| Phase 0: OfficeEditor.Cli instrumentation | DONE | TBD | OfficeEditor.Cli.Tests project created with 20 command-level tests (create, detect, merge, generate, edit, help, error paths). Invokes Main() via reflection. |
