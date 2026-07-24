@@ -1215,10 +1215,12 @@ public sealed partial class PptxToTypstConverter : IDisposable
 
         if (diagramShapes.Count == 0) yield break;
 
-        // Drawing-space → frame normalisation: drawing shape coordinates do not
-        // necessarily span the frame extents (e.g. the REF deck's diagram content
-        // covers ~83% of the frame height), so scale/offset the drawing's bounding
-        // box onto the frame instead of anchoring it top-left at native size.
+        // Drawing-space → frame normalisation: PowerPoint's cached dsp:drawing is
+        // authored in frame coordinates (in the REF deck the drawing bbox width
+        // equals the frame width and the content is centred with symmetric internal
+        // margins), so map the drawing bbox onto the frame with a uniform,
+        // aspect-preserving scale centred in the frame — NOT a per-axis stretch,
+        // which over-sizes shapes when the content does not span the full frame.
         //
         // TryExtractShape computes  final = off + (frame + shapeOff) * scale,  so the
         // normalisation is folded into an adjusted frame origin + scale such that
@@ -1230,10 +1232,11 @@ public sealed partial class PptxToTypstConverter : IDisposable
         if (bounds is { } b && b.Width > 0 && b.Height > 0 &&
             framePosition.Width > 0 && framePosition.Height > 0)
         {
-            drawScaleX = framePosition.Width / b.Width;
-            drawScaleY = framePosition.Height / b.Height;
-            shapeFrameX = framePosition.X / drawScaleX - b.MinX;
-            shapeFrameY = framePosition.Y / drawScaleY - b.MinY;
+            var fit = SmartArtDrawingExtractor.ComputeFrameFit(b, framePosition);
+            drawScaleX = fit.ScaleX;
+            drawScaleY = fit.ScaleY;
+            shapeFrameX = fit.FrameX;
+            shapeFrameY = fit.FrameY;
         }
 
         var shapeScaleX = scaleX * drawScaleX;
