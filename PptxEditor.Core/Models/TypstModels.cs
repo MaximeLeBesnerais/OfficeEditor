@@ -97,6 +97,11 @@ public sealed class TypstParagraph
     public string? BulletChar { get; set; }
     public string? AutoNumberType { get; set; }
     public bool HasBullet { get; set; }
+    /// <summary>
+    /// Resolved bullet glyph color (#RRGGBB) from a:buClr, or the paragraph's first-run
+    /// color when a:buClrTx (follow text) is specified. Null = inherit surrounding text color.
+    /// </summary>
+    public string? BulletColor { get; set; }
     public double? LineSpacing { get; set; }
     public double? SpaceBefore { get; set; }
     public double? SpaceAfter { get; set; }

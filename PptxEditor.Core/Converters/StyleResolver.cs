@@ -491,6 +491,106 @@ public sealed class StyleResolver
         return ExtractBulletInfo(lvlPpr);
     }
 
+    /// <summary>
+    /// Reads bullet color info from a paragraph-properties-like element (a:pPr or lvlNpPr):
+    /// a:buClr (explicit srgbClr/schemeClr, scheme resolved through the theme) or
+    /// a:buClrTx (bullet follows the text color). Absent buClr/buClrTx returns (null, false).
+    /// </summary>
+    internal static (string? Color, bool FollowsText) ExtractBulletColorInfo(OpenXmlElement? element, StyleResolver? resolver)
+    {
+        if (element == null) return (null, false);
+
+        var buClr = element.ChildElements.FirstOrDefault(e => e.LocalName == "buClr");
+        if (buClr != null)
+        {
+            var rgb = buClr.Elements<Drawing.RgbColorModelHex>().FirstOrDefault();
+            if (rgb?.Val?.Value != null)
+                return ($"#{rgb.Val.Value}", false);
+
+            var schemeClr = buClr.Elements<Drawing.SchemeColor>().FirstOrDefault();
+            if (schemeClr != null)
+            {
+                // Raw XML attribute read per AGENTS.pptx.md rule 1 — SDK enum parsing is unreliable.
+                var schemeName = GetAttributeValue(schemeClr, "val");
+                if (!string.IsNullOrEmpty(schemeName))
+                {
+                    var resolved = resolver?.ResolveSchemeColor(schemeName);
+                    if (!string.IsNullOrEmpty(resolved))
+                        return (resolved, false);
+                }
+            }
+            return (null, false);
+        }
+
+        if (element.ChildElements.Any(e => e.LocalName == "buClrTx"))
+            return (null, true);
+
+        return (null, false);
+    }
+
+    public (string? Color, bool FollowsText) GetLayoutPlaceholderBulletColor(int? idx, PlaceholderValues? type, int level)
+    {
+        var shape = FindLayoutPlaceholder(idx, type);
+        return shape != null ? ExtractBulletColorFromTextBodyLstStyle(shape.TextBody, level) : (null, false);
+    }
+
+    public (string? Color, bool FollowsText) GetMasterPlaceholderBulletColor(int? idx, PlaceholderValues? type, int level)
+    {
+        var shape = FindMasterPlaceholder(idx, type);
+        return shape != null ? ExtractBulletColorFromTextBodyLstStyle(shape.TextBody, level) : (null, false);
+    }
+
+    public (string? Color, bool FollowsText) GetMasterTxStyleBulletColor(PlaceholderValues? placeholderType, int level)
+    {
+        // Shapes without placeholders should NOT inherit body style bullet colors
+        if (placeholderType == null)
+            return (null, false);
+
+        string key;
+        if (placeholderType == PlaceholderValues.Title || placeholderType == PlaceholderValues.CenteredTitle)
+            key = "Title";
+        else if (placeholderType == PlaceholderValues.Body)
+            key = "Body";
+        else if (placeholderType == PlaceholderValues.SubTitle)
+            key = "Body";
+        else if (placeholderType == PlaceholderValues.Object)
+            key = "Other";
+        else
+            return (null, false);
+
+        OpenXmlElement? styleList = key switch
+        {
+            "Title" => _masterPart?.SlideMaster?.TextStyles?.TitleStyle,
+            "Body" => _masterPart?.SlideMaster?.TextStyles?.BodyStyle,
+            "Other" => _masterPart?.SlideMaster?.TextStyles?.OtherStyle,
+            _ => null
+        };
+
+        if (styleList == null)
+            return (null, false);
+
+        var levelName = $"lvl{level + 1}pPr";
+        var lvlPpr = styleList.ChildElements.FirstOrDefault(e => e.LocalName == levelName);
+        if (lvlPpr == null)
+            return (null, false);
+
+        return ExtractBulletColorInfo(lvlPpr, this);
+    }
+
+    private (string? Color, bool FollowsText) ExtractBulletColorFromTextBodyLstStyle(OpenXmlElement? textBody, int level)
+    {
+        if (textBody == null) return (null, false);
+
+        var lstStyle = textBody.ChildElements.FirstOrDefault(e => e.LocalName == "lstStyle");
+        if (lstStyle == null) return (null, false);
+
+        var levelName = $"lvl{level + 1}pPr";
+        var lvlPpr = lstStyle.ChildElements.FirstOrDefault(e => e.LocalName == levelName);
+        if (lvlPpr == null) return (null, false);
+
+        return ExtractBulletColorInfo(lvlPpr, this);
+    }
+
     private static (string? BulletChar, string? AutoNumberType, bool HasBullet, bool HasBulletNone) ExtractBulletInfo(OpenXmlElement? element)
     {
         if (element == null) return (null, null, false, false);
@@ -516,6 +616,92 @@ public sealed class StyleResolver
             return (null, null, false, true);
 
         return (null, null, false, false);
+    }
+
+    #endregion
+
+    #region List Indentation Resolution
+
+    public (double? MarginLeft, double? Indent) GetLayoutPlaceholderListIndents(int? idx, PlaceholderValues? type, int level)
+    {
+        var shape = FindLayoutPlaceholder(idx, type);
+        return shape != null ? ExtractListIndentsFromTextBodyLstStyle(shape.TextBody, level) : (null, null);
+    }
+
+    public (double? MarginLeft, double? Indent) GetMasterPlaceholderListIndents(int? idx, PlaceholderValues? type, int level)
+    {
+        var shape = FindMasterPlaceholder(idx, type);
+        return shape != null ? ExtractListIndentsFromTextBodyLstStyle(shape.TextBody, level) : (null, null);
+    }
+
+    public (double? MarginLeft, double? Indent) GetMasterTxStyleListIndents(PlaceholderValues? placeholderType, int level)
+    {
+        // Shapes without placeholders should NOT inherit body style indents
+        if (placeholderType == null)
+            return (null, null);
+
+        string key;
+        if (placeholderType == PlaceholderValues.Title || placeholderType == PlaceholderValues.CenteredTitle)
+            key = "Title";
+        else if (placeholderType == PlaceholderValues.Body)
+            key = "Body";
+        else if (placeholderType == PlaceholderValues.SubTitle)
+            key = "Body";
+        else if (placeholderType == PlaceholderValues.Object)
+            key = "Other";
+        else
+            return (null, null);
+
+        OpenXmlElement? styleList = key switch
+        {
+            "Title" => _masterPart?.SlideMaster?.TextStyles?.TitleStyle,
+            "Body" => _masterPart?.SlideMaster?.TextStyles?.BodyStyle,
+            "Other" => _masterPart?.SlideMaster?.TextStyles?.OtherStyle,
+            _ => null
+        };
+
+        if (styleList == null)
+            return (null, null);
+
+        var levelName = $"lvl{level + 1}pPr";
+        var lvlPpr = styleList.ChildElements.FirstOrDefault(e => e.LocalName == levelName);
+        if (lvlPpr == null)
+            return (null, null);
+
+        return ExtractListIndentsFromElement(lvlPpr);
+    }
+
+    private static (double? MarginLeft, double? Indent) ExtractListIndentsFromTextBodyLstStyle(OpenXmlElement? textBody, int level)
+    {
+        if (textBody == null) return (null, null);
+
+        var lstStyle = textBody.ChildElements.FirstOrDefault(e => e.LocalName == "lstStyle");
+        if (lstStyle == null) return (null, null);
+
+        var levelName = $"lvl{level + 1}pPr";
+        var lvlPpr = lstStyle.ChildElements.FirstOrDefault(e => e.LocalName == levelName);
+        if (lvlPpr == null) return (null, null);
+
+        return ExtractListIndentsFromElement(lvlPpr);
+    }
+
+    private static (double? MarginLeft, double? Indent) ExtractListIndentsFromElement(OpenXmlElement? element)
+    {
+        if (element == null) return (null, null);
+
+        double? marginLeft = null;
+        double? indent = null;
+
+        // Raw XML attribute reads per AGENTS.pptx.md rule 1 — SDK attribute access is unreliable.
+        var marLAttr = GetAttributeValue(element, "marL");
+        if (!string.IsNullOrEmpty(marLAttr) && int.TryParse(marLAttr, out var marL))
+            marginLeft = marL / 12700.0;
+
+        var indentAttr = GetAttributeValue(element, "indent");
+        if (!string.IsNullOrEmpty(indentAttr) && int.TryParse(indentAttr, out var ind))
+            indent = ind / 12700.0;
+
+        return (marginLeft, indent);
     }
 
     #endregion

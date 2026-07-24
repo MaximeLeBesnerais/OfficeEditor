@@ -2011,7 +2011,9 @@ public class PptxToTypstConverterTests : IDisposable
 
         var source = converter.GenerateTypstSource(presentation);
 
-        Assert.Contains("indent: 22.50pt", source);
+        // OOXML: marL=22.5pt is the body text offset, indent=-7.5pt shifts the marker
+        // left of the body, so the marker sits at 15pt and the body 7.5pt right of it.
+        Assert.Contains("indent: 15.00pt", source);
         Assert.Contains("body-indent: 7.50pt", source);
         Assert.Contains("[Item one]", source);
         Assert.Contains("[Item two]", source);
