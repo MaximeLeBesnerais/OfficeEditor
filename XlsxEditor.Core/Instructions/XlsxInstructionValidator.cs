@@ -39,7 +39,8 @@ public static class XlsxInstructionValidator
                 "Instruction set must contain at least one worksheet in 'worksheets'.");
         }
 
-        var seenSheetNames = new HashSet<string>(StringComparer.Ordinal);
+        // Excel worksheet names are case-insensitive: "Sales" and "SALES" collide.
+        var seenSheetNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var ws in instructions.Worksheets)
         {
             ValidateWorksheet(ws, seenSheetNames);
@@ -74,7 +75,7 @@ public static class XlsxInstructionValidator
         if (!seenNames.Add(ws.Name))
         {
             throw new XlsxException(
-                $"Duplicate worksheet name '{ws.Name}'. Worksheet names must be unique.");
+                $"Duplicate worksheet name '{ws.Name}'. Worksheet names must be unique (case-insensitive).");
         }
 
         var hasHeaders = ws.Headers is { Count: > 0 };
@@ -134,16 +135,33 @@ public static class XlsxInstructionValidator
                 $"Got: '{cell.Formula}'");
         }
 
+        RejectUnsupportedCellFields(cell, sheetName);
+    }
+
+    /// <summary>
+    /// 'type' and 'numberFormat' were validated by the schema but then silently
+    /// dropped by the executor. Per the owner-approved decision they are rejected
+    /// loudly until the typed-cell work lands (Phase 2 of the XLSX roadmap).
+    /// Called from both validation and execution so programmatically constructed
+    /// instruction sets (which bypass the parser) are rejected too.
+    /// </summary>
+    internal static void RejectUnsupportedCellFields(CellInstruction cell, string sheetName)
+    {
         if (cell.Type != null)
         {
-            var validTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                { "number", "string", "boolean", "date" };
-            if (!validTypes.Contains(cell.Type))
-            {
-                throw new XlsxException(
-                    $"Cell '{cell.Address}' in sheet '{sheetName}' has unknown type '{cell.Type}'. " +
-                    "Valid types: number, string, boolean, date.");
-            }
+            throw new XlsxException(
+                $"Cell '{cell.Address}' in sheet '{sheetName}' sets 'type' ('{cell.Type}'), which is " +
+                "not yet supported — previously it was silently ignored. Typed cells arrive in " +
+                "Phase 2 of the XLSX roadmap (docs/roadmap-xlsx.md); remove the field for now.");
+        }
+
+        if (cell.NumberFormat != null)
+        {
+            throw new XlsxException(
+                $"Cell '{cell.Address}' in sheet '{sheetName}' sets 'numberFormat' " +
+                $"('{cell.NumberFormat}'), which is not yet supported — previously it was silently " +
+                "ignored. Number formats arrive with typed cells in Phase 2 of the XLSX roadmap " +
+                "(docs/roadmap-xlsx.md); remove the field for now.");
         }
     }
 }

@@ -1,4 +1,5 @@
 using XlsxEditor.Core.Builders;
+using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Spreadsheet;
 using XlsxEditor.Core.Exceptions;
@@ -85,8 +86,9 @@ public class WorkbookBuilderTests : IDisposable
         Assert.NotNull(sheetData);
         var row = sheetData.Elements<Row>().First();
         var cells = row.Elements<Cell>().ToList();
-        
+
         Assert.Equal(3, cells.Count);
+        OpenXmlAssert.NoValidationErrors(_testFilePath);
     }
 
     [Fact]
@@ -133,7 +135,124 @@ public class WorkbookBuilderTests : IDisposable
         var cell = row.Elements<Cell>().First();
         
         Assert.NotNull(cell.CellFormula);
-        Assert.Equal("=SUM(A1:A2)", cell.CellFormula?.Text);
+        // SpreadsheetML stores formula text WITHOUT the leading '='; storing it
+        // triggers Excel's repair prompt. The builder must strip it.
+        Assert.Equal("SUM(A1:A2)", cell.CellFormula?.Text);
+        OpenXmlAssert.NoValidationErrors(_testFilePath);
+    }
+
+    [Fact]
+    public void GetCellFormula_ShouldReturnDisplaySyntax_WithLeadingEquals()
+    {
+        // Act
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            builder.AddWorksheet("Sheet1").AddCell("A3", "=SUM(A1:A2)", true);
+            builder.Save();
+        }
+
+        // Assert: stored text has no '=', but the read API re-prepends it so
+        // callers always see Excel display syntax.
+        using var reader = WorkbookBuilder.Open(_testFilePath);
+        var ws = reader.GetWorksheet("Sheet1");
+        Assert.Equal("=SUM(A1:A2)", ws.GetCellFormula("A3"));
+        Assert.Equal("=SUM(A1:A2)", ws.GetCellInfo("A3")?.Formula);
+    }
+
+    [Fact]
+    public void AddCell_FormulaWithoutLeadingEquals_ShouldBeAccepted()
+    {
+        // Act: callers may pass the bare stored form too
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            builder.AddWorksheet("Sheet1").AddCell("A1", "SUM(B1:B2)", true);
+            builder.Save();
+        }
+
+        // Assert
+        using var doc = SpreadsheetDocument.Open(_testFilePath, false);
+        var cell = doc.WorkbookPart!.WorksheetParts.First().Worksheet!
+            .GetFirstChild<SheetData>()!.Elements<Row>().First().Elements<Cell>().First();
+        Assert.Equal("SUM(B1:B2)", cell.CellFormula?.Text);
+        OpenXmlAssert.NoValidationErrors(doc);
+    }
+
+    [Theory]
+    [InlineData("42.5", true)]
+    [InlineData("-7", true)]
+    [InlineData("1e3", true)]
+    [InlineData("NaN", false)]
+    [InlineData("Infinity", false)]
+    [InlineData("-Infinity", false)]
+    [InlineData("1,000", false)]
+    public void AddCell_NumericDetection_ShouldBeInvariantAndRejectNonFinite(string value, bool isNumber)
+    {
+        // Act
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            builder.AddWorksheet("Sheet1").AddCell("A1", value);
+            builder.Save();
+        }
+
+        // Assert
+        using var doc = SpreadsheetDocument.Open(_testFilePath, false);
+        var cell = doc.WorkbookPart!.WorksheetParts.First().Worksheet!
+            .GetFirstChild<SheetData>()!.Elements<Row>().Single().Elements<Cell>().Single();
+        Assert.Equal(isNumber ? CellValues.Number : CellValues.SharedString, cell.DataType?.Value);
+        OpenXmlAssert.NoValidationErrors(doc);
+    }
+
+    [Fact]
+    public void AddHeaderRow_CalledRepeatedly_ShouldReuseOneHeaderStyle()
+    {
+        // Act: three header rows must not append three fonts + three cell formats
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            var sheet = builder.AddWorksheet("Sheet1");
+            sheet.AddHeaderRow(new List<string> { "A" }, 1);
+            sheet.AddHeaderRow(new List<string> { "B" }, 5);
+            sheet.AddHeaderRow(new List<string> { "C" }, 9);
+            builder.Save();
+        }
+
+        // Assert: exactly one default + one bold header format
+        using var doc = SpreadsheetDocument.Open(_testFilePath, false);
+        var stylesheet = doc.WorkbookPart!.WorkbookStylesPart!.Stylesheet;
+        Assert.NotNull(stylesheet);
+        Assert.Equal(2U, stylesheet.CellFormats!.Count?.Value);
+        Assert.Equal(2U, stylesheet.Fonts!.Count?.Value);
+        OpenXmlAssert.NoValidationErrors(doc);
+    }
+
+    [Fact]
+    public void SharedStrings_ShouldDeduplicateAndPreserveWhitespace()
+    {
+        // Act: same string twice → one entry; padded string keeps its spaces
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            var sheet = builder.AddWorksheet("Sheet1");
+            sheet.AddCell("A1", "repeat");
+            sheet.AddCell("A2", "repeat");
+            sheet.AddCell("A3", "  padded  ");
+            builder.Save();
+        }
+
+        // Assert
+        using (var doc = SpreadsheetDocument.Open(_testFilePath, false))
+        {
+            var table = doc.WorkbookPart!.SharedStringTablePart!.SharedStringTable;
+            Assert.NotNull(table);
+            var items = table.Elements<SharedStringItem>().ToList();
+            Assert.Equal(2, items.Count);
+            Assert.Equal("repeat", items[0].InnerText);
+            var paddedText = Assert.IsType<Text>(items[1].FirstChild);
+            Assert.Equal(SpaceProcessingModeValues.Preserve, paddedText.Space?.Value);
+            OpenXmlAssert.NoValidationErrors(doc);
+        }
+
+        // Round-trip: whitespace survives reload
+        using var reader = WorkbookBuilder.Open(_testFilePath);
+        Assert.Equal("  padded  ", reader.GetWorksheet("Sheet1").GetCellValue("A3"));
     }
 
     [Fact]
@@ -273,6 +392,8 @@ public class WorkbookBuilderTests : IDisposable
             worksheet.AddCell("A1", "42.5");
             worksheet.AddCell("B1", "Text");
             worksheet.AddCell("C1", "Not a formula", false);
+            // Header row on row 2 creates the stylesheet so styleId "0" is valid.
+            worksheet.AddHeaderRow(new List<string> { "H" }, 2);
             worksheet.AddCell("D1", "7", "0");
             builder.Save();
         }
@@ -283,9 +404,16 @@ public class WorkbookBuilderTests : IDisposable
             .Elements<Row>().First().Elements<Cell>().ToDictionary(c => c.CellReference!.Value!);
         Assert.Equal(CellValues.Number, cells["A1"].DataType?.Value);
         Assert.Equal(CellValues.SharedString, cells["B1"].DataType?.Value);
-        Assert.Equal(CellValues.String, cells["C1"].DataType?.Value);
-        Assert.Equal("Not a formula", cells["C1"].CellValue?.Text);
+        // Literal strings go through the shared string table — t="str" is
+        // reserved for formula string results, not literal values.
+        Assert.Equal(CellValues.SharedString, cells["C1"].DataType?.Value);
+        var sharedStringTable = doc.WorkbookPart!.SharedStringTablePart?.SharedStringTable;
+        Assert.NotNull(sharedStringTable);
+        var sharedStrings = sharedStringTable.Elements<SharedStringItem>().ToList();
+        var c1Text = sharedStrings[int.Parse(cells["C1"].CellValue!.Text)].InnerText;
+        Assert.Equal("Not a formula", c1Text);
         Assert.Equal(0U, cells["D1"].StyleIndex?.Value);
+        OpenXmlAssert.NoValidationErrors(doc);
     }
 
     [Fact]
@@ -315,14 +443,14 @@ public class WorkbookBuilderTests : IDisposable
     [Fact]
     public void AddTable_ShouldCreateTablePartsAndAppendAdditionalTables()
     {
-        // Act
+        // Act: two NON-overlapping tables on one sheet (overlaps are rejected — see below)
         using (var builder = WorkbookBuilder.Create(_testFilePath))
         {
             var worksheet = builder.AddWorksheet("Sheet1");
             worksheet.AddHeaderRow(new List<string> { "A", "B", "C" });
             worksheet.AddDataRow(new List<string> { "1", "2", "3" }, 2);
             worksheet.AddTable("A1", "C2", "FirstTable");
-            worksheet.AddTable("A1", "B2", "SecondTable");
+            worksheet.AddTable("E1", "F2", "SecondTable");
             builder.Save();
         }
 
@@ -334,6 +462,133 @@ public class WorkbookBuilderTests : IDisposable
         Assert.Equal(2, worksheetPart.TableDefinitionParts.Count());
         Assert.Contains(worksheetPart.TableDefinitionParts, p => p.Table?.DisplayName?.Value == "FirstTable");
         Assert.Contains(worksheetPart.TableDefinitionParts, p => p.Table?.DisplayName?.Value == "SecondTable");
+        OpenXmlAssert.NoValidationErrors(doc);
+    }
+
+    [Fact]
+    public void AddTable_ShouldDeriveColumnNamesFromHeaderRow()
+    {
+        // Act
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            var worksheet = builder.AddWorksheet("Sheet1");
+            worksheet.AddHeaderRow(new List<string> { "Product", "Qty", "Price" });
+            worksheet.AddDataRow(new List<string> { "Widget", "3", "9.99" }, 2);
+            worksheet.AddTable("A1", "C2", "Sales");
+            builder.Save();
+        }
+
+        // Assert: Excel requires TableColumn names to match the header cell text
+        using var doc = SpreadsheetDocument.Open(_testFilePath, false);
+        var table = doc.WorkbookPart!.WorksheetParts.First()
+            .TableDefinitionParts.Single().Table!;
+        var names = table.GetFirstChild<TableColumns>()!.Elements<TableColumn>()
+            .Select(c => c.Name?.Value).ToList();
+        Assert.Equal(new[] { "Product", "Qty", "Price" }, names);
+        OpenXmlAssert.NoValidationErrors(doc);
+    }
+
+    [Fact]
+    public void AddTable_ShouldFallbackToGeneratedNames_ForEmptyHeaderCells()
+    {
+        // Act: table over cells with no header values
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            var worksheet = builder.AddWorksheet("Sheet1");
+            worksheet.AddTable("A1", "B2", "EmptyHeaders");
+            builder.Save();
+        }
+
+        // Assert: column names must be non-empty — generated fallback
+        using var doc = SpreadsheetDocument.Open(_testFilePath, false);
+        var table = doc.WorkbookPart!.WorksheetParts.First()
+            .TableDefinitionParts.Single().Table!;
+        var names = table.GetFirstChild<TableColumns>()!.Elements<TableColumn>()
+            .Select(c => c.Name?.Value).ToList();
+        Assert.Equal(new[] { "Column1", "Column2" }, names);
+        OpenXmlAssert.NoValidationErrors(doc);
+    }
+
+    [Fact]
+    public void AddTable_ShouldMakeDuplicateHeaderNamesUnique()
+    {
+        // Act
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            var worksheet = builder.AddWorksheet("Sheet1");
+            worksheet.AddHeaderRow(new List<string> { "Value", "Value" });
+            worksheet.AddDataRow(new List<string> { "1", "2" }, 2);
+            worksheet.AddTable("A1", "B2", "Duplicates");
+            builder.Save();
+        }
+
+        // Assert: Excel requires unique column names within a table
+        using var doc = SpreadsheetDocument.Open(_testFilePath, false);
+        var table = doc.WorkbookPart!.WorksheetParts.First()
+            .TableDefinitionParts.Single().Table!;
+        var names = table.GetFirstChild<TableColumns>()!.Elements<TableColumn>()
+            .Select(c => c.Name?.Value).ToList();
+        Assert.Equal(new[] { "Value", "Value2" }, names);
+        OpenXmlAssert.NoValidationErrors(doc);
+    }
+
+    [Fact]
+    public void AddTable_ReversedRange_ShouldThrow()
+    {
+        // Arrange: a reversed range used to cast a negative column count to uint
+        // (≈4 billion columns) — a corrupt table part.
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var worksheet = builder.AddWorksheet("Sheet1");
+
+        // Act & Assert
+        var ex = Assert.Throws<XlsxException>(() => worksheet.AddTable("C2", "A1", "Backwards"));
+        Assert.Contains("reversed", ex.Message);
+    }
+
+    [Fact]
+    public void AddTable_OverlappingRange_ShouldThrow()
+    {
+        // Arrange
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var worksheet = builder.AddWorksheet("Sheet1");
+        worksheet.AddHeaderRow(new List<string> { "A", "B", "C" });
+        worksheet.AddDataRow(new List<string> { "1", "2", "3" }, 2);
+        worksheet.AddTable("A1", "C2", "FirstTable");
+
+        // Act & Assert: Excel rejects worksheets with overlapping tables
+        var ex = Assert.Throws<XlsxException>(() => worksheet.AddTable("B1", "D2", "SecondTable"));
+        Assert.Contains("overlap", ex.Message.ToLowerInvariant());
+        Assert.Contains("FirstTable", ex.Message);
+    }
+
+    [Theory]
+    [InlineData("My Table")]
+    [InlineData("Table!")]
+    [InlineData("1Table")]
+    [InlineData("")]
+    public void AddTable_InvalidDisplayName_ShouldThrow(string tableName)
+    {
+        // Arrange
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var worksheet = builder.AddWorksheet("Sheet1");
+
+        // Act & Assert
+        var ex = Assert.Throws<XlsxException>(() => worksheet.AddTable("A1", "B2", tableName));
+        Assert.Contains("table name", ex.Message.ToLowerInvariant());
+    }
+
+    [Fact]
+    public void AddTable_DuplicateDisplayName_ShouldThrow_AcrossWorksheets()
+    {
+        // Arrange: table names must be unique workbook-wide (case-insensitive)
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        builder.AddWorksheet("Sheet1").AddTable("A1", "B2", "SalesTable");
+
+        // Act & Assert
+        var other = builder.AddWorksheet("Sheet2");
+        var ex = Assert.Throws<XlsxException>(() => other.AddTable("A1", "B2", "SALESTABLE"));
+        Assert.Contains("SALESTABLE", ex.Message);
+        Assert.Contains("unique", ex.Message);
     }
 
     [Fact]
@@ -345,7 +600,93 @@ public class WorkbookBuilderTests : IDisposable
 
         // Act & Assert
         Assert.Throws<XlsxException>(() => worksheet.AddChart(ChartType.Pie, "A1:B2"));
-        Assert.Throws<FormatException>(() => worksheet.AddCell("A", "Missing row"));
+        // Malformed references must surface as XlsxException naming the ref,
+        // not a raw FormatException from int.Parse deep in the builder.
+        var ex = Assert.Throws<XlsxException>(() => worksheet.AddCell("A", "Missing row"));
+        Assert.Contains("'A'", ex.Message);
+    }
+
+    [Theory]
+    [InlineData("A")]
+    [InlineData("1A")]
+    [InlineData("A0")]
+    [InlineData("")]
+    [InlineData("A 1")]
+    [InlineData("A1B")]
+    [InlineData("AAAA1")]
+    public void AddCell_MalformedReference_ShouldThrowXlsxException(string badReference)
+    {
+        // Arrange
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var worksheet = builder.AddWorksheet("Sheet1");
+
+        // Act & Assert
+        var ex = Assert.Throws<XlsxException>(() => worksheet.AddCell(badReference, "value"));
+        Assert.Contains("Invalid cell reference", ex.Message);
+    }
+
+    [Fact]
+    public void AddCell_LowercaseReference_ShouldNormalizeToSameCell()
+    {
+        // Act: 'a1' and 'A1' are the same cell in Excel — they must not duplicate
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            var worksheet = builder.AddWorksheet("Sheet1");
+            worksheet.AddCell("a1", "lower");
+            worksheet.AddCell("A1", "upper");
+            builder.Save();
+        }
+
+        // Assert: one cell, canonical uppercase reference, last write wins
+        using var doc = SpreadsheetDocument.Open(_testFilePath, false);
+        var cells = doc.WorkbookPart!.WorksheetParts.First().Worksheet!
+            .GetFirstChild<SheetData>()!.Elements<Row>().Single().Elements<Cell>().ToList();
+        Assert.Single(cells);
+        Assert.Equal("A1", cells[0].CellReference?.Value);
+        OpenXmlAssert.NoValidationErrors(doc);
+    }
+
+    [Fact]
+    public void CellLookup_ShouldBeCaseInsensitive()
+    {
+        // Arrange
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var worksheet = builder.AddWorksheet("Sheet1");
+        worksheet.AddCell("b2", "Present");
+
+        // Act & Assert
+        Assert.True(worksheet.CellExists("B2"));
+        Assert.Equal("Present", worksheet.GetCellValue("B2"));
+        Assert.Equal("Present", worksheet.GetCellValue("b2"));
+    }
+
+    [Fact]
+    public void AddWorksheet_ShouldThrowForDuplicateName_DifferentCase()
+    {
+        // Arrange: Excel treats sheet names case-insensitively
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        builder.AddWorksheet("Sales");
+
+        // Act & Assert
+        var ex = Assert.Throws<XlsxException>(() => builder.AddWorksheet("SALES"));
+        Assert.Contains("SALES", ex.Message);
+        Assert.Contains("already exists", ex.Message);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-3)]
+    public void RowOperations_ShouldThrowForRowIndexBelowOne(int rowIndex)
+    {
+        // Arrange
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var worksheet = builder.AddWorksheet("Sheet1");
+
+        // Act & Assert
+        Assert.Throws<XlsxException>(() => worksheet.AddDataRow(new List<string> { "x" }, rowIndex));
+        Assert.Throws<XlsxException>(() => worksheet.AddHeaderRow(new List<string> { "x" }, rowIndex));
+        Assert.Throws<XlsxException>(() => worksheet.GetRow(rowIndex));
+        Assert.Throws<XlsxException>(() => worksheet.DeleteRow(rowIndex));
     }
 
     [Fact]
@@ -367,6 +708,7 @@ public class WorkbookBuilderTests : IDisposable
         using var doc = SpreadsheetDocument.Open(stream, false);
         Assert.NotNull(doc.WorkbookPart);
         Assert.Single(doc.WorkbookPart!.Workbook!.Sheets!.Elements<Sheet>());
+        OpenXmlAssert.NoValidationErrors(doc);
     }
 
     [Fact]
@@ -506,6 +848,7 @@ public class WorkbookBuilderTests : IDisposable
             .GetFirstChild<SheetData>()!.Elements<Row>().First().Elements<Cell>().First();
         Assert.NotNull(cell.CellFormula);
         Assert.Null(cell.DataType);
+        OpenXmlAssert.NoValidationErrors(doc);
     }
 
     [Fact]
@@ -522,20 +865,52 @@ public class WorkbookBuilderTests : IDisposable
     }
 
     [Fact]
-    public void AddCell_StyleId_ShouldAcceptValidUintStyleId()
+    public void AddCell_StyleId_ShouldApplyExistingStyleIndex()
     {
-        // Arrange & Act
+        // Arrange & Act: AddHeaderRow creates the stylesheet (2 cell formats:
+        // 0 = default, 1 = bold header), so styleId "1" is a valid reference.
         using (var builder = WorkbookBuilder.Create(_testFilePath))
         {
-            builder.AddWorksheet("Sheet1").AddCell("A1", "42", "5");
+            var sheet = builder.AddWorksheet("Sheet1");
+            sheet.AddHeaderRow(new List<string> { "H" });
+            sheet.AddCell("A2", "42", "1");
             builder.Save();
         }
 
         // Assert
         using var doc = SpreadsheetDocument.Open(_testFilePath, false);
         var cell = doc.WorkbookPart!.WorksheetParts.First().Worksheet!
-            .GetFirstChild<SheetData>()!.Elements<Row>().First().Elements<Cell>().First();
-        Assert.Equal(5U, cell.StyleIndex?.Value);
+            .GetFirstChild<SheetData>()!.Elements<Row>()
+            .Single(r => r.RowIndex?.Value == 2U).Elements<Cell>().First();
+        Assert.Equal(1U, cell.StyleIndex?.Value);
+        OpenXmlAssert.NoValidationErrors(doc);
+    }
+
+    [Fact]
+    public void AddCell_StyleId_ShouldThrow_WhenWorkbookHasNoStylesheet()
+    {
+        // Arrange: a fresh workbook has no WorkbookStylesPart; writing s="5"
+        // would point at a nonexistent cellXfs entry (Excel repair prompt).
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var sheet = builder.AddWorksheet("Sheet1");
+
+        // Act & Assert
+        var ex = Assert.Throws<XlsxException>(() => sheet.AddCell("A1", "42", "5"));
+        Assert.Contains("stylesheet", ex.Message);
+    }
+
+    [Fact]
+    public void AddCell_StyleId_ShouldThrow_WhenIndexOutOfRange()
+    {
+        // Arrange: header style gives us 2 cell formats (valid ids 0 and 1)
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var sheet = builder.AddWorksheet("Sheet1");
+        sheet.AddHeaderRow(new List<string> { "H" });
+
+        // Act & Assert
+        var ex = Assert.Throws<XlsxException>(() => sheet.AddCell("A2", "42", "7"));
+        Assert.Contains("7", ex.Message);
+        Assert.Contains("0–1", ex.Message);
     }
 
     [Fact]
@@ -900,6 +1275,90 @@ public class WorkbookBuilderTests : IDisposable
 
         using var reader = WorkbookBuilder.Open(_testFilePath);
         Assert.Equal("Updated", reader.GetWorksheet("Sheet1").GetCellValue("A1"));
+    }
+
+    [Fact]
+    public void OverwriteFormulaCell_WithValue_ShouldClearFormula()
+    {
+        // Act: write a formula, then overwrite the same cell with a literal value
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            var sheet = builder.AddWorksheet("Sheet1");
+            sheet.AddCell("A1", "=SUM(B1:B2)", true);
+            sheet.AddCell("A1", "42");
+            builder.Save();
+        }
+
+        // Assert: no stale <f> survives; the cell is a plain number
+        using var doc = SpreadsheetDocument.Open(_testFilePath, false);
+        var cell = doc.WorkbookPart!.WorksheetParts.First().Worksheet!
+            .GetFirstChild<SheetData>()!.Elements<Row>().Single().Elements<Cell>().Single();
+        Assert.Null(cell.CellFormula);
+        Assert.Equal(CellValues.Number, cell.DataType?.Value);
+        Assert.Equal("42", cell.CellValue?.Text);
+        OpenXmlAssert.NoValidationErrors(doc);
+    }
+
+    [Fact]
+    public void OverwriteValueCell_WithFormula_ShouldClearValueAndDataType()
+    {
+        // Act: write a value, then overwrite the same cell with a formula
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            var sheet = builder.AddWorksheet("Sheet1");
+            sheet.AddCell("A1", "99");
+            sheet.AddCell("A1", "=SUM(B1:B2)", true);
+            builder.Save();
+        }
+
+        // Assert: the stale cached value and data type are gone — Excel
+        // recalculates on open instead of trusting a value we know is wrong.
+        using var doc = SpreadsheetDocument.Open(_testFilePath, false);
+        var cell = doc.WorkbookPart!.WorksheetParts.First().Worksheet!
+            .GetFirstChild<SheetData>()!.Elements<Row>().Single().Elements<Cell>().Single();
+        Assert.NotNull(cell.CellFormula);
+        Assert.Null(cell.CellValue);
+        Assert.Null(cell.DataType);
+        OpenXmlAssert.NoValidationErrors(doc);
+    }
+
+    [Fact]
+    public void OverwriteFormulaCell_WithValue_RoundTrip_ShouldNotReturnStaleState()
+    {
+        // Arrange: a saved formula cell
+        using (var creator = WorkbookBuilder.Create(_testFilePath))
+        {
+            creator.AddWorksheet("Sheet1").AddCell("A1", "=1+1", true);
+            creator.Save();
+        }
+
+        // Act: reopen and overwrite with a value
+        using (var editor = WorkbookBuilder.Open(_testFilePath))
+        {
+            editor.GetWorksheet("Sheet1").AddCell("A1", "done");
+            editor.Save();
+        }
+
+        // Assert
+        using var reader = WorkbookBuilder.Open(_testFilePath);
+        var ws = reader.GetWorksheet("Sheet1");
+        Assert.Null(ws.GetCellFormula("A1"));
+        Assert.Equal("done", ws.GetCellValue("A1"));
+    }
+
+    [Fact]
+    public void GetCellValue_FormulaCellWithoutCachedValue_ShouldReturnNull()
+    {
+        // Arrange: freshly written formula cells have no cached value
+        using (var creator = WorkbookBuilder.Create(_testFilePath))
+        {
+            creator.AddWorksheet("Sheet1").AddCell("A1", "=1+1", true);
+            creator.Save();
+        }
+
+        // Assert: GetCellValue must not fabricate or return stale content
+        using var reader = WorkbookBuilder.Open(_testFilePath);
+        Assert.Null(reader.GetWorksheet("Sheet1").GetCellValue("A1"));
     }
 
     [Fact]

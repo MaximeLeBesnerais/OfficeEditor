@@ -687,38 +687,42 @@ public sealed class OoxmlEmitter
                 "Remote image URLs are not supported in v1; pass a local file path or a data URI.", nameof(source));
         }
 
-        if (File.Exists(source))
+        // File sources resolve with one documented precedence, shared with the API's
+        // DeckGenerationService (see ImageSourceResolver):
+        // (a) the repository root — a relative source that would escape the root
+        //     ("../../etc/passwd") is rejected there, before any file probe;
+        // (b) the process current directory, likewise containment-checked;
+        // (c) FileNotFoundException.
+        // Rooted sources are taken as-is: callers passing absolute paths (fixture
+        // generation, tests, local CLI runs) are trusted. Untrusted JSON enters only
+        // through the API, which confines every file source to the repository root
+        // before the layout reaches this emitter.
+        if (Path.IsPathRooted(source))
         {
-            return (File.ReadAllBytes(source), Path.GetExtension(source).ToLowerInvariant());
+            if (File.Exists(source))
+            {
+                return (File.ReadAllBytes(source), Path.GetExtension(source).ToLowerInvariant());
+            }
+
+            throw new FileNotFoundException($"Image not found: {source}", source);
         }
 
-        if (!Path.IsPathRooted(source) && TryFindRepositoryRoot() is { } repoRoot)
+        if (ImageSourceResolver.TryFindRepositoryRoot() is { } repoRoot)
         {
-            var resolved = Path.GetFullPath(Path.Combine(repoRoot, source));
+            var resolved = ImageSourceResolver.ResolveContained(repoRoot, source);
             if (File.Exists(resolved))
             {
                 return (File.ReadAllBytes(resolved), Path.GetExtension(resolved).ToLowerInvariant());
             }
         }
 
-        throw new FileNotFoundException($"Image not found: {source}", source);
-    }
-
-    private static string? TryFindRepositoryRoot()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null)
+        var cwdResolved = ImageSourceResolver.ResolveContained(Environment.CurrentDirectory, source);
+        if (File.Exists(cwdResolved))
         {
-            var gitPath = Path.Combine(directory.FullName, ".git");
-            if (Directory.Exists(gitPath) || File.Exists(gitPath))
-            {
-                return directory.FullName;
-            }
-
-            directory = directory.Parent;
+            return (File.ReadAllBytes(cwdResolved), Path.GetExtension(cwdResolved).ToLowerInvariant());
         }
 
-        return null;
+        throw new FileNotFoundException($"Image not found: {source}", source);
     }
 
     private static string MimeToExtension(string mime) => mime.Trim().ToLowerInvariant() switch
@@ -733,15 +737,20 @@ public sealed class OoxmlEmitter
     };
 
     // Extension → part-type switch mirrored from SlideBuilder.AddImage / PptxElementReplacer
-    // (those files are owned by other workstreams and must not be edited).
+    // (those files are owned by other workstreams and must not be edited). Like
+    // MimeToExtension above, unknown extensions throw loudly instead of silently
+    // mislabeling the payload as JPEG.
     private static PartTypeInfo GetImagePartType(string extension) => extension.ToLowerInvariant() switch
     {
         ".png" => ImagePartType.Png,
+        ".jpg" or ".jpeg" => ImagePartType.Jpeg,
         ".gif" => ImagePartType.Gif,
         ".bmp" => ImagePartType.Bmp,
         ".tiff" or ".tif" => ImagePartType.Tiff,
         ".svg" => ImagePartType.Svg,
-        _ => ImagePartType.Jpeg
+        var other => throw new ArgumentException(
+            $"Unsupported image file extension '{other}'. Supported: .png, .jpg, .jpeg, .gif, .bmp, .tiff, .tif, .svg.",
+            nameof(extension))
     };
 
     private static long PtToEmu(double points) =>

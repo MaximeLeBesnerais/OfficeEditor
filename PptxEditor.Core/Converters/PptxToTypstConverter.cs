@@ -1075,110 +1075,211 @@ public sealed partial class PptxToTypstConverter : IDisposable
         var graphicData = graphicFrame.Graphic?.GraphicData;
         if (graphicData == null) yield break;
 
-        var candidateParts = new List<OpenXmlPart>();
+        // Resolve the drawing part associated with THIS graphic frame. The drawing
+        // part is not referenced from dgm:relIds (which carries only dm/lo/qs/cs),
+        // so a brute-force "first part containing dsp:sp" scan cross-renders when a
+        // slide hosts 2+ diagrams.
+        var drawingPart = ResolveDiagramDrawingPart(slidePart, graphicData);
+        if (drawingPart == null) yield break;
 
-        // Parse dgm:relIds to get relationship IDs
-        var relIdsElement = graphicData.Elements()
-            .FirstOrDefault(e => e.LocalName == "relIds" &&
-                e.NamespaceUri == "http://schemas.openxmlformats.org/drawing/2006/diagram");
-
-        if (relIdsElement != null)
+        OpenXmlElement? root;
+        try
         {
-            var rIds = relIdsElement.GetAttributes()
-                .Select(a => a.Value)
-                .Where(v => !string.IsNullOrEmpty(v) && v.StartsWith("rId", StringComparison.Ordinal))
-                .Distinct()
-                .ToList();
-
-            foreach (var rId in rIds)
-            {
-                try
-                {
-                    var part = slidePart.GetPartById(rId!);
-                    if (part != null)
-                    {
-                        candidateParts.Add(part);
-                        foreach (var childPart in part.Parts)
-                        {
-                            candidateParts.Add(childPart.OpenXmlPart);
-                        }
-                    }
-                }
-                catch
-                {
-                    // Ignore parts that can't be resolved
-                }
-            }
+            root = drawingPart.RootElement;
         }
-
-        // Also add diagram drawing parts (not referenced in relIds but accessible via type)
-        foreach (var drawingPart in slidePart.GetPartsOfType<DiagramPersistLayoutPart>())
+        catch
         {
-            candidateParts.Add(drawingPart);
-        }
-
-        // Also scan all slide parts as fallback
-        foreach (var partPair in slidePart.Parts)
-        {
-            candidateParts.Add(partPair.OpenXmlPart);
-        }
-
-        // Find the first part that contains diagram shapes
-        foreach (var part in candidateParts.Distinct())
-        {
-            OpenXmlElement? root;
-            try
-            {
-                root = part.RootElement;
-            }
-            catch
-            {
-                continue;
-            }
-
-            if (root == null) continue;
-
-            var diagramShapes = root.Descendants()
-                .Where(e => e.LocalName == "sp" &&
-                    (e.NamespaceUri == "http://schemas.openxmlformats.org/drawing/2006/diagram" ||
-                     e.NamespaceUri == "http://schemas.microsoft.com/office/drawing/2008/diagram"))
-                .ToList();
-
-            if (diagramShapes.Count == 0) continue;
-
-            foreach (var shape in diagramShapes)
-            {
-                var shapePosition = GetDiagramShapePosition(shape);
-                if (shapePosition == null) continue;
-
-                var (shapeX, shapeY, shapeW, shapeH) = shapePosition.Value;
-
-                var diagramShape = SmartArtDrawingExtractor.TryExtractShape(
-                    shape, offX, offY, scaleX, scaleY,
-                    framePosition.X, framePosition.Y,
-                    shapeW, shapeH,
-                    styleResolver.SchemeColors);
-
-                if (diagramShape != null)
-                    yield return diagramShape;
-
-                var textElement = ExtractTextFromDiagramShape(shape);
-                if (textElement == null || string.IsNullOrWhiteSpace(textElement.Content))
-                    continue;
-
-                yield return new TypstElement
-                {
-                    Type = "Text",
-                    X = offX + (framePosition.X + shapeX) * scaleX,
-                    Y = offY + (framePosition.Y + shapeY) * scaleY,
-                    Width = shapeW * scaleX,
-                    Height = shapeH * scaleY,
-                    Text = textElement
-                };
-            }
-
             yield break;
         }
+
+        if (root == null) yield break;
+
+        var diagramShapes = root.Descendants()
+            .Where(e => e.LocalName == "sp" && _diagramNamespaces.Contains(e.NamespaceUri))
+            .ToList();
+
+        if (diagramShapes.Count == 0) yield break;
+
+        // Drawing-space → frame normalisation: drawing shape coordinates do not
+        // necessarily span the frame extents (e.g. the REF deck's diagram content
+        // covers ~83% of the frame height), so scale/offset the drawing's bounding
+        // box onto the frame instead of anchoring it top-left at native size.
+        //
+        // TryExtractShape computes  final = off + (frame + shapeOff) * scale,  so the
+        // normalisation is folded into an adjusted frame origin + scale such that
+        //   (frameX/ds − min + shapeOff) · ds·scale = (frameX + (shapeOff − min)·ds) · scale
+        // i.e. the drawing bbox is mapped onto the frame before the slide transform.
+        double drawScaleX = 1.0, drawScaleY = 1.0;
+        double shapeFrameX = framePosition.X, shapeFrameY = framePosition.Y;
+        var bounds = SmartArtDrawingExtractor.ComputeBoundingBox(diagramShapes);
+        if (bounds is { } b && b.Width > 0 && b.Height > 0 &&
+            framePosition.Width > 0 && framePosition.Height > 0)
+        {
+            drawScaleX = framePosition.Width / b.Width;
+            drawScaleY = framePosition.Height / b.Height;
+            shapeFrameX = framePosition.X / drawScaleX - b.MinX;
+            shapeFrameY = framePosition.Y / drawScaleY - b.MinY;
+        }
+
+        var shapeScaleX = scaleX * drawScaleX;
+        var shapeScaleY = scaleY * drawScaleY;
+
+        foreach (var shape in diagramShapes)
+        {
+            // Geometry + dimensions always come from spPr/xfrm; txXfrm is the text
+            // placement box and is only used for the text element below.
+            var geometry = GetDiagramShapeGeometry(shape);
+            if (geometry == null) continue;
+
+            var (_, _, shapeW, shapeH) = geometry.Value;
+            var modelId = ReadDiagramShapeModelId(shape);
+
+            var diagramShape = SmartArtDrawingExtractor.TryExtractShape(
+                shape, offX, offY, shapeScaleX, shapeScaleY,
+                shapeFrameX, shapeFrameY,
+                shapeW, shapeH,
+                styleResolver.SchemeColors,
+                modelId);
+
+            if (diagramShape != null)
+                yield return diagramShape;
+
+            var textBounds = GetDiagramTextBounds(shape);
+            if (textBounds == null) continue;
+
+            var textElement = ExtractTextFromDiagramShape(shape, styleResolver.SchemeColors);
+            if (textElement == null || string.IsNullOrWhiteSpace(textElement.Content))
+                continue;
+
+            var (tx, ty, tw, th) = textBounds.Value;
+            yield return new TypstElement
+            {
+                Type = "Text",
+                X = offX + (shapeFrameX + tx) * shapeScaleX,
+                Y = offY + (shapeFrameY + ty) * shapeScaleY,
+                Width = tw * shapeScaleX,
+                Height = th * shapeScaleY,
+                ModelId = modelId,
+                Text = textElement
+            };
+        }
+    }
+
+    /// <summary>
+    /// Resolves the <see cref="DiagramPersistLayoutPart"/> that belongs to the given
+    /// diagram graphic frame: r:dm → data part, then the data part's
+    /// <c>dsp:dataModelExt relId</c> → drawing part. Falls back to a drawing part
+    /// that declares a relationship to the data part, and finally to the slide's
+    /// single drawing part when unambiguous. Returns null when no association can be
+    /// established (never guesses among multiple candidates).
+    /// </summary>
+    private static DiagramPersistLayoutPart? ResolveDiagramDrawingPart(SlidePart slidePart, OpenXmlElement graphicData)
+    {
+        var dataPart = ResolveDiagramDataPart(slidePart, graphicData);
+
+        if (dataPart != null)
+        {
+            var drawingRelId = ReadDataModelExtRelId(dataPart);
+            if (!string.IsNullOrEmpty(drawingRelId))
+            {
+                var resolved = TryGetPartById(dataPart, drawingRelId!)
+                               ?? TryGetPartById(slidePart, drawingRelId!);
+                if (resolved is DiagramPersistLayoutPart persistPart)
+                    return persistPart;
+            }
+
+            // Fallback: a drawing part whose related parts include this data part.
+            foreach (var candidate in slidePart.GetPartsOfType<DiagramPersistLayoutPart>())
+            {
+                if (candidate.Parts.Any(p => p.OpenXmlPart == dataPart))
+                    return candidate;
+            }
+        }
+
+        // Last resort: a single drawing part on the slide is unambiguous.
+        var drawingParts = slidePart.GetPartsOfType<DiagramPersistLayoutPart>().ToList();
+        return drawingParts.Count == 1 ? drawingParts[0] : null;
+    }
+
+    // dgm:relIds lives in the drawingml diagram namespace (the older
+    // "drawing/2006/diagram" variant seen in some files is also accepted).
+    private static readonly HashSet<string> _diagramRelNamespaces = new(StringComparer.Ordinal)
+    {
+        "http://schemas.openxmlformats.org/drawingml/2006/diagram",
+        "http://schemas.openxmlformats.org/drawing/2006/diagram"
+    };
+
+    private static OpenXmlPart? ResolveDiagramDataPart(SlidePart slidePart, OpenXmlElement graphicData)
+    {
+        var relIdsElement = graphicData.Elements()
+            .FirstOrDefault(e => e.LocalName == "relIds" && _diagramRelNamespaces.Contains(e.NamespaceUri));
+        if (relIdsElement == null) return null;
+
+        var dmRelId = relIdsElement.GetAttributes()
+            .FirstOrDefault(a => a.LocalName == "dm" && !string.IsNullOrEmpty(a.Value))
+            .Value;
+        if (string.IsNullOrEmpty(dmRelId)) return null;
+
+        var part = TryGetPartById(slidePart, dmRelId);
+        if (part == null) return null;
+
+        // Verify it really is the data part (dgm:dataModel root).
+        try
+        {
+            var root = part.RootElement;
+            if (root != null && root.LocalName == "dataModel" &&
+                root.NamespaceUri == "http://schemas.openxmlformats.org/drawingml/2006/diagram")
+            {
+                return part;
+            }
+        }
+        catch
+        {
+            // Part not readable — treat as unresolved.
+        }
+
+        return null;
+    }
+
+    private static string? ReadDataModelExtRelId(OpenXmlPart dataPart)
+    {
+        try
+        {
+            var ext = dataPart.RootElement?.Descendants()
+                .FirstOrDefault(e => e.LocalName == "dataModelExt");
+            if (ext == null) return null;
+
+            var relId = ext.GetAttributes()
+                .FirstOrDefault(a => a.LocalName == "relId" && !string.IsNullOrEmpty(a.Value))
+                .Value;
+            return string.IsNullOrEmpty(relId) ? null : relId;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static OpenXmlPart? TryGetPartById(OpenXmlPart container, string relationshipId)
+    {
+        try
+        {
+            return container.GetPartById(relationshipId);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string? ReadDiagramShapeModelId(OpenXmlElement diagramShape)
+    {
+        var match = System.Text.RegularExpressions.Regex.Match(
+            diagramShape.OuterXml,
+            @"\bmodelId\s*=\s*""([^""]*)""");
+        return match.Success && !string.IsNullOrEmpty(match.Groups[1].Value)
+            ? match.Groups[1].Value
+            : null;
     }
 
     private static readonly HashSet<string> _diagramNamespaces = new(StringComparer.Ordinal)
@@ -1187,14 +1288,68 @@ public sealed partial class PptxToTypstConverter : IDisposable
         "http://schemas.microsoft.com/office/drawing/2008/diagram"
     };
 
-    private TypstTextElement? ExtractTextFromDiagramShape(OpenXmlElement diagramShape)
+    private TypstTextElement? ExtractTextFromDiagramShape(OpenXmlElement diagramShape,
+        IReadOnlyDictionary<string, string>? schemeColors)
     {
         var txBody = diagramShape.Elements()
             .FirstOrDefault(e => e.LocalName == "txBody" && _diagramNamespaces.Contains(e.NamespaceUri));
 
         if (txBody == null) return null;
 
-        return ExtractTextFromTextBody(txBody);
+        var text = ExtractTextFromTextBody(txBody);
+
+        // dsp:style/a:fontRef supplies the default text colour for diagram shapes
+        // (e.g. <a:fontRef idx="minor"><a:schemeClr val="lt1"/> = white text on
+        // accent-filled boxes). Apply it wherever a paragraph/run still carries the
+        // unresolved "#000000" cascade default — explicit run colours win.
+        var fontRefColor = ResolveDiagramFontRefColor(diagramShape, schemeColors);
+        if (fontRefColor == null) return text;
+
+        foreach (var paragraph in text.Paragraphs)
+        {
+            if (paragraph.Formatting.Color == "#000000")
+                paragraph.Formatting = paragraph.Formatting with { Color = fontRefColor };
+
+            foreach (var run in paragraph.Runs)
+            {
+                if (run.Formatting.Color == "#000000")
+                    run.Formatting = run.Formatting with { Color = fontRefColor };
+            }
+        }
+
+        return text;
+    }
+
+    private static string? ResolveDiagramFontRefColor(OpenXmlElement diagramShape,
+        IReadOnlyDictionary<string, string>? schemeColors)
+    {
+        const string drawingmlNs = "http://schemas.openxmlformats.org/drawingml/2006/main";
+
+        var style = diagramShape.Elements()
+            .FirstOrDefault(e => e.LocalName == "style" && _diagramNamespaces.Contains(e.NamespaceUri));
+        var fontRef = style?.Elements()
+            .FirstOrDefault(e => e.LocalName == "fontRef" && e.NamespaceUri == drawingmlNs);
+        if (fontRef == null) return null;
+
+        var schemeClr = fontRef.Elements()
+            .FirstOrDefault(e => e.LocalName == "schemeClr" && e.NamespaceUri == drawingmlNs);
+        if (schemeClr != null)
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(schemeClr.OuterXml, @"\bval\s*=\s*""([^""]*)""");
+            if (match.Success && !string.IsNullOrEmpty(match.Groups[1].Value))
+                return SmartArtDrawingExtractor.ResolveSchemeColor(match.Groups[1].Value, schemeColors);
+        }
+
+        var srgbClr = fontRef.Elements()
+            .FirstOrDefault(e => e.LocalName == "srgbClr" && e.NamespaceUri == drawingmlNs);
+        if (srgbClr != null)
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(srgbClr.OuterXml, @"\bval\s*=\s*""([^""]*)""");
+            if (match.Success && !string.IsNullOrEmpty(match.Groups[1].Value))
+                return "#" + match.Groups[1].Value;
+        }
+
+        return null;
     }
 
     private static Drawing.BodyProperties? GetCascadedBodyPr(
@@ -1272,28 +1427,37 @@ public sealed partial class PptxToTypstConverter : IDisposable
         return result;
     }
 
-    private (double X, double Y, double Width, double Height)? GetDiagramShapePosition(OpenXmlElement diagramShape)
+    /// <summary>
+    /// Reads shape geometry (position + size) from <c>dsp:spPr/a:xfrm</c> — the only
+    /// authoritative source for the shape's drawing-space rectangle.
+    /// </summary>
+    private static (double X, double Y, double Width, double Height)? GetDiagramShapeGeometry(OpenXmlElement diagramShape)
     {
-        // Try txXfrm first (Microsoft 2008 diagram namespace), then spPr/xfrm
+        var spPr = diagramShape.Elements()
+            .FirstOrDefault(e => e.LocalName == "spPr" && _diagramNamespaces.Contains(e.NamespaceUri));
+        if (spPr == null) return null;
+
+        var xfrm = spPr.Elements()
+            .FirstOrDefault(e => e.LocalName == "xfrm" &&
+                e.NamespaceUri == "http://schemas.openxmlformats.org/drawingml/2006/main");
+
+        return ReadDiagramXfrm(xfrm);
+    }
+
+    /// <summary>
+    /// Reads the text placement box: <c>dsp:txXfrm</c> when present (Microsoft 2008
+    /// diagram namespace), falling back to the shape geometry.
+    /// </summary>
+    private static (double X, double Y, double Width, double Height)? GetDiagramTextBounds(OpenXmlElement diagramShape)
+    {
         var txXfrm = diagramShape.Elements()
             .FirstOrDefault(e => e.LocalName == "txXfrm" && _diagramNamespaces.Contains(e.NamespaceUri));
 
-        OpenXmlElement? xfrm = null;
-        if (txXfrm != null)
-        {
-            xfrm = txXfrm;
-        }
-        else
-        {
-            var spPr = diagramShape.Elements()
-                .FirstOrDefault(e => e.LocalName == "spPr" && _diagramNamespaces.Contains(e.NamespaceUri));
-            if (spPr == null) return null;
+        return ReadDiagramXfrm(txXfrm) ?? GetDiagramShapeGeometry(diagramShape);
+    }
 
-            xfrm = spPr.Elements()
-                .FirstOrDefault(e => e.LocalName == "xfrm" &&
-                    e.NamespaceUri == "http://schemas.openxmlformats.org/drawingml/2006/main");
-        }
-
+    private static (double X, double Y, double Width, double Height)? ReadDiagramXfrm(OpenXmlElement? xfrm)
+    {
         if (xfrm == null) return null;
 
         var off = xfrm.Elements()

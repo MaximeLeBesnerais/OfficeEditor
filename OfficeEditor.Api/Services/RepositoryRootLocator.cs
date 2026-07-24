@@ -4,7 +4,7 @@ namespace OfficeEditor.Api.Services;
 /// Locates the repository root by walking up from the application base directory looking
 /// for a ".git" entry. In a normal checkout ".git" is a directory; in a git worktree it is
 /// a file (a pointer to the real gitdir), so both forms must be accepted — the same
-/// approach as PptxEditor.Core's OoxmlEmitter.TryFindRepositoryRoot.
+/// approach as PptxEditor.Core's ImageSourceResolver.TryFindRepositoryRoot.
 /// </summary>
 internal static class RepositoryRootLocator
 {

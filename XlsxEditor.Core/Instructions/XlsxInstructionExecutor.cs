@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using XlsxEditor.Core.Builders;
 using XlsxEditor.Core.Exceptions;
 
@@ -8,6 +9,9 @@ namespace XlsxEditor.Core.Instructions;
 /// </summary>
 public static class XlsxInstructionExecutor
 {
+    private static readonly Regex UnresolvedPlaceholderPattern =
+        new(@"\{\{[^}]*\}\}", RegexOptions.Compiled);
+
     /// <summary>
     /// Applies all instructions from the set to the given workbook builder.
     /// Variables in cell values ({{…}}) are resolved at this point.
@@ -23,7 +27,12 @@ public static class XlsxInstructionExecutor
             // 1. Headers
             if (wsInstruction.Headers is { Count: > 0 })
             {
-                sheet.AddHeaderRow(ResolveList(wsInstruction.Headers, variables));
+                var headers = wsInstruction.Headers
+                    .Select((h, i) => EnsureResolved(
+                        ResolveVariables(h, variables),
+                        $"header column {i + 1} of sheet '{wsInstruction.Name}'"))
+                    .ToList();
+                sheet.AddHeaderRow(headers);
             }
 
             // 2. Row data
@@ -38,7 +47,7 @@ public static class XlsxInstructionExecutor
                     for (int col = 0; col < values.Count; col++)
                     {
                         var cellRef = WorksheetBuilder.GetCellReference(col, rowIndex);
-                        var val = values[col];
+                        var val = EnsureResolved(values[col], $"cell {cellRef} of sheet '{wsInstruction.Name}'");
                         if (val.StartsWith("="))
                         {
                             sheet.AddCell(cellRef, val, true);
@@ -56,7 +65,7 @@ public static class XlsxInstructionExecutor
             {
                 foreach (var cell in wsInstruction.Cells)
                 {
-                    ApplyCellInstruction(sheet, cell, variables);
+                    ApplyCellInstruction(sheet, cell, variables, wsInstruction.Name);
                 }
             }
         }
@@ -83,19 +92,45 @@ public static class XlsxInstructionExecutor
         return result;
     }
 
-    private static void ApplyCellInstruction(
-        IWorksheetBuilder sheet, CellInstruction cell, Dictionary<string, string> variables)
+    /// <summary>
+    /// After variable resolution no '{{…}}' placeholder may remain — writing one
+    /// verbatim into the workbook is never the user's intent.
+    /// </summary>
+    private static string EnsureResolved(string resolved, string context)
     {
+        if (!resolved.Contains("{{"))
+        {
+            return resolved;
+        }
+
+        var match = UnresolvedPlaceholderPattern.Match(resolved);
+        var placeholder = match.Success ? match.Value : "{{…}}";
+        throw new XlsxException(
+            $"Unresolved variable {placeholder} in {context}. " +
+            "Provide a value for it in the instruction set's 'variables' block.");
+    }
+
+    private static void ApplyCellInstruction(
+        IWorksheetBuilder sheet, CellInstruction cell, Dictionary<string, string> variables, string sheetName)
+    {
+        // Defense in depth: instruction sets built in code (bypassing the parser's
+        // validation) must not silently drop 'type'/'numberFormat' either.
+        XlsxInstructionValidator.RejectUnsupportedCellFields(cell, sheetName);
+
         if (!string.IsNullOrEmpty(cell.Formula))
         {
-            var formula = ResolveVariables(cell.Formula, variables);
+            var formula = EnsureResolved(
+                ResolveVariables(cell.Formula, variables),
+                $"formula of cell {cell.Address} in sheet '{sheetName}'");
             sheet.AddCell(cell.Address, formula, true);
             return;
         }
 
         if (!string.IsNullOrEmpty(cell.Value))
         {
-            var resolved = ResolveVariables(cell.Value, variables);
+            var resolved = EnsureResolved(
+                ResolveVariables(cell.Value, variables),
+                $"cell {cell.Address} in sheet '{sheetName}'");
 
             if (!string.IsNullOrEmpty(cell.Style))
             {

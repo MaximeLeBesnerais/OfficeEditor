@@ -107,6 +107,53 @@ public class XlsxInstructionTests : IDisposable
     }
 
     [Fact]
+    public void Validate_ShouldRejectDuplicateSheetNames_DifferentCase()
+    {
+        // Excel sheet names are case-insensitive: "Sales" and "SALES" collide.
+        var json = """
+        {
+            "version": "1.0",
+            "worksheets": [
+                {"name": "Sales", "rows": [["1"]]},
+                {"name": "SALES", "rows": [["2"]]}
+            ]
+        }
+        """;
+
+        var ex = Assert.Throws<XlsxException>(() => XlsxInstructionParser.Parse(json));
+        Assert.Contains("Duplicate", ex.Message);
+    }
+
+    [Fact]
+    public void Execute_ShouldNormalizeLowercaseCellAddresses()
+    {
+        var set = XlsxInstructionParser.Parse("""
+        {
+            "version": "1.0",
+            "worksheets": [{
+                "name": "Calc",
+                "cells": [
+                    {"address": "a1", "value": "10"},
+                    {"address": "A1", "value": "20"}
+                ]
+            }]
+        }
+        """);
+
+        // 'a1' and 'A1' are the same cell; last write wins, no duplicate cells.
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            XlsxInstructionExecutor.Execute(set, builder);
+            builder.Save();
+        }
+
+        using var reader = WorkbookBuilder.Open(_testFilePath);
+        var ws = reader.GetWorksheet("Calc");
+        Assert.Equal("20", ws.GetCellValue("A1"));
+        Assert.Single(ws.GetRow(1)!.Cells);
+    }
+
+    [Fact]
     public void Validate_ShouldRejectSheetNameOver31Chars()
     {
         var longName = new string('X', 32);
@@ -198,20 +245,64 @@ public class XlsxInstructionTests : IDisposable
     }
 
     [Fact]
-    public void Validate_ShouldRejectUnknownCellType()
+    public void Validate_ShouldRejectTypeField_AsNotYetSupported()
+    {
+        // 'type' was previously validated then silently dropped by the executor;
+        // it is now rejected loudly until typed cells land (Phase 2 roadmap).
+        var json = """
+        {
+            "version": "1.0",
+            "worksheets": [{
+                "name": "S",
+                "cells": [{"address": "A1", "value": "x", "type": "number"}]
+            }]
+        }
+        """;
+
+        var ex = Assert.Throws<XlsxException>(() => XlsxInstructionParser.Parse(json));
+        Assert.Contains("'type'", ex.Message);
+        Assert.Contains("Phase 2", ex.Message);
+    }
+
+    [Fact]
+    public void Validate_ShouldRejectNumberFormat_AsNotYetSupported()
     {
         var json = """
         {
             "version": "1.0",
             "worksheets": [{
                 "name": "S",
-                "cells": [{"address": "A1", "value": "x", "type": "currency"}]
+                "cells": [{"address": "A1", "value": "3.14", "numberFormat": "0.00"}]
             }]
         }
         """;
 
         var ex = Assert.Throws<XlsxException>(() => XlsxInstructionParser.Parse(json));
-        Assert.Contains("currency", ex.Message);
+        Assert.Contains("'numberFormat'", ex.Message);
+        Assert.Contains("Phase 2", ex.Message);
+    }
+
+    [Fact]
+    public void Execute_ShouldRejectTypeField_WhenSetBuiltProgrammatically()
+    {
+        // Defense in depth: instruction sets constructed in code bypass the
+        // parser, so the executor must reject unsupported fields itself.
+        var set = new XlsxInstructionSet
+        {
+            Worksheets =
+            [
+                new WorksheetInstruction
+                {
+                    Name = "S",
+                    Cells = [new CellInstruction { Address = "A1", Value = "x", Type = "date" }]
+                }
+            ]
+        };
+
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var ex = Assert.Throws<XlsxException>(() => XlsxInstructionExecutor.Execute(set, builder));
+        Assert.Contains("'type'", ex.Message);
+        Assert.Contains("Phase 2", ex.Message);
     }
 
     [Fact]
@@ -251,12 +342,16 @@ public class XlsxInstructionTests : IDisposable
             builder.Save();
         }
 
-        using var reader = WorkbookBuilder.Open(_testFilePath);
-        var ws = reader.GetWorksheet("Sales");
-        Assert.Equal("Product", ws.GetCellValue("A1"));
-        Assert.Equal("Q1", ws.GetCellValue("B1"));
-        Assert.Equal("Widget", ws.GetCellValue("A2"));
-        Assert.Equal("100", ws.GetCellValue("B2"));
+        using (var reader = WorkbookBuilder.Open(_testFilePath))
+        {
+            var ws = reader.GetWorksheet("Sales");
+            Assert.Equal("Product", ws.GetCellValue("A1"));
+            Assert.Equal("Q1", ws.GetCellValue("B1"));
+            Assert.Equal("Widget", ws.GetCellValue("A2"));
+            Assert.Equal("100", ws.GetCellValue("B2"));
+        }
+
+        OpenXmlAssert.NoValidationErrors(_testFilePath);
     }
 
     [Fact]
@@ -402,22 +497,28 @@ public class XlsxInstructionTests : IDisposable
             "version": "1.0",
             "worksheets": [{
                 "name": "Styled",
+                "headers": ["H"],
                 "cells": [
-                    {"address": "A1", "value": "7", "style": "0"}
+                    {"address": "A2", "value": "7", "style": "0"}
                 ]
             }]
         }
         """);
 
+        // The header row creates the stylesheet, so styleId "0" (default format) is valid.
         using (var builder = WorkbookBuilder.Create(_testFilePath))
         {
             XlsxInstructionExecutor.Execute(set, builder);
             builder.Save();
         }
 
-        using var reader = WorkbookBuilder.Open(_testFilePath);
-        var ws = reader.GetWorksheet("Styled");
-        Assert.Equal("7", ws.GetCellValue("A1"));
+        using (var reader = WorkbookBuilder.Open(_testFilePath))
+        {
+            var ws = reader.GetWorksheet("Styled");
+            Assert.Equal("7", ws.GetCellValue("A2"));
+        }
+
+        OpenXmlAssert.NoValidationErrors(_testFilePath);
     }
 
     [Fact]
@@ -443,6 +544,66 @@ public class XlsxInstructionTests : IDisposable
         var ws = reader.GetWorksheet("HeadersOnly");
         Assert.True(ws.CellExists("A1"));
         Assert.False(ws.CellExists("A2"));
+    }
+
+    [Fact]
+    public void Execute_ShouldThrow_ForUnresolvedVariable_InRowValue()
+    {
+        var set = XlsxInstructionParser.Parse("""
+        {
+            "version": "1.0",
+            "worksheets": [{
+                "name": "T",
+                "headers": ["Field"],
+                "rows": [["{{missing}}"]]
+            }]
+        }
+        """);
+
+        // An unresolved placeholder must never be written verbatim into the file.
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var ex = Assert.Throws<XlsxException>(() => XlsxInstructionExecutor.Execute(set, builder));
+        Assert.Contains("{{missing}}", ex.Message);
+        Assert.Contains("A2", ex.Message);
+        Assert.Contains("variables", ex.Message);
+    }
+
+    [Fact]
+    public void Execute_ShouldThrow_ForUnresolvedVariable_InFormula()
+    {
+        var set = XlsxInstructionParser.Parse("""
+        {
+            "version": "1.0",
+            "worksheets": [{
+                "name": "Calc",
+                "cells": [{"address": "B1", "formula": "=A1*{{factor}}"}]
+            }]
+        }
+        """);
+
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var ex = Assert.Throws<XlsxException>(() => XlsxInstructionExecutor.Execute(set, builder));
+        Assert.Contains("{{factor}}", ex.Message);
+        Assert.Contains("B1", ex.Message);
+    }
+
+    [Fact]
+    public void Execute_ShouldThrow_ForUnresolvedVariable_InHeader()
+    {
+        var set = XlsxInstructionParser.Parse("""
+        {
+            "version": "1.0",
+            "worksheets": [{
+                "name": "T",
+                "headers": ["{{title}}", "Other"]
+            }]
+        }
+        """);
+
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var ex = Assert.Throws<XlsxException>(() => XlsxInstructionExecutor.Execute(set, builder));
+        Assert.Contains("{{title}}", ex.Message);
+        Assert.Contains("header", ex.Message);
     }
 
     [Fact]
@@ -486,15 +647,19 @@ public class XlsxInstructionTests : IDisposable
             builder.Save();
         }
 
-        using var reader = WorkbookBuilder.Open(_testFilePath);
-        var revenue = reader.GetWorksheet("Revenue");
-        Assert.Equal("Month", revenue.GetCellValue("A1"));
-        Assert.Equal("10000", revenue.GetCellValue("B2"));
-        Assert.Equal("=SUM(B2:D2)", revenue.GetCellFormula("E2"));
+        using (var reader = WorkbookBuilder.Open(_testFilePath))
+        {
+            var revenue = reader.GetWorksheet("Revenue");
+            Assert.Equal("Month", revenue.GetCellValue("A1"));
+            Assert.Equal("10000", revenue.GetCellValue("B2"));
+            Assert.Equal("=SUM(B2:D2)", revenue.GetCellFormula("E2"));
 
-        var summary = reader.GetWorksheet("Summary");
-        Assert.Equal("Total Revenue Q1", summary.GetCellValue("A1"));
-        Assert.Equal("=SUM(Revenue!E2:E4)", summary.GetCellFormula("B1"));
+            var summary = reader.GetWorksheet("Summary");
+            Assert.Equal("Total Revenue Q1", summary.GetCellValue("A1"));
+            Assert.Equal("=SUM(Revenue!E2:E4)", summary.GetCellFormula("B1"));
+        }
+
+        OpenXmlAssert.NoValidationErrors(_testFilePath);
     }
 
     public void Dispose()

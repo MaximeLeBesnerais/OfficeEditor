@@ -53,7 +53,7 @@ class Program
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[red]Error: {ex.Message}[/]");
+            AnsiConsole.MarkupLine($"[red]Error: {Markup.Escape(ex.Message)}[/]");
             Environment.Exit(1);
         }
     }
@@ -176,7 +176,7 @@ class Program
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[red]Invalid instructions file: {ex.Message}[/]");
+            AnsiConsole.MarkupLine($"[red]Invalid instructions file: {Markup.Escape(ex.Message)}[/]");
         }
     }
 
@@ -297,8 +297,8 @@ class Program
     static DocxEditor.Core.Models.DocumentInstructions LoadInstructions(string path)
     {
         var content = File.ReadAllText(path);
-        
-        if (path.EndsWith(".yaml", StringComparison.OrdinalIgnoreCase) || 
+
+        if (path.EndsWith(".yaml", StringComparison.OrdinalIgnoreCase) ||
             path.EndsWith(".yml", StringComparison.OrdinalIgnoreCase))
         {
             var parser = new DocxYamlInstructionParser();
@@ -306,6 +306,16 @@ class Program
         }
         else
         {
+            // Validate before parsing so unknown keys and missing/invalid fields abort
+            // with field-level errors instead of being silently dropped at execution time.
+            var validator = new DocxInstructionValidator();
+            var errors = validator.Validate(content);
+            if (errors.Count > 0)
+            {
+                throw new ArgumentException(
+                    $"Invalid instruction file '{path}':{Environment.NewLine} - {string.Join(Environment.NewLine + " - ", errors)}");
+            }
+
             var parser = new DocxJsonInstructionParser();
             return parser.Parse(content);
         }
