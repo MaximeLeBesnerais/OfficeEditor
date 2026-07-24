@@ -83,6 +83,50 @@ public class DocumentBuilderTests : IDisposable
         }
     }
 
+    [Fact]
+    public void ReplaceText_ShouldReplaceInsideTablesHeadersAndFooters()
+    {
+        // Arrange: body paragraph, a table cell, a header, and a footer all carry the token.
+        using (var doc = WordprocessingDocument.Create(_testFilePath, DocumentFormat.OpenXml.WordprocessingDocumentType.Document))
+        {
+            var mainPart = doc.AddMainDocumentPart();
+            var table = new Table(
+                new TableProperties(),
+                new TableGrid(new GridColumn()),
+                new TableRow(new TableCell(new Paragraph(new Run(new Text("Cell {{TOKEN}}"))))));
+            mainPart.Document = new Document(new Body(
+                new Paragraph(new Run(new Text("Body {{TOKEN}}"))),
+                table));
+
+            var headerPart = mainPart.AddNewPart<HeaderPart>();
+            headerPart.Header = new Header(new Paragraph(new Run(new Text("Header {{TOKEN}}"))));
+            headerPart.Header.Save();
+
+            var footerPart = mainPart.AddNewPart<FooterPart>();
+            footerPart.Footer = new Footer(new Paragraph(new Run(new Text("Footer {{TOKEN}}"))));
+            footerPart.Footer.Save();
+
+            mainPart.Document.Save();
+        }
+
+        // Act
+        using (var builder = DocumentBuilder.Open(_testFilePath))
+        {
+            builder.ReplaceText("{{TOKEN}}", "Done");
+            builder.Save();
+        }
+
+        // Assert
+        using (var doc = WordprocessingDocument.Open(_testFilePath, false))
+        {
+            var mainPart = doc.MainDocumentPart!;
+            Assert.DoesNotContain("{{TOKEN}}", mainPart.Document!.Body!.InnerText);
+            Assert.Contains("Cell Done", mainPart.Document.Body!.Descendants<TableCell>().Single().InnerText);
+            Assert.Contains("Header Done", mainPart.HeaderParts.Single().Header!.InnerText);
+            Assert.Contains("Footer Done", mainPart.FooterParts.Single().Footer!.InnerText);
+        }
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]
