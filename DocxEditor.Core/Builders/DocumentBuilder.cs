@@ -499,6 +499,13 @@ public class DocumentBuilder : IDocumentBuilder
                     new RunFonts { Ascii = "Consolas", HighAnsi = "Consolas" }
                 )
             ) { Type = StyleValues.Paragraph, StyleId = styleId },
+            "Hyperlink" => new Style(
+                new StyleName { Val = "Hyperlink" },
+                new StyleRunProperties(
+                    new Color { Val = "0563C1", ThemeColor = ThemeColorValues.Hyperlink },
+                    new Underline { Val = UnderlineValues.Single }
+                )
+            ) { Type = StyleValues.Character, StyleId = styleId },
             _ => new Style(
                 new StyleName { Val = styleId }
             ) { Type = StyleValues.Paragraph, StyleId = styleId }
@@ -567,11 +574,21 @@ public class DocumentBuilder : IDocumentBuilder
 
     public IDocumentBuilder AddHyperlink(string url, string displayText, string? style = null)
     {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        {
+            throw new OfficeEditor.Core.Exceptions.OfficeEditorException(
+                $"Invalid hyperlink URL '{url}'. Hyperlink URLs must be absolute (e.g. https://example.com/page).");
+        }
+
+        EnsureStyle("Hyperlink");
+
         var mainPart = _document.MainDocumentPart!;
-        var hyperlinkRelationship = mainPart.AddHyperlinkRelationship(new Uri(url), true);
+        var hyperlinkRelationship = mainPart.AddHyperlinkRelationship(uri, true);
         var paragraph = new Paragraph();
         var hyperlink = new Hyperlink() { History = true, Id = hyperlinkRelationship.Id };
-        var run = new Run(new Text(displayText));
+        var run = new Run(
+            new RunProperties(new RunStyle { Val = "Hyperlink" }),
+            new Text(displayText));
         hyperlink.Append(run);
         paragraph.Append(hyperlink);
 
