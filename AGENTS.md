@@ -13,7 +13,7 @@ The repo folder is named `DocxEditor/` for historical reasons; the product is **
 Run before any work:
 
 ```bash
-dotnet --version          # expect 9.0.x
+dotnet --version          # expect 9.0.x or newer (projects target net9.0; 10.x SDK works)
 git status                # expect clean or only intended changes
 ```
 
@@ -50,6 +50,36 @@ git status                # expect clean or only intended changes
 - Visual fixes: always verify against reference PDFs in `examples/REF/` before claiming done.
 - Use conventional commits (`feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`) — explain **why**, not what.
 
+## Workflow (branches, CI, release)
+
+- **Branches:** `dev` is the default/working branch; `main` is protected. PRs into `main` must come from `dev` (enforced by `guard-main.yml`); both branches require the `build-test` check; owner may self-merge/bypass (warnings expected on direct pushes).
+- **CI (`ci.yml`):** runs on PRs and pushes to `main` only — pushes to `dev` trigger nothing. `build-test` = Release build + full suite + coverage gate (`scripts/check-coverage.py`, floor 41%) and runs only when the diff touches C#-relevant paths (`.cs/.csproj/.sln/.props/.targets`, `TypstBridge/**`, the gate script, `ci.yml` itself); docs-only changes skip it (a skipped check counts as success).
+- **Warnings are errors** (`TreatWarningsAsErrors` in `Directory.Build.props`) — the build must stay at 0/0.
+- **Release (`release.yml`):** push a `v*` tag on `main` → native TypstBridge matrix (osx-arm64, linux-x64, win-x64) → `dotnet pack` of the six packages → NuGet push via trusted publishing (OIDC, keyless; policy + `NUGET_USER` secret already configured).
+- Typst-dependent tests are env-gated: `OE_RUN_TYPST_COMPILE_TESTS=1 dotnet test …`. Brand-profile snapshots regenerate with `OE_UPDATE_SNAPSHOTS=1`.
+
+## Entry Points
+
+| Component | Run it |
+|---|---|
+| Unified CLI (create/edit/detect/merge/generate) | `dotnet run --project OfficeEditor.Cli -- <command>` |
+| DOCX-only CLI | `dotnet run --project DocxEditor.Cli -- <command>` |
+| API (deck sessions, previews, generate, demo endpoints) | `dotnet run --project OfficeEditor.Api --urls http://localhost:5001` |
+| Web client (demo app) | `cd OfficeEditor.Web.Client && npm run dev` → http://localhost:5173 (`/demo` = the app) |
+| API + web together | `make dev` (root Makefile) |
+| MCP stdio host (JSON-RPC) | `dotnet run --project OfficeEditor.Mcp` |
+| Example programs (all formats) | `dotnet run --project examples` |
+| Convert tools | `dotnet run --project tools/convert-pptx -- <in.pptx> <out> [--format pdf\|png]` · `tools/convert-docx` (same shape) |
+| Visual regression | `dotnet run --project tools/visual-diff -- --suite pptx\|docx\|gen` |
+| Benchmark (vs LibreOffice) | `dotnet run --project tools/pptx-benchmark` |
+
+## Demo
+
+Two demo paths, both fully local:
+
+- **Web demo** — `make dev`, open http://localhost:5173/. Four tabs: *Render* (whitelisted REF decks → timed PNG/SVG gallery), *Generate* (edit `demo/demo-deck.json` title + theme presets → PPTX + previews + download), *Any render* (upload any .pptx), *Compare* (OfficeEditor Engine vs headless LibreOffice, side-by-side timings). All timings are server-measured.
+- **CLI demo** — `make -f Makefile.demo demo` at repo root: preflight checks + Release build, renders `examples/REF/PPTX/sales_acceleration_deck.pptx` to PNGs+PDF, generates `demo/deck.json` → PPTX → render, prints per-slide timings, opens the PDFs. Output under `demo/output/` (gitignored); `make -f Makefile.demo clean` wipes it.
+
 ## Project Structure
 
 ```
@@ -69,6 +99,9 @@ DocxEditor/                         # repo folder (historical name)
 ├── OfficeEditor.Web.Client/        # Vite + Tailwind web frontend
 ├── TypstBridge/                    # Native + managed wrapper around Typst (primary backend)
 ├── examples/                       # Sample programs + REF/ for visual regression
+├── demo/                           # Demo decks (demo-deck.json, themes.json) + CLI demo output/
+├── decks/                          # Authored generation decks (repo-overview.json)
+├── local-ref/                      # Local-only dev fixtures (gitignored — never commit)
 ├── tools/                          # visual-diff suite, pptx-benchmark, convert tools
 ```
 
@@ -100,4 +133,4 @@ DocxEditor/                         # repo folder (historical name)
 - Token sets: `PptxEditor.Core/Generation/Design/` — mined from REF decks (see `Design/README.md`)
 - SmartArt dev corpus: `local-ref/smartarts/` (showeet-licensed, local-only, gitignored — never commit)
 - Generation fixtures: `PptxEditor.Core/Generation/Fixtures/` — per-primitive parity test decks
-- CLI demo decks: `office-editor-full-deck.json` (20 slides, all features), `repo-intro-deck.json` (8 slides)
+- Demo/generation decks: `demo/demo-deck.json` (15-slide Northwind Labs — web demo + themes in `demo/themes.json`), `demo/deck.json` (6-slide Makefile demo deck), `decks/repo-overview.json` (self-description deck)
