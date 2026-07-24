@@ -306,20 +306,30 @@ public sealed partial class PptxToTypstConverter
                 var nextP = paragraphs[j];
                 string nextContent = nextP.Content;
                 bool nextIsLiteral = false;
+                string? nextLiteralChar = null;
                 if (!nextP.HasBullet && !string.IsNullOrEmpty(nextContent))
                 {
                     var trimmed = nextContent.TrimStart();
                     if (trimmed.StartsWith("- ") || trimmed.StartsWith("• ") || trimmed.StartsWith("* ") || trimmed.StartsWith("o "))
                     {
                         nextIsLiteral = true;
+                        nextLiteralChar = trimmed.Substring(0, 1);
                     }
                 }
                 bool nextHasBullet = nextP.HasBullet || nextIsLiteral;
                 bool nextIsList = !string.IsNullOrEmpty(nextP.AutoNumberType) || nextHasBullet;
+                string? nextEffectiveBulletChar = nextP.BulletChar ?? nextLiteralChar;
 
-                // Group if same list type and level
-                bool sameType = (!string.IsNullOrEmpty(paragraph.AutoNumberType) && !string.IsNullOrEmpty(nextP.AutoNumberType))
-                    || (effectiveHasBullet && nextHasBullet && paragraph.Level == nextP.Level);
+                // Group only if same list type, level, marker glyph, bullet color and
+                // indentation — otherwise PowerPoint renders the items at different
+                // depths/styles and a single Typst list would flatten them.
+                bool sameIndents = Nullable.Equals(paragraph.MarginLeft, nextP.MarginLeft)
+                    && Nullable.Equals(paragraph.Indent, nextP.Indent);
+                bool sameType = (!string.IsNullOrEmpty(paragraph.AutoNumberType) && !string.IsNullOrEmpty(nextP.AutoNumberType)
+                        && paragraph.Level == nextP.Level && sameIndents)
+                    || (effectiveHasBullet && nextHasBullet && paragraph.Level == nextP.Level && sameIndents
+                        && effectiveBulletChar == nextEffectiveBulletChar
+                        && paragraph.BulletColor == nextP.BulletColor);
 
                 if (!nextIsList || !sameType)
                     break;
@@ -478,22 +488,39 @@ public sealed partial class PptxToTypstConverter
 
     private static string BuildListIndentParams(TypstParagraph paragraph)
     {
+        var (markerPos, bodyIndent) = ComputeListIndents(paragraph);
+        if (markerPos == null)
+            return "";
+
         var parts = new List<string>();
-        if (paragraph.MarginLeft.HasValue && paragraph.MarginLeft.Value > 0.01)
+        if (markerPos.Value > 0.01)
         {
-            parts.Add($"indent: {FormatPt(paragraph.MarginLeft.Value)}");
+            parts.Add($"indent: {FormatPt(markerPos.Value)}");
         }
-        if (paragraph.Indent.HasValue)
+        if (bodyIndent > 0.01)
         {
-            // PPTX indent is a hanging indent (negative = body indent offset)
-            // In Typst, body-indent controls the indent of the body relative to the marker
-            var bodyIndent = Math.Abs(paragraph.Indent.Value);
-            if (bodyIndent > 0.01)
-            {
-                parts.Add($"body-indent: {FormatPt(bodyIndent)}");
-            }
+            parts.Add($"body-indent: {FormatPt(bodyIndent)}");
         }
         return parts.Count > 0 ? ", " + string.Join(", ", parts) : "";
+    }
+
+    /// <summary>
+    /// Maps OOXML marL/indent to Typst list geometry. OOXML: marL = body text offset;
+    /// indent (typically negative) = first-line/marker offset relative to marL, so the
+    /// marker sits at marL+indent and the body at marL. Typst: indent = marker offset,
+    /// body-indent = body offset relative to the marker.
+    /// Returns (null, 0) when neither attribute is defined (keep Typst defaults).
+    /// </summary>
+    private static (double? MarkerPos, double BodyIndent) ComputeListIndents(TypstParagraph paragraph)
+    {
+        if (paragraph.MarginLeft == null && paragraph.Indent == null)
+            return (null, 0);
+
+        var markerPos = Math.Max(0, (paragraph.MarginLeft ?? 0) + (paragraph.Indent ?? 0));
+        var bodyIndent = paragraph.MarginLeft.HasValue
+            ? Math.Max(0, paragraph.MarginLeft.Value - markerPos)
+            : Math.Abs(paragraph.Indent ?? 0);
+        return (markerPos, bodyIndent);
     }
 
     private static string BuildEnumParams(int start, TypstParagraph paragraph)
@@ -503,13 +530,14 @@ public sealed partial class PptxToTypstConverter
         {
             parts.Add($"start: {start}");
         }
-        if (paragraph.MarginLeft.HasValue && paragraph.MarginLeft.Value > 0.01)
+
+        var (markerPos, bodyIndent) = ComputeListIndents(paragraph);
+        if (markerPos != null)
         {
-            parts.Add($"indent: {FormatPt(paragraph.MarginLeft.Value)}");
-        }
-        if (paragraph.Indent.HasValue)
-        {
-            var bodyIndent = Math.Abs(paragraph.Indent.Value);
+            if (markerPos.Value > 0.01)
+            {
+                parts.Add($"indent: {FormatPt(markerPos.Value)}");
+            }
             if (bodyIndent > 0.01)
             {
                 parts.Add($"body-indent: {FormatPt(bodyIndent)}");

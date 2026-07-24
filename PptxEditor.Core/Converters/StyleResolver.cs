@@ -620,6 +620,92 @@ public sealed class StyleResolver
 
     #endregion
 
+    #region List Indentation Resolution
+
+    public (double? MarginLeft, double? Indent) GetLayoutPlaceholderListIndents(int? idx, PlaceholderValues? type, int level)
+    {
+        var shape = FindLayoutPlaceholder(idx, type);
+        return shape != null ? ExtractListIndentsFromTextBodyLstStyle(shape.TextBody, level) : (null, null);
+    }
+
+    public (double? MarginLeft, double? Indent) GetMasterPlaceholderListIndents(int? idx, PlaceholderValues? type, int level)
+    {
+        var shape = FindMasterPlaceholder(idx, type);
+        return shape != null ? ExtractListIndentsFromTextBodyLstStyle(shape.TextBody, level) : (null, null);
+    }
+
+    public (double? MarginLeft, double? Indent) GetMasterTxStyleListIndents(PlaceholderValues? placeholderType, int level)
+    {
+        // Shapes without placeholders should NOT inherit body style indents
+        if (placeholderType == null)
+            return (null, null);
+
+        string key;
+        if (placeholderType == PlaceholderValues.Title || placeholderType == PlaceholderValues.CenteredTitle)
+            key = "Title";
+        else if (placeholderType == PlaceholderValues.Body)
+            key = "Body";
+        else if (placeholderType == PlaceholderValues.SubTitle)
+            key = "Body";
+        else if (placeholderType == PlaceholderValues.Object)
+            key = "Other";
+        else
+            return (null, null);
+
+        OpenXmlElement? styleList = key switch
+        {
+            "Title" => _masterPart?.SlideMaster?.TextStyles?.TitleStyle,
+            "Body" => _masterPart?.SlideMaster?.TextStyles?.BodyStyle,
+            "Other" => _masterPart?.SlideMaster?.TextStyles?.OtherStyle,
+            _ => null
+        };
+
+        if (styleList == null)
+            return (null, null);
+
+        var levelName = $"lvl{level + 1}pPr";
+        var lvlPpr = styleList.ChildElements.FirstOrDefault(e => e.LocalName == levelName);
+        if (lvlPpr == null)
+            return (null, null);
+
+        return ExtractListIndentsFromElement(lvlPpr);
+    }
+
+    private static (double? MarginLeft, double? Indent) ExtractListIndentsFromTextBodyLstStyle(OpenXmlElement? textBody, int level)
+    {
+        if (textBody == null) return (null, null);
+
+        var lstStyle = textBody.ChildElements.FirstOrDefault(e => e.LocalName == "lstStyle");
+        if (lstStyle == null) return (null, null);
+
+        var levelName = $"lvl{level + 1}pPr";
+        var lvlPpr = lstStyle.ChildElements.FirstOrDefault(e => e.LocalName == levelName);
+        if (lvlPpr == null) return (null, null);
+
+        return ExtractListIndentsFromElement(lvlPpr);
+    }
+
+    private static (double? MarginLeft, double? Indent) ExtractListIndentsFromElement(OpenXmlElement? element)
+    {
+        if (element == null) return (null, null);
+
+        double? marginLeft = null;
+        double? indent = null;
+
+        // Raw XML attribute reads per AGENTS.pptx.md rule 1 — SDK attribute access is unreliable.
+        var marLAttr = GetAttributeValue(element, "marL");
+        if (!string.IsNullOrEmpty(marLAttr) && int.TryParse(marLAttr, out var marL))
+            marginLeft = marL / 12700.0;
+
+        var indentAttr = GetAttributeValue(element, "indent");
+        if (!string.IsNullOrEmpty(indentAttr) && int.TryParse(indentAttr, out var ind))
+            indent = ind / 12700.0;
+
+        return (marginLeft, indent);
+    }
+
+    #endregion
+
     #region Line Spacing Resolution
 
     public double? GetLayoutPlaceholderLineSpacing(int? idx, PlaceholderValues? type, int level)
