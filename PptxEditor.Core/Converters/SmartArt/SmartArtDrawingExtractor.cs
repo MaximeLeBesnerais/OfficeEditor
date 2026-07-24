@@ -21,23 +21,86 @@ internal static class SmartArtDrawingExtractor
         Diagram2006Ns, Diagram2008Ns
     };
 
-    private static readonly Dictionary<string, (ShapeType Type, double? Adj1)> PresetGeometryMap = new(StringComparer.Ordinal)
+    /// <summary>
+    /// Preset geometry name → (output ShapeType, polygon-point list for "polygon" shapes).
+    /// Point coordinates are normalised to [0,1] in each axis.
+    /// </summary>
+    private static readonly Dictionary<string, (ShapeType Type, List<(double, double)>? Points)> PresetGeometryMap = new(StringComparer.Ordinal)
     {
-        ["roundRect"] = (ShapeType.Rect, null),
         ["rect"] = (ShapeType.Rect, null),
+        ["roundRect"] = (ShapeType.Rect, null),
+        ["round1Rect"] = (ShapeType.Rect, null),
+        ["round2SameRect"] = (ShapeType.Rect, null),
+        ["ellipse"] = (ShapeType.Ellipse, null),
         ["rightArrow"] = (ShapeType.RightArrow, null),
+        ["chevron"] = (ShapeType.Chevron, null),
+        ["triangle"] = (ShapeType.Triangle, null),
+        ["diamond"] = (ShapeType.Diamond, null),
+        ["pentagon"] = (ShapeType.Pentagon, null),
+        ["hexagon"] = (ShapeType.Hexagon, null),
+        ["blockArc"] = (ShapeType.BlockArc, null),
+        ["pie"] = (ShapeType.Pie, null),
+        ["donut"] = (ShapeType.Donut, null),
+    };
+
+    /// <summary>
+    /// Pre-computed polygon points (normalised 0..1) for non-rect/ellipse presets.
+    /// </summary>
+    private static readonly Dictionary<ShapeType, List<(double, double)>> PolygonPoints = new()
+    {
+        [ShapeType.Chevron] = new()
+        {
+            (0, 0.2), (0.55, 0), (0.55, 0.28), (1, 0.28),
+            (1, 0.72), (0.55, 0.72), (0.55, 1), (0, 0.8)
+        },
+        [ShapeType.RightArrow] = new()
+        {
+            (0, 0.25), (0.6, 0.25), (0.6, 0), (1, 0.5),
+            (0.6, 1), (0.6, 0.75), (0, 0.75)
+        },
+        [ShapeType.Triangle] = new()
+        {
+            (0.5, 0), (1, 1), (0, 1)
+        },
+        [ShapeType.Diamond] = new()
+        {
+            (0.5, 0), (1, 0.5), (0.5, 1), (0, 0.5)
+        },
+        [ShapeType.Pentagon] = new()
+        {
+            (0.5, 0), (1, 0.38), (0.81, 1), (0.19, 1), (0, 0.38)
+        },
+        [ShapeType.Hexagon] = new()
+        {
+            (0.25, 0), (0.75, 0), (1, 0.5), (0.75, 1), (0.25, 1), (0, 0.5)
+        },
+        [ShapeType.BlockArc] = new()
+        {
+            (0.2, 0), (0.8, 0), (1, 0.2), (1, 0.8), (0.8, 1), (0.2, 1), (0, 0.8), (0, 0.2)
+        },
+        [ShapeType.Pie] = new()
+        {
+            (0.5, 0.5), (1, 0), (1, 0.5), (0.5, 1), (0, 0.5), (0, 0)
+        },
+        [ShapeType.Donut] = new()
+        {
+            (0.2, 0), (0.8, 0), (1, 0.2), (1, 0.8), (0.8, 1), (0.2, 1), (0, 0.8), (0, 0.2)
+        },
     };
 
     /// <summary>
     /// Attempts to extract a shape element from a &lt;dsp:sp&gt; diagram shape.
     /// Returns null when the shape has no recognisable geometry or cannot be rendered.
     /// </summary>
+    /// <param name="schemeColors">Theme-aware scheme colour map (scheme name → "#RRGGBB").
+    /// May be empty; a static Office fallback is used when the map is missing an entry.</param>
     public static TypstElement? TryExtractShape(
         OpenXmlElement dspShape,
         double offX, double offY,
         double scaleX, double scaleY,
         double frameX, double frameY,
-        double shapeW, double shapeH)
+        double shapeW, double shapeH,
+        IReadOnlyDictionary<string, string>? schemeColors = null)
     {
         var spPr = GetChild(dspShape, "spPr", DiagramNamespaces);
         if (spPr == null) return null;
@@ -45,8 +108,8 @@ internal static class SmartArtDrawingExtractor
         var geometry = ReadGeometry(spPr, shapeW, shapeH);
         if (geometry == null) return null;
 
-        var fillColor = ReadFillColor(spPr);
-        var (strokeColor, strokeWidth) = ReadStroke(spPr);
+        var fillColor = ReadFillColor(spPr, schemeColors);
+        var (strokeColor, strokeWidth) = ReadStroke(spPr, schemeColors);
 
         var x = offX + (frameX + geometry.OffsetX) * scaleX;
         var y = offY + (frameY + geometry.OffsetY) * scaleY;
@@ -56,61 +119,61 @@ internal static class SmartArtDrawingExtractor
 
         return geometry.ShapeType switch
         {
-            ShapeType.Rect => new TypstElement
-            {
-                Type = "Shape",
-                X = x,
-                Y = y,
-                Width = w,
-                Height = h,
-                Rotation = rotation,
-                Shape = new TypstShapeElement
-                {
-                    ShapeType = "rect",
-                    FillColor = fillColor ?? string.Empty,
-                    StrokeColor = strokeColor ?? string.Empty,
-                    StrokeWidth = strokeWidth,
-                    CornerRadius = geometry.CornerRadius
-                }
-            },
+            ShapeType.Rect => BuildRect(x, y, w, h, rotation, fillColor, strokeColor, strokeWidth, geometry.CornerRadius),
 
-            ShapeType.RightArrow => new TypstElement
+            ShapeType.Ellipse => new TypstElement
             {
                 Type = "Shape",
-                X = x,
-                Y = y,
-                Width = w,
-                Height = h,
-                Rotation = rotation,
+                X = x, Y = y, Width = w, Height = h, Rotation = rotation,
                 Shape = new TypstShapeElement
                 {
-                    ShapeType = "polygon",
-                    FillColor = fillColor ?? string.Empty,
-                    StrokeColor = strokeColor ?? string.Empty,
-                    StrokeWidth = strokeWidth,
-                    Points = new List<(double, double)>
-                    {
-                        (0, 0.25), (0.6, 0.25), (0.6, 0), (1, 0.5),
-                        (0.6, 1), (0.6, 0.75), (0, 0.75)
-                    }
-                }
-            },
-
-            _ => new TypstElement
-            {
-                Type = "Shape",
-                X = x,
-                Y = y,
-                Width = w,
-                Height = h,
-                Rotation = rotation,
-                Shape = new TypstShapeElement
-                {
-                    ShapeType = "rect",
+                    ShapeType = "ellipse",
                     FillColor = fillColor ?? string.Empty,
                     StrokeColor = strokeColor ?? string.Empty,
                     StrokeWidth = strokeWidth
                 }
+            },
+
+            _ => BuildPolygon(x, y, w, h, rotation, fillColor, strokeColor, strokeWidth, geometry.ShapeType)
+        };
+    }
+
+    private static TypstElement BuildRect(double x, double y, double w, double h, double rotation,
+        string? fillColor, string? strokeColor, double strokeWidth, double cornerRadius)
+    {
+        return new TypstElement
+        {
+            Type = "Shape",
+            X = x, Y = y, Width = w, Height = h, Rotation = rotation,
+            Shape = new TypstShapeElement
+            {
+                ShapeType = "rect",
+                FillColor = fillColor ?? string.Empty,
+                StrokeColor = strokeColor ?? string.Empty,
+                StrokeWidth = strokeWidth,
+                CornerRadius = cornerRadius
+            }
+        };
+    }
+
+    private static TypstElement BuildPolygon(double x, double y, double w, double h, double rotation,
+        string? fillColor, string? strokeColor, double strokeWidth, ShapeType shapeType)
+    {
+        var points = PolygonPoints.TryGetValue(shapeType, out var pts)
+            ? pts
+            : new List<(double, double)> { (0, 0), (1, 0), (1, 1), (0, 1) };
+
+        return new TypstElement
+        {
+            Type = "Shape",
+            X = x, Y = y, Width = w, Height = h, Rotation = rotation,
+            Shape = new TypstShapeElement
+            {
+                ShapeType = "polygon",
+                FillColor = fillColor ?? string.Empty,
+                StrokeColor = strokeColor ?? string.Empty,
+                StrokeWidth = strokeWidth,
+                Points = points
             }
         };
     }
@@ -144,14 +207,14 @@ internal static class SmartArtDrawingExtractor
             return null;
 
         var cornerRadius = 0.0;
-        if (mapping.Item1 == ShapeType.Rect)
+        if (mapping.Type == ShapeType.Rect)
         {
             cornerRadius = ReadCornerRadius(prstGeom, shapeW, shapeH);
         }
 
         return new DiagramGeometry
         {
-            ShapeType = mapping.Item1,
+            ShapeType = mapping.Type,
             OffsetX = offsetX.Value,
             OffsetY = offsetY.Value,
             Width = width.Value,
@@ -205,7 +268,7 @@ internal static class SmartArtDrawingExtractor
         return 0;
     }
 
-    private static string? ReadFillColor(OpenXmlElement spPr)
+    private static string? ReadFillColor(OpenXmlElement spPr, IReadOnlyDictionary<string, string>? schemeColors)
     {
         var solidFill = GetChild(spPr, "solidFill", DrawingmlNs);
         if (solidFill == null) return null;
@@ -224,14 +287,14 @@ internal static class SmartArtDrawingExtractor
             var val = ReadAttribute(schemeClr, "val");
             if (!string.IsNullOrEmpty(val))
             {
-                return MapSchemeColor(val);
+                return ResolveSchemeColor(val, schemeColors);
             }
         }
 
         return null;
     }
 
-    private static (string? color, double width) ReadStroke(OpenXmlElement spPr)
+    private static (string? color, double width) ReadStroke(OpenXmlElement spPr, IReadOnlyDictionary<string, string>? schemeColors)
     {
         var ln = GetChild(spPr, "ln", DrawingmlNs);
         if (ln == null) return (null, 0);
@@ -261,14 +324,31 @@ internal static class SmartArtDrawingExtractor
             var val = ReadAttribute(schemeClr, "val");
             if (!string.IsNullOrEmpty(val))
             {
-                return (MapSchemeColor(val), strokeWidth);
+                return (ResolveSchemeColor(val, schemeColors), strokeWidth);
             }
         }
 
         return (null, strokeWidth);
     }
 
-    private static string? MapSchemeColor(string schemeName)
+    private static string? ResolveSchemeColor(string schemeName, IReadOnlyDictionary<string, string>? schemeColors)
+    {
+        var canonical = schemeName switch
+        {
+            "bg1" => "lt1",
+            "tx1" => "dk1",
+            "bg2" => "lt2",
+            "tx2" => "dk2",
+            _ => schemeName
+        };
+
+        if (schemeColors != null && schemeColors.TryGetValue(canonical, out var themeRgb))
+            return themeRgb.StartsWith("#") ? themeRgb.Substring(1) : themeRgb;
+
+        return StaticSchemeColorFallback(schemeName);
+    }
+
+    private static string? StaticSchemeColorFallback(string schemeName)
     {
         return schemeName switch
         {
@@ -282,10 +362,6 @@ internal static class SmartArtDrawingExtractor
             "dk1" => "000000",
             "lt2" => "F2F2F2",
             "dk2" => "4472C4",
-            "tx1" => "000000",
-            "tx2" => "4472C4",
-            "bg1" => "FFFFFF",
-            "bg2" => "F2F2F2",
             _ => null
         };
     }
@@ -342,6 +418,15 @@ internal static class SmartArtDrawingExtractor
     private enum ShapeType
     {
         Rect,
-        RightArrow
+        Ellipse,
+        RightArrow,
+        Chevron,
+        Triangle,
+        Diamond,
+        Pentagon,
+        Hexagon,
+        BlockArc,
+        Pie,
+        Donut
     }
 }
