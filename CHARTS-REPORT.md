@@ -89,4 +89,25 @@ visible placeholder and warn; the warning now names the detected chart type
 
 ## 4. Self-check RMSE (sales_acceleration_deck slide 9)
 
-(filled in after implementation — before/after numbers)
+Method: `tools/convert-pptx --format png` (150 ppi → native 2000×1125) vs official PDF
+rasterized at 144 dpi and resized to 2000×1125; ImageMagick `compare -metric RMSE`
+(normalized in parentheses). "Before" = base commit `a2dba35` (placeholder render),
+"after" = this branch.
+
+| Region | Before (placeholder) | After (converted) | Δ |
+|---|---|---|---|
+| Whole slide 9 | 14137.9 (0.2157) | 11604.7 (0.1771) | −18 % |
+| Chart frame only (1250×688 @ 125,229) | 19252.9 (0.2938) | 14229.3 (0.2171) | −26 % |
+
+No regressions: slides 1, 5, 12, 15 are pixel-identical before/after (RMSE 0).
+Residual error is dominated by plot-area sizing (PowerPoint auto-layout leaves wider
+margins than our estimate) and font fallbacks (pre-existing converter behaviour).
+AetherLink slide 9 (`barDir="col"`) also converts end-to-end with the exact PowerPoint
+axis (0–60) and series colours; visual check only.
+
+## 5. Test summary
+
+- `DocxEditor.Tests/Unit/Charts/` — 42 tests: parser (12), axis scale (13+), builder
+  emission math (8), end-to-end routing incl. reference-deck slide 9 (3).
+- Full suite after the hook: **1676 passed, 0 failed, 0 warnings** (`dotnet test`).
+- Build: 0 warnings / 0 errors (`TreatWarningsAsErrors`).
