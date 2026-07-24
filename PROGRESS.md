@@ -15,7 +15,7 @@
 
 | Item | Status | Commit | Note |
 |---|---|---|---|
-| 1.3 — Hyperlinks | DONE | _(pending)_ | Added AddHyperlink(url, displayText, style?) to IDocumentBuilder; creates HyperlinkRelationship on MainDocumentPart; 2 tests |
+| 1.3 — Hyperlinks | DONE | `5802cd5` | Added AddHyperlink(url, displayText, style?) to IDocumentBuilder; creates HyperlinkRelationship on MainDocumentPart; 2 tests |
 | 1.1 — Run-level formatting API | NOT STARTED | | |
 | 1.2 — Images / pictures | NOT STARTED | | |
 | 1.4 — Headers & footers API | NOT STARTED | | |
