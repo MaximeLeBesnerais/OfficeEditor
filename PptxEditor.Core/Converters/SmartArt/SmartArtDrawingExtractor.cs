@@ -316,7 +316,7 @@ internal static class SmartArtDrawingExtractor
         {
             var val = ReadAttribute(srgbClr, "val");
             if (!string.IsNullOrEmpty(val))
-                return NormalizeHexColor(val);
+                return ApplyColorTransforms(NormalizeHexColor(val), srgbClr);
         }
 
         var schemeClr = GetChild(solidFill, "schemeClr", DrawingmlNs);
@@ -325,7 +325,8 @@ internal static class SmartArtDrawingExtractor
             var val = ReadAttribute(schemeClr, "val");
             if (!string.IsNullOrEmpty(val))
             {
-                return ResolveSchemeColor(val, schemeColors);
+                var resolved = ResolveSchemeColor(val, schemeColors);
+                return resolved == null ? null : ApplyColorTransforms(resolved, schemeClr);
             }
         }
 
@@ -362,11 +363,60 @@ internal static class SmartArtDrawingExtractor
             var val = ReadAttribute(schemeClr, "val");
             if (!string.IsNullOrEmpty(val))
             {
-                return (ResolveSchemeColor(val, schemeColors), strokeWidth);
+                var resolved = ResolveSchemeColor(val, schemeColors);
+                return (resolved == null ? null : ApplyColorTransforms(resolved, schemeClr), strokeWidth);
             }
         }
 
         return (null, strokeWidth);
+    }
+
+    /// <summary>
+    /// Applies OOXML colour transforms (<c>a:tint</c>, <c>a:shade</c>, <c>a:lumMod</c>,
+    /// <c>a:lumOff</c>) in document order. Per-channel arithmetic — a close approximation of
+    /// the HSL-space spec (ECMA-376) that matches PowerPoint for common tint/shade usage
+    /// (e.g. SmartArt connector fills like accent1 + tint 60% = pale accent). Saturation and
+    /// alpha transforms are not applied (rare in diagram drawing parts).
+    /// </summary>
+    private static string ApplyColorTransforms(string hex, OpenXmlElement colorElement)
+    {
+        var hexValue = hex.TrimStart('#');
+        if (hexValue.Length != 6)
+            return NormalizeHexColor(hex);
+
+        double r = Convert.ToInt32(hexValue[..2], 16);
+        double g = Convert.ToInt32(hexValue[2..4], 16);
+        double b = Convert.ToInt32(hexValue[4..6], 16);
+
+        foreach (var child in colorElement.ChildElements)
+        {
+            var valAttr = ReadAttribute(child, "val");
+            if (string.IsNullOrEmpty(valAttr) ||
+                !double.TryParse(valAttr, NumberStyles.Float, CultureInfo.InvariantCulture, out var rawVal))
+                continue;
+
+            var f = rawVal / 100000.0;
+            switch (child.LocalName)
+            {
+                case "tint": // mix toward white
+                    r = r * f + 255 * (1 - f); g = g * f + 255 * (1 - f); b = b * f + 255 * (1 - f);
+                    break;
+                case "shade": // mix toward black
+                case "lumMod": // luminance multiply (per-channel approximation)
+                    r *= f; g *= f; b *= f;
+                    break;
+                case "lumOff": // luminance offset (per-channel approximation)
+                    r += 255 * f; g += 255 * f; b += 255 * f;
+                    break;
+            }
+        }
+
+        return $"#{ClampChannel(r):X2}{ClampChannel(g):X2}{ClampChannel(b):X2}";
+    }
+
+    private static int ClampChannel(double v)
+    {
+        return (int)Math.Round(Math.Clamp(v, 0, 255), MidpointRounding.AwayFromZero);
     }
 
     /// <summary>

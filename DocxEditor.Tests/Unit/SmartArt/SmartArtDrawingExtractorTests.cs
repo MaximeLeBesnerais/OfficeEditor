@@ -85,6 +85,40 @@ public sealed class SmartArtDrawingExtractorTests
         Assert.NotEmpty(result.Shape.FillColor);
     }
 
+    [Theory]
+    [InlineData("C00000", "tint", 60000, "#D96666")]   // SmartArt connector pattern: pale accent
+    [InlineData("C00000", "shade", 50000, "#600000")]
+    [InlineData("4472C4", "lumMod", 50000, "#223962")]
+    [InlineData("000000", "lumOff", 20000, "#333333")]
+    public void Extract_FillWithColorTransform_AppliesTransform(string baseColor, string op, int opVal, string expected)
+    {
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""1904255"" cy=""1142553""/>
+    </a:xfrm>
+    <a:prstGeom prst=""rect"">
+      <a:avLst/>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""{baseColor}""><a:{op} val=""{opVal}""/></a:srgbClr>
+    </a:solidFill>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 150, shapeH: 90);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal(expected, result.Shape.FillColor);
+    }
+
     [Fact]
     public void Extract_RightArrow_ReturnsPolygonShape()
     {
