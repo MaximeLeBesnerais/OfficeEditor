@@ -30,10 +30,10 @@ switch ($Rid) {
     }
     "linux-x64" { Fail "linux-x64 packaging is handled by build-native.sh on Linux." }
     "linux-arm64" { Fail "linux-arm64 packaging is handled by build-native.sh on Linux." }
-    "osx-x64" { Fail "osx-x64 packaging is planned but not wired yet. Build on macOS and copy libtypst_bridge.dylib to runtimes/osx-x64/native." }
-    "osx-arm64" { Fail "osx-arm64 packaging is planned but not wired yet. Build on macOS and copy libtypst_bridge.dylib to runtimes/osx-arm64/native." }
+    "osx-x64" { Fail "osx-x64 must be built on macOS via build-native.sh." }
+    "osx-arm64" { Fail "osx-arm64 must be built on macOS via build-native.sh." }
     default {
-        Fail "unsupported RID '$Rid'. Supported by this script: win-x64, win-arm64. Planned elsewhere: linux-x64, linux-arm64, osx-x64, osx-arm64."
+        Fail "unsupported RID '$Rid'. Supported by this script: win-x64, win-arm64. Unix RIDs: build-native.sh."
     }
 }
 
