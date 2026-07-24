@@ -1365,6 +1365,274 @@ public class PptxToTypstConverterTests : IDisposable
         Assert.Equal("center", verticalAlign);
     }
 
+    private static TypstTableElement InvokeExtractTable(PptxToTypstConverter converter, Drawing.Table table)
+    {
+        var extractTable = typeof(PptxToTypstConverter).GetMethod(
+            "ExtractTable",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        return Assert.IsType<TypstTableElement>(extractTable!.Invoke(converter, [table, null]));
+    }
+
+    private static Drawing.TableCell CreateTableCell(string tcPrXml, string text)
+        => new(
+            new Drawing.TextBody(
+                new Drawing.BodyProperties(),
+                new Drawing.Paragraph(new Drawing.Run(new Drawing.Text { Text = text }))),
+            new Drawing.TableCellProperties(tcPrXml));
+
+    [Fact]
+    public void ExtractTable_ReadsExplicitCellLineBordersFromTcPr()
+    {
+        var path = CreateSimplePptx();
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        const string ns = "xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\"";
+        // Header cell: all four edges noFill over a dark fill (northwind REF pattern).
+        var headerCell = CreateTableCell(
+            $"<a:tcPr {ns} marL=\"91440\" marR=\"91440\" marT=\"45720\" marB=\"45720\" anchor=\"ctr\">" +
+            "<a:lnL><a:noFill/></a:lnL><a:lnR><a:noFill/></a:lnR><a:lnT><a:noFill/></a:lnT><a:lnB><a:noFill/></a:lnB>" +
+            "<a:solidFill><a:srgbClr val=\"0B1F3A\"/></a:solidFill></a:tcPr>",
+            "METRIC");
+        // Body cell: horizontal-only stroke — light gray 1pt bottom edge, others noFill.
+        var bodyCell = CreateTableCell(
+            $"<a:tcPr {ns} marL=\"91440\" marR=\"91440\" marT=\"45720\" marB=\"45720\" anchor=\"ctr\">" +
+            "<a:lnL><a:noFill/></a:lnL><a:lnR><a:noFill/></a:lnR><a:lnT><a:noFill/></a:lnT>" +
+            "<a:lnB w=\"12700\"><a:solidFill><a:srgbClr val=\"E4E7EC\"/></a:solidFill></a:lnB>" +
+            "<a:noFill/></a:tcPr>",
+            "ARR");
+
+        var table = new Drawing.Table(
+            new Drawing.TableProperties(),
+            new Drawing.TableGrid(new Drawing.GridColumn { Width = 2113280 }),
+            new Drawing.TableRow(headerCell) { Height = 685800 },
+            new Drawing.TableRow(bodyCell) { Height = 685800 });
+
+        var result = InvokeExtractTable(converter, table);
+
+        var header = result.Rows[0][0];
+        Assert.Equal("#0B1F3A", header.BackgroundColor);
+        Assert.Equal(TableBorderState.None, header.StylePart!.BorderTopState);
+        Assert.Equal(TableBorderState.None, header.StylePart.BorderBottomState);
+        Assert.Equal(TableBorderState.None, header.StylePart.BorderLeftState);
+        Assert.Equal(TableBorderState.None, header.StylePart.BorderRightState);
+
+        var body = result.Rows[1][0];
+        Assert.Null(body.BackgroundColor);
+        Assert.Equal(TableBorderState.None, body.StylePart!.BorderTopState);
+        Assert.Equal(TableBorderState.None, body.StylePart.BorderLeftState);
+        Assert.Equal(TableBorderState.None, body.StylePart.BorderRightState);
+        Assert.Equal(TableBorderState.Visible, body.StylePart.BorderBottomState);
+        Assert.Equal("#E4E7EC", body.StylePart.BorderBottomColor);
+        Assert.Equal(1.0, body.StylePart.BorderBottomWidth!.Value, 3);
+
+        // Cell margins (marL/marR/marT/marB EMU) flow through to per-cell insets.
+        Assert.Equal(7.2, body.Insets!.Left!.Value, 3);
+        Assert.Equal(7.2, body.Insets.Right!.Value, 3);
+        Assert.Equal(3.6, body.Insets.Top!.Value, 3);
+        Assert.Equal(3.6, body.Insets.Bottom!.Value, 3);
+        Assert.Equal("center", body.VerticalAlign);
+    }
+
+    [Fact]
+    public void ExtractTable_CellWithoutLineBorders_KeepsInheritedBorderState()
+    {
+        var path = CreateSimplePptx();
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        const string ns = "xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\"";
+        var plainCell = CreateTableCell($"<a:tcPr {ns} marL=\"91440\"/>", "Plain");
+
+        var table = new Drawing.Table(
+            new Drawing.TableProperties(),
+            new Drawing.TableGrid(new Drawing.GridColumn { Width = 2113280 }),
+            new Drawing.TableRow(plainCell) { Height = 685800 });
+
+        var result = InvokeExtractTable(converter, table);
+
+        // No ln* children and no table style → no per-cell stroke state synthesized;
+        // the table-level fallback stroke stays in charge.
+        Assert.Null(result.Rows[0][0].StylePart);
+    }
+
+    [Fact]
+    public void ExtractTable_HorizontalOnlyBorders_UndefinedVerticalEdgesRenderAsNone()
+    {
+        var path = CreateSimplePptx();
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        const string ns = "xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\"";
+        // Horizontal-only table: cells define lnT/lnB but no lnL/lnR at all.
+        var cell = CreateTableCell(
+            $"<a:tcPr {ns}>" +
+            "<a:lnT><a:noFill/></a:lnT>" +
+            "<a:lnB w=\"12700\"><a:solidFill><a:srgbClr val=\"BFBFBF\"/></a:solidFill></a:lnB>" +
+            "</a:tcPr>",
+            "Row");
+
+        var table = new Drawing.Table(
+            new Drawing.TableProperties(),
+            new Drawing.TableGrid(
+                new Drawing.GridColumn { Width = 2113280 },
+                new Drawing.GridColumn { Width = 2113280 }),
+            new Drawing.TableRow(cell, CreateTableCell($"<a:tcPr {ns}><a:lnT><a:noFill/></a:lnT><a:lnB w=\"12700\"><a:solidFill><a:srgbClr val=\"BFBFBF\"/></a:solidFill></a:lnB></a:tcPr>", "Row2"))
+            {
+                Height = 685800
+            });
+
+        var result = InvokeExtractTable(converter, table);
+
+        foreach (var rowCell in result.Rows[0])
+        {
+            // Vertical edges were defined nowhere → no stroke, never a default grid line.
+            Assert.Equal(TableBorderState.None, rowCell.StylePart!.BorderLeftState);
+            Assert.Equal(TableBorderState.None, rowCell.StylePart.BorderRightState);
+            Assert.Equal(TableBorderState.Visible, rowCell.StylePart.BorderBottomState);
+            Assert.Equal("#BFBFBF", rowCell.StylePart.BorderBottomColor);
+        }
+    }
+
+    [Fact]
+    public void ResolveCellStylePart_BandedRows_RestartAfterFirstRow()
+    {
+        var resolveCellStylePart = typeof(PptxToTypstConverter).GetMethod(
+            "ResolveCellStylePart",
+            System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+
+        var style = new TableStyleDefinition { StyleId = "banded" };
+        style.Parts["band1H"] = new TableStylePart { BackgroundColor = "#EEEEEE" };
+        style.Parts["band2H"] = new TableStylePart { BackgroundColor = "#DDDDDD" };
+
+        string? BandAt(int row, bool firstRowFlag)
+        {
+            var part = resolveCellStylePart!.Invoke(
+                null, [row, 0, 5, 2, style, firstRowFlag, true, false, false, false]);
+            return (part as TableStylePart)?.BackgroundColor;
+        }
+
+        // firstRow on: header row carries no band; bands start at row 1 with band1H.
+        Assert.Null(BandAt(0, true));
+        Assert.Equal("#EEEEEE", BandAt(1, true));
+        Assert.Equal("#DDDDDD", BandAt(2, true));
+        Assert.Equal("#EEEEEE", BandAt(3, true));
+
+        // firstRow off: band1H starts at row 0.
+        Assert.Equal("#EEEEEE", BandAt(0, false));
+        Assert.Equal("#DDDDDD", BandAt(1, false));
+        Assert.Equal("#EEEEEE", BandAt(2, false));
+    }
+
+    [Fact]
+    public void ExtractTable_WithoutStyleId_FallsBackToDefaultTableStyleForBanding()
+    {
+        var path = CreateSimplePptx();
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        // Seed the table style catalog + default style id as LoadTableStyles would.
+        var style = new TableStyleDefinition { StyleId = "{DEFAULT}" };
+        style.Parts["band1H"] = new TableStylePart { BackgroundColor = "#F2F2F2" };
+        var stylesField = typeof(PptxToTypstConverter).GetField(
+            "_tableStyles", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        var defaultIdField = typeof(PptxToTypstConverter).GetField(
+            "_defaultTableStyleId", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        var styles = Assert.IsType<Dictionary<string, TableStyleDefinition>>(stylesField!.GetValue(converter));
+        styles["{DEFAULT}"] = style;
+        defaultIdField!.SetValue(converter, "{DEFAULT}");
+
+        const string ns = "xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\"";
+        var table = new Drawing.Table(
+            new Drawing.TableProperties { FirstRow = true, BandRow = true },
+            new Drawing.TableGrid(new Drawing.GridColumn { Width = 2113280 }),
+            new Drawing.TableRow(CreateTableCell($"<a:tcPr {ns}/>", "H")) { Height = 685800 },
+            new Drawing.TableRow(CreateTableCell($"<a:tcPr {ns}/>", "B1")) { Height = 685800 },
+            new Drawing.TableRow(CreateTableCell($"<a:tcPr {ns}/>", "B2")) { Height = 685800 });
+
+        var result = InvokeExtractTable(converter, table);
+
+        Assert.Null(result.Rows[0][0].BackgroundColor);
+        Assert.Equal("#F2F2F2", result.Rows[1][0].BackgroundColor);
+        Assert.Null(result.Rows[2][0].BackgroundColor);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_PartialStrokeCell_EmitsOnlyDefinedEdges()
+    {
+        var path = CreateSimplePptx();
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = new TypstPresentation
+        {
+            Slides =
+            [
+                new TypstSlide
+                {
+                    Layout = new PptxEditor.Core.Models.SlideLayout { Width = 720, Height = 540 },
+                    Elements =
+                    [
+                        new TypstElement
+                        {
+                            Type = "Table",
+                            Width = 200,
+                            Height = 100,
+                            Table = new TypstTableElement
+                            {
+                                ColumnWidths = [200],
+                                Rows =
+                                [
+                                    [
+                                        new TypstTableCell
+                                        {
+                                            Content = "H",
+                                            StylePart = new TableStylePart
+                                            {
+                                                BorderTopState = TableBorderState.None,
+                                                BorderBottomState = TableBorderState.None,
+                                                BorderLeftState = TableBorderState.None,
+                                                BorderRightState = TableBorderState.None
+                                            }
+                                        }
+                                    ],
+                                    [
+                                        new TypstTableCell
+                                        {
+                                            Content = "B",
+                                            StylePart = new TableStylePart
+                                            {
+                                                BorderTopState = TableBorderState.None,
+                                                BorderLeftState = TableBorderState.None,
+                                                BorderRightState = TableBorderState.None,
+                                                BorderBottomState = TableBorderState.Visible,
+                                                BorderBottomColor = "#E4E7EC",
+                                                BorderBottomWidth = 1
+                                            }
+                                        }
+                                    ]
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var source = converter.GenerateTypstSource(presentation);
+
+        // No global grid: complex per-cell strokes take over entirely.
+        Assert.DoesNotContain("stroke: 1.00pt + rgb(\"#000000\")", source);
+        Assert.Contains(
+            "stroke: (top: none, bottom: 1.00pt + rgb(\"#E4E7EC\"), left: none, right: none)",
+            source);
+    }
+
     [Fact]
     public void Dispose_CleansUpTempDirectory()
     {
@@ -2648,15 +2916,13 @@ public class PptxToTypstConverterTests : IDisposable
             [typeof(TableStylePart), typeof(int), typeof(int), typeof(int), typeof(int)],
             null);
 
+        // Schema-correct explicit border: a:tcPr carries a:lnL/a:lnR/a:lnT/a:lnB directly
+        // (a:tcBdr only exists in tableStyles.xml cell styles, never inside a:tcPr).
         var cell = new Drawing.TableCell(
             new Drawing.TableCellProperties(
-                new Drawing.TableCellBorders(
-                    new Drawing.TopBorder(
-                        new Drawing.Outline(
-                            new Drawing.SolidFill(new Drawing.RgbColorModelHex { Val = "FF0000" }))
-                        {
-                            Width = 25400
-                        }))),
+                "<a:tcPr xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\">" +
+                "<a:lnT w=\"25400\"><a:solidFill><a:srgbClr val=\"FF0000\"/></a:solidFill></a:lnT>" +
+                "</a:tcPr>"),
             new Drawing.TextBody(new Drawing.BodyProperties(), new Drawing.ListStyle(), new Drawing.Paragraph()));
 
         var inheritedStylePart = new TableStylePart
