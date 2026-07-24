@@ -165,6 +165,12 @@ public class DocumentBuilder : IDocumentBuilder
 
     public IDocumentBuilder ReplaceText(string find, string replace)
     {
+        // Empty find would insert the replacement between every character of the document.
+        if (string.IsNullOrEmpty(find))
+        {
+            throw new ArgumentException("Find must be a non-empty string.", nameof(find));
+        }
+
         var paragraphs = _body.Elements<Paragraph>();
         foreach (var paragraph in paragraphs)
         {

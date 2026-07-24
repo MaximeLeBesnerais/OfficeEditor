@@ -83,6 +83,18 @@ public class DocumentBuilderTests : IDisposable
         }
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public void ReplaceText_WithEmptyFind_ShouldThrowArgumentException(string? find)
+    {
+        // Empty find would insert the replacement between every character of the document.
+        using var builder = DocumentBuilder.Create(_testFilePath);
+        builder.AddParagraph("Some text");
+
+        Assert.Throws<ArgumentException>(() => builder.ReplaceText(find!, "x"));
+    }
+
     [Fact]
     public void Create_SaveToBytes_ReturnsValidDocx()
     {
