@@ -83,7 +83,9 @@ public class WorkbookBuilder : IWorkbookBuilder
     private readonly string? _path;
     private readonly MemoryStream? _documentStream;
     private readonly bool _isNewDocument;
-    private readonly Dictionary<string, WorksheetBuilder> _worksheets = new();
+    // Excel worksheet names are case-insensitive; an Ordinal dictionary would allow
+    // "Sales" and "SALES" to coexist and produce a corrupt workbook.
+    private readonly Dictionary<string, WorksheetBuilder> _worksheets = new(StringComparer.OrdinalIgnoreCase);
     private WorkbookPart _workbookPart;
     private SharedStringTablePart? _sharedStringPart;
     private uint _nextSheetId = 1;
@@ -184,7 +186,7 @@ public class WorkbookBuilder : IWorkbookBuilder
         {
             throw new XlsxException(
                 $"A worksheet named '{name}' already exists in this workbook. " +
-                "Worksheet names must be unique.");
+                "Worksheet names must be unique (comparison is case-insensitive, as in Excel).");
         }
 
         var worksheetPart = _workbookPart.AddNewPart<WorksheetPart>();
@@ -230,7 +232,8 @@ public class WorkbookBuilder : IWorkbookBuilder
         var sheets = workbook.Sheets;
         if (sheets != null)
         {
-            var sheet = sheets.Elements<Sheet>().FirstOrDefault(s => s.Name?.Value == name);
+            var sheet = sheets.Elements<Sheet>().FirstOrDefault(
+                s => string.Equals(s.Name?.Value, name, StringComparison.OrdinalIgnoreCase));
             if (sheet != null)
             {
                 sheet.Remove();

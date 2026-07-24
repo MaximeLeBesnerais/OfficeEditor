@@ -385,7 +385,93 @@ public class WorkbookBuilderTests : IDisposable
 
         // Act & Assert
         Assert.Throws<XlsxException>(() => worksheet.AddChart(ChartType.Pie, "A1:B2"));
-        Assert.Throws<FormatException>(() => worksheet.AddCell("A", "Missing row"));
+        // Malformed references must surface as XlsxException naming the ref,
+        // not a raw FormatException from int.Parse deep in the builder.
+        var ex = Assert.Throws<XlsxException>(() => worksheet.AddCell("A", "Missing row"));
+        Assert.Contains("'A'", ex.Message);
+    }
+
+    [Theory]
+    [InlineData("A")]
+    [InlineData("1A")]
+    [InlineData("A0")]
+    [InlineData("")]
+    [InlineData("A 1")]
+    [InlineData("A1B")]
+    [InlineData("AAAA1")]
+    public void AddCell_MalformedReference_ShouldThrowXlsxException(string badReference)
+    {
+        // Arrange
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var worksheet = builder.AddWorksheet("Sheet1");
+
+        // Act & Assert
+        var ex = Assert.Throws<XlsxException>(() => worksheet.AddCell(badReference, "value"));
+        Assert.Contains("Invalid cell reference", ex.Message);
+    }
+
+    [Fact]
+    public void AddCell_LowercaseReference_ShouldNormalizeToSameCell()
+    {
+        // Act: 'a1' and 'A1' are the same cell in Excel — they must not duplicate
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            var worksheet = builder.AddWorksheet("Sheet1");
+            worksheet.AddCell("a1", "lower");
+            worksheet.AddCell("A1", "upper");
+            builder.Save();
+        }
+
+        // Assert: one cell, canonical uppercase reference, last write wins
+        using var doc = SpreadsheetDocument.Open(_testFilePath, false);
+        var cells = doc.WorkbookPart!.WorksheetParts.First().Worksheet!
+            .GetFirstChild<SheetData>()!.Elements<Row>().Single().Elements<Cell>().ToList();
+        Assert.Single(cells);
+        Assert.Equal("A1", cells[0].CellReference?.Value);
+        OpenXmlAssert.NoValidationErrors(doc);
+    }
+
+    [Fact]
+    public void CellLookup_ShouldBeCaseInsensitive()
+    {
+        // Arrange
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var worksheet = builder.AddWorksheet("Sheet1");
+        worksheet.AddCell("b2", "Present");
+
+        // Act & Assert
+        Assert.True(worksheet.CellExists("B2"));
+        Assert.Equal("Present", worksheet.GetCellValue("B2"));
+        Assert.Equal("Present", worksheet.GetCellValue("b2"));
+    }
+
+    [Fact]
+    public void AddWorksheet_ShouldThrowForDuplicateName_DifferentCase()
+    {
+        // Arrange: Excel treats sheet names case-insensitively
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        builder.AddWorksheet("Sales");
+
+        // Act & Assert
+        var ex = Assert.Throws<XlsxException>(() => builder.AddWorksheet("SALES"));
+        Assert.Contains("SALES", ex.Message);
+        Assert.Contains("already exists", ex.Message);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-3)]
+    public void RowOperations_ShouldThrowForRowIndexBelowOne(int rowIndex)
+    {
+        // Arrange
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var worksheet = builder.AddWorksheet("Sheet1");
+
+        // Act & Assert
+        Assert.Throws<XlsxException>(() => worksheet.AddDataRow(new List<string> { "x" }, rowIndex));
+        Assert.Throws<XlsxException>(() => worksheet.AddHeaderRow(new List<string> { "x" }, rowIndex));
+        Assert.Throws<XlsxException>(() => worksheet.GetRow(rowIndex));
+        Assert.Throws<XlsxException>(() => worksheet.DeleteRow(rowIndex));
     }
 
     [Fact]

@@ -107,6 +107,53 @@ public class XlsxInstructionTests : IDisposable
     }
 
     [Fact]
+    public void Validate_ShouldRejectDuplicateSheetNames_DifferentCase()
+    {
+        // Excel sheet names are case-insensitive: "Sales" and "SALES" collide.
+        var json = """
+        {
+            "version": "1.0",
+            "worksheets": [
+                {"name": "Sales", "rows": [["1"]]},
+                {"name": "SALES", "rows": [["2"]]}
+            ]
+        }
+        """;
+
+        var ex = Assert.Throws<XlsxException>(() => XlsxInstructionParser.Parse(json));
+        Assert.Contains("Duplicate", ex.Message);
+    }
+
+    [Fact]
+    public void Execute_ShouldNormalizeLowercaseCellAddresses()
+    {
+        var set = XlsxInstructionParser.Parse("""
+        {
+            "version": "1.0",
+            "worksheets": [{
+                "name": "Calc",
+                "cells": [
+                    {"address": "a1", "value": "10"},
+                    {"address": "A1", "value": "20"}
+                ]
+            }]
+        }
+        """);
+
+        // 'a1' and 'A1' are the same cell; last write wins, no duplicate cells.
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            XlsxInstructionExecutor.Execute(set, builder);
+            builder.Save();
+        }
+
+        using var reader = WorkbookBuilder.Open(_testFilePath);
+        var ws = reader.GetWorksheet("Calc");
+        Assert.Equal("20", ws.GetCellValue("A1"));
+        Assert.Single(ws.GetRow(1)!.Cells);
+    }
+
+    [Fact]
     public void Validate_ShouldRejectSheetNameOver31Chars()
     {
         var longName = new string('X', 32);

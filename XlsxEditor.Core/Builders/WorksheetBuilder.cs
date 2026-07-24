@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text.RegularExpressions;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Spreadsheet;
@@ -11,6 +13,9 @@ public class WorksheetBuilder : IWorksheetBuilder
     private readonly Worksheet _worksheet;
     private readonly WorkbookBuilder _workbookBuilder;
     private readonly SheetData _sheetData;
+
+    private static readonly Regex CellReferencePattern =
+        new(@"^[A-Za-z]{1,3}[1-9][0-9]*$", RegexOptions.Compiled);
 
     public WorksheetPart WorksheetPart => _worksheetPart;
 
@@ -284,6 +289,12 @@ public class WorksheetBuilder : IWorksheetBuilder
 
     public RowInfo? GetRow(int rowIndex)
     {
+        if (rowIndex < 1)
+        {
+            throw new XlsxException(
+                $"Row index must be >= 1; Excel rows are 1-based. Got {rowIndex}.");
+        }
+
         var row = _sheetData.Elements<Row>()
             .FirstOrDefault(r => r.RowIndex?.Value == (uint)rowIndex);
         if (row == null) return null;
@@ -342,6 +353,12 @@ public class WorksheetBuilder : IWorksheetBuilder
 
     public IWorksheetBuilder DeleteRow(int rowIndex)
     {
+        if (rowIndex < 1)
+        {
+            throw new XlsxException(
+                $"Row index must be >= 1; Excel rows are 1-based. Got {rowIndex}.");
+        }
+
         var row = _sheetData.Elements<Row>()
             .FirstOrDefault(r => r.RowIndex?.Value == (uint)rowIndex);
         row?.Remove();
@@ -373,9 +390,10 @@ public class WorksheetBuilder : IWorksheetBuilder
     {
         return formula?.Text is { Length: > 0 } text ? "=" + text : null;
     }
-
     private Cell? FindCell(string cellReference)
-    {        var rowIndex = GetRowIndex(cellReference);
+    {
+        cellReference = NormalizeCellReference(cellReference);
+        var rowIndex = GetRowIndex(cellReference);
         var row = _sheetData.Elements<Row>()
             .FirstOrDefault(r => r.RowIndex?.Value == (uint)rowIndex);
         if (row == null) return null;
@@ -410,6 +428,9 @@ public class WorksheetBuilder : IWorksheetBuilder
 
     private Cell GetOrCreateCell(string cellReference)
     {
+        // Normalize at the entry point: Excel references are case-insensitive, so
+        // 'a1' and 'A1' must resolve to the same cell rather than duplicate cells.
+        cellReference = NormalizeCellReference(cellReference);
         var rowIndex = GetRowIndex(cellReference);
         var row = GetOrCreateRow(rowIndex);
 
@@ -452,20 +473,26 @@ public class WorksheetBuilder : IWorksheetBuilder
 
     private static int CompareCellReferences(string a, string b)
     {
-        var colA = GetColumnIndexStatic(a);
-        var colB = GetColumnIndexStatic(b);
+        var colA = GetColumnIndex(a);
+        var colB = GetColumnIndex(b);
         if (colA != colB)
         {
             return colA.CompareTo(colB);
         }
 
-        var rowA = GetRowIndexStatic(a);
-        var rowB = GetRowIndexStatic(b);
+        var rowA = GetRowIndex(a);
+        var rowB = GetRowIndex(b);
         return rowA.CompareTo(rowB);
     }
 
     private Row GetOrCreateRow(int rowIndex)
     {
+        if (rowIndex < 1)
+        {
+            throw new XlsxException(
+                $"Row index must be >= 1; Excel rows are 1-based. Got {rowIndex}.");
+        }
+
         var targetIndex = (uint)rowIndex;
         var row = _sheetData.Elements<Row>().FirstOrDefault(r => r.RowIndex?.Value == targetIndex);
         if (row == null)
@@ -506,6 +533,18 @@ public class WorksheetBuilder : IWorksheetBuilder
 
     internal static string GetCellReference(int columnIndex, int rowIndex)
     {
+        if (columnIndex < 0)
+        {
+            throw new XlsxException(
+                $"Column index must be >= 0 (0 = column A). Got {columnIndex}.");
+        }
+
+        if (rowIndex < 1)
+        {
+            throw new XlsxException(
+                $"Row index must be >= 1; Excel rows are 1-based. Got {rowIndex}.");
+        }
+
         var columnName = GetColumnName(columnIndex);
         return $"{columnName}{rowIndex}";
     }
@@ -525,63 +564,58 @@ public class WorksheetBuilder : IWorksheetBuilder
         return name;
     }
 
-    internal static int GetRowIndex(string cellReference)
+    /// <summary>
+    /// Validates an A1-style cell reference and returns its canonical upper-case form.
+    /// Excel cell references are case-insensitive; normalizing prevents 'a1' and 'A1'
+    /// from becoming two distinct cells in the same row. Malformed references throw
+    /// an <see cref="XlsxException"/> naming the offending reference (instead of a
+    /// raw <see cref="FormatException"/> from deep in the parser).
+    /// </summary>
+    internal static string NormalizeCellReference(string cellReference)
     {
-        var rowPart = string.Empty;
-        foreach (var c in cellReference)
+        if (string.IsNullOrWhiteSpace(cellReference) || !CellReferencePattern.IsMatch(cellReference))
         {
-            if (char.IsDigit(c))
-            {
-                rowPart += c;
-            }
+            throw new XlsxException(
+                $"Invalid cell reference '{cellReference}'. " +
+                "Expected an Excel A1-style reference such as 'A1' or 'BC12' " +
+                "(1-3 letters, then a row number >= 1).");
         }
 
-        return int.Parse(rowPart);
+        return cellReference.ToUpperInvariant();
+    }
+
+    internal static int GetRowIndex(string cellReference)
+    {
+        var normalized = NormalizeCellReference(cellReference);
+        var letterCount = CountLeadingLetters(normalized);
+        return int.Parse(normalized.AsSpan(letterCount), NumberStyles.None, CultureInfo.InvariantCulture);
     }
 
     internal static int GetColumnIndex(string cellReference)
     {
+        var normalized = NormalizeCellReference(cellReference);
         var result = 0;
-        foreach (var c in cellReference)
+        foreach (var c in normalized)
         {
             if (!char.IsLetter(c))
             {
                 break;
             }
 
-            result = result * 26 + char.ToUpperInvariant(c) - 'A' + 1;
+            result = result * 26 + c - 'A' + 1;
         }
 
         return result;
     }
 
-    private static int GetColumnIndexStatic(string cellReference)
+    private static int CountLeadingLetters(string reference)
     {
-        var result = 0;
-        foreach (var c in cellReference)
+        var count = 0;
+        while (count < reference.Length && char.IsLetter(reference[count]))
         {
-            if (!char.IsLetter(c))
-            {
-                break;
-            }
-
-            result = result * 26 + char.ToUpperInvariant(c) - 'A' + 1;
+            count++;
         }
 
-        return result;
-    }
-
-    private static int GetRowIndexStatic(string cellReference)
-    {
-        var rowPart = string.Empty;
-        foreach (var c in cellReference)
-        {
-            if (char.IsDigit(c))
-            {
-                rowPart += c;
-            }
-        }
-
-        return int.Parse(rowPart);
+        return count;
     }
 }
