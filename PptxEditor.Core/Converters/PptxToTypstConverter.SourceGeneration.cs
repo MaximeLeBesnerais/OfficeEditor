@@ -166,7 +166,15 @@ public sealed partial class PptxToTypstConverter
             sb.Append($"#block(width: {width})[");
         }
 
-        var leading = GetTypstParagraphLeading(text);
+        // PowerPoint has no implicit inter-paragraph gap: spacing comes only from
+        // spcBef/spcAft (emitted as explicit #v) and the line pitch. Typst's default
+        // par.spacing (~0.65em) would otherwise double-count between list groups.
+        sb.Append("#set par(spacing: 0pt)\n");
+
+        // Element-level fallback leading: only when no paragraph carries its own
+        // a:lnSpc — per-paragraph emission below supersedes it otherwise (and uses
+        // each paragraph's own font size instead of the element default).
+        var leading = text.Paragraphs.Any(p => p.LineSpacing.HasValue) ? 0 : GetTypstParagraphLeading(text);
         if (leading > 0.01)
         {
             sb.Append($"#set par(leading: {FormatPt(leading)})\n");
@@ -251,6 +259,10 @@ public sealed partial class PptxToTypstConverter
                     // Don't add extra break when entering a list
                 }
 
+                // Emit per-paragraph leading (a:lnSpc) — overrides any element-level fallback.
+                // spcPct multiplies the paragraph's own font size, so it must be computed per paragraph.
+                AppendParagraphLeading(sb, paragraph);
+
                 // Emit space before if present
                 if (paragraph.SpaceBefore > 0.01)
                 {
@@ -273,7 +285,7 @@ public sealed partial class PptxToTypstConverter
                     else if (effectiveHasBullet)
                     {
                         var marker = effectiveBulletChar ?? "•";
-                        var markerEscaped = EscapeTypstText(marker);
+                        var markerEscaped = FormatBulletMarker(EscapeTypstText(marker), paragraph.BulletColor);
                         var indent = paragraph.Level > 0 ? $"#h({paragraph.Level * 1.5}em) " : "";
                         var paramStr = BuildTextParameters(paragraph.Formatting, availableFonts);
                         var escapedContent = EscapeTypstText(content);
@@ -302,20 +314,30 @@ public sealed partial class PptxToTypstConverter
                 var nextP = paragraphs[j];
                 string nextContent = nextP.Content;
                 bool nextIsLiteral = false;
+                string? nextLiteralChar = null;
                 if (!nextP.HasBullet && !string.IsNullOrEmpty(nextContent))
                 {
                     var trimmed = nextContent.TrimStart();
                     if (trimmed.StartsWith("- ") || trimmed.StartsWith("• ") || trimmed.StartsWith("* ") || trimmed.StartsWith("o "))
                     {
                         nextIsLiteral = true;
+                        nextLiteralChar = trimmed.Substring(0, 1);
                     }
                 }
                 bool nextHasBullet = nextP.HasBullet || nextIsLiteral;
                 bool nextIsList = !string.IsNullOrEmpty(nextP.AutoNumberType) || nextHasBullet;
+                string? nextEffectiveBulletChar = nextP.BulletChar ?? nextLiteralChar;
 
-                // Group if same list type and level
-                bool sameType = (!string.IsNullOrEmpty(paragraph.AutoNumberType) && !string.IsNullOrEmpty(nextP.AutoNumberType))
-                    || (effectiveHasBullet && nextHasBullet && paragraph.Level == nextP.Level);
+                // Group only if same list type, level, marker glyph, bullet color and
+                // indentation — otherwise PowerPoint renders the items at different
+                // depths/styles and a single Typst list would flatten them.
+                bool sameIndents = Nullable.Equals(paragraph.MarginLeft, nextP.MarginLeft)
+                    && Nullable.Equals(paragraph.Indent, nextP.Indent);
+                bool sameType = (!string.IsNullOrEmpty(paragraph.AutoNumberType) && !string.IsNullOrEmpty(nextP.AutoNumberType)
+                        && paragraph.Level == nextP.Level && sameIndents)
+                    || (effectiveHasBullet && nextHasBullet && paragraph.Level == nextP.Level && sameIndents
+                        && effectiveBulletChar == nextEffectiveBulletChar
+                        && paragraph.BulletColor == nextP.BulletColor);
 
                 if (!nextIsList || !sameType)
                     break;
@@ -327,12 +349,15 @@ public sealed partial class PptxToTypstConverter
             bool isNumbered = !string.IsNullOrEmpty(paragraph.AutoNumberType);
             int groupSize = groupEnd - i + 1;
 
-            // Check if all items in the group share the same formatting
-            var firstFmt = paragraphs[i].Formatting;
+            // Check if all items in the group share the same formatting.
+            // Compare first-run (collapsed) formatting: paragraph defaults fall back to the
+            // 18pt placeholder for mixed-formatting runs, which would inflate the marker
+            // glyph and the line height of every item in the group.
+            var firstFmt = GetCollapsedRunFormatting(paragraphs[i]);
             bool allSameFormatting = true;
             for (int k = i + 1; k <= groupEnd; k++)
             {
-                if (!AreFormattingEqual(firstFmt, paragraphs[k].Formatting))
+                if (!AreFormattingEqual(firstFmt, GetCollapsedRunFormatting(paragraphs[k])))
                 {
                     allSameFormatting = false;
                     break;
@@ -351,9 +376,15 @@ public sealed partial class PptxToTypstConverter
                 }
                 else
                 {
-                    sb.Append("\n\n");
+                    // Between adjacent list groups (split by level/marker/indent): no blank
+                    // line — a Typst parbreak would add par.spacing (~1.2em) on top of the
+                    // OOXML spcAft already emitted after the previous group.
+                    sb.Append('\n');
                 }
             }
+
+            // Emit per-paragraph leading (a:lnSpc) for the list group
+            AppendParagraphLeading(sb, paragraphs[i]);
 
             // Emit space before first list item if present
             var listSpaceBefore = paragraphs[i].SpaceBefore;
@@ -411,7 +442,7 @@ public sealed partial class PptxToTypstConverter
             {
                 // Bulleted list
                 var marker = effectiveBulletChar ?? "•";
-                var markerEscaped = EscapeTypstText(marker);
+                var markerEscaped = FormatBulletMarker(EscapeTypstText(marker), paragraph.BulletColor);
                 var listIndent = BuildListIndentParams(paragraph);
                 
                 if (!string.IsNullOrEmpty(groupParamStr))
@@ -457,24 +488,59 @@ public sealed partial class PptxToTypstConverter
         }
     }
 
+    private static string FormatBulletMarker(string escapedMarker, string? bulletColor)
+    {
+        // a:buClr / a:buClrTx supply an explicit glyph color; otherwise the marker
+        // inherits the surrounding text color (OOXML default behavior).
+        return string.IsNullOrEmpty(bulletColor)
+            ? escapedMarker
+            : $"#text(fill: rgb(\"{bulletColor}\"))[{escapedMarker}]";
+    }
+
     private static string BuildListIndentParams(TypstParagraph paragraph)
     {
+        var (markerPos, bodyIndent) = ComputeListIndents(paragraph);
+
         var parts = new List<string>();
-        if (paragraph.MarginLeft.HasValue && paragraph.MarginLeft.Value > 0.01)
+        if (markerPos != null)
         {
-            parts.Add($"indent: {FormatPt(paragraph.MarginLeft.Value)}");
-        }
-        if (paragraph.Indent.HasValue)
-        {
-            // PPTX indent is a hanging indent (negative = body indent offset)
-            // In Typst, body-indent controls the indent of the body relative to the marker
-            var bodyIndent = Math.Abs(paragraph.Indent.Value);
+            if (markerPos.Value > 0.01)
+            {
+                parts.Add($"indent: {FormatPt(markerPos.Value)}");
+            }
             if (bodyIndent > 0.01)
             {
                 parts.Add($"body-indent: {FormatPt(bodyIndent)}");
             }
         }
+        // PowerPoint applies spcAft between every pair of items; Typst's list spacing
+        // parameter is the exact analogue. tight: false is required — tight lists
+        // ignore spacing and fall back to par.leading between items.
+        if (paragraph.SpaceAfter > 0.01)
+        {
+            parts.Add("tight: false");
+            parts.Add($"spacing: {FormatPt(paragraph.SpaceAfter.Value)}");
+        }
         return parts.Count > 0 ? ", " + string.Join(", ", parts) : "";
+    }
+
+    /// <summary>
+    /// Maps OOXML marL/indent to Typst list geometry. OOXML: marL = body text offset;
+    /// indent (typically negative) = first-line/marker offset relative to marL, so the
+    /// marker sits at marL+indent and the body at marL. Typst: indent = marker offset,
+    /// body-indent = body offset relative to the marker.
+    /// Returns (null, 0) when neither attribute is defined (keep Typst defaults).
+    /// </summary>
+    private static (double? MarkerPos, double BodyIndent) ComputeListIndents(TypstParagraph paragraph)
+    {
+        if (paragraph.MarginLeft == null && paragraph.Indent == null)
+            return (null, 0);
+
+        var markerPos = Math.Max(0, (paragraph.MarginLeft ?? 0) + (paragraph.Indent ?? 0));
+        var bodyIndent = paragraph.MarginLeft.HasValue
+            ? Math.Max(0, paragraph.MarginLeft.Value - markerPos)
+            : Math.Abs(paragraph.Indent ?? 0);
+        return (markerPos, bodyIndent);
     }
 
     private static string BuildEnumParams(int start, TypstParagraph paragraph)
@@ -484,17 +550,23 @@ public sealed partial class PptxToTypstConverter
         {
             parts.Add($"start: {start}");
         }
-        if (paragraph.MarginLeft.HasValue && paragraph.MarginLeft.Value > 0.01)
+
+        var (markerPos, bodyIndent) = ComputeListIndents(paragraph);
+        if (markerPos != null)
         {
-            parts.Add($"indent: {FormatPt(paragraph.MarginLeft.Value)}");
-        }
-        if (paragraph.Indent.HasValue)
-        {
-            var bodyIndent = Math.Abs(paragraph.Indent.Value);
+            if (markerPos.Value > 0.01)
+            {
+                parts.Add($"indent: {FormatPt(markerPos.Value)}");
+            }
             if (bodyIndent > 0.01)
             {
                 parts.Add($"body-indent: {FormatPt(bodyIndent)}");
             }
+        }
+        if (paragraph.SpaceAfter > 0.01)
+        {
+            parts.Add("tight: false");
+            parts.Add($"spacing: {FormatPt(paragraph.SpaceAfter.Value)}");
         }
 
         return parts.Count > 0 ? "(" + string.Join(", ", parts) + ")" : "";
@@ -696,6 +768,40 @@ public sealed partial class PptxToTypstConverter
             if (!string.IsNullOrEmpty(parts[p]))
                 sb.Append(EscapeTypstText(parts[p]));
         }
+    }
+
+    private static void AppendParagraphLeading(StringBuilder sb, TypstParagraph paragraph)
+    {
+        var leading = GetParagraphLeading(paragraph);
+        if (leading > 0.01)
+        {
+            sb.Append($"#set par(leading: {FormatPt(leading)})\n");
+        }
+    }
+
+    private static double GetParagraphLeading(TypstParagraph paragraph)
+    {
+        if (paragraph.LineSpacing == null)
+            return 0;
+
+        // Percentage values (spcPct) multiply the paragraph's own effective font size —
+        // the element-level default size is wrong for mixed-formatting paragraphs.
+        var fontSize = GetCollapsedRunFormatting(paragraph).FontSize;
+        double lineSpacingPts;
+        if (paragraph.LineSpacing.Value < 10)
+        {
+            // Percentage value (e.g., 1.2 = 120%)
+            lineSpacingPts = fontSize * paragraph.LineSpacing.Value;
+        }
+        else
+        {
+            // Absolute points value (spcPts)
+            lineSpacingPts = paragraph.LineSpacing.Value;
+        }
+
+        // Typst's par.leading is added to its own default line advance, while PPTX spcPts is the target line pitch.
+        var estimatedTypstLineAdvance = fontSize * 0.65;
+        return Math.Max(0, lineSpacingPts - estimatedTypstLineAdvance);
     }
 
     private static double GetTypstParagraphLeading(TypstTextElement text)

@@ -1717,6 +1717,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
                 BulletChar = paragraph.BulletChar,
                 AutoNumberType = paragraph.AutoNumberType,
                 HasBullet = paragraph.HasBullet,
+                BulletColor = paragraph.BulletColor,
                 LineSpacing = paragraph.LineSpacing,
                 SpaceBefore = paragraph.SpaceBefore,
                 SpaceAfter = paragraph.SpaceAfter,
@@ -1871,25 +1872,23 @@ public sealed partial class PptxToTypstConverter : IDisposable
             // Resolve bullet properties through full cascade
             var (bulletChar, autoNumberType, hasBullet) = ResolveBulletProperties(pPr, bodyLstStyle, level, styleResolver, placeholderIdx, placeholderType);
 
+            // Resolve bullet color (a:buClr / a:buClrTx) through the same cascade
+            var (bulletColor, bulletFollowsText) = ResolveBulletColor(pPr, bodyLstStyle, level, styleResolver, placeholderIdx, placeholderType);
+            if (hasBullet && bulletColor == null && bulletFollowsText)
+            {
+                // a:buClrTx: the bullet glyph takes the color of the paragraph's first text run
+                bulletColor = runs.FirstOrDefault(r => !r.IsLineBreak)?.Formatting.Color;
+            }
+
             // Resolve line spacing through full cascade
             var paragraphLineSpacing = ResolveLineSpacing(pPr, bodyLstStyle, level, styleResolver, placeholderIdx, placeholderType);
 
             // Resolve paragraph spacing (spcBef / spcAft) through full cascade
             var (spaceBefore, spaceAfter) = ResolveParagraphSpacing(pPr, bodyLstStyle, level, styleResolver, placeholderIdx, placeholderType);
 
-            // Extract explicit margin left and indent from paragraph properties
-            double? marginLeft = null;
-            double? indent = null;
-            if (pPr != null)
-            {
-                var marLAttr = GetAttributeValue(pPr, "marL");
-                if (!string.IsNullOrEmpty(marLAttr) && int.TryParse(marLAttr, out var marL))
-                    marginLeft = EmuToPt(marL);
-
-                var indentAttr = GetAttributeValue(pPr, "indent");
-                if (!string.IsNullOrEmpty(indentAttr) && int.TryParse(indentAttr, out var ind))
-                    indent = EmuToPt(ind);
-            }
+            // Resolve list indentation (marL / indent) through the full cascade:
+            // paragraph -> text body lstStyle -> layout placeholder -> master placeholder -> master txStyles
+            var (marginLeft, indent) = ResolveListIndents(pPr, bodyLstStyle, level, styleResolver, placeholderIdx, placeholderType);
 
             paragraphs.Add(new TypstParagraph
             {
@@ -1900,6 +1899,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
                 BulletChar = bulletChar,
                 AutoNumberType = autoNumberType,
                 HasBullet = hasBullet,
+                BulletColor = hasBullet ? bulletColor : null,
                 LineSpacing = paragraphLineSpacing,
                 SpaceBefore = spaceBefore,
                 SpaceAfter = spaceAfter,
@@ -2324,6 +2324,114 @@ public sealed partial class PptxToTypstConverter : IDisposable
         }
 
         return (null, null, false);
+    }
+
+    private static (string? Color, bool FollowsText) ResolveBulletColor(
+        Drawing.ParagraphProperties? pPr,
+        OpenXmlElement? bodyLstStyle,
+        int level,
+        StyleResolver? styleResolver,
+        int? placeholderIdx,
+        PlaceholderValues? placeholderType)
+    {
+        // 1. Paragraph level (a:pPr/a:buClr or a:buClrTx)
+        var info = StyleResolver.ExtractBulletColorInfo(pPr, styleResolver);
+        if (info.Color != null || info.FollowsText)
+            return info;
+
+        // 2. Text body list style
+        info = StyleResolver.ExtractBulletColorInfo(GetLstStyleLevelProperties(bodyLstStyle, level), styleResolver);
+        if (info.Color != null || info.FollowsText)
+            return info;
+
+        if (styleResolver != null)
+        {
+            // 3. Layout placeholder list style
+            info = styleResolver.GetLayoutPlaceholderBulletColor(placeholderIdx, placeholderType, level);
+            if (info.Color != null || info.FollowsText)
+                return info;
+
+            // 4. Master placeholder list style
+            info = styleResolver.GetMasterPlaceholderBulletColor(placeholderIdx, placeholderType, level);
+            if (info.Color != null || info.FollowsText)
+                return info;
+
+            // 5. Master txStyles
+            info = styleResolver.GetMasterTxStyleBulletColor(placeholderType, level);
+            if (info.Color != null || info.FollowsText)
+                return info;
+        }
+
+        return (null, false);
+    }
+
+    private static OpenXmlElement? GetLstStyleLevelProperties(OpenXmlElement? lstStyle, int level)
+    {
+        if (lstStyle == null) return null;
+
+        var levelName = $"lvl{level + 1}pPr";
+        return lstStyle.ChildElements.FirstOrDefault(e => e.LocalName == levelName);
+    }
+
+    private static (double? MarginLeft, double? Indent) ResolveListIndents(
+        Drawing.ParagraphProperties? pPr,
+        OpenXmlElement? bodyLstStyle,
+        int level,
+        StyleResolver? styleResolver,
+        int? placeholderIdx,
+        PlaceholderValues? placeholderType)
+    {
+        // marL and indent inherit independently per OOXML — resolve each attribute
+        // separately through the cascade, first definition wins per attribute.
+        double? marginLeft = null;
+        double? indent = null;
+
+        void Apply((double? MarginLeft, double? Indent) candidate)
+        {
+            marginLeft ??= candidate.MarginLeft;
+            indent ??= candidate.Indent;
+        }
+
+        // 1. Paragraph level
+        Apply(ExtractListIndents(pPr));
+        if (marginLeft.HasValue && indent.HasValue)
+            return (marginLeft, indent);
+
+        // 2. Text body list style
+        Apply(ExtractListIndents(GetLstStyleLevelProperties(bodyLstStyle, level)));
+
+        if (styleResolver != null && !(marginLeft.HasValue && indent.HasValue))
+        {
+            // 3. Layout placeholder list style
+            Apply(styleResolver.GetLayoutPlaceholderListIndents(placeholderIdx, placeholderType, level));
+            // 4. Master placeholder list style
+            if (!(marginLeft.HasValue && indent.HasValue))
+                Apply(styleResolver.GetMasterPlaceholderListIndents(placeholderIdx, placeholderType, level));
+            // 5. Master txStyles
+            if (!(marginLeft.HasValue && indent.HasValue))
+                Apply(styleResolver.GetMasterTxStyleListIndents(placeholderType, level));
+        }
+
+        return (marginLeft, indent);
+    }
+
+    private static (double? MarginLeft, double? Indent) ExtractListIndents(OpenXmlElement? pPrLike)
+    {
+        if (pPrLike == null) return (null, null);
+
+        double? marginLeft = null;
+        double? indent = null;
+
+        // Raw XML attribute reads per AGENTS.pptx.md rule 1 — SDK attribute access is unreliable.
+        var marLAttr = GetAttributeValue(pPrLike, "marL");
+        if (!string.IsNullOrEmpty(marLAttr) && int.TryParse(marLAttr, out var marL))
+            marginLeft = EmuToPt(marL);
+
+        var indentAttr = GetAttributeValue(pPrLike, "indent");
+        if (!string.IsNullOrEmpty(indentAttr) && int.TryParse(indentAttr, out var ind))
+            indent = EmuToPt(ind);
+
+        return (marginLeft, indent);
     }
 
     private static double? ResolveLineSpacing(
