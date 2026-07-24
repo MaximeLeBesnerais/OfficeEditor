@@ -3266,4 +3266,158 @@ public class PptxToTypstConverterTests : IDisposable
         Assert.Contains("""(rgb("#0B1026E0"), 0%)""", source);
         Assert.Contains("""(rgb("#0B102600"), 100%)""", source);
     }
+
+    private string CreateBackgroundPptx(string fileName, string? slideBgXml, string? layoutBgXml, string? masterBgXml, string? themeLt1Hex = null)
+    {
+        var path = Path.Combine(_tempDir, fileName);
+
+        using (var document = PresentationDocument.Create(path, PresentationDocumentType.Presentation))
+        {
+            var presentationPart = document.AddPresentationPart();
+            presentationPart.Presentation = new Presentation
+            {
+                SlideMasterIdList = new SlideMasterIdList(),
+                SlideIdList = new SlideIdList(),
+                SlideSize = new SlideSize { Cx = (int)Pt(720), Cy = (int)Pt(540), Type = SlideSizeValues.Screen4x3 }
+            };
+
+            var slideMasterPart = presentationPart.AddNewPart<SlideMasterPart>();
+            var masterCSld = new CommonSlideData(CreateShapeTree());
+            if (masterBgXml != null) masterCSld.InsertAt(new P.Background(masterBgXml), 0);
+            slideMasterPart.SlideMaster = new SlideMaster(
+                masterCSld,
+                new ColorMap
+                {
+                    Background1 = Drawing.ColorSchemeIndexValues.Light1,
+                    Text1 = Drawing.ColorSchemeIndexValues.Dark1,
+                    Background2 = Drawing.ColorSchemeIndexValues.Light2,
+                    Text2 = Drawing.ColorSchemeIndexValues.Dark2,
+                    Accent1 = Drawing.ColorSchemeIndexValues.Accent1,
+                    Accent2 = Drawing.ColorSchemeIndexValues.Accent2,
+                    Accent3 = Drawing.ColorSchemeIndexValues.Accent3,
+                    Accent4 = Drawing.ColorSchemeIndexValues.Accent4,
+                    Accent5 = Drawing.ColorSchemeIndexValues.Accent5,
+                    Accent6 = Drawing.ColorSchemeIndexValues.Accent6,
+                    Hyperlink = Drawing.ColorSchemeIndexValues.Hyperlink,
+                    FollowedHyperlink = Drawing.ColorSchemeIndexValues.FollowedHyperlink
+                },
+                new SlideLayoutIdList());
+
+            if (themeLt1Hex != null)
+            {
+                var themePart = slideMasterPart.AddNewPart<ThemePart>();
+                themePart.Theme = new Drawing.Theme($@"<a:theme xmlns:a=""{DrawingmlANs}"" name=""T"">
+  <a:themeElements>
+    <a:clrScheme name=""T"">
+      <a:dk1><a:srgbClr val=""000000""/></a:dk1>
+      <a:lt1><a:srgbClr val=""{themeLt1Hex}""/></a:lt1>
+      <a:dk2><a:srgbClr val=""111111""/></a:dk2>
+      <a:lt2><a:srgbClr val=""EEEEEE""/></a:lt2>
+      <a:accent1><a:srgbClr val=""4472C4""/></a:accent1>
+      <a:accent2><a:srgbClr val=""ED7D31""/></a:accent2>
+      <a:accent3><a:srgbClr val=""A5A5A5""/></a:accent3>
+      <a:accent4><a:srgbClr val=""FFC000""/></a:accent4>
+      <a:accent5><a:srgbClr val=""5B9BD5""/></a:accent5>
+      <a:accent6><a:srgbClr val=""70AD47""/></a:accent6>
+      <a:hlink><a:srgbClr val=""0563C1""/></a:hlink>
+      <a:folHlink><a:srgbClr val=""954F72""/></a:folHlink>
+    </a:clrScheme>
+  </a:themeElements>
+</a:theme>");
+            }
+
+            var slideLayoutPart = slideMasterPart.AddNewPart<SlideLayoutPart>();
+            var layoutCSld = new CommonSlideData(CreateShapeTree());
+            if (layoutBgXml != null) layoutCSld.InsertAt(new P.Background(layoutBgXml), 0);
+            slideLayoutPart.SlideLayout = new P.SlideLayout(layoutCSld);
+            slideLayoutPart.AddPart(slideMasterPart);
+            slideMasterPart.SlideMaster.SlideLayoutIdList!.Append(new SlideLayoutId
+            {
+                Id = 2147483649,
+                RelationshipId = slideMasterPart.GetIdOfPart(slideLayoutPart)
+            });
+
+            presentationPart.Presentation.SlideMasterIdList.Append(new SlideMasterId
+            {
+                Id = 2147483648,
+                RelationshipId = presentationPart.GetIdOfPart(slideMasterPart)
+            });
+
+            var slidePart = presentationPart.AddNewPart<SlidePart>();
+            var slideCSld = new CommonSlideData(CreateShapeTree());
+            if (slideBgXml != null) slideCSld.InsertAt(new P.Background(slideBgXml), 0);
+            slidePart.Slide = new Slide(slideCSld);
+            slidePart.AddPart(slideLayoutPart);
+
+            presentationPart.Presentation.SlideIdList.Append(new SlideId
+            {
+                Id = 256,
+                RelationshipId = presentationPart.GetIdOfPart(slidePart)
+            });
+        }
+
+        return path;
+    }
+
+    private static string SolidBgXml(string hex)
+        => $@"<p:bg xmlns:p=""{PresentationmlNs}"" xmlns:a=""{DrawingmlANs}""><p:bgPr><a:solidFill><a:srgbClr val=""{hex}""/></a:solidFill><a:effectLst/></p:bgPr></p:bg>";
+
+    private static string BgRefXml(string scheme)
+        => $@"<p:bg xmlns:p=""{PresentationmlNs}"" xmlns:a=""{DrawingmlANs}""><p:bgRef idx=""1001""><a:schemeClr val=""{scheme}""/></p:bgRef></p:bg>";
+
+    private string ConvertAndGetBackground(string path, out string source)
+    {
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+        var presentation = converter.Convert();
+        source = converter.GenerateTypstSource(presentation);
+        return presentation.Slides[0].Layout.BackgroundColor ?? string.Empty;
+    }
+
+    [Fact]
+    public void Convert_BackgroundCascade_SlideWinsOverLayoutAndMaster()
+    {
+        var path = CreateBackgroundPptx("bg-slide-wins.pptx",
+            slideBgXml: SolidBgXml("111111"), layoutBgXml: SolidBgXml("222222"), masterBgXml: SolidBgXml("333333"));
+
+        var bg = ConvertAndGetBackground(path, out var source);
+
+        Assert.Equal("#111111", bg);
+        Assert.Contains("""#set page(fill: rgb("#111111"))""", source);
+    }
+
+    [Fact]
+    public void Convert_BackgroundCascade_FallsBackToLayout()
+    {
+        var path = CreateBackgroundPptx("bg-layout.pptx",
+            slideBgXml: null, layoutBgXml: SolidBgXml("222222"), masterBgXml: SolidBgXml("333333"));
+
+        var bg = ConvertAndGetBackground(path, out _);
+
+        Assert.Equal("#222222", bg);
+    }
+
+    [Fact]
+    public void Convert_BackgroundCascade_FallsBackToMasterBgPr()
+    {
+        var path = CreateBackgroundPptx("bg-master.pptx",
+            slideBgXml: null, layoutBgXml: null, masterBgXml: SolidBgXml("333333"));
+
+        var bg = ConvertAndGetBackground(path, out _);
+
+        Assert.Equal("#333333", bg);
+    }
+
+    [Fact]
+    public void Convert_BackgroundCascade_ResolvesMasterBgRefSchemeColor()
+    {
+        // AetherLink master pattern: <p:bgRef idx="1001"><a:schemeClr val="bg1"/></p:bgRef>
+        var path = CreateBackgroundPptx("bg-master-bgref.pptx",
+            slideBgXml: null, layoutBgXml: null, masterBgXml: BgRefXml("bg1"), themeLt1Hex: "0B1026");
+
+        var bg = ConvertAndGetBackground(path, out var source);
+
+        Assert.Equal("#0B1026", bg);
+        Assert.Contains("""#set page(fill: rgb("#0B1026"))""", source);
+    }
 }
