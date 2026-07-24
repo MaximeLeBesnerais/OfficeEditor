@@ -951,15 +951,25 @@ public sealed partial class PptxToTypstConverter : IDisposable
         var uri = graphicData.Uri?.Value ?? "";
         if (uri.Contains("/drawingml/2006/diagram", StringComparison.Ordinal))
         {
-            // SmartArt: approximate as positioned text from the diagram drawing part.
-            var approximated = false;
-            foreach (var element in ConvertDiagramGraphicFrame(slidePart, graphicFrame, position, offX, offY, scaleX, scaleY))
+            // SmartArt: extract positioned shapes and text from the diagram drawing part.
+            var hadShapes = false;
+            var hadText = false;
+            foreach (var element in ConvertDiagramGraphicFrame(slidePart, graphicFrame, position, offX, offY, scaleX, scaleY, styleResolver))
             {
-                approximated = true;
+                hadShapes = hadShapes || element.Type == "Shape";
+                hadText = hadText || element.Type == "Text";
                 yield return element;
             }
 
-            if (approximated)
+            if (hadShapes && hadText)
+            {
+                AddSlideWarning($"SmartArt diagram '{name}' was rendered from pre-rendered shapes; theme colours may differ from the original.");
+            }
+            else if (hadShapes)
+            {
+                AddSlideWarning($"SmartArt diagram '{name}' was rendered from pre-rendered shapes (text not found); theme colours may differ from the original.");
+            }
+            else if (hadText)
             {
                 AddSlideWarning($"SmartArt diagram '{name}' was approximated as positioned text; diagram layout and styling may differ from the original.");
             }
@@ -1060,7 +1070,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
 
     private IEnumerable<TypstElement> ConvertDiagramGraphicFrame(SlidePart slidePart, P.GraphicFrame graphicFrame,
         (double X, double Y, double Width, double Height) framePosition,
-        double offX, double offY, double scaleX, double scaleY)
+        double offX, double offY, double scaleX, double scaleY, StyleResolver styleResolver)
     {
         var graphicData = graphicFrame.Graphic?.GraphicData;
         if (graphicData == null) yield break;
@@ -1146,7 +1156,8 @@ public sealed partial class PptxToTypstConverter : IDisposable
                 var diagramShape = SmartArtDrawingExtractor.TryExtractShape(
                     shape, offX, offY, scaleX, scaleY,
                     framePosition.X, framePosition.Y,
-                    shapeW, shapeH);
+                    shapeW, shapeH,
+                    styleResolver.SchemeColors);
 
                 if (diagramShape != null)
                     yield return diagramShape;
