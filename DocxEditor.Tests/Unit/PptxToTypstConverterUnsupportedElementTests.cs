@@ -146,6 +146,46 @@ public sealed class PptxToTypstConverterUnsupportedElementTests : IDisposable
             e => e.Text?.Content.Contains("not supported", StringComparison.Ordinal) == true);
     }
 
+    [Fact]
+    public void Convert_ReferenceDeckWithSmartArt_Slide15YieldsShapeElements()
+    {
+        // Integration test: convert sales_acceleration_deck.pptx and assert that
+        // slide 15 yields shape elements (roundRect boxes, rightArrow connectors)
+        // in addition to the four text nodes (SUSTAIN, DIAGNOSE, DESIGN, DELIVER).
+        var referencePath = Path.Combine(ResolveReferenceDirectory(), "sales_acceleration_deck.pptx");
+        Assert.True(File.Exists(referencePath), $"Reference deck not found: {referencePath}");
+
+        using var document = PresentationDocument.Open(referencePath, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = converter.Convert();
+
+        var smartArtSlides = presentation.Slides
+            .Where(s => s.Warnings.Any(w => w.Contains("SmartArt", StringComparison.Ordinal)))
+            .ToList();
+        var slide = Assert.Single(smartArtSlides);
+
+        var shapes = slide.Elements.Where(e => e.Type == "Shape").ToList();
+        Assert.NotEmpty(shapes);
+
+        var rects = shapes.Where(s => s.Shape?.ShapeType == "rect").ToList();
+        var polygons = shapes.Where(s => s.Shape?.ShapeType == "polygon").ToList();
+        Assert.NotEmpty(rects);
+        Assert.NotEmpty(polygons);
+
+        // Each shape should have a fill colour and positioning.
+        Assert.All(shapes, s =>
+        {
+            Assert.True(s.Width > 0);
+            Assert.True(s.Height > 0);
+            Assert.NotNull(s.Shape);
+        });
+
+        // The 4 text nodes (DIAGNOSE, DESIGN, DELIVER, SUSTAIN) should still be present.
+        var textElements = slide.Elements.Where(e => e.Type == "Text").ToList();
+        Assert.NotEmpty(textElements);
+    }
+
     private static P.GraphicFrame GraphicFrame(uint id, string name, double x, double y, double width, double height, string uri)
     {
         return new P.GraphicFrame(
