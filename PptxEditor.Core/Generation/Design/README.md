@@ -10,11 +10,11 @@ across slide XML of the reference decks in `examples/REF/PPTX/`.
 ## Provenance
 
 ### `aetherlink.tokens.json` — source: `AetherLink-Glass-Shareholder-Overview.pptx`
-Deck uses the stock Office theme, so values come from shape-level mining:
-- primary `#003E7E` (105 uses), accent `#1E7BC6` (39 uses)
-- ink `#000000` (33 uses), muted `#343434` (27 uses), paper `#FFFFFF` (24 uses)
-- font: `Public Sans` (51 uses; `Public Sans Bold` 77 uses — bold is a run
-  property, the family is the token)
+Deck uses a custom theme. Palette maps theme scheme slots to semantic names
+via shape-level frequency mining (`TokenMiner.Mine`):
+- primary `#22D3EE` (accent1 — most-used accent), accent `#8B5CF6` (accent2)
+- ink `#0B1026` (dk1), muted `#EAF2FF` (lt2), paper `#FFFFFF` (lt1)
+- fonts: `Liter` (major/display), `QuattrocentoSans` (minor/body) — from theme fonts
 
 ## Hand-tuning (metrics/radii only, per P8 acceptance)
 

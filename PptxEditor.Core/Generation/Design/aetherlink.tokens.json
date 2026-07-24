@@ -1,14 +1,14 @@
 {
   "palette": {
-    "primary": "#003E7E",
-    "accent": "#1E7BC6",
-    "ink": "#000000",
+    "primary": "#22D3EE",
+    "accent": "#8B5CF6",
+    "ink": "#0B1026",
     "paper": "#FFFFFF",
-    "muted": "#343434"
+    "muted": "#EAF2FF"
   },
   "fonts": {
-    "display": "Public Sans",
-    "body": "Public Sans"
+    "display": "Liter",
+    "body": "QuattrocentoSans"
   },
   "shape": {
     "cornerRadius": 8,
@@ -17,7 +17,7 @@
   "metrics": {
     "marginPt": 48,
     "gutterPt": 18,
-    "titleSizePt": 32,
-    "bodySizePt": 14
+    "titleSizePt": 44,
+    "bodySizePt": 32
   }
 }
