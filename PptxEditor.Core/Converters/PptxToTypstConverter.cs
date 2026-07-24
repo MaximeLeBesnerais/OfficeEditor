@@ -22,6 +22,14 @@ public sealed partial class PptxToTypstConverter : IDisposable
     private readonly Dictionary<string, TypstFontMetrics> _fontMetrics = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, string> _themeFonts = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, TableStyleDefinition> _tableStyles = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The <c>def</c> attribute of <c>a:tblStyleLst</c>: style applied when a table's
+    /// <c>a:tblPr</c> omits <c>a:tableStyleId</c>. Note the GUID often refers to a
+    /// PowerPoint built-in style whose definition is not stored in the file; the
+    /// fallback only has an effect when the style list actually contains the entry.
+    /// </summary>
+    private string? _defaultTableStyleId;
     private int _imageCounter;
 
     /// <summary>Warnings for the slide currently being converted; null outside slide conversion.</summary>
@@ -2718,6 +2726,10 @@ public sealed partial class PptxToTypstConverter : IDisposable
             lastRowFlag = tableProps.LastRow?.Value == true;
         }
 
+        // A table without a:tableStyleId uses the default table style (a:tblStyleLst def).
+        if (string.IsNullOrEmpty(styleId))
+            styleId = _defaultTableStyleId;
+
         _tableStyles.TryGetValue(styleId ?? "", out var tableStyle);
 
         // Derive border color and width from wholeTbl border; fallback to black/1.0
@@ -3003,6 +3015,8 @@ public sealed partial class PptxToTypstConverter : IDisposable
         var part = _document.PresentationPart!.TableStylesPart;
         if (part?.TableStyleList == null) return;
 
+        _defaultTableStyleId = part.TableStyleList.Default?.Value;
+
         foreach (var style in part.TableStyleList.ChildElements.OfType<Drawing.TableStyleEntry>())
         {
             var styleId = style.StyleId?.Value;
@@ -3251,9 +3265,16 @@ public sealed partial class PptxToTypstConverter : IDisposable
 
         if (bandRowFlag)
         {
-            var bandKey = (row % 2 == 1) ? "band1H" : "band2H";
-            if (style.Parts.TryGetValue(bandKey, out var bandPart))
-                result = OverlayTableStylePart(result, bandPart);
+            // Banding restarts after the special first row: with firstRow on, row 1 is the
+            // first band (band1H); with firstRow off, row 0 is. Previously row parity alone
+            // decided, which shifted all bands by one whenever firstRow was off.
+            var bandIndex = firstRowFlag ? row - 1 : row;
+            if (bandIndex >= 0)
+            {
+                var bandKey = (bandIndex % 2 == 0) ? "band1H" : "band2H";
+                if (style.Parts.TryGetValue(bandKey, out var bandPart))
+                    result = OverlayTableStylePart(result, bandPart);
+            }
         }
 
         if (firstRowFlag && row == 0 && style.Parts.TryGetValue("firstRow", out var firstRow))
