@@ -347,6 +347,80 @@ public class DocumentBuilder : IDocumentBuilder
         _cachedStyles[styleId] = style;
     }
 
+    private bool _numberingDefinitionsEnsured;
+
+    private void EnsureNumberingDefinitions()
+    {
+        if (_numberingDefinitionsEnsured)
+            return;
+
+        var mainPart = _document.MainDocumentPart!;
+        var numberingPart = mainPart.NumberingDefinitionsPart;
+        if (numberingPart == null)
+        {
+            numberingPart = mainPart.AddNewPart<NumberingDefinitionsPart>();
+        }
+
+        var numbering = numberingPart.Numbering ?? new Numbering();
+
+        if (!numbering.Elements<AbstractNum>().Any(n => n.AbstractNumberId?.Value == 1))
+        {
+            numbering.Append(CreateOrderedAbstractNum());
+        }
+
+        if (!numbering.Elements<AbstractNum>().Any(n => n.AbstractNumberId?.Value == 2))
+        {
+            numbering.Append(CreateBulletAbstractNum());
+        }
+
+        if (!numbering.Elements<NumberingInstance>().Any(n => n.NumberID?.Value == 1))
+        {
+            numbering.Append(new NumberingInstance(
+                new AbstractNumId { Val = 1 }
+            ) { NumberID = 1 });
+        }
+
+        if (!numbering.Elements<NumberingInstance>().Any(n => n.NumberID?.Value == 2))
+        {
+            numbering.Append(new NumberingInstance(
+                new AbstractNumId { Val = 2 }
+            ) { NumberID = 2 });
+        }
+
+        numberingPart.Numbering = numbering;
+        _numberingDefinitionsEnsured = true;
+    }
+
+    private static AbstractNum CreateOrderedAbstractNum()
+    {
+        return new AbstractNum(
+            new Level(
+                new StartNumberingValue { Val = 1 },
+                new NumberingFormat { Val = NumberFormatValues.Decimal },
+                new LevelText { Val = "%1." },
+                new LevelJustification { Val = LevelJustificationValues.Left },
+                new PreviousParagraphProperties(
+                    new Indentation { Left = "720", Hanging = "360" }
+                )
+            ) { LevelIndex = 0 }
+        ) { AbstractNumberId = 1 };
+    }
+
+    private static AbstractNum CreateBulletAbstractNum()
+    {
+        return new AbstractNum(
+            new Level(
+                new StartNumberingValue { Val = 1 },
+                new NumberingFormat { Val = NumberFormatValues.Bullet },
+                new LevelText { Val = "\u2022" },
+                new LevelJustification { Val = LevelJustificationValues.Left },
+                new PreviousParagraphProperties(
+                    new Indentation { Left = "720", Hanging = "360" }
+                )
+            ) { LevelIndex = 0 }
+        ) { AbstractNumberId = 2 };
+    }
+
     private static Style CreateDefaultStyle(string styleId)
     {
         return styleId switch
@@ -405,7 +479,8 @@ public class DocumentBuilder : IDocumentBuilder
 
     public IDocumentBuilder AddRichContent(List<ContentBlock> blocks)
     {
-        var renderer = new ContentBlockRenderer(StyleMapping.Default, _cachedStyles, EnsureStyle);
+        EnsureNumberingDefinitions();
+        var renderer = new ContentBlockRenderer(StyleMapping.Default, _cachedStyles, EnsureStyle, EnsureNumberingDefinitions);
         renderer.Render(_body, blocks);
         return this;
     }
@@ -418,7 +493,8 @@ public class DocumentBuilder : IDocumentBuilder
             throw new InvalidOperationException($"Paragraph containing '{targetText}' not found.");
         }
 
-        var renderer = new ContentBlockRenderer(StyleMapping.Default, _cachedStyles, EnsureStyle);
+        EnsureNumberingDefinitions();
+        var renderer = new ContentBlockRenderer(StyleMapping.Default, _cachedStyles, EnsureStyle, EnsureNumberingDefinitions);
         
         // Remove target paragraph and insert rich content before its position
         var parent = targetParagraph.Parent;
