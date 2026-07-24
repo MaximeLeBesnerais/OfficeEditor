@@ -46,7 +46,11 @@ public class DocxJsonInstructionParser
             },
             "replacetext" => new ReplaceTextInstruction
             {
-                Find = dto.Find ?? throw new ArgumentException("Find is required for replaceText."),
+                // Empty find is rejected: string.Replace("", x) would insert the
+                // replacement between every character of the document.
+                Find = string.IsNullOrEmpty(dto.Find)
+                    ? throw new ArgumentException("Find must be a non-empty string for replaceText.")
+                    : dto.Find,
                 Replace = dto.Replace ?? throw new ArgumentException("Replace is required for replaceText.")
             },
             "insertafter" => new InsertAfterInstruction
@@ -91,96 +95,172 @@ public class DocxJsonInstructionParser
 
             var type = typeProp.GetString()!;
 
-            blocks.Add(ParseBlock(type, blockElement));
+            blocks.Add(ParseBlock(type, blockElement, $"blocks[{blocks.Count}] ('{type}')"));
         }
 
         return blocks;
     }
 
-    private static ContentBlock ParseBlock(string type, JsonElement element)
+    private static string? GetOptionalString(JsonElement element, string propertyName, string path)
+    {
+        if (!element.TryGetProperty(propertyName, out var prop) || prop.ValueKind == JsonValueKind.Null)
+            return null;
+        if (prop.ValueKind != JsonValueKind.String)
+            throw new ArgumentException($"{path}: field '{propertyName}' must be a string, got {prop.ValueKind}.");
+        return prop.GetString();
+    }
+
+    private static string GetStringOrEmpty(JsonElement element, string propertyName, string path)
+        => GetOptionalString(element, propertyName, path) ?? string.Empty;
+
+    private static int GetOptionalInt32(JsonElement element, string propertyName, int defaultValue, string path)
+    {
+        if (!element.TryGetProperty(propertyName, out var prop) || prop.ValueKind == JsonValueKind.Null)
+            return defaultValue;
+        if (prop.ValueKind == JsonValueKind.Number && prop.TryGetInt32(out var value))
+            return value;
+        throw new ArgumentException($"{path}: field '{propertyName}' must be an integer, got {prop}.");
+    }
+
+    private static bool GetOptionalBool(JsonElement element, string propertyName, string path)
+    {
+        if (!element.TryGetProperty(propertyName, out var prop) || prop.ValueKind == JsonValueKind.Null)
+            return false;
+        if (prop.ValueKind is JsonValueKind.True or JsonValueKind.False)
+            return prop.GetBoolean();
+        throw new ArgumentException($"{path}: field '{propertyName}' must be a boolean, got {prop.ValueKind}.");
+    }
+
+    private static List<string> GetOptionalStringList(JsonElement element, string propertyName, string path)
+    {
+        if (!element.TryGetProperty(propertyName, out var prop) || prop.ValueKind == JsonValueKind.Null)
+            return [];
+        if (prop.ValueKind != JsonValueKind.Array)
+            throw new ArgumentException($"{path}: field '{propertyName}' must be an array, got {prop.ValueKind}.");
+
+        var items = new List<string>();
+        int index = 0;
+        foreach (var item in prop.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.String)
+                throw new ArgumentException($"{path}: field '{propertyName}[{index}]' must be a string, got {item.ValueKind}.");
+            items.Add(item.GetString()!);
+            index++;
+        }
+
+        return items;
+    }
+
+    private static ContentBlock ParseBlock(string type, JsonElement element, string path)
     {
         return type.ToLowerInvariant() switch
         {
             "paragraph" => new ParagraphBlock
             {
-                Text = element.TryGetProperty("text", out var text) ? text.GetString() ?? string.Empty : string.Empty,
-                Style = element.TryGetProperty("style", out var style) ? style.GetString() : null,
-                InlineFormats = element.TryGetProperty("inlineFormats", out var formats) ? ParseInlineFormats(formats) : null
+                Text = GetStringOrEmpty(element, "text", path),
+                Style = GetOptionalString(element, "style", path),
+                InlineFormats = element.TryGetProperty("inlineFormats", out var formats) ? ParseInlineFormats(formats, path) : null
             },
             "heading" => new HeadingBlock
             {
-                Level = element.TryGetProperty("level", out var level) && level.ValueKind == JsonValueKind.Number ? level.GetInt32() : 1,
-                Text = element.TryGetProperty("text", out var hText) ? hText.GetString() ?? string.Empty : string.Empty,
-                Style = element.TryGetProperty("style", out var hStyle) ? hStyle.GetString() : null
+                Level = GetOptionalInt32(element, "level", defaultValue: 1, path),
+                Text = GetStringOrEmpty(element, "text", path),
+                Style = GetOptionalString(element, "style", path)
             },
             "list" => new ListBlock
             {
-                Ordered = element.TryGetProperty("ordered", out var ordered) && ordered.ValueKind == JsonValueKind.True,
-                Items = element.TryGetProperty("items", out var items) ? items.EnumerateArray().Select(i => i.GetString() ?? string.Empty).ToList() : [],
-                Style = element.TryGetProperty("style", out var lStyle) ? lStyle.GetString() : null
+                Ordered = GetOptionalBool(element, "ordered", path),
+                Items = GetOptionalStringList(element, "items", path),
+                Style = GetOptionalString(element, "style", path)
             },
             "table" => new TableBlock
             {
-                Rows = element.TryGetProperty("rows", out var rows) ? ParseTableRows(rows) : []
+                Rows = element.TryGetProperty("rows", out var rows) ? ParseTableRows(rows, path) : []
             },
             "blockquote" => new BlockquoteBlock
             {
-                Text = element.TryGetProperty("text", out var bqText) ? bqText.GetString() ?? string.Empty : string.Empty,
-                Style = element.TryGetProperty("style", out var bqStyle) ? bqStyle.GetString() : null
+                Text = GetStringOrEmpty(element, "text", path),
+                Style = GetOptionalString(element, "style", path)
             },
             "code" => new CodeBlock
             {
-                Text = element.TryGetProperty("text", out var cText) ? cText.GetString() ?? string.Empty : string.Empty,
-                Language = element.TryGetProperty("language", out var lang) ? lang.GetString() : null,
-                Style = element.TryGetProperty("style", out var cStyle) ? cStyle.GetString() : null
+                Text = GetStringOrEmpty(element, "text", path),
+                Language = GetOptionalString(element, "language", path),
+                Style = GetOptionalString(element, "style", path)
             },
             "horizontalrule" => new HorizontalRuleBlock(),
             "custom" => new CustomBlock
             {
-                CustomType = element.TryGetProperty("customType", out var ct) ? ct.GetString() ?? string.Empty : string.Empty,
-                Text = element.TryGetProperty("text", out var cuText) ? cuText.GetString() ?? string.Empty : string.Empty,
-                Style = element.TryGetProperty("style", out var cuStyle) ? cuStyle.GetString() : null
+                CustomType = GetStringOrEmpty(element, "customType", path),
+                Text = GetStringOrEmpty(element, "text", path),
+                Style = GetOptionalString(element, "style", path)
             },
             _ => throw new NotSupportedException($"Block type '{type}' is not supported. Valid types: paragraph, heading, list, table, blockquote, code, horizontalRule, custom.")
         };
     }
 
-    private static List<InlineFormat>? ParseInlineFormats(JsonElement formats)
+    private static List<InlineFormat>? ParseInlineFormats(JsonElement formats, string path)
     {
-        if (formats.ValueKind != JsonValueKind.Array || formats.GetArrayLength() == 0)
+        if (formats.ValueKind == JsonValueKind.Null)
+            return null;
+        if (formats.ValueKind != JsonValueKind.Array)
+            throw new ArgumentException($"{path}: field 'inlineFormats' must be an array, got {formats.ValueKind}.");
+        if (formats.GetArrayLength() == 0)
             return null;
 
         var result = new List<InlineFormat>();
+        int index = 0;
         foreach (var f in formats.EnumerateArray())
         {
+            var formatPath = $"{path}.inlineFormats[{index}]";
+            if (f.ValueKind != JsonValueKind.Object)
+                throw new ArgumentException($"{formatPath}: each inline format must be a JSON object, got {f.ValueKind}.");
             result.Add(new InlineFormat
             {
-                Type = f.TryGetProperty("type", out var t) ? t.GetString() ?? string.Empty : string.Empty,
-                Text = f.TryGetProperty("text", out var txt) ? txt.GetString() ?? string.Empty : string.Empty
+                Type = GetStringOrEmpty(f, "type", formatPath),
+                Text = GetStringOrEmpty(f, "text", formatPath)
             });
+            index++;
         }
 
         return result.Count > 0 ? result : null;
     }
 
-    private static List<TableRow> ParseTableRows(JsonElement rows)
+    private static List<TableRow> ParseTableRows(JsonElement rows, string path)
     {
+        if (rows.ValueKind != JsonValueKind.Array)
+            throw new ArgumentException($"{path}: field 'rows' must be an array, got {rows.ValueKind}.");
+
         var tableRows = new List<TableRow>();
+        int rowIndex = 0;
         foreach (var row in rows.EnumerateArray())
         {
+            var rowPath = $"{path}.rows[{rowIndex}]";
+            if (row.ValueKind != JsonValueKind.Object)
+                throw new ArgumentException($"{rowPath}: each row must be a JSON object, got {row.ValueKind}.");
+
             var cells = new List<TableCell>();
-            if (row.TryGetProperty("cells", out var cellsElement))
+            if (row.TryGetProperty("cells", out var cellsElement) && cellsElement.ValueKind != JsonValueKind.Null)
             {
+                if (cellsElement.ValueKind != JsonValueKind.Array)
+                    throw new ArgumentException($"{rowPath}: field 'cells' must be an array, got {cellsElement.ValueKind}.");
+
+                int cellIndex = 0;
                 foreach (var cell in cellsElement.EnumerateArray())
                 {
+                    var cellPath = $"{rowPath}.cells[{cellIndex}]";
+                    if (cell.ValueKind != JsonValueKind.Object)
+                        throw new ArgumentException($"{cellPath}: each cell must be a JSON object, got {cell.ValueKind}.");
                     cells.Add(new TableCell
                     {
-                        Text = cell.TryGetProperty("text", out var t) ? t.GetString() ?? string.Empty : string.Empty
+                        Text = GetStringOrEmpty(cell, "text", cellPath)
                     });
+                    cellIndex++;
                 }
             }
 
             tableRows.Add(new TableRow { Cells = cells });
+            rowIndex++;
         }
 
         return tableRows;
