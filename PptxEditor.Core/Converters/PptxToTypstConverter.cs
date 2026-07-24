@@ -1106,7 +1106,16 @@ public sealed partial class PptxToTypstConverter : IDisposable
             yield break;
         }
 
-        // Charts, OLE objects, media, and any other graphic frames have no conversion
+        // ChartML graphic frames (c:chart) route through the chart pipeline
+        // (Converters/Charts); unsupported chart types keep the placeholder fallback there.
+        if (uri.Contains("/drawingml/2006/chart", StringComparison.Ordinal))
+        {
+            foreach (var element in ConvertChartGraphicFrame(slidePart, graphicData, position, offX, offY, scaleX, scaleY, styleResolver, name))
+                yield return element;
+            yield break;
+        }
+
+        // OLE objects, media, and any other graphic frames have no conversion
         // path: render a visible placeholder (never drop content silently) and warn.
         var kind = ClassifyGraphicFrameKind(uri);
         AddSlideWarning($"{kind} '{name}' is not supported and was replaced by a placeholder.");
