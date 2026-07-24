@@ -51,7 +51,11 @@ public class WorksheetBuilder : IWorksheetBuilder
 
         if (isFormula)
         {
-            cell.CellFormula = new CellFormula(formula);
+            // SpreadsheetML stores formula text WITHOUT the leading '='; '=' is
+            // Excel's UI/input syntax only. Storing it in <f> triggers Excel's
+            // repair prompt. Callers may pass either form.
+            var formulaText = formula.StartsWith('=') ? formula[1..] : formula;
+            cell.CellFormula = new CellFormula(formulaText);
         }
         else
         {
@@ -208,10 +212,15 @@ public class WorksheetBuilder : IWorksheetBuilder
         return null;
     }
 
+    /// <summary>
+    /// Returns the cell's formula in Excel display syntax (with a leading '=').
+    /// The stored &lt;f&gt; text never contains '=' (SpreadsheetML requirement);
+    /// it is re-prepended here so callers always see the familiar form.
+    /// </summary>
     public string? GetCellFormula(string cellReference)
     {
         var cell = FindCell(cellReference);
-        return cell?.CellFormula?.Text;
+        return ToDisplayFormula(cell?.CellFormula);
     }
 
     public bool CellExists(string cellReference)
@@ -228,7 +237,7 @@ public class WorksheetBuilder : IWorksheetBuilder
         {
             Reference = cell.CellReference?.Value ?? cellReference,
             Value = GetCellValue(cellReference),
-            Formula = cell.CellFormula?.Text,
+            Formula = ToDisplayFormula(cell.CellFormula),
             DataType = cell.DataType?.Value
         };
     }
@@ -265,7 +274,7 @@ public class WorksheetBuilder : IWorksheetBuilder
                     {
                         Reference = c.CellReference?.Value ?? string.Empty,
                         Value = ResolveCellValue(c),
-                        Formula = c.CellFormula?.Text,
+                        Formula = ToDisplayFormula(c.CellFormula),
                         DataType = c.DataType?.Value
                     })
                     .ToList()
@@ -287,7 +296,7 @@ public class WorksheetBuilder : IWorksheetBuilder
                 {
                     Reference = c.CellReference?.Value ?? string.Empty,
                     Value = ResolveCellValue(c),
-                    Formula = c.CellFormula?.Text,
+                    Formula = ToDisplayFormula(c.CellFormula),
                     DataType = c.DataType?.Value
                 })
                 .ToList()
@@ -357,9 +366,16 @@ public class WorksheetBuilder : IWorksheetBuilder
         return this;
     }
 
-    private Cell? FindCell(string cellReference)
+    /// <summary>
+    /// Converts stored formula text (no '=') to Excel display syntax (leading '=').
+    /// </summary>
+    private static string? ToDisplayFormula(CellFormula? formula)
     {
-        var rowIndex = GetRowIndex(cellReference);
+        return formula?.Text is { Length: > 0 } text ? "=" + text : null;
+    }
+
+    private Cell? FindCell(string cellReference)
+    {        var rowIndex = GetRowIndex(cellReference);
         var row = _sheetData.Elements<Row>()
             .FirstOrDefault(r => r.RowIndex?.Value == (uint)rowIndex);
         if (row == null) return null;

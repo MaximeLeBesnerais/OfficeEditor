@@ -490,15 +490,19 @@ public class XlsxInstructionTests : IDisposable
             builder.Save();
         }
 
-        using var reader = WorkbookBuilder.Open(_testFilePath);
-        var revenue = reader.GetWorksheet("Revenue");
-        Assert.Equal("Month", revenue.GetCellValue("A1"));
-        Assert.Equal("10000", revenue.GetCellValue("B2"));
-        Assert.Equal("=SUM(B2:D2)", revenue.GetCellFormula("E2"));
+        using (var reader = WorkbookBuilder.Open(_testFilePath))
+        {
+            var revenue = reader.GetWorksheet("Revenue");
+            Assert.Equal("Month", revenue.GetCellValue("A1"));
+            Assert.Equal("10000", revenue.GetCellValue("B2"));
+            Assert.Equal("=SUM(B2:D2)", revenue.GetCellFormula("E2"));
 
-        var summary = reader.GetWorksheet("Summary");
-        Assert.Equal("Total Revenue Q1", summary.GetCellValue("A1"));
-        Assert.Equal("=SUM(Revenue!E2:E4)", summary.GetCellFormula("B1"));
+            var summary = reader.GetWorksheet("Summary");
+            Assert.Equal("Total Revenue Q1", summary.GetCellValue("A1"));
+            Assert.Equal("=SUM(Revenue!E2:E4)", summary.GetCellFormula("B1"));
+        }
+
+        OpenXmlAssert.NoValidationErrors(_testFilePath);
     }
 
     public void Dispose()
