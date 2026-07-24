@@ -1498,6 +1498,70 @@ public class PptxToTypstConverterTests : IDisposable
     }
 
     [Fact]
+    public void ResolveCellStylePart_BandedRows_RestartAfterFirstRow()
+    {
+        var resolveCellStylePart = typeof(PptxToTypstConverter).GetMethod(
+            "ResolveCellStylePart",
+            System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+
+        var style = new TableStyleDefinition { StyleId = "banded" };
+        style.Parts["band1H"] = new TableStylePart { BackgroundColor = "#EEEEEE" };
+        style.Parts["band2H"] = new TableStylePart { BackgroundColor = "#DDDDDD" };
+
+        string? BandAt(int row, bool firstRowFlag)
+        {
+            var part = resolveCellStylePart!.Invoke(
+                null, [row, 0, 5, 2, style, firstRowFlag, true, false, false, false]);
+            return (part as TableStylePart)?.BackgroundColor;
+        }
+
+        // firstRow on: header row carries no band; bands start at row 1 with band1H.
+        Assert.Null(BandAt(0, true));
+        Assert.Equal("#EEEEEE", BandAt(1, true));
+        Assert.Equal("#DDDDDD", BandAt(2, true));
+        Assert.Equal("#EEEEEE", BandAt(3, true));
+
+        // firstRow off: band1H starts at row 0.
+        Assert.Equal("#EEEEEE", BandAt(0, false));
+        Assert.Equal("#DDDDDD", BandAt(1, false));
+        Assert.Equal("#EEEEEE", BandAt(2, false));
+    }
+
+    [Fact]
+    public void ExtractTable_WithoutStyleId_FallsBackToDefaultTableStyleForBanding()
+    {
+        var path = CreateSimplePptx();
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        // Seed the table style catalog + default style id as LoadTableStyles would.
+        var style = new TableStyleDefinition { StyleId = "{DEFAULT}" };
+        style.Parts["band1H"] = new TableStylePart { BackgroundColor = "#F2F2F2" };
+        var stylesField = typeof(PptxToTypstConverter).GetField(
+            "_tableStyles", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        var defaultIdField = typeof(PptxToTypstConverter).GetField(
+            "_defaultTableStyleId", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        var styles = Assert.IsType<Dictionary<string, TableStyleDefinition>>(stylesField!.GetValue(converter));
+        styles["{DEFAULT}"] = style;
+        defaultIdField!.SetValue(converter, "{DEFAULT}");
+
+        const string ns = "xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\"";
+        var table = new Drawing.Table(
+            new Drawing.TableProperties { FirstRow = true, BandRow = true },
+            new Drawing.TableGrid(new Drawing.GridColumn { Width = 2113280 }),
+            new Drawing.TableRow(CreateTableCell($"<a:tcPr {ns}/>", "H")) { Height = 685800 },
+            new Drawing.TableRow(CreateTableCell($"<a:tcPr {ns}/>", "B1")) { Height = 685800 },
+            new Drawing.TableRow(CreateTableCell($"<a:tcPr {ns}/>", "B2")) { Height = 685800 });
+
+        var result = InvokeExtractTable(converter, table);
+
+        Assert.Null(result.Rows[0][0].BackgroundColor);
+        Assert.Equal("#F2F2F2", result.Rows[1][0].BackgroundColor);
+        Assert.Null(result.Rows[2][0].BackgroundColor);
+    }
+
+    [Fact]
     public void GenerateTypstSource_PartialStrokeCell_EmitsOnlyDefinedEdges()
     {
         var path = CreateSimplePptx();
