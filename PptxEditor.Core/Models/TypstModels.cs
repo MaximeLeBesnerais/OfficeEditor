@@ -179,11 +179,27 @@ public sealed class TypstShapeElement
 {
     public string ShapeType { get; init; } = "rect";
     public string FillColor { get; init; } = string.Empty;
+    /// <summary>
+    /// Linear gradient fill (from an OOXML <c>a:gradFill</c>), emitted as Typst
+    /// <c>gradient.linear</c>. Mutually exclusive with <see cref="FillColor"/>:
+    /// only set when no solid fill was found.
+    /// </summary>
+    public TypstGradientFill? FillGradient { get; init; }
     public string StrokeColor { get; init; } = string.Empty;
     public double StrokeWidth { get; init; }
     public double CornerRadius { get; init; }
     public List<(double X, double Y)> Points { get; init; } = new();
 }
+
+/// <summary>
+/// Linear gradient fill: axis <paramref name="Angle"/> in degrees (OOXML <c>a:lin ang</c>
+/// and Typst <c>gradient.linear</c> share the same clockwise-from-left→right convention)
+/// plus the color stops.
+/// </summary>
+public sealed record TypstGradientFill(double Angle, IReadOnlyList<TypstGradientStop> Stops);
+
+/// <summary>One gradient color stop: <c>#RRGGBB</c>/<c>#RRGGBBAA</c> hex color + offset in [0, 1].</summary>
+public sealed record TypstGradientStop(string Color, double Offset);
 
 public sealed class TableStyleDefinition
 {

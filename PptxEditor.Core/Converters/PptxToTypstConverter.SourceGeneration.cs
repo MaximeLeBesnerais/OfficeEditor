@@ -789,7 +789,9 @@ public sealed partial class PptxToTypstConverter
 
     private void GenerateShapeSource(StringBuilder sb, TypstShapeElement shape, string widthStr, string heightStr, double width, double height)
     {
-        var fill = !string.IsNullOrEmpty(shape.FillColor) ? $"fill: rgb(\"{shape.FillColor}\")" : "";
+        var fill = shape.FillGradient != null
+            ? $"fill: {FormatGradient(shape.FillGradient)}"
+            : !string.IsNullOrEmpty(shape.FillColor) ? $"fill: rgb(\"{shape.FillColor}\")" : "";
         var stroke = shape.StrokeWidth > 0 && !string.IsNullOrEmpty(shape.StrokeColor)
             ? $"stroke: {FormatPt(shape.StrokeWidth)} + rgb(\"{shape.StrokeColor}\")"
             : "";
@@ -832,6 +834,18 @@ public sealed partial class PptxToTypstConverter
                 break;
         }
     }
+
+    private static string FormatGradient(TypstGradientFill gradient)
+    {
+        // Same emission shape as the generation pipeline's TypstEmitter:
+        // gradient.linear((rgb("…"), 0%), (rgb("…"), 100%), angle: 115deg)
+        var stops = string.Join(", ", gradient.Stops.Select(s =>
+            $"(rgb(\"{s.Color}\"), {FormatNumber(s.Offset * 100)}%)"));
+        return $"gradient.linear({stops}, angle: {FormatNumber(gradient.Angle)}deg)";
+    }
+
+    private static string FormatNumber(double value)
+        => value.ToString("0.##", CultureInfo.InvariantCulture);
 
     private void GenerateTableSource(StringBuilder sb, TypstTableElement table, string width, string height)
     {
