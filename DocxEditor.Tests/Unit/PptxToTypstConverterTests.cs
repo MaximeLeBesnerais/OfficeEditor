@@ -3217,4 +3217,53 @@ public class PptxToTypstConverterTests : IDisposable
         var source = converter.GenerateTypstSource(presentation);
         Assert.Contains("""fill: rgb("#FFFFFF7F")""", source);
     }
+
+    [Fact]
+    public void GenerateTypstSource_ShapeGradientFill_EmitsTypstLinearGradient()
+    {
+        // AetherLink pattern: full-bleed rect with a two-stop navy gradient as slide background
+        const string fill = """
+            <a:gradFill><a:gsLst><a:gs pos="0"><a:srgbClr val="0B1026"/></a:gs><a:gs pos="100000"><a:srgbClr val="131B3F"/></a:gs></a:gsLst><a:lin ang="6900000" scaled="1"/></a:gradFill><a:ln><a:noFill/></a:ln>
+            """;
+        var shape = ShapeFromXml(fill);
+        var path = CreateGroupShapePptx("gradient-fill.pptx", shape);
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = converter.Convert();
+        var shapeElement = Assert.Single(presentation.Slides[0].Elements, e => e.Shape != null);
+        var gradient = Assert.IsType<TypstGradientFill>(shapeElement.Shape!.FillGradient);
+        Assert.Equal(115.0, gradient.Angle); // 6900000 / 60000, verbatim OOXML->Typst degrees
+        Assert.Equal(new TypstGradientStop("#0B1026", 0.0), gradient.Stops[0]);
+        Assert.Equal(new TypstGradientStop("#131B3F", 1.0), gradient.Stops[1]);
+
+        var source = converter.GenerateTypstSource(presentation);
+        Assert.Contains("""fill: gradient.linear((rgb("#0B1026"), 0%), (rgb("#131B3F"), 100%), angle: 115deg)""", source);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_GradientStopWithAlpha_EmitsEightDigitHexStop()
+    {
+        // AetherLink slide 1 pattern: alpha gradient overlay fading from 88% to fully transparent
+        const string fill = """
+            <a:gradFill><a:gsLst><a:gs pos="0"><a:srgbClr val="0B1026"><a:alpha val="88000"/></a:srgbClr></a:gs><a:gs pos="100000"><a:srgbClr val="0B1026"><a:alpha val="0"/></a:srgbClr></a:gs></a:gsLst><a:lin ang="6900000" scaled="1"/></a:gradFill>
+            """;
+        var shape = ShapeFromXml(fill);
+        var path = CreateGroupShapePptx("gradient-alpha-stops.pptx", shape);
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = converter.Convert();
+        var shapeElement = Assert.Single(presentation.Slides[0].Elements, e => e.Shape != null);
+        var gradient = Assert.IsType<TypstGradientFill>(shapeElement.Shape!.FillGradient);
+        // Transparent stops are meaningful in gradients (fade-out) — kept as #RRGGBB00, not noFill
+        Assert.Equal("#0B1026E0", gradient.Stops[0].Color);
+        Assert.Equal("#0B102600", gradient.Stops[1].Color);
+
+        var source = converter.GenerateTypstSource(presentation);
+        Assert.Contains("""(rgb("#0B1026E0"), 0%)""", source);
+        Assert.Contains("""(rgb("#0B102600"), 100%)""", source);
+    }
 }
