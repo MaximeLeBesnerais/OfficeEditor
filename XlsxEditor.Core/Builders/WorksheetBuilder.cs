@@ -135,24 +135,50 @@ public class WorksheetBuilder : IWorksheetBuilder
         return this;
     }
 
+    // Excel table display names: must start with a letter, underscore or backslash,
+    // then only letters, digits, periods and underscores — no spaces or other specials.
+    private static readonly Regex TableDisplayNamePattern =
+        new(@"^[A-Za-z_\\][A-Za-z0-9._]*$", RegexOptions.Compiled);
+
     public IWorksheetBuilder AddTable(string startCell, string endCell, string tableName)
     {
+        var start = NormalizeCellReference(startCell);
+        var end = NormalizeCellReference(endCell);
+        ValidateTableDisplayName(tableName);
+
+        var startColumn = GetColumnIndex(start);
+        var startRow = GetRowIndex(start);
+        var endColumn = GetColumnIndex(end);
+        var endRow = GetRowIndex(end);
+
+        if (endColumn < startColumn || endRow < startRow)
+        {
+            throw new XlsxException(
+                $"Table range '{start}:{end}' is reversed: the start cell must be the " +
+                "top-left corner of the table and the end cell the bottom-right corner.");
+        }
+
+        EnsureNoTableOverlap(startRow, endRow, startColumn, endColumn, tableName);
+        _workbookBuilder.RegisterTableName(tableName);
+
+        var columnCount = endColumn - startColumn + 1;
+        var columnNames = ResolveTableColumnNames(startRow, startColumn, columnCount);
+
         var tablePart = _worksheetPart.AddNewPart<TableDefinitionPart>();
         var relationshipId = _worksheetPart.GetIdOfPart(tablePart);
-        var columnCount = GetColumnIndex(endCell) - GetColumnIndex(startCell) + 1;
         var table = new Table
         {
             Id = _workbookBuilder.NextTableId(),
             Name = tableName,
             DisplayName = tableName,
-            Reference = $"{startCell}:{endCell}"
+            Reference = $"{start}:{end}"
         };
 
-        table.Append(new AutoFilter { Reference = $"{startCell}:{endCell}" });
+        table.Append(new AutoFilter { Reference = $"{start}:{end}" });
         var tableColumns = new TableColumns { Count = (uint)columnCount };
-        for (uint i = 1; i <= columnCount; i++)
+        for (uint i = 0; i < columnCount; i++)
         {
-            tableColumns.Append(new TableColumn { Id = i, Name = $"Column{i}" });
+            tableColumns.Append(new TableColumn { Id = i + 1, Name = columnNames[(int)i] });
         }
         table.Append(tableColumns);
         table.Append(new TableStyleInfo
@@ -175,6 +201,80 @@ public class WorksheetBuilder : IWorksheetBuilder
         tableParts.Count = (uint)tableParts.Elements<TablePart>().Count();
 
         return this;
+    }
+
+    private static void ValidateTableDisplayName(string tableName)
+    {
+        if (string.IsNullOrWhiteSpace(tableName) || !TableDisplayNamePattern.IsMatch(tableName))
+        {
+            throw new XlsxException(
+                $"Invalid table name '{tableName}'. Excel table names must start with a letter, " +
+                "underscore or backslash and contain only letters, digits, periods and " +
+                "underscores (no spaces or other special characters).");
+        }
+    }
+
+    private void EnsureNoTableOverlap(int startRow, int endRow, int startColumn, int endColumn, string tableName)
+    {
+        foreach (var existingPart in _worksheetPart.TableDefinitionParts)
+        {
+            var reference = existingPart.Table?.Reference?.Value;
+            if (string.IsNullOrEmpty(reference))
+            {
+                continue;
+            }
+
+            var bounds = reference.Split(':');
+            if (bounds.Length != 2)
+            {
+                continue;
+            }
+
+            var existingStartColumn = GetColumnIndex(bounds[0]);
+            var existingStartRow = GetRowIndex(bounds[0]);
+            var existingEndColumn = GetColumnIndex(bounds[1]);
+            var existingEndRow = GetRowIndex(bounds[1]);
+
+            var overlaps = startRow <= existingEndRow && existingStartRow <= endRow
+                && startColumn <= existingEndColumn && existingStartColumn <= endColumn;
+            if (overlaps)
+            {
+                throw new XlsxException(
+                    $"Table '{tableName}' overlaps existing table " +
+                    $"'{existingPart.Table?.Name?.Value}' ({reference}). " +
+                    "Excel does not allow overlapping tables on the same worksheet.");
+            }
+        }
+    }
+
+    private List<string> ResolveTableColumnNames(int headerRow, int startColumn, int columnCount)
+    {
+        // Excel requires table column names to exactly match the header-row cell
+        // text, be non-empty, and be unique within the table. Hardcoded "Column{i}"
+        // names that disagree with the header cells trigger a repair prompt.
+        var names = new List<string>(columnCount);
+        for (var offset = 0; offset < columnCount; offset++)
+        {
+            var headerReference = GetCellReference(startColumn - 1 + offset, headerRow);
+            var headerText = GetCellValue(headerReference)?.Trim();
+            var baseName = string.IsNullOrEmpty(headerText) ? $"Column{offset + 1}" : headerText;
+            names.Add(MakeUniqueColumnName(baseName, names));
+        }
+
+        return names;
+    }
+
+    private static string MakeUniqueColumnName(string baseName, List<string> existingNames)
+    {
+        var candidate = baseName;
+        var suffix = 2;
+        while (existingNames.Contains(candidate, StringComparer.OrdinalIgnoreCase))
+        {
+            candidate = baseName + suffix;
+            suffix++;
+        }
+
+        return candidate;
     }
 
     public IWorksheetBuilder AddChart(ChartType type, string dataRange)

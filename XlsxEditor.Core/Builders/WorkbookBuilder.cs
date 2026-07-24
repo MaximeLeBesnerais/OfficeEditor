@@ -91,6 +91,9 @@ public class WorkbookBuilder : IWorkbookBuilder
     private uint _nextSheetId = 1;
     private uint _nextTableId = 1;
 
+    // Excel table display names must be unique workbook-wide (case-insensitive).
+    private readonly HashSet<string> _tableNames = new(StringComparer.OrdinalIgnoreCase);
+
     private WorkbookBuilder(SpreadsheetDocument document, string? path, bool isNew, MemoryStream? documentStream = null)
     {
         _document = document;
@@ -442,6 +445,19 @@ public class WorkbookBuilder : IWorkbookBuilder
         return _nextTableId++;
     }
 
+    /// <summary>
+    /// Registers a table display name, throwing if it is already used in this workbook.
+    /// </summary>
+    internal void RegisterTableName(string tableName)
+    {
+        if (!_tableNames.Add(tableName))
+        {
+            throw new XlsxException(
+                $"A table named '{tableName}' already exists in this workbook. " +
+                "Table names must be unique workbook-wide (case-insensitive).");
+        }
+    }
+
     private void InitializeNewWorkbook()
     {
         _workbookPart.Workbook = new Workbook();
@@ -472,7 +488,8 @@ public class WorkbookBuilder : IWorkbookBuilder
         // Load shared string part if exists
         _sharedStringPart = _workbookPart.GetPartsOfType<SharedStringTablePart>().FirstOrDefault();
 
-        // Scan for max existing table ID to avoid collisions
+        // Scan for max existing table ID to avoid collisions, and register existing
+        // table names so new tables cannot reuse them.
         uint maxTableId = 0;
         foreach (var wsPart in _workbookPart.WorksheetParts)
         {
@@ -481,6 +498,11 @@ public class WorkbookBuilder : IWorkbookBuilder
                 if (tdPart.Table?.Id?.Value > maxTableId)
                 {
                     maxTableId = tdPart.Table.Id.Value;
+                }
+
+                if (tdPart.Table?.DisplayName?.Value is { Length: > 0 } displayName)
+                {
+                    _tableNames.Add(displayName);
                 }
             }
         }
