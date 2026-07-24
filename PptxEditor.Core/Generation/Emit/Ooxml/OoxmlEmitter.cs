@@ -25,6 +25,8 @@ public sealed class OoxmlEmitter
     private const double EmuPerPoint = 12700.0;
     private const int Pct1000Scale = 100000; // spcPct family: 100000 = 100% (rule 2)
 
+    private static readonly Lazy<string?> s_repoRoot = new(() => ImageSourceResolver.TryFindRepositoryRoot());
+
     private readonly List<string> _warnings = new();
     private uint _nextShapeId;
 
@@ -707,7 +709,7 @@ public sealed class OoxmlEmitter
             throw new FileNotFoundException($"Image not found: {source}", source);
         }
 
-        if (ImageSourceResolver.TryFindRepositoryRoot() is { } repoRoot)
+        if (s_repoRoot.Value is { } repoRoot)
         {
             var resolved = ImageSourceResolver.ResolveContained(repoRoot, source);
             if (File.Exists(resolved))
