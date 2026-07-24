@@ -72,6 +72,22 @@ public sealed class PptxToTypstConverterShapeGeometryTests : IDisposable
     }
 
     [Fact]
+    public void Convert_DiamondPreset_EmitsDiamondPolygon()
+    {
+        var path = CreateDeck(PresetShape(2, Drawing.ShapeTypeValues.Diamond, cx: 381000, cy: 381000));
+
+        var (shape, source) = ConvertSingleShape(path);
+
+        Assert.Equal("polygon", shape.ShapeType);
+        Assert.Equal(4, shape.Points.Count);
+        Assert.Equal((0.5, 0.0), shape.Points[0]);
+        Assert.Equal((1.0, 0.5), shape.Points[1]);
+        Assert.Equal((0.5, 1.0), shape.Points[2]);
+        Assert.Equal((0.0, 0.5), shape.Points[3]);
+        Assert.Contains("#polygon(", source);
+    }
+
+    [Fact]
     public void Convert_RotatedRect_EmitsRotateWrapper()
     {
         // rot is in 60000ths of a degree: 2700000 = 45°.
