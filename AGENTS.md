@@ -4,7 +4,7 @@
 
 ## Project Overview
 
-.NET 9 (9.0.313) suite for creating and editing Office documents — **DOCX, PPTX, XLSX** — via instruction sets (JSON/YAML), fluent C# APIs, or a **declarative JSON vocabulary for generating beautiful PPTX from scratch**. Also: edit existing PPTX with smart text/image replacement, extract brand profiles, convert PPTX → Typst → PDF/PNG/SVG, and verify visual fidelity with a per-primitive RMSE parity suite.
+.NET 9 (9.0.313) suite for creating and editing Office documents — **DOCX, PPTX** via instruction sets (JSON/YAML), a **declarative JSON vocabulary for generating beautiful PPTX from scratch**, and **XLSX** via fluent C# APIs and a variable templating pipeline. JSON instructions for XLSX are on the Phase 2 roadmap. Also: edit existing PPTX with smart text/image replacement, extract brand profiles, convert PPTX → Typst → PDF/PNG/SVG, and verify visual fidelity with a per-primitive RMSE parity suite.
 
 The repo folder is named `DocxEditor/` for historical reasons; the product is **OfficeEditor** (see `README.md`).
 

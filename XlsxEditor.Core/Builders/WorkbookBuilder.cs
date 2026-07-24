@@ -1,7 +1,9 @@
+using System.Text.RegularExpressions;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Spreadsheet;
 using OfficeEditor.Core.Models;
+using XlsxEditor.Core.Exceptions;
 
 namespace XlsxEditor.Core.Builders;
 
@@ -27,6 +29,7 @@ public interface IWorkbookBuilder : IDisposable
 
 public interface IWorksheetBuilder
 {
+    // Write
     IWorksheetBuilder AddCell(string cellReference, string value);
     IWorksheetBuilder AddCell(string cellReference, string formula, bool isFormula);
     IWorksheetBuilder AddCell(string cellReference, string value, string styleId);
@@ -35,6 +38,35 @@ public interface IWorksheetBuilder
     IWorksheetBuilder AddFormulaRow(List<string> formulas, int rowIndex);
     IWorksheetBuilder AddTable(string startCell, string endCell, string tableName);
     IWorksheetBuilder AddChart(ChartType type, string dataRange);
+
+    // Read
+    string? GetCellValue(string cellReference);
+    string? GetCellFormula(string cellReference);
+    bool CellExists(string cellReference);
+    CellInfo? GetCellInfo(string cellReference);
+    List<CellInfo> GetRange(string start, string end);
+    List<RowInfo> GetRows();
+    RowInfo? GetRow(int rowIndex);
+    (int firstRow, int lastRow, int firstCol, int lastCol) GetDimensions();
+
+    // Edit
+    IWorksheetBuilder DeleteCell(string cellReference);
+    IWorksheetBuilder DeleteRow(int rowIndex);
+    IWorksheetBuilder ClearRange(string start, string end);
+}
+
+public sealed record CellInfo
+{
+    public string Reference { get; init; } = string.Empty;
+    public string? Value { get; init; }
+    public string? Formula { get; init; }
+    public CellValues? DataType { get; init; }
+}
+
+public sealed record RowInfo
+{
+    public int RowIndex { get; init; }
+    public List<CellInfo> Cells { get; init; } = new();
 }
 
 public enum ChartType
@@ -55,6 +87,7 @@ public class WorkbookBuilder : IWorkbookBuilder
     private WorkbookPart _workbookPart;
     private SharedStringTablePart? _sharedStringPart;
     private uint _nextSheetId = 1;
+    private uint _nextTableId = 1;
 
     private WorkbookBuilder(SpreadsheetDocument document, string? path, bool isNew, MemoryStream? documentStream = null)
     {
@@ -122,8 +155,38 @@ public class WorkbookBuilder : IWorkbookBuilder
         return new WorkbookBuilder(document, null, false, memoryStream);
     }
 
+    /// <summary>
+    /// Regex matching characters illegal in Excel worksheet names: : \ / ? * [ ]
+    /// </summary>
+    private static readonly Regex InvalidSheetNameChars = new(@"[:\\\/\?\*\[\]]", RegexOptions.Compiled);
+
     public IWorksheetBuilder AddWorksheet(string name)
     {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            throw new XlsxException("Worksheet name cannot be empty or whitespace.");
+        }
+
+        if (name.Length > 31)
+        {
+            throw new XlsxException(
+                $"Worksheet name '{name}' is {name.Length} characters; Excel limits names to 31 characters.");
+        }
+
+        if (InvalidSheetNameChars.IsMatch(name))
+        {
+            throw new XlsxException(
+                $"Worksheet name '{name}' contains characters that are illegal in Excel " +
+                $"(: \\ / ? * [ ]). Remove them and try again.");
+        }
+
+        if (_worksheets.ContainsKey(name))
+        {
+            throw new XlsxException(
+                $"A worksheet named '{name}' already exists in this workbook. " +
+                "Worksheet names must be unique.");
+        }
+
         var worksheetPart = _workbookPart.AddNewPart<WorksheetPart>();
         var worksheet = new Worksheet(
             new SheetData()
@@ -327,6 +390,23 @@ public class WorkbookBuilder : IWorkbookBuilder
         return index;
     }
 
+    internal string? GetSharedStringByIndex(int index)
+    {
+        var sharedStringPart = _workbookPart.GetPartsOfType<SharedStringTablePart>().FirstOrDefault();
+        if (sharedStringPart?.SharedStringTable is not SharedStringTable table)
+        {
+            return null;
+        }
+
+        var items = table.Elements<SharedStringItem>().ToList();
+        if (index < 0 || index >= items.Count)
+        {
+            return null;
+        }
+
+        return items[index].InnerText;
+    }
+
     internal uint EnsureHeaderStyleIndex()
     {
         var stylesPart = _workbookPart.WorkbookStylesPart ?? _workbookPart.AddNewPart<WorkbookStylesPart>();
@@ -352,6 +432,11 @@ public class WorkbookBuilder : IWorkbookBuilder
 
         stylesPart.Stylesheet.Save();
         return styleIndex;
+    }
+
+    internal uint NextTableId()
+    {
+        return _nextTableId++;
     }
 
     private void InitializeNewWorkbook()
@@ -383,5 +468,19 @@ public class WorkbookBuilder : IWorkbookBuilder
 
         // Load shared string part if exists
         _sharedStringPart = _workbookPart.GetPartsOfType<SharedStringTablePart>().FirstOrDefault();
+
+        // Scan for max existing table ID to avoid collisions
+        uint maxTableId = 0;
+        foreach (var wsPart in _workbookPart.WorksheetParts)
+        {
+            foreach (var tdPart in wsPart.TableDefinitionParts)
+            {
+                if (tdPart.Table?.Id?.Value > maxTableId)
+                {
+                    maxTableId = tdPart.Table.Id.Value;
+                }
+            }
+        }
+        _nextTableId = maxTableId + 1;
     }
 }

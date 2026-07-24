@@ -44,7 +44,7 @@
             },
             {
               "type": "text",
-              "text": "Create, edit and render DOCX, PPTX and XLSX via JSON/YAML instructions or fluent C# APIs.",
+              "text": "Create, edit and render DOCX and PPTX via JSON/YAML instructions; XLSX via fluent C# APIs.",
               "fontSize": 14,
               "color": "muted",
               "size": { "h": 44 }
@@ -117,7 +117,7 @@
           "type": "card",
           "content": {
             "title": "One programmable workflow",
-            "body": "OfficeEditor unifies creation, editing and rendering across DOCX, PPTX and XLSX — one instruction model, one layout engine, two emitters."
+            "body": "OfficeEditor unifies creation, editing and rendering across DOCX and PPTX — one instruction model, one layout engine, two emitters. XLSX is supported via fluent C# APIs."
           }
         }
       }
@@ -177,7 +177,7 @@
         },
         {
           "type": "text",
-          "text": "The same instruction model drives DOCX, PPTX and XLSX.",
+          "text": "DOCX and PPTX share a unified instruction model; XLSX uses fluent C# APIs.",
           "fontSize": 13,
           "color": "muted",
           "textAlign": "center",
