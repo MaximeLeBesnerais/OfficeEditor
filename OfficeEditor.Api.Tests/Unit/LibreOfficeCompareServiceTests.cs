@@ -31,7 +31,6 @@ public sealed class LibreOfficeCompareServiceTests
             Assert.False(string.IsNullOrWhiteSpace(probe.SkipReason));
         }
 
-        // pdftoppm availability is independent of soffice availability.
         Assert.True(probe.PdfToPpmAvailable || !probe.PdfToPpmAvailable);
     }
 
@@ -44,12 +43,85 @@ public sealed class LibreOfficeCompareServiceTests
     }
 
     [Fact]
+    public void Probe_SeparateInstances_EachProbeIndependently()
+    {
+        var first = new LibreOfficeCompareService();
+        var second = new LibreOfficeCompareService();
+
+        var probe1 = first.Probe();
+        var probe2 = second.Probe();
+
+        Assert.Equal(probe1.Available, probe2.Available);
+        Assert.Equal(probe1.SofficePath, probe2.SofficePath);
+    }
+
+    [Fact]
+    public void Probe_WhenAvailable_VersionIsNotNullOrEmpty()
+    {
+        var service = new LibreOfficeCompareService();
+        var probe = service.Probe();
+        if (!probe.Available)
+        {
+            return;
+        }
+
+        Assert.NotNull(probe.Version);
+        Assert.NotEmpty(probe.Version);
+    }
+
+    [Fact]
+    public void RenderDeck_NullBytes_ThrowsArgumentNullException()
+    {
+        var service = new LibreOfficeCompareService();
+
+        var ex = Assert.Throws<ArgumentNullException>(
+            () => service.RenderDeck(null!, "deck.pptx", 110));
+
+        Assert.Equal("pptxBytes", ex.ParamName);
+    }
+
+    [Fact]
+    public void RenderDeck_NullFileName_ThrowsArgumentNullException()
+    {
+        var service = new LibreOfficeCompareService();
+
+        var ex = Assert.Throws<ArgumentNullException>(
+            () => service.RenderDeck([1, 2, 3], null!, 110));
+
+        Assert.Equal("fileName", ex.ParamName);
+    }
+
+    [Fact]
+    public void RenderDeck_EmptyFileName_ThrowsArgumentException()
+    {
+        var service = new LibreOfficeCompareService();
+
+        var ex = Assert.Throws<ArgumentException>(
+            () => service.RenderDeck([1, 2, 3], "", 110));
+
+        Assert.Equal("fileName", ex.ParamName);
+    }
+
+    [Theory]
+    [InlineData("   ")]
+    [InlineData("\t")]
+    public void RenderDeck_WhitespaceFileName_ThrowsArgumentException(string fileName)
+    {
+        var service = new LibreOfficeCompareService();
+
+        var ex = Assert.Throws<ArgumentException>(
+            () => service.RenderDeck([1, 2, 3], fileName, 110));
+
+        Assert.Equal("fileName", ex.ParamName);
+    }
+
+    [Fact]
     public void RenderDeck_WhenSofficeUnavailable_ReturnsSkippedResultWithoutThrowing()
     {
         var service = new LibreOfficeCompareService();
         if (service.Probe().Available)
         {
-            return; // soffice exists here; the skip path only exists where it doesn't
+            return;
         }
 
         var result = service.RenderDeck([1, 2, 3], "deck.pptx", 110);
@@ -69,14 +141,14 @@ public sealed class LibreOfficeCompareServiceTests
     {
         if (Environment.GetEnvironmentVariable(EnableRenderEnvVar) != "1")
         {
-            return; // heavy external-tool test is opt-in (see class summary)
+            return;
         }
 
         var service = new LibreOfficeCompareService();
         var probe = service.Probe();
         if (!probe.Available)
         {
-            return; // no LibreOffice on this machine
+            return;
         }
 
         var demoDeckService = new DemoDeckService(new StubDeckSessionStore());
@@ -103,7 +175,6 @@ public sealed class LibreOfficeCompareServiceTests
             Assert.Equal(15, result.PngPages.Count);
             Assert.All(result.PngPages, page =>
             {
-                // PNG magic: 0x89 'P' 'N' 'G'
                 Assert.True(page.Length > 8);
                 Assert.Equal(0x89, page[0]);
                 Assert.Equal((byte)'P', page[1]);
@@ -114,5 +185,123 @@ public sealed class LibreOfficeCompareServiceTests
             Assert.Null(result.RasterizationMilliseconds);
             Assert.Empty(result.PngPages);
         }
+    }
+
+    [Fact]
+    public void RenderDeck_WithValidDeck_SanitizesFileName()
+    {
+        if (Environment.GetEnvironmentVariable(EnableRenderEnvVar) != "1")
+        {
+            return;
+        }
+
+        var service = new LibreOfficeCompareService();
+        if (!service.Probe().Available)
+        {
+            return;
+        }
+
+        var pptxContent = BuildMinimalPptx();
+
+        // File name with path separators and special chars — SanitizeFileName replaces them.
+        var result = service.RenderDeck(pptxContent, "deck/with\\invalid:chars.pptx", 72);
+
+        Assert.True(result.Available);
+        Assert.Null(result.Error);
+        Assert.NotNull(result.PdfBytes);
+        Assert.True(result.PdfBytes!.Length > 4);
+        Assert.Equal("%PDF-", System.Text.Encoding.ASCII.GetString(result.PdfBytes, 0, 5));
+    }
+
+    [Fact]
+    public void LibreOfficeProbe_AvailableRecord_PropertiesMatch()
+    {
+        var probe = new LibreOfficeProbe(
+            Available: true,
+            SofficePath: "/opt/homebrew/bin/soffice",
+            Version: "24.8.3.2",
+            PdfToPpmAvailable: true,
+            SkipReason: null);
+
+        Assert.True(probe.Available);
+        Assert.Equal("/opt/homebrew/bin/soffice", probe.SofficePath);
+        Assert.Equal("24.8.3.2", probe.Version);
+        Assert.True(probe.PdfToPpmAvailable);
+        Assert.Null(probe.SkipReason);
+    }
+
+    [Fact]
+    public void LibreOfficeProbe_UnavailableRecord_PropertiesMatch()
+    {
+        var probe = new LibreOfficeProbe(
+            Available: false,
+            SofficePath: null,
+            Version: null,
+            PdfToPpmAvailable: false,
+            SkipReason: "soffice not found");
+
+        Assert.False(probe.Available);
+        Assert.Null(probe.SofficePath);
+        Assert.Null(probe.Version);
+        Assert.False(probe.PdfToPpmAvailable);
+        Assert.Equal("soffice not found", probe.SkipReason);
+    }
+
+    [Fact]
+    public void LibreOfficeRenderResult_SuccessRecord_AllPropertiesSet()
+    {
+        var pages = new List<byte[]> { new byte[] { 0x89, (byte)'P', (byte)'N', (byte)'G' } };
+        byte[] pdf = new byte[] { 0x25, 0x50, 0x44, 0x46 };
+
+        var result = new LibreOfficeRenderResult(
+            Available: true,
+            Version: "24.8.3",
+            PdfToPpmAvailable: true,
+            ConversionMilliseconds: 2500.0,
+            RasterizationMilliseconds: 800.0,
+            TotalMilliseconds: 3300.0,
+            PngPages: pages,
+            PdfBytes: pdf,
+            Error: null);
+
+        Assert.True(result.Available);
+        Assert.Equal("24.8.3", result.Version);
+        Assert.True(result.PdfToPpmAvailable);
+        Assert.Equal(2500.0, result.ConversionMilliseconds);
+        Assert.Equal(800.0, result.RasterizationMilliseconds);
+        Assert.Equal(3300.0, result.TotalMilliseconds);
+        Assert.Single(result.PngPages);
+        Assert.NotNull(result.PdfBytes);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void LibreOfficeRenderResult_ErrorRecord_CarriesError()
+    {
+        var result = new LibreOfficeRenderResult(
+            Available: false,
+            Version: null,
+            PdfToPpmAvailable: false,
+            ConversionMilliseconds: 0,
+            RasterizationMilliseconds: null,
+            TotalMilliseconds: 0,
+            PngPages: [],
+            PdfBytes: null,
+            Error: "soffice conversion timed out");
+
+        Assert.False(result.Available);
+        Assert.Equal(0, result.ConversionMilliseconds);
+        Assert.Null(result.RasterizationMilliseconds);
+        Assert.Empty(result.PngPages);
+        Assert.Null(result.PdfBytes);
+        Assert.Equal("soffice conversion timed out", result.Error);
+    }
+
+    private static byte[] BuildMinimalPptx()
+    {
+        using var builder = PptxEditor.Core.Builders.PresentationBuilder.Create();
+        builder.AddSlide();
+        builder.CurrentSlide.AddTitle("Test Slide");
+        return builder.SaveToBytes();
     }
 }
