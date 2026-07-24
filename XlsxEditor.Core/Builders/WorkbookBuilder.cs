@@ -1,7 +1,9 @@
+using System.Text.RegularExpressions;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Spreadsheet;
 using OfficeEditor.Core.Models;
+using XlsxEditor.Core.Exceptions;
 
 namespace XlsxEditor.Core.Builders;
 
@@ -55,6 +57,7 @@ public class WorkbookBuilder : IWorkbookBuilder
     private WorkbookPart _workbookPart;
     private SharedStringTablePart? _sharedStringPart;
     private uint _nextSheetId = 1;
+    private uint _nextTableId = 1;
 
     private WorkbookBuilder(SpreadsheetDocument document, string? path, bool isNew, MemoryStream? documentStream = null)
     {
@@ -122,8 +125,38 @@ public class WorkbookBuilder : IWorkbookBuilder
         return new WorkbookBuilder(document, null, false, memoryStream);
     }
 
+    /// <summary>
+    /// Regex matching characters illegal in Excel worksheet names: : \ / ? * [ ]
+    /// </summary>
+    private static readonly Regex InvalidSheetNameChars = new(@"[:\\\/\?\*\[\]]", RegexOptions.Compiled);
+
     public IWorksheetBuilder AddWorksheet(string name)
     {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            throw new XlsxException("Worksheet name cannot be empty or whitespace.");
+        }
+
+        if (name.Length > 31)
+        {
+            throw new XlsxException(
+                $"Worksheet name '{name}' is {name.Length} characters; Excel limits names to 31 characters.");
+        }
+
+        if (InvalidSheetNameChars.IsMatch(name))
+        {
+            throw new XlsxException(
+                $"Worksheet name '{name}' contains characters that are illegal in Excel " +
+                $"(: \\ / ? * [ ]). Remove them and try again.");
+        }
+
+        if (_worksheets.ContainsKey(name))
+        {
+            throw new XlsxException(
+                $"A worksheet named '{name}' already exists in this workbook. " +
+                "Worksheet names must be unique.");
+        }
+
         var worksheetPart = _workbookPart.AddNewPart<WorksheetPart>();
         var worksheet = new Worksheet(
             new SheetData()
@@ -354,6 +387,11 @@ public class WorkbookBuilder : IWorkbookBuilder
         return styleIndex;
     }
 
+    internal uint NextTableId()
+    {
+        return _nextTableId++;
+    }
+
     private void InitializeNewWorkbook()
     {
         _workbookPart.Workbook = new Workbook();
@@ -383,5 +421,19 @@ public class WorkbookBuilder : IWorkbookBuilder
 
         // Load shared string part if exists
         _sharedStringPart = _workbookPart.GetPartsOfType<SharedStringTablePart>().FirstOrDefault();
+
+        // Scan for max existing table ID to avoid collisions
+        uint maxTableId = 0;
+        foreach (var wsPart in _workbookPart.WorksheetParts)
+        {
+            foreach (var tdPart in wsPart.TableDefinitionParts)
+            {
+                if (tdPart.Table?.Id?.Value > maxTableId)
+                {
+                    maxTableId = tdPart.Table.Id.Value;
+                }
+            }
+        }
+        _nextTableId = maxTableId + 1;
     }
 }
