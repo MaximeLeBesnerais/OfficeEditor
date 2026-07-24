@@ -134,7 +134,46 @@ public class WorkbookBuilderTests : IDisposable
         var cell = row.Elements<Cell>().First();
         
         Assert.NotNull(cell.CellFormula);
-        Assert.Equal("=SUM(A1:A2)", cell.CellFormula?.Text);
+        // SpreadsheetML stores formula text WITHOUT the leading '='; storing it
+        // triggers Excel's repair prompt. The builder must strip it.
+        Assert.Equal("SUM(A1:A2)", cell.CellFormula?.Text);
+        OpenXmlAssert.NoValidationErrors(_testFilePath);
+    }
+
+    [Fact]
+    public void GetCellFormula_ShouldReturnDisplaySyntax_WithLeadingEquals()
+    {
+        // Act
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            builder.AddWorksheet("Sheet1").AddCell("A3", "=SUM(A1:A2)", true);
+            builder.Save();
+        }
+
+        // Assert: stored text has no '=', but the read API re-prepends it so
+        // callers always see Excel display syntax.
+        using var reader = WorkbookBuilder.Open(_testFilePath);
+        var ws = reader.GetWorksheet("Sheet1");
+        Assert.Equal("=SUM(A1:A2)", ws.GetCellFormula("A3"));
+        Assert.Equal("=SUM(A1:A2)", ws.GetCellInfo("A3")?.Formula);
+    }
+
+    [Fact]
+    public void AddCell_FormulaWithoutLeadingEquals_ShouldBeAccepted()
+    {
+        // Act: callers may pass the bare stored form too
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            builder.AddWorksheet("Sheet1").AddCell("A1", "SUM(B1:B2)", true);
+            builder.Save();
+        }
+
+        // Assert
+        using var doc = SpreadsheetDocument.Open(_testFilePath, false);
+        var cell = doc.WorkbookPart!.WorksheetParts.First().Worksheet!
+            .GetFirstChild<SheetData>()!.Elements<Row>().First().Elements<Cell>().First();
+        Assert.Equal("SUM(B1:B2)", cell.CellFormula?.Text);
+        OpenXmlAssert.NoValidationErrors(doc);
     }
 
     [Fact]
@@ -508,6 +547,7 @@ public class WorkbookBuilderTests : IDisposable
             .GetFirstChild<SheetData>()!.Elements<Row>().First().Elements<Cell>().First();
         Assert.NotNull(cell.CellFormula);
         Assert.Null(cell.DataType);
+        OpenXmlAssert.NoValidationErrors(doc);
     }
 
     [Fact]
