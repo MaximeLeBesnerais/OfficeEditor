@@ -34,7 +34,7 @@ public sealed class SmartArtDataExtractorTests
             Assert.False(string.IsNullOrEmpty(n.ModelId));
             Assert.NotEmpty(n.Text);
             Assert.Equal(0, n.HierarchyLevel);
-            Assert.True(n.PlaceholderIndex >= 0);
+            Assert.False(n.IsPlaceholder);
             Assert.NotEmpty(n.PlaceholderText);
         });
 
