@@ -35,6 +35,10 @@ public class WorksheetBuilder : IWorksheetBuilder
     {
         var cell = GetOrCreateCell(cellReference);
 
+        // Overwriting replaces the cell's content entirely: a previous formula
+        // (and its cached value) must not survive a value write.
+        cell.CellFormula = null;
+
         if (double.TryParse(value, out var numericValue))
         {
             cell.CellValue = new CellValue(numericValue);
@@ -61,11 +65,21 @@ public class WorksheetBuilder : IWorksheetBuilder
             // repair prompt. Callers may pass either form.
             var formulaText = formula.StartsWith('=') ? formula[1..] : formula;
             cell.CellFormula = new CellFormula(formulaText);
+
+            // A formula replaces any previous literal content; the old cached
+            // value is stale until Excel recalculates, so drop it (and the old
+            // data type) instead of letting GetCellValue return it.
+            cell.CellValue = null;
+            cell.DataType = null;
         }
         else
         {
-            cell.CellValue = new CellValue(formula);
-            cell.DataType = CellValues.String;
+            // Literal text goes through the shared string table: t="str" is
+            // reserved for formula string results, not literal values.
+            cell.CellFormula = null;
+            var sharedStringIndex = _workbookBuilder.GetSharedStringIndex(formula);
+            cell.CellValue = new CellValue(sharedStringIndex.ToString());
+            cell.DataType = CellValues.SharedString;
         }
 
         return this;
@@ -101,6 +115,7 @@ public class WorksheetBuilder : IWorksheetBuilder
         {
             var cellReference = GetCellReference(i, rowIndex);
             var cell = GetOrCreateCell(cellReference);
+            cell.CellFormula = null;
             var sharedStringIndex = _workbookBuilder.GetSharedStringIndex(values[i]);
             cell.CellValue = new CellValue(sharedStringIndex.ToString());
             cell.DataType = CellValues.SharedString;
