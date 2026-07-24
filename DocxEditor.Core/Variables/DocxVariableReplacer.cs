@@ -11,6 +11,12 @@ public class DocxVariableReplacer
         @"\{\{([^}|]+)(?:\|([^}]*))?\}\}",
         RegexOptions.Compiled);
 
+    /// <summary>
+    /// Replaces {{variable}} and {{variable|default}} placeholders in the body and in all
+    /// header/footer parts. Null-value semantics: a data entry whose value is null is
+    /// treated as missing — the placeholder's default is used when specified, otherwise
+    /// the placeholder is preserved as-is.
+    /// </summary>
     public void Replace(WordprocessingDocument document, Dictionary<string, string> data)
     {
         var body = document.MainDocumentPart?.Document?.Body;
@@ -47,20 +53,28 @@ public class DocxVariableReplacer
     private void ReplaceInElement(OpenXmlElement element, Dictionary<string, string> data)
     {
         var paragraphs = element.Descendants<Paragraph>();
-        
+
         foreach (var paragraph in paragraphs)
         {
-            var runs = paragraph.Elements<Run>().ToList();
-            
+            // Descendants (not Elements) so runs nested inside hyperlinks are covered too.
+            var runs = paragraph.Descendants<Run>().ToList();
+
             foreach (var run in runs)
             {
                 var texts = run.Elements<Text>().ToList();
-                
+
                 foreach (var text in texts)
                 {
                     if (text.Text.Contains("{{"))
                     {
-                        text.Text = ReplaceVariablesInText(text.Text, data);
+                        var replaced = ReplaceVariablesInText(text.Text, data);
+                        if (!string.Equals(replaced, text.Text, StringComparison.Ordinal))
+                        {
+                            text.Text = replaced;
+                            // Replaced values may lead/trail with spaces; without preserve
+                            // Word collapses them, matching the cross-run path below.
+                            text.Space = SpaceProcessingModeValues.Preserve;
+                        }
                     }
                 }
             }
@@ -182,7 +196,8 @@ public class DocxVariableReplacer
         var variableName = match.Groups[1].Value.Trim();
         var defaultValue = match.Groups[2].Success ? match.Groups[2].Value : null;
 
-        if (data.TryGetValue(variableName, out var value))
+        // Null data value == missing: fall through to the default, else preserve.
+        if (data.TryGetValue(variableName, out var value) && value != null)
         {
             return value;
         }
@@ -202,16 +217,17 @@ public class DocxVariableReplacer
             var variableName = match.Groups[1].Value.Trim();
             var defaultValue = match.Groups[2].Success ? match.Groups[2].Value : null;
 
-            if (data.TryGetValue(variableName, out var value))
+            // Null data value == missing, consistent with the cross-run path.
+            if (data.TryGetValue(variableName, out var value) && value != null)
             {
                 return value;
             }
-            
+
             if (defaultValue != null)
             {
                 return defaultValue;
             }
-            
+
             return match.Value;
         });
     }
