@@ -1,4 +1,5 @@
 using XlsxEditor.Core.Builders;
+using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Spreadsheet;
 using XlsxEditor.Core.Exceptions;
@@ -174,6 +175,84 @@ public class WorkbookBuilderTests : IDisposable
             .GetFirstChild<SheetData>()!.Elements<Row>().First().Elements<Cell>().First();
         Assert.Equal("SUM(B1:B2)", cell.CellFormula?.Text);
         OpenXmlAssert.NoValidationErrors(doc);
+    }
+
+    [Theory]
+    [InlineData("42.5", true)]
+    [InlineData("-7", true)]
+    [InlineData("1e3", true)]
+    [InlineData("NaN", false)]
+    [InlineData("Infinity", false)]
+    [InlineData("-Infinity", false)]
+    [InlineData("1,000", false)]
+    public void AddCell_NumericDetection_ShouldBeInvariantAndRejectNonFinite(string value, bool isNumber)
+    {
+        // Act
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            builder.AddWorksheet("Sheet1").AddCell("A1", value);
+            builder.Save();
+        }
+
+        // Assert
+        using var doc = SpreadsheetDocument.Open(_testFilePath, false);
+        var cell = doc.WorkbookPart!.WorksheetParts.First().Worksheet!
+            .GetFirstChild<SheetData>()!.Elements<Row>().Single().Elements<Cell>().Single();
+        Assert.Equal(isNumber ? CellValues.Number : CellValues.SharedString, cell.DataType?.Value);
+        OpenXmlAssert.NoValidationErrors(doc);
+    }
+
+    [Fact]
+    public void AddHeaderRow_CalledRepeatedly_ShouldReuseOneHeaderStyle()
+    {
+        // Act: three header rows must not append three fonts + three cell formats
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            var sheet = builder.AddWorksheet("Sheet1");
+            sheet.AddHeaderRow(new List<string> { "A" }, 1);
+            sheet.AddHeaderRow(new List<string> { "B" }, 5);
+            sheet.AddHeaderRow(new List<string> { "C" }, 9);
+            builder.Save();
+        }
+
+        // Assert: exactly one default + one bold header format
+        using var doc = SpreadsheetDocument.Open(_testFilePath, false);
+        var stylesheet = doc.WorkbookPart!.WorkbookStylesPart!.Stylesheet;
+        Assert.NotNull(stylesheet);
+        Assert.Equal(2U, stylesheet.CellFormats!.Count?.Value);
+        Assert.Equal(2U, stylesheet.Fonts!.Count?.Value);
+        OpenXmlAssert.NoValidationErrors(doc);
+    }
+
+    [Fact]
+    public void SharedStrings_ShouldDeduplicateAndPreserveWhitespace()
+    {
+        // Act: same string twice → one entry; padded string keeps its spaces
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            var sheet = builder.AddWorksheet("Sheet1");
+            sheet.AddCell("A1", "repeat");
+            sheet.AddCell("A2", "repeat");
+            sheet.AddCell("A3", "  padded  ");
+            builder.Save();
+        }
+
+        // Assert
+        using (var doc = SpreadsheetDocument.Open(_testFilePath, false))
+        {
+            var table = doc.WorkbookPart!.SharedStringTablePart!.SharedStringTable;
+            Assert.NotNull(table);
+            var items = table.Elements<SharedStringItem>().ToList();
+            Assert.Equal(2, items.Count);
+            Assert.Equal("repeat", items[0].InnerText);
+            var paddedText = Assert.IsType<Text>(items[1].FirstChild);
+            Assert.Equal(SpaceProcessingModeValues.Preserve, paddedText.Space?.Value);
+            OpenXmlAssert.NoValidationErrors(doc);
+        }
+
+        // Round-trip: whitespace survives reload
+        using var reader = WorkbookBuilder.Open(_testFilePath);
+        Assert.Equal("  padded  ", reader.GetWorksheet("Sheet1").GetCellValue("A3"));
     }
 
     [Fact]
