@@ -323,6 +323,71 @@ public sealed class SmartArtDrawingExtractorTests
         Assert.True(string.IsNullOrEmpty(result.Shape.StrokeColor));
     }
 
+    [Fact]
+    public void ComputeFrameFit_SalesDeckCalibration_UniformScaleCentersContent()
+    {
+        // Slide 15 calibration numbers: drawing bbox 359.86x239.91pt inside a
+        // 360x288pt frame at (300,126). PowerPoint renders the cached drawing 1:1
+        // in frame space with symmetric ~24pt vertical margins.
+        var bounds = (MinX: 0.070, MinY: 24.047, Width: 359.859, Height: 239.906);
+        var frame = (X: 300.0, Y: 126.0, Width: 360.0, Height: 288.0);
+
+        var fit = SmartArtDrawingExtractor.ComputeFrameFit(bounds, frame);
+
+        // Uniform (aspect-preserving) scale — the old per-axis stretch gave
+        // scaleY ≈ 1.20 and made boxes ~20% too tall.
+        Assert.Equal(fit.ScaleX, fit.ScaleY, precision: 6);
+        Assert.Equal(360.0 / 359.859, fit.ScaleX, precision: 6);
+
+        // Mapped bounding box is centred in the frame: left == right margin,
+        // top == bottom margin ≈ 24pt.
+        var left = (fit.FrameX + bounds.MinX) * fit.ScaleX;
+        var right = (fit.FrameX + bounds.MinX + bounds.Width) * fit.ScaleX;
+        var top = (fit.FrameY + bounds.MinY) * fit.ScaleY;
+        var bottom = (fit.FrameY + bounds.MinY + bounds.Height) * fit.ScaleY;
+
+        Assert.Equal(left - frame.X, frame.X + frame.Width - right, precision: 6);
+        Assert.Equal(top - frame.Y, frame.Y + frame.Height - bottom, precision: 6);
+        Assert.Equal(24.0, top - frame.Y, precision: 1);
+    }
+
+    [Fact]
+    public void ComputeFrameFit_AspectMatchingBounds_MatchesLegacyStretch()
+    {
+        // When the drawing bbox aspect matches the frame, uniform fit degenerates
+        // to the previous per-axis stretch (no behaviour change).
+        var bounds = (MinX: 10.0, MinY: 20.0, Width: 100.0, Height: 50.0);
+        var frame = (X: 40.0, Y: 80.0, Width: 200.0, Height: 100.0);
+
+        var fit = SmartArtDrawingExtractor.ComputeFrameFit(bounds, frame);
+
+        Assert.Equal(2.0, fit.ScaleX, precision: 6);
+        Assert.Equal(2.0, fit.ScaleY, precision: 6);
+        // Legacy formula: shapeFrameX = frameX / scale - minX
+        Assert.Equal(40.0 / 2.0 - 10.0, fit.FrameX, precision: 6);
+        Assert.Equal(80.0 / 2.0 - 20.0, fit.FrameY, precision: 6);
+    }
+
+    [Fact]
+    public void ComputeFrameFit_WideContentInTallFrame_KeepsNativeWidthAndCenters()
+    {
+        // Content spanning the full frame width must not be enlarged; the slack
+        // is distributed as symmetric vertical margins (PowerPoint's internal
+        // layout margin behaviour).
+        var bounds = (MinX: 0.0, MinY: 0.0, Width: 400.0, Height: 200.0);
+        var frame = (X: 0.0, Y: 0.0, Width: 400.0, Height: 400.0);
+
+        var fit = SmartArtDrawingExtractor.ComputeFrameFit(bounds, frame);
+
+        Assert.Equal(1.0, fit.ScaleX, precision: 6);
+        Assert.Equal(1.0, fit.ScaleY, precision: 6);
+
+        var top = (fit.FrameY + bounds.MinY) * fit.ScaleY;
+        var bottom = (fit.FrameY + bounds.MinY + bounds.Height) * fit.ScaleY;
+        Assert.Equal(100.0, top, precision: 6);
+        Assert.Equal(300.0, bottom, precision: 6);
+    }
+
     private static OpenXmlElement ParseXml(string xml)
     {
         var xElement = XElement.Parse(xml);

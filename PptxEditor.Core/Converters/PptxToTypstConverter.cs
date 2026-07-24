@@ -681,13 +681,14 @@ public sealed partial class PptxToTypstConverter : IDisposable
         var (strokeColor, strokeWidth) = ExtractShapeStroke(shapeProperties, styleResolver);
 
         // Helper to build TypstShapeElement with common fill+stroke properties
-        TypstShapeElement CreateElement(string shapeType) => new()
+        TypstShapeElement CreateElement(string shapeType, List<(double X, double Y)>? points = null) => new()
         {
             ShapeType = shapeType,
             FillColor = fillColor,
             FillGradient = fillGradient,
             StrokeColor = strokeColor,
-            StrokeWidth = strokeWidth
+            StrokeWidth = strokeWidth,
+            Points = points ?? new List<(double X, double Y)>()
         };
 
         // Check for preset geometry
@@ -713,6 +714,14 @@ public sealed partial class PptxToTypstConverter : IDisposable
             if (prst == Drawing.ShapeTypeValues.Ellipse)
             {
                 return CreateElement("ellipse");
+            }
+            if (prst == Drawing.ShapeTypeValues.Chevron)
+            {
+                return CreateElement("polygon", BuildChevronPoints(prstGeom, shapeWidth, shapeHeight));
+            }
+            if (prst == Drawing.ShapeTypeValues.Diamond)
+            {
+                return CreateElement("polygon", DiamondPoints);
             }
         }
 
@@ -865,6 +874,42 @@ public sealed partial class PptxToTypstConverter : IDisposable
         }
 
         return (string.Empty, strokeWidth);
+    }
+
+    /// <summary>
+    /// Normalised [0,1] polygon points for the OOXML diamond preset — a diamond is a
+    /// square rotated 45°, which Typst cannot express as a native shape.
+    /// </summary>
+    private static readonly List<(double X, double Y)> DiamondPoints = new()
+    {
+        (0.5, 0), (1, 0.5), (0.5, 1), (0, 0.5)
+    };
+
+    /// <summary>
+    /// Normalised [0,1] polygon points for the OOXML chevron preset (ECMA-376): a
+    /// rectangle with an arrow point on the right and a matching notch on the left.
+    /// The point depth is <c>adj</c> (default 50000 = 50%) of the SMALLER shape
+    /// dimension, so the normalised x-offset is aspect-ratio dependent — a fixed
+    /// 0.5 depth is only correct for square chevrons and would carve far too deep
+    /// a notch into the wide (≈3:1) chevrons used in process diagrams.
+    /// </summary>
+    private static List<(double X, double Y)> BuildChevronPoints(Drawing.PresetGeometry prstGeom, double shapeWidth, double shapeHeight)
+    {
+        var adj = 50000.0;
+        var match = Regex.Match(prstGeom.OuterXml, @"\bfmla\s*=\s*""val\s+(\d+)""");
+        if (match.Success && double.TryParse(match.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var adjValue))
+        {
+            adj = adjValue;
+        }
+
+        var depthX = shapeWidth > 0 && shapeHeight > 0
+            ? Math.Clamp(adj / 100000.0 * Math.Min(shapeWidth, shapeHeight) / shapeWidth, 0.0, 1.0)
+            : 0.5;
+
+        return new List<(double X, double Y)>
+        {
+            (0, 0), (1 - depthX, 0), (1, 0.5), (1 - depthX, 1), (0, 1), (depthX, 0.5)
+        };
     }
 
     /// <summary>
@@ -1170,10 +1215,12 @@ public sealed partial class PptxToTypstConverter : IDisposable
 
         if (diagramShapes.Count == 0) yield break;
 
-        // Drawing-space → frame normalisation: drawing shape coordinates do not
-        // necessarily span the frame extents (e.g. the REF deck's diagram content
-        // covers ~83% of the frame height), so scale/offset the drawing's bounding
-        // box onto the frame instead of anchoring it top-left at native size.
+        // Drawing-space → frame normalisation: PowerPoint's cached dsp:drawing is
+        // authored in frame coordinates (in the REF deck the drawing bbox width
+        // equals the frame width and the content is centred with symmetric internal
+        // margins), so map the drawing bbox onto the frame with a uniform,
+        // aspect-preserving scale centred in the frame — NOT a per-axis stretch,
+        // which over-sizes shapes when the content does not span the full frame.
         //
         // TryExtractShape computes  final = off + (frame + shapeOff) * scale,  so the
         // normalisation is folded into an adjusted frame origin + scale such that
@@ -1185,10 +1232,11 @@ public sealed partial class PptxToTypstConverter : IDisposable
         if (bounds is { } b && b.Width > 0 && b.Height > 0 &&
             framePosition.Width > 0 && framePosition.Height > 0)
         {
-            drawScaleX = framePosition.Width / b.Width;
-            drawScaleY = framePosition.Height / b.Height;
-            shapeFrameX = framePosition.X / drawScaleX - b.MinX;
-            shapeFrameY = framePosition.Y / drawScaleY - b.MinY;
+            var fit = SmartArtDrawingExtractor.ComputeFrameFit(b, framePosition);
+            drawScaleX = fit.ScaleX;
+            drawScaleY = fit.ScaleY;
+            shapeFrameX = fit.FrameX;
+            shapeFrameY = fit.FrameY;
         }
 
         var shapeScaleX = scaleX * drawScaleX;
