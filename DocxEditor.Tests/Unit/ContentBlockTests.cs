@@ -262,6 +262,67 @@ public class ContentBlockTests : IDisposable
         Assert.Null(paragraphs[2].ParagraphProperties?.ParagraphStyleId);
     }
 
+    [Fact]
+    public void AddRichContent_WithLists_ShouldCreateNumberingDefinitions()
+    {
+        var blocks = new ContentBlockBuilder()
+            .AddList(false, ["Bullet item"])
+            .AddList(true, ["Numbered item"])
+            .Build();
+
+        using (var builder = DocumentBuilder.Create(_testFilePath))
+        {
+            builder.AddRichContent(blocks);
+            builder.Save();
+        }
+
+        using var doc = WordprocessingDocument.Open(_testFilePath, false);
+        var numberingPart = doc.MainDocumentPart!.NumberingDefinitionsPart;
+        Assert.NotNull(numberingPart);
+
+        var numbering = numberingPart.Numbering;
+        Assert.NotNull(numbering);
+
+        var abstractNums = numbering.Elements<AbstractNum>().ToList();
+        Assert.Equal(2, abstractNums.Count);
+
+        var instances = numbering.Elements<NumberingInstance>().ToList();
+        Assert.Equal(2, instances.Count);
+
+        Assert.Contains(abstractNums, a => a.AbstractNumberId?.Value == 1);
+        Assert.Contains(abstractNums, a => a.AbstractNumberId?.Value == 2);
+        Assert.Contains(instances, i => i.NumberID?.Value == 1);
+        Assert.Contains(instances, i => i.NumberID?.Value == 2);
+    }
+
+    [Fact]
+    public void AddRichContent_WithLists_ShouldSetNumberingPropertiesOnParagraphs()
+    {
+        var blocks = new ContentBlockBuilder()
+            .AddList(false, ["Unordered"])
+            .AddList(true, ["Ordered"])
+            .Build();
+
+        using (var builder = DocumentBuilder.Create(_testFilePath))
+        {
+            builder.AddRichContent(blocks);
+            builder.Save();
+        }
+
+        using var doc = WordprocessingDocument.Open(_testFilePath, false);
+        var paragraphs = doc.MainDocumentPart!.Document!.Body!.Elements<Paragraph>().ToList();
+
+        Assert.Equal(2, paragraphs.Count);
+
+        var bulletProps = paragraphs[0].ParagraphProperties?.NumberingProperties;
+        Assert.NotNull(bulletProps);
+        Assert.Equal(2, bulletProps!.NumberingId?.Val?.Value);
+
+        var numberProps = paragraphs[1].ParagraphProperties?.NumberingProperties;
+        Assert.NotNull(numberProps);
+        Assert.Equal(1, numberProps!.NumberingId?.Val?.Value);
+    }
+
     public void Dispose()
     {
         if (File.Exists(_testFilePath))

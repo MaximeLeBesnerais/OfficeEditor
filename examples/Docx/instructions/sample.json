@@ -1,43 +1,49 @@
 {
   "version": "1.0",
-  "description": "Example instructions for DOCX manipulation",
+  "description": "Sample instruction set demonstrating DOCX manipulation via JSON.",
   "operations": [
     {
-      "type": "AddParagraph",
-      "content": "This paragraph was added via JSON instructions.",
+      "type": "create"
+    },
+    {
+      "type": "addParagraph",
+      "text": "This paragraph was added via JSON instructions.",
       "style": "Normal"
     },
     {
-      "type": "AddHeading",
-      "content": "Section Added by Instructions",
-      "level": 2
+      "type": "addParagraph",
+      "text": "Section Added by Instructions",
+      "style": "Heading2"
     },
     {
-      "type": "AddBulletList",
-      "items": [
-        "First bullet point",
-        "Second bullet point",
-        "Third bullet point"
-      ]
+      "type": "addParagraph",
+      "text": "\u2022 First bullet point"
     },
     {
-      "type": "Replace",
-      "target": "{{companyName}}",
-      "content": "Acme Corporation"
+      "type": "addParagraph",
+      "text": "\u2022 Second bullet point"
     },
     {
-      "type": "Replace",
-      "target": "{{date}}",
-      "content": "2024-01-15"
+      "type": "addParagraph",
+      "text": "\u2022 Third bullet point"
     },
     {
-      "type": "AddTable",
-      "headers": ["Item", "Quantity", "Price"],
-      "rows": [
-        ["Widget", "10", "$25.00"],
-        ["Gadget", "5", "$50.00"],
-        ["Tool", "3", "$75.00"]
-      ]
+      "type": "replaceText",
+      "find": "{{companyName}}",
+      "replace": "Acme Corporation"
+    },
+    {
+      "type": "replaceText",
+      "find": "{{date}}",
+      "replace": "2024-01-15"
+    },
+    {
+      "type": "insertAfter",
+      "target": "added via JSON",
+      "content": {
+        "text": "This line was inserted after the first paragraph.",
+        "style": "Normal"
+      }
     }
   ]
 }
