@@ -10,18 +10,24 @@ public class ContentBlockRenderer
     private readonly StyleMapping _styleMapping;
     private readonly Dictionary<string, Style> _cachedStyles;
     private readonly Action<string>? _ensureStyle;
-    private readonly Action? _ensureNumbering;
+    private readonly Func<bool, int>? _allocateNumberingId;
 
+    /// <param name="allocateNumberingId">
+    /// Allocates a fresh, collision-free numbering instance id for one list (argument: ordered?).
+    /// Each list must get its own instance so counters restart and lists never bind to
+    /// numbering definitions that already exist in the document. When null (standalone
+    /// rendering against a detached body), legacy ids 1 (ordered) / 2 (bullet) are used.
+    /// </param>
     public ContentBlockRenderer(
         StyleMapping? styleMapping = null,
         Dictionary<string, Style>? cachedStyles = null,
         Action<string>? ensureStyle = null,
-        Action? ensureNumbering = null)
+        Func<bool, int>? allocateNumberingId = null)
     {
         _styleMapping = styleMapping ?? StyleMapping.Default;
         _cachedStyles = cachedStyles ?? new Dictionary<string, Style>();
         _ensureStyle = ensureStyle;
-        _ensureNumbering = ensureNumbering;
+        _allocateNumberingId = allocateNumberingId;
     }
 
     public void Render(Body body, List<ContentBlock> blocks)
@@ -113,7 +119,10 @@ public class ContentBlockRenderer
 
     private void RenderList(Body body, ListBlock block)
     {
-        _ensureNumbering?.Invoke();
+        // One numbering instance per list: ids 1/2 can already be taken (or mean a
+        // different format) in documents that contain lists, and reusing an instance
+        // would continue its counter instead of restarting at 1.
+        var numberingId = _allocateNumberingId?.Invoke(block.Ordered) ?? (block.Ordered ? 1 : 2);
 
         for (int i = 0; i < block.Items.Count; i++)
         {
@@ -124,7 +133,7 @@ public class ContentBlockRenderer
             // Add list properties
             var numberingProperties = new NumberingProperties(
                 new NumberingLevelReference { Val = 0 },
-                new NumberingId { Val = block.Ordered ? 1 : 2 }
+                new NumberingId { Val = numberingId }
             );
             
             paragraph.ParagraphProperties = new ParagraphProperties(numberingProperties);
@@ -142,20 +151,37 @@ public class ContentBlockRenderer
 
     private void RenderTable(Body body, TableBlock block)
     {
+        // Empty-table semantics: a table with no rows (or no cells at all) renders nothing.
+        // Emitting it would produce a corrupt document because CT_Tbl requires tblGrid
+        // (and at least one row) after tblPr.
+        var columnCount = block.Rows.Count == 0 ? 0 : block.Rows.Max(r => r.Cells.Count);
+        if (columnCount == 0)
+        {
+            return;
+        }
+
         var table = new Table();
-        
-        // Add table properties
+
+        // Add table properties (CT_TblBorders sequence: top, left, bottom, right, insideH, insideV)
         var tableProperties = new TableProperties(
             new TableBorders(
                 new TopBorder { Val = new DocumentFormat.OpenXml.EnumValue<BorderValues>(BorderValues.Single), Size = 4 },
-                new BottomBorder { Val = new DocumentFormat.OpenXml.EnumValue<BorderValues>(BorderValues.Single), Size = 4 },
                 new LeftBorder { Val = new DocumentFormat.OpenXml.EnumValue<BorderValues>(BorderValues.Single), Size = 4 },
+                new BottomBorder { Val = new DocumentFormat.OpenXml.EnumValue<BorderValues>(BorderValues.Single), Size = 4 },
                 new RightBorder { Val = new DocumentFormat.OpenXml.EnumValue<BorderValues>(BorderValues.Single), Size = 4 },
                 new InsideHorizontalBorder { Val = new DocumentFormat.OpenXml.EnumValue<BorderValues>(BorderValues.Single), Size = 4 },
                 new InsideVerticalBorder { Val = new DocumentFormat.OpenXml.EnumValue<BorderValues>(BorderValues.Single), Size = 4 }
             )
         );
         table.Append(tableProperties);
+
+        // CT_Tbl requires tblGrid immediately after tblPr; one gridCol per column.
+        var tableGrid = new TableGrid();
+        for (int i = 0; i < columnCount; i++)
+        {
+            tableGrid.Append(new GridColumn());
+        }
+        table.Append(tableGrid);
 
         foreach (var row in block.Rows)
         {
@@ -264,6 +290,7 @@ public class ContentBlockRenderer
                 runProperties.Append(new Strike());
                 break;
             case "code":
+                _ensureStyle?.Invoke("Code");
                 runProperties.Append(new RunStyle { Val = "Code" });
                 break;
         }

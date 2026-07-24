@@ -44,13 +44,20 @@ public class DocxYamlInstructionParser
             },
             "replacetext" => new ReplaceTextInstruction
             {
-                Find = dto.Find ?? throw new ArgumentException("Find is required for replaceText."),
+                // Empty find is rejected: string.Replace("", x) would insert the
+                // replacement between every character of the document.
+                Find = string.IsNullOrEmpty(dto.Find)
+                    ? throw new ArgumentException("Find must be a non-empty string for replaceText.")
+                    : dto.Find,
                 Replace = dto.Replace ?? throw new ArgumentException("Replace is required for replaceText.")
             },
             "insertafter" => new InsertAfterInstruction
             {
                 Target = dto.Target ?? throw new ArgumentException("Target is required for insertAfter."),
-                Content = dto.Content ?? throw new ArgumentException("Content is required for insertAfter.")
+                // YamlDotNet ignores C# 'required', so Content.Text can be null at runtime.
+                Content = dto.Content?.Text != null
+                    ? dto.Content
+                    : throw new ArgumentException("Content with a 'text' field is required for insertAfter.")
             },
             "addrichcontent" => new AddRichContentInstruction
             {
@@ -86,52 +93,93 @@ public class DocxYamlInstructionParser
 
     private static ContentBlock ParseBlock(string type, Dictionary<object, object> dict)
     {
-        string? GetString(string key) => dict.TryGetValue(key, out var v) ? v?.ToString() : null;
-        int GetInt(string key) => dict.TryGetValue(key, out var v) && int.TryParse(v?.ToString(), out var i) ? i : 0;
-        bool GetBool(string key) => dict.TryGetValue(key, out var v) && bool.TryParse(v?.ToString(), out var b) && b;
-        List<object>? GetList(string key) => dict.TryGetValue(key, out var v) ? v as List<object> : null;
+        // YAML scalars arrive as plain objects; lists/mappings in a scalar field are a
+        // malformed value kind and must fail loudly instead of ToString()'ing into garbage.
+        string? GetScalar(string key)
+        {
+            if (!dict.TryGetValue(key, out var v) || v == null)
+                return null;
+            if (v is List<object> or Dictionary<object, object>)
+                throw new ArgumentException($"Block '{type}': field '{key}' must be a scalar value.");
+            return v.ToString();
+        }
+
+        int GetInt(string key, int defaultValue)
+        {
+            if (!dict.TryGetValue(key, out var v) || v == null)
+                return defaultValue;
+            var scalar = GetScalar(key);
+            if (int.TryParse(scalar, System.Globalization.NumberStyles.Integer,
+                    System.Globalization.CultureInfo.InvariantCulture, out var i))
+                return i;
+            throw new ArgumentException($"Block '{type}': field '{key}' must be an integer, got '{scalar}'.");
+        }
+
+        bool GetBool(string key)
+        {
+            if (!dict.TryGetValue(key, out var v) || v == null)
+                return false;
+            var scalar = GetScalar(key);
+            if (bool.TryParse(scalar, out var b))
+                return b;
+            throw new ArgumentException($"Block '{type}': field '{key}' must be a boolean, got '{scalar}'.");
+        }
+
+        List<object>? GetList(string key)
+        {
+            if (!dict.TryGetValue(key, out var v) || v == null)
+                return null;
+            return v as List<object>
+                ?? throw new ArgumentException($"Block '{type}': field '{key}' must be a list.");
+        }
+
+        string ScalarItem(object? item, string key)
+            => item is List<object> or Dictionary<object, object>
+                ? throw new ArgumentException($"Block '{type}': entries of '{key}' must be scalar values.")
+                : item?.ToString() ?? string.Empty;
 
         return type.ToLowerInvariant() switch
         {
             "paragraph" => new ParagraphBlock
             {
-                Text = GetString("text") ?? string.Empty,
-                Style = GetString("style"),
+                Text = GetScalar("text") ?? string.Empty,
+                Style = GetScalar("style"),
                 InlineFormats = GetList("inlineFormats") is List<object> formats ? ParseInlineFormats(formats) : null
             },
             "heading" => new HeadingBlock
             {
-                Level = GetInt("level"),
-                Text = GetString("text") ?? string.Empty,
-                Style = GetString("style")
+                // Default 1, matching the JSON parser and the validator.
+                Level = GetInt("level", defaultValue: 1),
+                Text = GetScalar("text") ?? string.Empty,
+                Style = GetScalar("style")
             },
             "list" => new ListBlock
             {
                 Ordered = GetBool("ordered"),
-                Items = GetList("items") is List<object> items ? items.Select(i => i?.ToString() ?? string.Empty).ToList() : [],
-                Style = GetString("style")
+                Items = GetList("items") is List<object> items ? items.Select(i => ScalarItem(i, "items")).ToList() : [],
+                Style = GetScalar("style")
             },
             "table" => new TableBlock
             {
-                Rows = GetList("rows") is List<object> rows ? ParseTableRows(rows) : []
+                Rows = GetList("rows") is List<object> rows ? ParseTableRows(rows, type) : []
             },
             "blockquote" => new BlockquoteBlock
             {
-                Text = GetString("text") ?? string.Empty,
-                Style = GetString("style")
+                Text = GetScalar("text") ?? string.Empty,
+                Style = GetScalar("style")
             },
             "code" => new CodeBlock
             {
-                Text = GetString("text") ?? string.Empty,
-                Language = GetString("language"),
-                Style = GetString("style")
+                Text = GetScalar("text") ?? string.Empty,
+                Language = GetScalar("language"),
+                Style = GetScalar("style")
             },
             "horizontalrule" => new HorizontalRuleBlock(),
             "custom" => new CustomBlock
             {
-                CustomType = GetString("customType") ?? string.Empty,
-                Text = GetString("text") ?? string.Empty,
-                Style = GetString("style")
+                CustomType = GetScalar("customType") ?? string.Empty,
+                Text = GetScalar("text") ?? string.Empty,
+                Style = GetScalar("style")
             },
             _ => throw new NotSupportedException($"Block type '{type}' is not supported. Valid types: paragraph, heading, list, table, blockquote, code, horizontalRule, custom.")
         };
@@ -146,7 +194,7 @@ public class DocxYamlInstructionParser
         foreach (var item in formats)
         {
             if (item is not Dictionary<object, object> dict)
-                continue;
+                throw new ArgumentException("Each inline format entry must be an object with 'type' and 'text' fields.");
 
             result.Add(new InlineFormat
             {
@@ -158,21 +206,24 @@ public class DocxYamlInstructionParser
         return result.Count > 0 ? result : null;
     }
 
-    private static List<TableRow> ParseTableRows(List<object> rows)
+    private static List<TableRow> ParseTableRows(List<object> rows, string blockType)
     {
         var tableRows = new List<TableRow>();
         foreach (var row in rows)
         {
             if (row is not Dictionary<object, object> rowDict)
-                continue;
+                throw new ArgumentException($"Block '{blockType}': each row must be an object with a 'cells' list.");
 
             var cells = new List<TableCell>();
-            if (rowDict.TryGetValue("cells", out var cellsObj) && cellsObj is List<object> cellsList)
+            if (rowDict.TryGetValue("cells", out var cellsObj) && cellsObj != null)
             {
+                if (cellsObj is not List<object> cellsList)
+                    throw new ArgumentException($"Block '{blockType}': field 'cells' must be a list.");
+
                 foreach (var cell in cellsList)
                 {
                     if (cell is not Dictionary<object, object> cellDict)
-                        continue;
+                        throw new ArgumentException($"Block '{blockType}': each cell must be an object with a 'text' field.");
 
                     cells.Add(new TableCell
                     {

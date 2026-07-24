@@ -64,6 +64,12 @@ public sealed class TypstElement
     public string Type { get; init; } = string.Empty;
     public uint Id { get; init; }
     public string Name { get; init; } = string.Empty;
+    /// <summary>
+    /// OOXML model identifier (e.g. a SmartArt <c>dsp:sp modelId</c> GUID) when the
+    /// element originates from a model-driven part; null for regular slide shapes.
+    /// Enables joining emitted shapes back to data-model nodes.
+    /// </summary>
+    public string? ModelId { get; init; }
     public double X { get; init; }
     public double Y { get; init; }
     public double Width { get; init; }

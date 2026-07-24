@@ -38,9 +38,10 @@ internal static class SmartArtDrawingExtractor
         ["diamond"] = (ShapeType.Diamond, null),
         ["pentagon"] = (ShapeType.Pentagon, null),
         ["hexagon"] = (ShapeType.Hexagon, null),
-        ["blockArc"] = (ShapeType.BlockArc, null),
-        ["pie"] = (ShapeType.Pie, null),
-        ["donut"] = (ShapeType.Donut, null),
+        // NOTE: blockArc, pie and donut were removed deliberately — the previous
+        // polygon approximations were geometrically wrong (blockArc and donut shared
+        // the same octagon points; pie used bounding-box corners outside the
+        // ellipse). Unknown presets return null and degrade to the text fallback.
     };
 
     /// <summary>
@@ -50,8 +51,8 @@ internal static class SmartArtDrawingExtractor
     {
         [ShapeType.Chevron] = new()
         {
-            (0, 0.2), (0.55, 0), (0.55, 0.28), (1, 0.28),
-            (1, 0.72), (0.55, 0.72), (0.55, 1), (0, 0.8)
+            // OOXML chevron (adj = 0.5): a rectangle with an arrow notch — 6 points.
+            (0, 0), (0.5, 0), (1, 0.5), (0.5, 1), (0, 1), (0.5, 0.5)
         },
         [ShapeType.RightArrow] = new()
         {
@@ -74,19 +75,44 @@ internal static class SmartArtDrawingExtractor
         {
             (0.25, 0), (0.75, 0), (1, 0.5), (0.75, 1), (0.25, 1), (0, 0.5)
         },
-        [ShapeType.BlockArc] = new()
-        {
-            (0.2, 0), (0.8, 0), (1, 0.2), (1, 0.8), (0.8, 1), (0.2, 1), (0, 0.8), (0, 0.2)
-        },
-        [ShapeType.Pie] = new()
-        {
-            (0.5, 0.5), (1, 0), (1, 0.5), (0.5, 1), (0, 0.5), (0, 0)
-        },
-        [ShapeType.Donut] = new()
-        {
-            (0.2, 0), (0.8, 0), (1, 0.2), (1, 0.8), (0.8, 1), (0.2, 1), (0, 0.8), (0, 0.2)
-        },
     };
+
+    /// <summary>
+    /// Computes the bounding box (in points) over the drawing-space geometry
+    /// (<c>dsp:spPr/a:xfrm</c>) of the given diagram shapes. Returns null when no
+    /// shape carries usable geometry. Used by the converter to normalise drawing
+    /// space onto the graphic frame's extents.
+    /// </summary>
+    internal static (double MinX, double MinY, double Width, double Height)? ComputeBoundingBox(
+        IEnumerable<OpenXmlElement> dspShapes)
+    {
+        double minX = double.MaxValue, minY = double.MaxValue;
+        double maxX = double.MinValue, maxY = double.MinValue;
+        var found = false;
+
+        foreach (var shape in dspShapes)
+        {
+            var spPr = GetChild(shape, "spPr", DiagramNamespaces);
+            var xfrm = spPr == null ? null : GetChild(spPr, "xfrm", DrawingmlNs);
+            var off = xfrm == null ? null : GetChild(xfrm, "off", DrawingmlNs);
+            var ext = xfrm == null ? null : GetChild(xfrm, "ext", DrawingmlNs);
+            if (off == null || ext == null) continue;
+
+            var x = ReadEmuAsPt(off, "x");
+            var y = ReadEmuAsPt(off, "y");
+            var cx = ReadEmuAsPt(ext, "cx");
+            var cy = ReadEmuAsPt(ext, "cy");
+            if (x == null || y == null || cx == null || cy == null) continue;
+
+            found = true;
+            minX = Math.Min(minX, x.Value);
+            minY = Math.Min(minY, y.Value);
+            maxX = Math.Max(maxX, x.Value + cx.Value);
+            maxY = Math.Max(maxY, y.Value + cy.Value);
+        }
+
+        return found ? (minX, minY, maxX - minX, maxY - minY) : null;
+    }
 
     /// <summary>
     /// Attempts to extract a shape element from a &lt;dsp:sp&gt; diagram shape.
@@ -94,13 +120,16 @@ internal static class SmartArtDrawingExtractor
     /// </summary>
     /// <param name="schemeColors">Theme-aware scheme colour map (scheme name → "#RRGGBB").
     /// May be empty; a static Office fallback is used when the map is missing an entry.</param>
+    /// <param name="modelId">Optional <c>dsp:sp modelId</c> carried onto the emitted
+    /// element so shapes can be joined back to data-model nodes.</param>
     public static TypstElement? TryExtractShape(
         OpenXmlElement dspShape,
         double offX, double offY,
         double scaleX, double scaleY,
         double frameX, double frameY,
         double shapeW, double shapeH,
-        IReadOnlyDictionary<string, string>? schemeColors = null)
+        IReadOnlyDictionary<string, string>? schemeColors = null,
+        string? modelId = null)
     {
         var spPr = GetChild(dspShape, "spPr", DiagramNamespaces);
         if (spPr == null) return null;
@@ -119,12 +148,13 @@ internal static class SmartArtDrawingExtractor
 
         return geometry.ShapeType switch
         {
-            ShapeType.Rect => BuildRect(x, y, w, h, rotation, fillColor, strokeColor, strokeWidth, geometry.CornerRadius),
+            ShapeType.Rect => BuildRect(x, y, w, h, rotation, fillColor, strokeColor, strokeWidth, geometry.CornerRadius, modelId),
 
             ShapeType.Ellipse => new TypstElement
             {
                 Type = "Shape",
                 X = x, Y = y, Width = w, Height = h, Rotation = rotation,
+                ModelId = modelId,
                 Shape = new TypstShapeElement
                 {
                     ShapeType = "ellipse",
@@ -134,17 +164,18 @@ internal static class SmartArtDrawingExtractor
                 }
             },
 
-            _ => BuildPolygon(x, y, w, h, rotation, fillColor, strokeColor, strokeWidth, geometry.ShapeType)
+            _ => BuildPolygon(x, y, w, h, rotation, fillColor, strokeColor, strokeWidth, geometry.ShapeType, modelId)
         };
     }
 
     private static TypstElement BuildRect(double x, double y, double w, double h, double rotation,
-        string? fillColor, string? strokeColor, double strokeWidth, double cornerRadius)
+        string? fillColor, string? strokeColor, double strokeWidth, double cornerRadius, string? modelId)
     {
         return new TypstElement
         {
             Type = "Shape",
             X = x, Y = y, Width = w, Height = h, Rotation = rotation,
+            ModelId = modelId,
             Shape = new TypstShapeElement
             {
                 ShapeType = "rect",
@@ -157,7 +188,7 @@ internal static class SmartArtDrawingExtractor
     }
 
     private static TypstElement BuildPolygon(double x, double y, double w, double h, double rotation,
-        string? fillColor, string? strokeColor, double strokeWidth, ShapeType shapeType)
+        string? fillColor, string? strokeColor, double strokeWidth, ShapeType shapeType, string? modelId)
     {
         var points = PolygonPoints.TryGetValue(shapeType, out var pts)
             ? pts
@@ -167,6 +198,7 @@ internal static class SmartArtDrawingExtractor
         {
             Type = "Shape",
             X = x, Y = y, Width = w, Height = h, Rotation = rotation,
+            ModelId = modelId,
             Shape = new TypstShapeElement
             {
                 ShapeType = "polygon",
@@ -196,6 +228,9 @@ internal static class SmartArtDrawingExtractor
             return null;
 
         var rotationDeg = ReadRotation(xfrm);
+
+        // NOTE: xfrm flipH/flipV are not applied — mirrored diagram shapes render
+        // unflipped (documented in SMARTART-REPORT.md §4.4 known limitations).
 
         var prstGeom = GetChild(spPr, "prstGeom", DrawingmlNs);
         if (prstGeom == null) return null;
@@ -260,8 +295,11 @@ internal static class SmartArtDrawingExtractor
             if (!long.TryParse(valPart, NumberStyles.Integer, CultureInfo.InvariantCulture, out var adjVal))
                 continue;
 
-            var radiusPt = EmuToPt(adjVal);
+            // adj is a fraction of the smaller shape dimension in 100000ths
+            // (e.g. val 10000 = 10% of min(w,h)) — NOT an EMU value. Mirrors
+            // PptxToTypstConverter.ExtractShapeCornerRadius.
             var minSide = Math.Min(shapeW, shapeH);
+            var radiusPt = adjVal / 100000.0 * minSide;
             return Math.Min(radiusPt, minSide * 0.5);
         }
 
@@ -278,7 +316,7 @@ internal static class SmartArtDrawingExtractor
         {
             var val = ReadAttribute(srgbClr, "val");
             if (!string.IsNullOrEmpty(val))
-                return val;
+                return ApplyColorTransforms(NormalizeHexColor(val), srgbClr);
         }
 
         var schemeClr = GetChild(solidFill, "schemeClr", DrawingmlNs);
@@ -287,7 +325,8 @@ internal static class SmartArtDrawingExtractor
             var val = ReadAttribute(schemeClr, "val");
             if (!string.IsNullOrEmpty(val))
             {
-                return ResolveSchemeColor(val, schemeColors);
+                var resolved = ResolveSchemeColor(val, schemeColors);
+                return resolved == null ? null : ApplyColorTransforms(resolved, schemeClr);
             }
         }
 
@@ -315,7 +354,7 @@ internal static class SmartArtDrawingExtractor
         {
             var val = ReadAttribute(srgbClr, "val");
             if (!string.IsNullOrEmpty(val))
-                return (val, strokeWidth);
+                return (NormalizeHexColor(val), strokeWidth);
         }
 
         var schemeClr = GetChild(solidFill, "schemeClr", DrawingmlNs);
@@ -324,14 +363,68 @@ internal static class SmartArtDrawingExtractor
             var val = ReadAttribute(schemeClr, "val");
             if (!string.IsNullOrEmpty(val))
             {
-                return (ResolveSchemeColor(val, schemeColors), strokeWidth);
+                var resolved = ResolveSchemeColor(val, schemeColors);
+                return (resolved == null ? null : ApplyColorTransforms(resolved, schemeClr), strokeWidth);
             }
         }
 
         return (null, strokeWidth);
     }
 
-    private static string? ResolveSchemeColor(string schemeName, IReadOnlyDictionary<string, string>? schemeColors)
+    /// <summary>
+    /// Applies OOXML colour transforms (<c>a:tint</c>, <c>a:shade</c>, <c>a:lumMod</c>,
+    /// <c>a:lumOff</c>) in document order. Per-channel arithmetic — a close approximation of
+    /// the HSL-space spec (ECMA-376) that matches PowerPoint for common tint/shade usage
+    /// (e.g. SmartArt connector fills like accent1 + tint 60% = pale accent). Saturation and
+    /// alpha transforms are not applied (rare in diagram drawing parts).
+    /// </summary>
+    private static string ApplyColorTransforms(string hex, OpenXmlElement colorElement)
+    {
+        var hexValue = hex.TrimStart('#');
+        if (hexValue.Length != 6)
+            return NormalizeHexColor(hex);
+
+        double r = Convert.ToInt32(hexValue[..2], 16);
+        double g = Convert.ToInt32(hexValue[2..4], 16);
+        double b = Convert.ToInt32(hexValue[4..6], 16);
+
+        foreach (var child in colorElement.ChildElements)
+        {
+            var valAttr = ReadAttribute(child, "val");
+            if (string.IsNullOrEmpty(valAttr) ||
+                !double.TryParse(valAttr, NumberStyles.Float, CultureInfo.InvariantCulture, out var rawVal))
+                continue;
+
+            var f = rawVal / 100000.0;
+            switch (child.LocalName)
+            {
+                case "tint": // mix toward white
+                    r = r * f + 255 * (1 - f); g = g * f + 255 * (1 - f); b = b * f + 255 * (1 - f);
+                    break;
+                case "shade": // mix toward black
+                case "lumMod": // luminance multiply (per-channel approximation)
+                    r *= f; g *= f; b *= f;
+                    break;
+                case "lumOff": // luminance offset (per-channel approximation)
+                    r += 255 * f; g += 255 * f; b += 255 * f;
+                    break;
+            }
+        }
+
+        return $"#{ClampChannel(r):X2}{ClampChannel(g):X2}{ClampChannel(b):X2}";
+    }
+
+    private static int ClampChannel(double v)
+    {
+        return (int)Math.Round(Math.Clamp(v, 0, 255), MidpointRounding.AwayFromZero);
+    }
+
+    /// <summary>
+    /// Resolves a scheme colour name (e.g. "accent1", "lt1") through the theme-aware
+    /// map, falling back to the static Office theme defaults. Always returns the
+    /// pipeline-canonical "#RRGGBB" form (used by the Typst emitters' rgb("…") calls).
+    /// </summary>
+    internal static string? ResolveSchemeColor(string schemeName, IReadOnlyDictionary<string, string>? schemeColors)
     {
         var canonical = schemeName switch
         {
@@ -343,25 +436,30 @@ internal static class SmartArtDrawingExtractor
         };
 
         if (schemeColors != null && schemeColors.TryGetValue(canonical, out var themeRgb))
-            return themeRgb.StartsWith("#") ? themeRgb.Substring(1) : themeRgb;
+            return NormalizeHexColor(themeRgb);
 
         return StaticSchemeColorFallback(schemeName);
+    }
+
+    private static string NormalizeHexColor(string rgb)
+    {
+        return rgb.StartsWith('#') ? rgb : "#" + rgb;
     }
 
     private static string? StaticSchemeColorFallback(string schemeName)
     {
         return schemeName switch
         {
-            "accent1" => "4472C4",
-            "accent2" => "ED7D31",
-            "accent3" => "A5A5A5",
-            "accent4" => "FFC000",
-            "accent5" => "5B9BD5",
-            "accent6" => "70AD47",
-            "lt1" => "FFFFFF",
-            "dk1" => "000000",
-            "lt2" => "F2F2F2",
-            "dk2" => "4472C4",
+            "accent1" => "#4472C4",
+            "accent2" => "#ED7D31",
+            "accent3" => "#A5A5A5",
+            "accent4" => "#FFC000",
+            "accent5" => "#5B9BD5",
+            "accent6" => "#70AD47",
+            "lt1" => "#FFFFFF",
+            "dk1" => "#000000",
+            "lt2" => "#E7E6E6",
+            "dk2" => "#44546A",
             _ => null
         };
     }
@@ -424,9 +522,6 @@ internal static class SmartArtDrawingExtractor
         Triangle,
         Diamond,
         Pentagon,
-        Hexagon,
-        BlockArc,
-        Pie,
-        Donut
+        Hexagon
     }
 }

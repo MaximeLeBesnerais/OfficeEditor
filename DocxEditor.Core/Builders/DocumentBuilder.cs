@@ -165,23 +165,57 @@ public class DocumentBuilder : IDocumentBuilder
 
     public IDocumentBuilder ReplaceText(string find, string replace)
     {
-        var paragraphs = _body.Elements<Paragraph>();
-        foreach (var paragraph in paragraphs)
+        // Empty find would insert the replacement between every character of the document.
+        if (string.IsNullOrEmpty(find))
         {
-            var runs = paragraph.Elements<Run>();
-            foreach (var run in runs)
+            throw new ArgumentException("Find must be a non-empty string.", nameof(find));
+        }
+
+        // Descendants (not Elements) covers table cells, nested runs, and any other
+        // container; header/footer parts are included so templated letterheads work.
+        foreach (var text in EnumerateReplaceableTexts())
+        {
+            if (text.Text.Contains(find))
             {
-                var texts = run.Elements<Text>();
-                foreach (var text in texts)
-                {
-                    if (text.Text.Contains(find))
-                    {
-                        text.Text = text.Text.Replace(find, replace);
-                    }
-                }
+                text.Text = text.Text.Replace(find, replace);
             }
         }
         return this;
+    }
+
+    private IEnumerable<Text> EnumerateReplaceableTexts()
+    {
+        foreach (var text in _body.Descendants<Text>())
+        {
+            yield return text;
+        }
+
+        var mainPart = _document.MainDocumentPart!;
+        foreach (var headerPart in mainPart.HeaderParts)
+        {
+            if (headerPart.Header == null)
+            {
+                continue;
+            }
+
+            foreach (var text in headerPart.Header.Descendants<Text>())
+            {
+                yield return text;
+            }
+        }
+
+        foreach (var footerPart in mainPart.FooterParts)
+        {
+            if (footerPart.Footer == null)
+            {
+                continue;
+            }
+
+            foreach (var text in footerPart.Footer.Descendants<Text>())
+            {
+                yield return text;
+            }
+        }
     }
 
     public IDocumentBuilder ReplaceParagraph(string targetText, string newText, string? style = null)
@@ -350,13 +384,17 @@ public class DocumentBuilder : IDocumentBuilder
         _cachedStyles[styleId] = style;
     }
 
-    private bool _numberingDefinitionsEnsured;
-
-    private void EnsureNumberingDefinitions()
+    /// <summary>
+    /// Allocates a fresh abstract numbering definition and numbering instance for a single
+    /// list and returns the new numbering instance id. Ids are allocated as
+    /// max(existing) + 1 so they can never collide with numbering already present in the
+    /// document; each list gets its own instance so its counter restarts at 1 and bullets
+    /// can never bind to a decimal (or vice versa) definition from the host document.
+    /// The abstractNum is inserted before the first numbering instance because CT_Numbering
+    /// requires all abstractNum elements to precede all num elements.
+    /// </summary>
+    private int AllocateNumberingInstance(bool ordered)
     {
-        if (_numberingDefinitionsEnsured)
-            return;
-
         var mainPart = _document.MainDocumentPart!;
         var numberingPart = mainPart.NumberingDefinitionsPart;
         if (numberingPart == null)
@@ -364,37 +402,44 @@ public class DocumentBuilder : IDocumentBuilder
             numberingPart = mainPart.AddNewPart<NumberingDefinitionsPart>();
         }
 
-        var numbering = numberingPart.Numbering ?? new Numbering();
-
-        if (!numbering.Elements<AbstractNum>().Any(n => n.AbstractNumberId?.Value == 1))
+        var numbering = numberingPart.Numbering;
+        if (numbering == null)
         {
-            numbering.Append(CreateOrderedAbstractNum());
+            numbering = new Numbering();
+            numberingPart.Numbering = numbering;
         }
 
-        if (!numbering.Elements<AbstractNum>().Any(n => n.AbstractNumberId?.Value == 2))
+        int abstractNumId = numbering.Elements<AbstractNum>()
+            .Select(n => n.AbstractNumberId?.Value ?? -1)
+            .DefaultIfEmpty(-1)
+            .Max() + 1;
+        int numberingId = numbering.Elements<NumberingInstance>()
+            .Select(n => n.NumberID?.Value ?? 0)
+            .DefaultIfEmpty(0)
+            .Max() + 1;
+
+        var abstractNum = ordered
+            ? CreateOrderedAbstractNum(abstractNumId)
+            : CreateBulletAbstractNum(abstractNumId);
+
+        var firstInstance = numbering.Elements<NumberingInstance>().FirstOrDefault();
+        if (firstInstance != null)
         {
-            numbering.Append(CreateBulletAbstractNum());
+            numbering.InsertBefore(abstractNum, firstInstance);
+        }
+        else
+        {
+            numbering.Append(abstractNum);
         }
 
-        if (!numbering.Elements<NumberingInstance>().Any(n => n.NumberID?.Value == 1))
-        {
-            numbering.Append(new NumberingInstance(
-                new AbstractNumId { Val = 1 }
-            ) { NumberID = 1 });
-        }
+        numbering.Append(new NumberingInstance(
+            new AbstractNumId { Val = abstractNumId }
+        ) { NumberID = numberingId });
 
-        if (!numbering.Elements<NumberingInstance>().Any(n => n.NumberID?.Value == 2))
-        {
-            numbering.Append(new NumberingInstance(
-                new AbstractNumId { Val = 2 }
-            ) { NumberID = 2 });
-        }
-
-        numberingPart.Numbering = numbering;
-        _numberingDefinitionsEnsured = true;
+        return numberingId;
     }
 
-    private static AbstractNum CreateOrderedAbstractNum()
+    private static AbstractNum CreateOrderedAbstractNum(int abstractNumId)
     {
         return new AbstractNum(
             new Level(
@@ -406,10 +451,10 @@ public class DocumentBuilder : IDocumentBuilder
                     new Indentation { Left = "720", Hanging = "360" }
                 )
             ) { LevelIndex = 0 }
-        ) { AbstractNumberId = 1 };
+        ) { AbstractNumberId = abstractNumId };
     }
 
-    private static AbstractNum CreateBulletAbstractNum()
+    private static AbstractNum CreateBulletAbstractNum(int abstractNumId)
     {
         return new AbstractNum(
             new Level(
@@ -421,7 +466,7 @@ public class DocumentBuilder : IDocumentBuilder
                     new Indentation { Left = "720", Hanging = "360" }
                 )
             ) { LevelIndex = 0 }
-        ) { AbstractNumberId = 2 };
+        ) { AbstractNumberId = abstractNumId };
     }
 
     private static Style CreateDefaultStyle(string styleId)
@@ -454,6 +499,13 @@ public class DocumentBuilder : IDocumentBuilder
                     new RunFonts { Ascii = "Consolas", HighAnsi = "Consolas" }
                 )
             ) { Type = StyleValues.Paragraph, StyleId = styleId },
+            "Hyperlink" => new Style(
+                new StyleName { Val = "Hyperlink" },
+                new StyleRunProperties(
+                    new Color { Val = "0563C1", ThemeColor = ThemeColorValues.Hyperlink },
+                    new Underline { Val = UnderlineValues.Single }
+                )
+            ) { Type = StyleValues.Character, StyleId = styleId },
             _ => new Style(
                 new StyleName { Val = styleId }
             ) { Type = StyleValues.Paragraph, StyleId = styleId }
@@ -482,8 +534,9 @@ public class DocumentBuilder : IDocumentBuilder
 
     public IDocumentBuilder AddRichContent(List<ContentBlock> blocks)
     {
-        EnsureNumberingDefinitions();
-        var renderer = new ContentBlockRenderer(StyleMapping.Default, _cachedStyles, EnsureStyle, EnsureNumberingDefinitions);
+        // Numbering definitions are allocated lazily per list block via the callback,
+        // so documents without lists never get a numbering part.
+        var renderer = new ContentBlockRenderer(StyleMapping.Default, _cachedStyles, EnsureStyle, AllocateNumberingInstance);
         renderer.Render(_body, blocks);
         return this;
     }
@@ -496,8 +549,7 @@ public class DocumentBuilder : IDocumentBuilder
             throw new InvalidOperationException($"Paragraph containing '{targetText}' not found.");
         }
 
-        EnsureNumberingDefinitions();
-        var renderer = new ContentBlockRenderer(StyleMapping.Default, _cachedStyles, EnsureStyle, EnsureNumberingDefinitions);
+        var renderer = new ContentBlockRenderer(StyleMapping.Default, _cachedStyles, EnsureStyle, AllocateNumberingInstance);
         
         // Remove target paragraph and insert rich content before its position
         var parent = targetParagraph.Parent;
@@ -522,11 +574,21 @@ public class DocumentBuilder : IDocumentBuilder
 
     public IDocumentBuilder AddHyperlink(string url, string displayText, string? style = null)
     {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        {
+            throw new OfficeEditor.Core.Exceptions.OfficeEditorException(
+                $"Invalid hyperlink URL '{url}'. Hyperlink URLs must be absolute (e.g. https://example.com/page).");
+        }
+
+        EnsureStyle("Hyperlink");
+
         var mainPart = _document.MainDocumentPart!;
-        var hyperlinkRelationship = mainPart.AddHyperlinkRelationship(new Uri(url), true);
+        var hyperlinkRelationship = mainPart.AddHyperlinkRelationship(uri, true);
         var paragraph = new Paragraph();
         var hyperlink = new Hyperlink() { History = true, Id = hyperlinkRelationship.Id };
-        var run = new Run(new Text(displayText));
+        var run = new Run(
+            new RunProperties(new RunStyle { Val = "Hyperlink" }),
+            new Text(displayText));
         hyperlink.Append(run);
         paragraph.Append(hyperlink);
 
