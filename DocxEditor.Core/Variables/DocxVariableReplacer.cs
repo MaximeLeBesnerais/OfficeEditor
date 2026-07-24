@@ -13,14 +13,12 @@ public class DocxVariableReplacer
 
     public void Replace(WordprocessingDocument document, Dictionary<string, string> data)
     {
-        // Replace in body
         var body = document.MainDocumentPart?.Document?.Body;
         if (body != null)
         {
             ReplaceInElement(body, data);
         }
 
-        // Replace in headers
         var headers = document.MainDocumentPart?.HeaderParts;
         if (headers != null)
         {
@@ -33,7 +31,6 @@ public class DocxVariableReplacer
             }
         }
 
-        // Replace in footers
         var footers = document.MainDocumentPart?.FooterParts;
         if (footers != null)
         {
@@ -74,30 +71,128 @@ public class DocxVariableReplacer
 
     private void ReplaceVariablesAcrossRuns(Paragraph paragraph, Dictionary<string, string> data)
     {
-        var texts = paragraph.Descendants<Text>().ToList();
-        if (texts.Count <= 1)
+        var textNodes = paragraph.Descendants<Text>().ToList();
+        if (textNodes.Count <= 1)
         {
             return;
         }
 
-        var combinedText = string.Concat(texts.Select(t => t.Text));
+        var combinedText = string.Concat(textNodes.Select(t => t.Text));
         if (!combinedText.Contains("{{"))
         {
             return;
         }
 
-        var replacedText = ReplaceVariablesInText(combinedText, data);
-        if (replacedText == combinedText)
+        var matches = VariablePattern.Matches(combinedText);
+        if (matches.Count == 0)
         {
             return;
         }
 
-        texts[0].Text = replacedText;
-        texts[0].Space = SpaceProcessingModeValues.Preserve;
-        foreach (var text in texts.Skip(1))
+        var positions = new List<(Text text, int start, int length)>();
+        int offset = 0;
+        foreach (var t in textNodes)
         {
-            text.Text = string.Empty;
+            positions.Add((t, offset, t.Text.Length));
+            offset += t.Text.Length;
         }
+
+        for (int m = matches.Count - 1; m >= 0; m--)
+        {
+            var match = matches[m];
+            var replacement = GetReplacementValue(match, data);
+            if (replacement == null)
+            {
+                continue;
+            }
+
+            int varStart = match.Index;
+            int varEnd = match.Index + match.Length;
+
+            var firstNode = default((Text text, int start, int length));
+            int firstIdx = -1;
+            for (int i = 0; i < positions.Count; i++)
+            {
+                if (positions[i].start + positions[i].length > varStart)
+                {
+                    firstNode = positions[i];
+                    firstIdx = i;
+                    break;
+                }
+            }
+
+            if (firstIdx < 0)
+            {
+                continue;
+            }
+
+            if (firstNode.text == null || firstNode.text.Text == null)
+            {
+                continue;
+            }
+
+            int localVarStart = varStart - firstNode.start;
+            int localVarEnd = varEnd - firstNode.start;
+
+            string before = localVarStart > 0 ? firstNode.text.Text.Substring(0, localVarStart) : string.Empty;
+            string after = localVarEnd < firstNode.text.Text.Length ? firstNode.text.Text.Substring(localVarEnd) : string.Empty;
+            firstNode.text.Text = before + replacement + after;
+            firstNode.text.Space = SpaceProcessingModeValues.Preserve;
+            positions[firstIdx] = (firstNode.text, firstNode.start, firstNode.text.Text.Length);
+
+            for (int i = firstIdx + 1; i < positions.Count; i++)
+            {
+                var node = positions[i];
+                int nodeStart = node.start;
+                int nodeEnd = nodeStart + node.length;
+
+                if (nodeStart >= varEnd)
+                {
+                    break;
+                }
+
+                int keepStart = varStart - nodeStart;
+                int keepEnd = varEnd - nodeStart;
+
+                if (keepStart <= 0 && keepEnd >= node.length)
+                {
+                    node.text.Text = string.Empty;
+                }
+                else
+                {
+                    string keepBefore = keepStart > 0 ? node.text.Text.Substring(0, keepStart) : string.Empty;
+                    string keepAfter = keepEnd < node.text.Text.Length ? node.text.Text.Substring(keepEnd) : string.Empty;
+                    node.text.Text = keepBefore + keepAfter;
+                }
+
+                positions[i] = (node.text, positions[i].start, node.text.Text.Length);
+            }
+
+            int newOffset = 0;
+            for (int i = 0; i < positions.Count; i++)
+            {
+                positions[i] = (positions[i].text, newOffset, positions[i].text.Text.Length);
+                newOffset += positions[i].text.Text.Length;
+            }
+        }
+    }
+
+    private static string? GetReplacementValue(Match match, Dictionary<string, string> data)
+    {
+        var variableName = match.Groups[1].Value.Trim();
+        var defaultValue = match.Groups[2].Success ? match.Groups[2].Value : null;
+
+        if (data.TryGetValue(variableName, out var value))
+        {
+            return value;
+        }
+
+        if (defaultValue != null)
+        {
+            return defaultValue;
+        }
+
+        return null;
     }
 
     private string ReplaceVariablesInText(string text, Dictionary<string, string> data)
@@ -112,13 +207,12 @@ public class DocxVariableReplacer
                 return value;
             }
             
-            // If no data provided, use default value if available
             if (defaultValue != null)
             {
                 return defaultValue;
             }
             
-            return match.Value; // Keep original if no data and no default
+            return match.Value;
         });
     }
 }
