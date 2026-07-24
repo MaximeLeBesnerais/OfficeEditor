@@ -687,11 +687,38 @@ public sealed class OoxmlEmitter
                 "Remote image URLs are not supported in v1; pass a local file path or a data URI.", nameof(source));
         }
 
-        if (!File.Exists(source))
+        if (File.Exists(source))
         {
-            throw new FileNotFoundException($"Image not found: {source}", source);
+            return (File.ReadAllBytes(source), Path.GetExtension(source).ToLowerInvariant());
         }
-        return (File.ReadAllBytes(source), Path.GetExtension(source).ToLowerInvariant());
+
+        if (!Path.IsPathRooted(source) && TryFindRepositoryRoot() is { } repoRoot)
+        {
+            var resolved = Path.GetFullPath(Path.Combine(repoRoot, source));
+            if (File.Exists(resolved))
+            {
+                return (File.ReadAllBytes(resolved), Path.GetExtension(resolved).ToLowerInvariant());
+            }
+        }
+
+        throw new FileNotFoundException($"Image not found: {source}", source);
+    }
+
+    private static string? TryFindRepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            var gitPath = Path.Combine(directory.FullName, ".git");
+            if (Directory.Exists(gitPath) || File.Exists(gitPath))
+            {
+                return directory.FullName;
+            }
+
+            directory = directory.Parent;
+        }
+
+        return null;
     }
 
     private static string MimeToExtension(string mime) => mime.Trim().ToLowerInvariant() switch
