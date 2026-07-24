@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using OfficeEditor.Api.Services;
 using PptxEditor.Core.Builders;
 using Xunit.Abstractions;
@@ -341,6 +342,66 @@ public sealed class DeckGenerationServiceTests
         Assert.Throws<ArgumentException>(
             () => new DeckGenerationService().Generate(ValidDocument, "jpeg", 150));
     }
+
+    [Fact]
+    public void Generate_ImageSlideWithTraversalSrc_IsRejected()
+    {
+        // The generate endpoint is unauthenticated: a "../../…" src must never resolve
+        // outside the repository and be embedded into the returned PPTX.
+        var document = ImageDocument("../../../../../../etc/passwd");
+
+        var result = new DeckGenerationService().Generate(document, "svg", 150);
+
+        Assert.False(result.Success);
+        Assert.Null(result.PptxBytes);
+        var error = Assert.Single(result.Errors);
+        Assert.Contains("outside the allowed root", error.Message);
+    }
+
+    [Fact]
+    public void Generate_ImageSlideWithAbsoluteSrcOutsideRepoRoot_IsRejected()
+    {
+        // A real file outside the repository: without the containment check it would be
+        // embedded into the returned PPTX byte-for-byte.
+        var outsideDir = Path.Combine(Path.GetTempPath(), $"deck-generation-tests-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(outsideDir);
+        try
+        {
+            var outsidePath = Path.Combine(outsideDir, "secret.png");
+            File.WriteAllBytes(outsidePath, [0x89, 0x50, 0x4E, 0x47]); // PNG magic
+
+            var result = new DeckGenerationService().Generate(ImageDocument(outsidePath), "svg", 150);
+
+            Assert.False(result.Success);
+            Assert.Null(result.PptxBytes);
+            var error = Assert.Single(result.Errors);
+            Assert.Contains("outside the allowed root", error.Message);
+        }
+        finally
+        {
+            Directory.Delete(outsideDir, recursive: true);
+        }
+    }
+
+    private static string ImageDocument(string src) => $$"""
+        {
+          "version": "2.0",
+          "design": {
+            "palette": { "primary": "#0B3D91", "ink": "#1A1A1A", "paper": "#FFFFFF", "muted": "#8A94A6" }
+          },
+          "slides": [
+            {
+              "type": "container",
+              "fill": "paper",
+              "layout": { "mode": "column" },
+              "padding": 43,
+              "children": [
+                { "type": "image", "src": {{JsonSerializer.Serialize(src)}}, "fit": "contain", "size": { "grow": 1 } }
+              ]
+            }
+          ]
+        }
+        """;
 
     [Fact]
     public void Generate_SixteenSlides_WarmPathUnderTarget()

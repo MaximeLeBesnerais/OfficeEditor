@@ -68,8 +68,9 @@ public sealed class DeckGenerationService : IDeckGenerationService
     /// for a ".git" entry — directory in a normal checkout, file in a git worktree; see
     /// <see cref="RepositoryRootLocator"/>). Used as the Typst project root so
     /// repo-root-relative asset paths in generation documents resolve inside the
-    /// repository sandbox — and to absolutize the same paths for the OOXML pass, which
-    /// reads image files relative to the process CWD. Null when no ".git" entry is found:
+    /// repository sandbox — and to absolutize + confine the same paths for the OOXML
+    /// pass (repo-root-first precedence, CWD fallback; see
+    /// <see cref="ImageSourceResolver"/>). Null when no ".git" entry is found:
     /// the compile then keeps the compiler default (process CWD), the pre-fix behavior.
     /// </summary>
     private static readonly Lazy<string?> RepositoryRoot = new(RepositoryRootLocator.FindOrNull);
@@ -130,14 +131,29 @@ public sealed class DeckGenerationService : IDeckGenerationService
             return Rejected([Issue(ex)], validation.Warnings, totalTimer);
         }
 
-        // The OOXML emitter reads image files from disk relative to the process CWD, while
-        // the Typst preview resolves them against the Typst project root (the repository
-        // root). Repo-root-relative image sources are therefore absolutized for the OOXML
-        // pass only; the Typst pass keeps the authored repo-relative paths.
-        var ooxmlLayout = RepositoryRoot.Value is { } repoRoot
-            ? AbsolutizeImageSources(layout, repoRoot)
-            : layout;
-        var emission = new OoxmlEmitter().Emit(ooxmlLayout);
+        // The OOXML emitter resolves image file sources with repo-root-first precedence
+        // (ImageSourceResolver), while the Typst preview resolves them against the Typst
+        // project root (the repository root; Typst itself confines file reads to the
+        // project root). File image sources are therefore absolutized against — and
+        // confined to — the repository root for the OOXML pass only; the Typst pass
+        // keeps the authored repo-relative paths.
+        OoxmlEmissionResult emission;
+        try
+        {
+            var ooxmlLayout = RepositoryRoot.Value is { } repoRoot
+                ? AbsolutizeImageSources(layout, repoRoot)
+                : layout;
+            emission = new OoxmlEmitter().Emit(ooxmlLayout);
+        }
+        catch (ArgumentException ex)
+        {
+            // Path traversal ("../../etc/passwd", absolute paths outside the repository)
+            // and unsupported image extensions are document errors: reject the document
+            // with an actionable message instead of faulting the request.
+            return Rejected(
+                [new GenerationIssue("$", ex.Message, null, GenerationIssueSeverity.Error)],
+                validation.Warnings, totalTimer);
+        }
         var generationMs = generationTimer.Elapsed.TotalMilliseconds;
 
         var (previews, previewError) = RenderPreviews(layout, normalizedFormat, ppi);
@@ -197,16 +213,19 @@ public sealed class DeckGenerationService : IDeckGenerationService
     }
 
     /// <summary>
-    /// Returns a copy of the layout with every repo-root-relative image file source
-    /// absolutized under <paramref name="repoRoot"/>. Data URIs, URLs and already-absolute
-    /// paths pass through untouched. Records make this a pure structural map.
+    /// Returns a copy of the layout with every file image source resolved against — and
+    /// confined to — <paramref name="repoRoot"/> via
+    /// <see cref="ImageSourceResolver.ResolveContained"/>: relative sources are
+    /// absolutized under the root; any source that would escape the root ("../../…" or
+    /// an absolute path outside the repository) throws <see cref="ArgumentException"/>.
+    /// Data URIs and URLs pass through untouched. Records make this a pure structural map.
     /// </summary>
     private static LayoutResult AbsolutizeImageSources(LayoutResult layout, string repoRoot)
     {
         ResolvedElement Map(ResolvedElement element) => element switch
         {
-            ResolvedImage image when IsRelativeFileSource(image.Source) =>
-                image with { Source = Path.GetFullPath(Path.Combine(repoRoot, image.Source)) },
+            ResolvedImage image when IsFileSource(image.Source) =>
+                image with { Source = ImageSourceResolver.ResolveContained(repoRoot, image.Source) },
             ResolvedContainer container =>
                 container with { Children = [.. container.Children.Select(Map)] },
             ResolvedGroup group =>
@@ -220,9 +239,8 @@ public sealed class DeckGenerationService : IDeckGenerationService
         };
     }
 
-    private static bool IsRelativeFileSource(string source) =>
+    private static bool IsFileSource(string source) =>
         !string.IsNullOrWhiteSpace(source)
-        && !Path.IsPathRooted(source)
         && !source.StartsWith("data:", StringComparison.OrdinalIgnoreCase)
         && !source.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
         && !source.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
