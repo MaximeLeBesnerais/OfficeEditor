@@ -626,8 +626,9 @@ public sealed partial class PptxToTypstConverter : IDisposable
         }
 
         // Check for shape geometry with fill or stroke
-        var shapeElement = ExtractShapeGeometry(shape.ShapeProperties, finalW, finalH);
+        var shapeElement = ExtractShapeGeometry(shape.ShapeProperties, styleResolver, finalW, finalH);
         if (shapeElement != null && (!string.IsNullOrEmpty(shapeElement.FillColor)
+            || shapeElement.FillGradient != null
             || (!string.IsNullOrEmpty(shapeElement.StrokeColor) && shapeElement.StrokeWidth > 0)))
         {
             // Return shape element
@@ -666,21 +667,25 @@ public sealed partial class PptxToTypstConverter : IDisposable
         }
     }
 
-    private TypstShapeElement? ExtractShapeGeometry(ShapeProperties? shapeProperties, double shapeWidth = 0, double shapeHeight = 0)
+    private TypstShapeElement? ExtractShapeGeometry(ShapeProperties? shapeProperties, StyleResolver? styleResolver = null, double shapeWidth = 0, double shapeHeight = 0)
     {
         if (shapeProperties == null) return null;
 
-        // Extract fill color
-        var fillColor = ExtractShapeFillColor(shapeProperties);
+        // Extract fill color (solid), falling back to a linear gradient fill when present
+        var fillColor = ExtractShapeFillColor(shapeProperties, styleResolver);
+        var fillGradient = string.IsNullOrEmpty(fillColor)
+            ? ExtractShapeFillGradient(shapeProperties, styleResolver)
+            : null;
 
         // Extract stroke (outline) properties
-        var (strokeColor, strokeWidth) = ExtractShapeStroke(shapeProperties);
+        var (strokeColor, strokeWidth) = ExtractShapeStroke(shapeProperties, styleResolver);
 
         // Helper to build TypstShapeElement with common fill+stroke properties
         TypstShapeElement CreateElement(string shapeType) => new()
         {
             ShapeType = shapeType,
             FillColor = fillColor,
+            FillGradient = fillGradient,
             StrokeColor = strokeColor,
             StrokeWidth = strokeWidth
         };
@@ -699,6 +704,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
                 {
                     ShapeType = "rect",
                     FillColor = fillColor,
+                    FillGradient = fillGradient,
                     StrokeColor = strokeColor,
                     StrokeWidth = strokeWidth,
                     CornerRadius = cornerRadius
@@ -734,6 +740,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
                         {
                             ShapeType = "polygon",
                             FillColor = fillColor,
+                            FillGradient = fillGradient,
                             StrokeColor = strokeColor,
                             StrokeWidth = strokeWidth,
                             Points = points
@@ -744,7 +751,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
         }
 
         // No recognizable geometry — return shape if it has fill or stroke
-        if (!string.IsNullOrEmpty(fillColor) || (!string.IsNullOrEmpty(strokeColor) && strokeWidth > 0))
+        if (!string.IsNullOrEmpty(fillColor) || fillGradient != null || (!string.IsNullOrEmpty(strokeColor) && strokeWidth > 0))
         {
             // Fallback: treat as rectangle
             return CreateElement("rect");
@@ -753,12 +760,12 @@ public sealed partial class PptxToTypstConverter : IDisposable
         return null;
     }
 
-    private string ExtractShapeFillColor(ShapeProperties shapeProperties)
+    private string ExtractShapeFillColor(ShapeProperties shapeProperties, StyleResolver? styleResolver = null)
     {
         var solidFill = shapeProperties.Elements<Drawing.SolidFill>().FirstOrDefault();
         if (solidFill != null)
         {
-            var color = ExtractColor(solidFill);
+            var color = ExtractColor(solidFill, styleResolver);
             if (!string.IsNullOrEmpty(color))
             {
                 return color;
@@ -768,10 +775,73 @@ public sealed partial class PptxToTypstConverter : IDisposable
     }
 
     /// <summary>
+    /// Extracts a linear gradient fill (&lt;a:gradFill&gt;) from shape properties, including
+    /// per-stop &lt;a:alpha&gt; opacities. Returns null when there is no gradient, when it has
+    /// fewer than two resolvable stops, or when a stop color cannot be resolved.
+    /// Decks like AetherLink use full-bleed gradient rectangles as slide backgrounds.
+    /// </summary>
+    private TypstGradientFill? ExtractShapeFillGradient(ShapeProperties shapeProperties, StyleResolver? styleResolver)
+    {
+        var gradFill = shapeProperties.Elements<Drawing.GradientFill>().FirstOrDefault();
+        if (gradFill?.GradientStopList is not { } stopList)
+            return null;
+
+        var stops = new List<TypstGradientStop>();
+        foreach (var gs in stopList.Elements<Drawing.GradientStop>())
+        {
+            var color = ExtractGradientStopColor(gs, styleResolver);
+            if (color == null)
+                return null;
+
+            var pos = gs.Position?.Value ?? 0;
+            stops.Add(new TypstGradientStop(color, Math.Clamp(pos / 100000.0, 0.0, 1.0)));
+        }
+
+        if (stops.Count < 2)
+            return null;
+
+        // OOXML a:lin ang is in 60000ths of a degree; OOXML and Typst gradient.linear both
+        // measure the axis clockwise from the left→right direction, so degrees pass through
+        // verbatim (same convention as the generation pipeline's emitters).
+        var angle = (gradFill.Elements<Drawing.LinearGradientFill>().FirstOrDefault()?.Angle?.Value ?? 0) / 60000.0;
+        return new TypstGradientFill(angle, stops);
+    }
+
+    private static string? ExtractGradientStopColor(Drawing.GradientStop stop, StyleResolver? styleResolver)
+    {
+        var rgb = stop.Elements<Drawing.RgbColorModelHex>().FirstOrDefault();
+        if (rgb?.Val?.Value is { } hex)
+        {
+            // Unlike a solid fill, a fully transparent gradient stop is meaningful
+            // (fade-out) — keep it as #RRGGBB00 instead of treating it as noFill.
+            return ApplyColorModifiers(ParseHexColor(hex), rgb.ChildElements)
+                ?? FormatHexColor(ParseHexColor(hex), 0);
+        }
+
+        var schemeColor = stop.Elements<Drawing.SchemeColor>().FirstOrDefault();
+        if (schemeColor != null)
+        {
+            // Raw XML attribute read per AGENTS.pptx.md rule 1 — SDK enum parsing is unreliable.
+            var match = Regex.Match(schemeColor.OuterXml, @"val=""([^""]+)""");
+            if (match.Success)
+            {
+                var resolved = styleResolver?.ResolveSchemeColor(match.Groups[1].Value);
+                if (!string.IsNullOrEmpty(resolved))
+                {
+                    return ApplyColorModifiers(ParseHexColor(resolved), schemeColor.ChildElements)
+                        ?? FormatHexColor(ParseHexColor(resolved), 0);
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// Extracts stroke (outline) properties from a shape's &lt;a:ln&gt; element.
     /// Returns the stroke color (hex with # prefix) and width in points (EMU / 12700).
     /// </summary>
-    private (string StrokeColor, double StrokeWidth) ExtractShapeStroke(ShapeProperties shapeProperties)
+    private (string StrokeColor, double StrokeWidth) ExtractShapeStroke(ShapeProperties shapeProperties, StyleResolver? styleResolver = null)
     {
         var outline = shapeProperties.Elements<Drawing.Outline>().FirstOrDefault();
         if (outline == null)
@@ -789,7 +859,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
         var solidFill = outline.Elements<Drawing.SolidFill>().FirstOrDefault();
         if (solidFill != null)
         {
-            var color = ExtractColor(solidFill);
+            var color = ExtractColor(solidFill, styleResolver);
             if (!string.IsNullOrEmpty(color))
                 return (color, strokeWidth);
         }
@@ -2423,13 +2493,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
     private static string? ExtractDefRPrColorStatic(Drawing.DefaultRunProperties defRPr)
     {
         var solidFill = defRPr.Elements<Drawing.SolidFill>().FirstOrDefault();
-        if (solidFill != null)
-        {
-            var rgb = solidFill.RgbColorModelHex;
-            if (rgb?.Val != null)
-                return $"#{rgb.Val.Value}";
-        }
-        return null;
+        return solidFill != null ? ExtractSolidFillColorStatic(solidFill, null) : null;
     }
 
     private string? ExtractRunColor(Drawing.RunProperties runProps, StyleResolver? styleResolver = null)
@@ -2444,25 +2508,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
     }
 
     private string? ExtractColor(Drawing.SolidFill solidFill, StyleResolver? styleResolver = null)
-    {
-        var rgb = solidFill.RgbColorModelHex;
-        if (rgb?.Val != null)
-        {
-            return $"#{rgb.Val.Value}";
-        }
-
-        var schemeColor = solidFill.SchemeColor;
-        if (schemeColor != null)
-        {
-            var schemeColorName = GetAttributeValue(schemeColor, "val") ?? schemeColor.Val?.Value.ToString();
-            if (!string.IsNullOrEmpty(schemeColorName))
-            {
-                return styleResolver?.ResolveSchemeColor(schemeColorName);
-            }
-        }
-
-        return null;
-    }
+        => ExtractSolidFillColorStatic(solidFill, styleResolver);
 
     /// <summary>
     /// Reads the native pixel dimensions from a PNG or JPEG byte array header.
@@ -3454,7 +3500,9 @@ public sealed partial class PptxToTypstConverter : IDisposable
                     break;
             }
         }
-        return FormatHexColor(color, alpha);
+        // Fully transparent solid fill is visually identical to a:noFill — report no
+        // color so callers treat the fill/stroke/text color as absent.
+        return alpha == 0 ? null : FormatHexColor(color, alpha);
     }
 
     private static bool TryGetOoxmlVal(OpenXmlElement element, out int value)

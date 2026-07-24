@@ -36,7 +36,7 @@
     "italic": null,
     "color": "#0B1026"
   },
-  "backgroundColor": null,
+  "backgroundColor": "#FFFFFF",
   "slideWidthPt": 960,
   "slideHeightPt": 540,
   "warnings": []
