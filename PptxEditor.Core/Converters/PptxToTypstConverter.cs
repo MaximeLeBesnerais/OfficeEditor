@@ -22,6 +22,14 @@ public sealed partial class PptxToTypstConverter : IDisposable
     private readonly Dictionary<string, TypstFontMetrics> _fontMetrics = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, string> _themeFonts = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, TableStyleDefinition> _tableStyles = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The <c>def</c> attribute of <c>a:tblStyleLst</c>: style applied when a table's
+    /// <c>a:tblPr</c> omits <c>a:tableStyleId</c>. Note the GUID often refers to a
+    /// PowerPoint built-in style whose definition is not stored in the file; the
+    /// fallback only has an effect when the style list actually contains the entry.
+    /// </summary>
+    private string? _defaultTableStyleId;
     private int _imageCounter;
 
     /// <summary>Warnings for the slide currently being converted; null outside slide conversion.</summary>
@@ -2874,6 +2882,10 @@ public sealed partial class PptxToTypstConverter : IDisposable
             lastRowFlag = tableProps.LastRow?.Value == true;
         }
 
+        // A table without a:tableStyleId uses the default table style (a:tblStyleLst def).
+        if (string.IsNullOrEmpty(styleId))
+            styleId = _defaultTableStyleId;
+
         _tableStyles.TryGetValue(styleId ?? "", out var tableStyle);
 
         // Derive border color and width from wholeTbl border; fallback to black/1.0
@@ -3159,6 +3171,8 @@ public sealed partial class PptxToTypstConverter : IDisposable
         var part = _document.PresentationPart!.TableStylesPart;
         if (part?.TableStyleList == null) return;
 
+        _defaultTableStyleId = part.TableStyleList.Default?.Value;
+
         foreach (var style in part.TableStyleList.ChildElements.OfType<Drawing.TableStyleEntry>())
         {
             var styleId = style.StyleId?.Value;
@@ -3407,9 +3421,16 @@ public sealed partial class PptxToTypstConverter : IDisposable
 
         if (bandRowFlag)
         {
-            var bandKey = (row % 2 == 1) ? "band1H" : "band2H";
-            if (style.Parts.TryGetValue(bandKey, out var bandPart))
-                result = OverlayTableStylePart(result, bandPart);
+            // Banding restarts after the special first row: with firstRow on, row 1 is the
+            // first band (band1H); with firstRow off, row 0 is. Previously row parity alone
+            // decided, which shifted all bands by one whenever firstRow was off.
+            var bandIndex = firstRowFlag ? row - 1 : row;
+            if (bandIndex >= 0)
+            {
+                var bandKey = (bandIndex % 2 == 0) ? "band1H" : "band2H";
+                if (style.Parts.TryGetValue(bandKey, out var bandPart))
+                    result = OverlayTableStylePart(result, bandPart);
+            }
         }
 
         if (firstRowFlag && row == 0 && style.Parts.TryGetValue("firstRow", out var firstRow))
@@ -3482,56 +3503,52 @@ public sealed partial class PptxToTypstConverter : IDisposable
         var cellProps = cell.TableCellProperties;
         if (cellProps == null) return stylePart;
 
-        var borders = cellProps.Elements<Drawing.TableCellBorders>().FirstOrDefault();
-        if (borders == null) return stylePart;
+        // CT_TableCellProperties carries cell borders as direct a:lnL/a:lnR/a:lnT/a:lnB
+        // children of a:tcPr (a:tcBdr only exists inside tableStyles.xml cell styles,
+        // never in a:tcPr — reading tcBdr here silently dropped every explicit cell border).
+        var explicitLeft = ExtractCellBorderLine(GetChildByLocalName(cellProps, "lnL"), styleResolver);
+        var explicitRight = ExtractCellBorderLine(GetChildByLocalName(cellProps, "lnR"), styleResolver);
+        var explicitTop = ExtractCellBorderLine(GetChildByLocalName(cellProps, "lnT"), styleResolver);
+        var explicitBottom = ExtractCellBorderLine(GetChildByLocalName(cellProps, "lnB"), styleResolver);
 
-        var explicitTop = ExtractBorderInfo(borders.TopBorder, styleResolver);
-        var explicitBottom = ExtractBorderInfo(borders.BottomBorder, styleResolver);
-        var explicitLeft = ExtractBorderInfo(borders.LeftBorder, styleResolver);
-        var explicitRight = ExtractBorderInfo(borders.RightBorder, styleResolver);
-        var explicitTopState = ToBorderState(explicitTop.Color, explicitTop.Width, explicitTop.IsNone);
-        var explicitBottomState = ToBorderState(explicitBottom.Color, explicitBottom.Width, explicitBottom.IsNone);
-        var explicitLeftState = ToBorderState(explicitLeft.Color, explicitLeft.Width, explicitLeft.IsNone);
-        var explicitRightState = ToBorderState(explicitRight.Color, explicitRight.Width, explicitRight.IsNone);
-
-        // If no explicit borders at all, return style part as-is. Missing/empty tcBdr
-        // sides must remain inherited and must not synthesize per-cell stroke state.
-        if (explicitTopState == TableBorderState.Inherit &&
-            explicitBottomState == TableBorderState.Inherit &&
-            explicitLeftState == TableBorderState.Inherit &&
-            explicitRightState == TableBorderState.Inherit)
+        // If no explicit borders at all, return style part as-is. Missing ln* sides
+        // must remain inherited and must not synthesize per-cell stroke state.
+        if (explicitTop.State == TableBorderState.Inherit &&
+            explicitBottom.State == TableBorderState.Inherit &&
+            explicitLeft.State == TableBorderState.Inherit &&
+            explicitRight.State == TableBorderState.Inherit)
             return stylePart;
 
         return new TableStylePart
         {
             BackgroundColor = stylePart?.BackgroundColor,
             BackgroundCleared = stylePart?.BackgroundCleared ?? false,
-            BorderTopColor = explicitTop.IsNone ? null : (explicitTop.Color ?? stylePart?.BorderTopColor),
-            BorderBottomColor = explicitBottom.IsNone ? null : (explicitBottom.Color ?? stylePart?.BorderBottomColor),
-            BorderLeftColor = explicitLeft.IsNone ? null : (explicitLeft.Color ?? stylePart?.BorderLeftColor),
-            BorderRightColor = explicitRight.IsNone ? null : (explicitRight.Color ?? stylePart?.BorderRightColor),
+            BorderTopColor = explicitTop.State == TableBorderState.None ? null : (explicitTop.Color ?? stylePart?.BorderTopColor),
+            BorderBottomColor = explicitBottom.State == TableBorderState.None ? null : (explicitBottom.Color ?? stylePart?.BorderBottomColor),
+            BorderLeftColor = explicitLeft.State == TableBorderState.None ? null : (explicitLeft.Color ?? stylePart?.BorderLeftColor),
+            BorderRightColor = explicitRight.State == TableBorderState.None ? null : (explicitRight.Color ?? stylePart?.BorderRightColor),
             BorderInsideHColor = stylePart?.BorderInsideHColor,
             BorderInsideVColor = stylePart?.BorderInsideVColor,
-            BorderTopWidth = explicitTop.IsNone ? null : (explicitTop.Width ?? stylePart?.BorderTopWidth),
-            BorderBottomWidth = explicitBottom.IsNone ? null : (explicitBottom.Width ?? stylePart?.BorderBottomWidth),
-            BorderLeftWidth = explicitLeft.IsNone ? null : (explicitLeft.Width ?? stylePart?.BorderLeftWidth),
-            BorderRightWidth = explicitRight.IsNone ? null : (explicitRight.Width ?? stylePart?.BorderRightWidth),
+            BorderTopWidth = explicitTop.State == TableBorderState.None ? null : (explicitTop.Width ?? stylePart?.BorderTopWidth),
+            BorderBottomWidth = explicitBottom.State == TableBorderState.None ? null : (explicitBottom.Width ?? stylePart?.BorderBottomWidth),
+            BorderLeftWidth = explicitLeft.State == TableBorderState.None ? null : (explicitLeft.Width ?? stylePart?.BorderLeftWidth),
+            BorderRightWidth = explicitRight.State == TableBorderState.None ? null : (explicitRight.Width ?? stylePart?.BorderRightWidth),
             BorderInsideHWidth = stylePart?.BorderInsideHWidth,
             BorderInsideVWidth = stylePart?.BorderInsideVWidth,
-            BorderTopState = explicitTopState == TableBorderState.Inherit ? stylePart?.BorderTopState ?? TableBorderState.Inherit : explicitTopState,
-            BorderBottomState = explicitBottomState == TableBorderState.Inherit ? stylePart?.BorderBottomState ?? TableBorderState.Inherit : explicitBottomState,
-            BorderLeftState = explicitLeftState == TableBorderState.Inherit ? stylePart?.BorderLeftState ?? TableBorderState.Inherit : explicitLeftState,
-            BorderRightState = explicitRightState == TableBorderState.Inherit ? stylePart?.BorderRightState ?? TableBorderState.Inherit : explicitRightState,
-            BorderTopExplicit = explicitTopState != TableBorderState.Inherit,
-            BorderBottomExplicit = explicitBottomState != TableBorderState.Inherit,
-            BorderLeftExplicit = explicitLeftState != TableBorderState.Inherit,
-            BorderRightExplicit = explicitRightState != TableBorderState.Inherit,
+            BorderTopState = explicitTop.State == TableBorderState.Inherit ? stylePart?.BorderTopState ?? TableBorderState.Inherit : explicitTop.State,
+            BorderBottomState = explicitBottom.State == TableBorderState.Inherit ? stylePart?.BorderBottomState ?? TableBorderState.Inherit : explicitBottom.State,
+            BorderLeftState = explicitLeft.State == TableBorderState.Inherit ? stylePart?.BorderLeftState ?? TableBorderState.Inherit : explicitLeft.State,
+            BorderRightState = explicitRight.State == TableBorderState.Inherit ? stylePart?.BorderRightState ?? TableBorderState.Inherit : explicitRight.State,
+            BorderTopExplicit = explicitTop.State != TableBorderState.Inherit,
+            BorderBottomExplicit = explicitBottom.State != TableBorderState.Inherit,
+            BorderLeftExplicit = explicitLeft.State != TableBorderState.Inherit,
+            BorderRightExplicit = explicitRight.State != TableBorderState.Inherit,
             BorderInsideHState = stylePart?.BorderInsideHState ?? TableBorderState.Inherit,
             BorderInsideVState = stylePart?.BorderInsideVState ?? TableBorderState.Inherit,
-            BorderTopNone = (explicitTopState == TableBorderState.Inherit ? stylePart?.BorderTopState ?? TableBorderState.Inherit : explicitTopState) == TableBorderState.None,
-            BorderBottomNone = (explicitBottomState == TableBorderState.Inherit ? stylePart?.BorderBottomState ?? TableBorderState.Inherit : explicitBottomState) == TableBorderState.None,
-            BorderLeftNone = (explicitLeftState == TableBorderState.Inherit ? stylePart?.BorderLeftState ?? TableBorderState.Inherit : explicitLeftState) == TableBorderState.None,
-            BorderRightNone = (explicitRightState == TableBorderState.Inherit ? stylePart?.BorderRightState ?? TableBorderState.Inherit : explicitRightState) == TableBorderState.None,
+            BorderTopNone = (explicitTop.State == TableBorderState.Inherit ? stylePart?.BorderTopState ?? TableBorderState.Inherit : explicitTop.State) == TableBorderState.None,
+            BorderBottomNone = (explicitBottom.State == TableBorderState.Inherit ? stylePart?.BorderBottomState ?? TableBorderState.Inherit : explicitBottom.State) == TableBorderState.None,
+            BorderLeftNone = (explicitLeft.State == TableBorderState.Inherit ? stylePart?.BorderLeftState ?? TableBorderState.Inherit : explicitLeft.State) == TableBorderState.None,
+            BorderRightNone = (explicitRight.State == TableBorderState.Inherit ? stylePart?.BorderRightState ?? TableBorderState.Inherit : explicitRight.State) == TableBorderState.None,
             BorderInsideHNone = stylePart?.BorderInsideHNone ?? false,
             BorderInsideVNone = stylePart?.BorderInsideVNone ?? false,
             TextBold = stylePart?.TextBold,
@@ -3539,6 +3556,34 @@ public sealed partial class PptxToTypstConverter : IDisposable
             TextColor = stylePart?.TextColor,
             TextFontSize = stylePart?.TextFontSize
         };
+    }
+
+    private static OpenXmlElement? GetChildByLocalName(OpenXmlElement element, string localName)
+        => element.ChildElements.FirstOrDefault(e => string.Equals(e.LocalName, localName, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// Reads one explicit cell border edge (an <c>a:lnL</c>/<c>a:lnR</c>/<c>a:lnT</c>/<c>a:lnB</c>
+    /// line-properties element under <c>a:tcPr</c>): absence → Inherit, <c>a:noFill</c> → None,
+    /// anything else → Visible with the declared width (EMU) and solid fill color.
+    /// Dash styles are not modeled yet; any present line is emitted solid.
+    /// </summary>
+    private static (TableBorderState State, string? Color, double? Width) ExtractCellBorderLine(OpenXmlElement? line, StyleResolver? styleResolver)
+    {
+        if (line == null)
+            return (TableBorderState.Inherit, null, null);
+
+        if (line.Elements<Drawing.NoFill>().Any())
+            return (TableBorderState.None, null, null);
+
+        double? width = null;
+        var widthAttr = GetAttributeValue(line, "w");
+        if (long.TryParse(widthAttr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var emu))
+            width = EmuToPt(emu);
+
+        var solidFill = line.Elements<Drawing.SolidFill>().FirstOrDefault();
+        var color = solidFill != null ? ExtractSolidFillColorStatic(solidFill, styleResolver) : null;
+
+        return (TableBorderState.Visible, color, width);
     }
 
     private static TableStylePart? ApplyTableGridBorders(TableStylePart? stylePart, int row, int col, int rowCount, int colCount)
@@ -3557,6 +3602,17 @@ public sealed partial class PptxToTypstConverter : IDisposable
         var bottomState = stylePart.BorderBottomExplicit ? stylePart.BorderBottomState : (row == rowCount - 1 ? stylePart.BorderBottomState : stylePart.BorderInsideHState);
         var leftState = stylePart.BorderLeftExplicit ? stylePart.BorderLeftState : (col == 0 ? stylePart.BorderLeftState : TableBorderState.None);
         var rightState = stylePart.BorderRightExplicit ? stylePart.BorderRightState : (col == colCount - 1 ? stylePart.BorderRightState : stylePart.BorderInsideVState);
+
+        // This cell participates in per-cell stroke emission (at least one edge state is
+        // defined). An edge that is still Inherit here is defined nowhere — not by the
+        // cell, not by the table style, not by inside-border defaults. PowerPoint renders
+        // such edges with no stroke ("No Style, No Grid" semantics), so force None instead
+        // of leaving the edge to Typst's default table grid. This is what makes partial
+        // stroke tables (e.g. horizontal-only rules) emit exactly the defined edges.
+        topState = topState == TableBorderState.Inherit ? TableBorderState.None : topState;
+        bottomState = bottomState == TableBorderState.Inherit ? TableBorderState.None : bottomState;
+        leftState = leftState == TableBorderState.Inherit ? TableBorderState.None : leftState;
+        rightState = rightState == TableBorderState.Inherit ? TableBorderState.None : rightState;
 
         return new TableStylePart
         {

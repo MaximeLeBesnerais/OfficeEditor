@@ -27,7 +27,11 @@ These are load-bearing — they prevent hours of debugging.
 ## Color & Style Parsing
 
 - `PlaceholderValues` and `SchemeColorValues` parsing via SDK is unreliable → regex fallback on `OuterXml`.
-- Table styles: start with header bold/white, avoid complex partial per-cell strokes initially.
+- Table styles: header bold/white via `firstRow`/`band1H` parts; per-cell `a:tcPr` line borders
+  (`a:lnL/lnR/lnT/lnB` — direct children, never `a:tcBdr`) are honored per edge; undefined edges
+  render as no stroke in per-cell mode. Deferred: PowerPoint built-in style GUIDs (e.g.
+  `{5C22544A-…}` "Medium Style 2 - Accent 1") whose definitions are not stored in the file, and
+  dash/diagonal borders.
 
 ## Reference Files (Visual Regression)
 
