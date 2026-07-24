@@ -1838,19 +1838,9 @@ public sealed partial class PptxToTypstConverter : IDisposable
             // Resolve paragraph spacing (spcBef / spcAft) through full cascade
             var (spaceBefore, spaceAfter) = ResolveParagraphSpacing(pPr, bodyLstStyle, level, styleResolver, placeholderIdx, placeholderType);
 
-            // Extract explicit margin left and indent from paragraph properties
-            double? marginLeft = null;
-            double? indent = null;
-            if (pPr != null)
-            {
-                var marLAttr = GetAttributeValue(pPr, "marL");
-                if (!string.IsNullOrEmpty(marLAttr) && int.TryParse(marLAttr, out var marL))
-                    marginLeft = EmuToPt(marL);
-
-                var indentAttr = GetAttributeValue(pPr, "indent");
-                if (!string.IsNullOrEmpty(indentAttr) && int.TryParse(indentAttr, out var ind))
-                    indent = EmuToPt(ind);
-            }
+            // Resolve list indentation (marL / indent) through the full cascade:
+            // paragraph -> text body lstStyle -> layout placeholder -> master placeholder -> master txStyles
+            var (marginLeft, indent) = ResolveListIndents(pPr, bodyLstStyle, level, styleResolver, placeholderIdx, placeholderType);
 
             paragraphs.Add(new TypstParagraph
             {
@@ -2333,6 +2323,67 @@ public sealed partial class PptxToTypstConverter : IDisposable
 
         var levelName = $"lvl{level + 1}pPr";
         return lstStyle.ChildElements.FirstOrDefault(e => e.LocalName == levelName);
+    }
+
+    private static (double? MarginLeft, double? Indent) ResolveListIndents(
+        Drawing.ParagraphProperties? pPr,
+        OpenXmlElement? bodyLstStyle,
+        int level,
+        StyleResolver? styleResolver,
+        int? placeholderIdx,
+        PlaceholderValues? placeholderType)
+    {
+        // marL and indent inherit independently per OOXML — resolve each attribute
+        // separately through the cascade, first definition wins per attribute.
+        double? marginLeft = null;
+        double? indent = null;
+
+        void Apply((double? MarginLeft, double? Indent) candidate)
+        {
+            marginLeft ??= candidate.MarginLeft;
+            indent ??= candidate.Indent;
+        }
+
+        // 1. Paragraph level
+        Apply(ExtractListIndents(pPr));
+        if (marginLeft.HasValue && indent.HasValue)
+            return (marginLeft, indent);
+
+        // 2. Text body list style
+        Apply(ExtractListIndents(GetLstStyleLevelProperties(bodyLstStyle, level)));
+
+        if (styleResolver != null && !(marginLeft.HasValue && indent.HasValue))
+        {
+            // 3. Layout placeholder list style
+            Apply(styleResolver.GetLayoutPlaceholderListIndents(placeholderIdx, placeholderType, level));
+            // 4. Master placeholder list style
+            if (!(marginLeft.HasValue && indent.HasValue))
+                Apply(styleResolver.GetMasterPlaceholderListIndents(placeholderIdx, placeholderType, level));
+            // 5. Master txStyles
+            if (!(marginLeft.HasValue && indent.HasValue))
+                Apply(styleResolver.GetMasterTxStyleListIndents(placeholderType, level));
+        }
+
+        return (marginLeft, indent);
+    }
+
+    private static (double? MarginLeft, double? Indent) ExtractListIndents(OpenXmlElement? pPrLike)
+    {
+        if (pPrLike == null) return (null, null);
+
+        double? marginLeft = null;
+        double? indent = null;
+
+        // Raw XML attribute reads per AGENTS.pptx.md rule 1 — SDK attribute access is unreliable.
+        var marLAttr = GetAttributeValue(pPrLike, "marL");
+        if (!string.IsNullOrEmpty(marLAttr) && int.TryParse(marLAttr, out var marL))
+            marginLeft = EmuToPt(marL);
+
+        var indentAttr = GetAttributeValue(pPrLike, "indent");
+        if (!string.IsNullOrEmpty(indentAttr) && int.TryParse(indentAttr, out var ind))
+            indent = EmuToPt(ind);
+
+        return (marginLeft, indent);
     }
 
     private static double? ResolveLineSpacing(

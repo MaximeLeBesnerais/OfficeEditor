@@ -144,6 +144,71 @@ public sealed class PptxToTypstConverterTextListTests : IDisposable
         Assert.DoesNotContain("#set par(leading: 8.46pt)", source);
     }
 
+    [Fact]
+    public void GenerateTypstSource_MixedListLevels_EmitsPerLevelMarkersAndIndents()
+    {
+        // Level signaled by marL/indent (+lvl) with a different buChar per level:
+        // lvl0 "•" at marL 190500, lvl1 "–" at marL 381000, lvl2 "▪" at marL 571500,
+        // all with indent -190500 (hanging 15pt).
+        var shape = TextShape(2,
+            BulletParagraph("Top level item", level: 0, marL: 190500, indent: -190500, bulletChar: "•"),
+            BulletParagraph("Second level item", level: 1, marL: 381000, indent: -190500, bulletChar: "–"),
+            BulletParagraph("Third level item", level: 2, marL: 571500, indent: -190500, bulletChar: "▪"));
+        var path = CreatePptx("mixed-list-levels.pptx", customizeMaster: null, shape);
+
+        var source = ConvertToTypstSource(path);
+
+        // lvl0: marker at 15-15=0pt (indent omitted), body 15pt right of marker
+        Assert.Contains("#list(marker: [•], body-indent: 15.00pt)", source);
+        // lvl1: marker at 30-15=15pt, body at 30pt
+        Assert.Contains("#list(marker: [–], indent: 15.00pt, body-indent: 15.00pt)", source);
+        // lvl2: marker at 45-15=30pt, body at 45pt
+        Assert.Contains("#list(marker: [▪], indent: 30.00pt, body-indent: 15.00pt)", source);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_PlaceholderListIndents_InheritFromMasterTxStyles()
+    {
+        // Body placeholder paragraph with lvl=1 and no local marL/indent/buChar:
+        // everything must come from the master txStyles BodyStyle lvl2pPr.
+        var shape = TextShape(2,
+            new Drawing.Paragraph[]
+            {
+                new Drawing.Paragraph(
+                    new Drawing.ParagraphProperties { Level = new Int32Value(1) },
+                    new Drawing.Run(
+                        new Drawing.RunProperties { FontSize = new Int32Value(1200) },
+                        new Drawing.Text { Text = "Inherited level two" }))
+            },
+            placeholderType: PlaceholderValues.Body);
+
+        void CustomizeMaster(SlideMaster master)
+        {
+            master.TextStyles = new TextStyles(
+                new TitleStyle(),
+                new BodyStyle(
+                    new Drawing.Level1ParagraphProperties(new Drawing.CharacterBullet { Char = "•" })
+                    {
+                        LeftMargin = new Int32Value(342900),
+                        Indent = new Int32Value(-342900)
+                    },
+                    new Drawing.Level2ParagraphProperties(new Drawing.CharacterBullet { Char = "–" })
+                    {
+                        LeftMargin = new Int32Value(742950),
+                        Indent = new Int32Value(-285750)
+                    }),
+                new OtherStyle());
+        }
+
+        var path = CreatePptx("placeholder-indent-inherit.pptx", CustomizeMaster, shape);
+
+        var source = ConvertToTypstSource(path);
+
+        // lvl2pPr: marL 742950 EMU = 58.5pt, indent -285750 EMU = -22.5pt
+        // -> marker at 36pt, body 22.5pt right of marker
+        Assert.Contains("#list(marker: [–], indent: 36.00pt, body-indent: 22.50pt)", source);
+    }
+
     private static Drawing.Paragraph BulletParagraph(string text, int level, int marL, int indent, string bulletChar)
     {
         var pPr = new Drawing.ParagraphProperties(new Drawing.CharacterBullet { Char = bulletChar })
