@@ -8,26 +8,9 @@ namespace OfficeEditor.Api.Tests.Unit;
 /// (no Typst needed), blank document creation for each format, unsupported-conversion
 /// errors, PPI parsing, and DOCX → PDF via Typst (opt-in, OE_RUN_TYPST_COMPILE_TESTS=1).
 /// </summary>
-public sealed class ConversionServiceTests : IAsyncDisposable
+public sealed class ConversionServiceTests
 {
     private const string EnableRenderEnvVar = "OE_RUN_TYPST_COMPILE_TESTS";
-    private readonly List<string> _tempFiles = [];
-
-    public async ValueTask DisposeAsync()
-    {
-        foreach (var file in _tempFiles)
-        {
-            try { File.Delete(file); } catch { /* cleanup best effort */ }
-        }
-        GC.SuppressFinalize(this);
-    }
-
-    private string CreateTempFilePath(string extension)
-    {
-        var path = Path.Combine(Path.GetTempPath(), $"oe-cvt-{Guid.NewGuid():N}{extension}");
-        _tempFiles.Add(path);
-        return path;
-    }
 
     [Fact]
     public async Task ConvertAsync_MarkdownToDocx_ProducesValidDocx()
@@ -92,9 +75,8 @@ public sealed class ConversionServiceTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task ConvertAsync_UnsupportedConversion_UnknownSourceToPptx_CreatesBlankPptx()
+    public async Task ConvertAsync_UnknownSourceToPptx_CreatesBlankPptx()
     {
-        // Unknown source + Pptx target → CreateBlankPptxAsync (line 29)
         var service = new ConversionService();
         var bytes = "data"u8.ToArray();
         var request = new ConversionRequest(bytes, "file.bin", ConversionTargetFormat.Pptx);
@@ -297,7 +279,7 @@ public sealed class ConversionServiceTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task ConvertAsync_Options_PpiIsPassedThrough()
+    public async Task ConvertAsync_Options_UnsupportedSrcDst_Rejected()
     {
         var service = new ConversionService();
         IReadOnlyDictionary<string, string> options = new Dictionary<string, string>
@@ -314,7 +296,7 @@ public sealed class ConversionServiceTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task ConvertAsync_Options_InvalidPpi_FallsBackToDefault()
+    public async Task ConvertAsync_Options_InvalidPpi_UnsupportedSrcDst_Rejected()
     {
         var service = new ConversionService();
         IReadOnlyDictionary<string, string> options = new Dictionary<string, string>
@@ -447,7 +429,7 @@ public sealed class ConversionServiceTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task ConvertAsync_GarbagePng_ReturnsError()
+    public async Task ConvertAsync_GarbagePptx_ToPdf_ReturnsError()
     {
         var service = new ConversionService();
         var garbage = "definitely not a valid pptx"u8.ToArray();
