@@ -10,12 +10,18 @@ public class ContentBlockRenderer
     private readonly StyleMapping _styleMapping;
     private readonly Dictionary<string, Style> _cachedStyles;
     private readonly Action<string>? _ensureStyle;
+    private readonly Action? _ensureNumbering;
 
-    public ContentBlockRenderer(StyleMapping? styleMapping = null, Dictionary<string, Style>? cachedStyles = null, Action<string>? ensureStyle = null)
+    public ContentBlockRenderer(
+        StyleMapping? styleMapping = null,
+        Dictionary<string, Style>? cachedStyles = null,
+        Action<string>? ensureStyle = null,
+        Action? ensureNumbering = null)
     {
         _styleMapping = styleMapping ?? StyleMapping.Default;
         _cachedStyles = cachedStyles ?? new Dictionary<string, Style>();
         _ensureStyle = ensureStyle;
+        _ensureNumbering = ensureNumbering;
     }
 
     public void Render(Body body, List<ContentBlock> blocks)
@@ -107,6 +113,8 @@ public class ContentBlockRenderer
 
     private void RenderList(Body body, ListBlock block)
     {
+        _ensureNumbering?.Invoke();
+
         for (int i = 0; i < block.Items.Count; i++)
         {
             var paragraph = new Paragraph();

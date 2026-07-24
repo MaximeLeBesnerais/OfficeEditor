@@ -120,9 +120,9 @@ public sealed class PptxToTypstConverterUnsupportedElementTests : IDisposable
     public void Convert_ReferenceDeckWithSmartArt_KeepsApproximationAndWarns()
     {
         // sales_acceleration_deck.pptx slide 15 contains a SmartArt diagram ("Diagram 16",
-        // text: SUSTAIN / DIAGNOSE / DESIGN / DELIVER) that the converter approximates as
-        // positioned text. The approximation must be kept (no placeholder) and reported
-        // via Warnings.
+        // text: SUSTAIN / DIAGNOSE / DESIGN / DELIVER).  Shape extraction produces
+        // pre-rendered shapes (roundRect + rightArrow); text content is preserved.
+        // The result must contain shapes + text and warn about theme colour fidelity.
         var referencePath = Path.Combine(ResolveReferenceDirectory(), "sales_acceleration_deck.pptx");
         Assert.True(File.Exists(referencePath), $"Reference deck not found: {referencePath}");
 
@@ -137,12 +137,53 @@ public sealed class PptxToTypstConverterUnsupportedElementTests : IDisposable
         var slide = Assert.Single(smartArtSlides);
 
         var warning = Assert.Single(slide.Warnings);
-        Assert.Contains("approximated", warning);
+        Assert.Contains("rendered from pre-rendered shapes", warning);
 
-        // Approximation stays: positioned text elements, no SmartArt placeholder label.
+        // Both shape elements (rects + arrows) and positioned text must be present.
+        Assert.Contains(slide.Elements, e => e.Type == "Shape");
         Assert.Contains(slide.Elements, e => e.Type == "Text");
         Assert.DoesNotContain(slide.Elements,
             e => e.Text?.Content.Contains("not supported", StringComparison.Ordinal) == true);
+    }
+
+    [Fact]
+    public void Convert_ReferenceDeckWithSmartArt_Slide15YieldsShapeElements()
+    {
+        // Integration test: convert sales_acceleration_deck.pptx and assert that
+        // slide 15 yields shape elements (roundRect boxes, rightArrow connectors)
+        // in addition to the four text nodes (SUSTAIN, DIAGNOSE, DESIGN, DELIVER).
+        var referencePath = Path.Combine(ResolveReferenceDirectory(), "sales_acceleration_deck.pptx");
+        Assert.True(File.Exists(referencePath), $"Reference deck not found: {referencePath}");
+
+        using var document = PresentationDocument.Open(referencePath, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = converter.Convert();
+
+        var smartArtSlides = presentation.Slides
+            .Where(s => s.Warnings.Any(w => w.Contains("SmartArt", StringComparison.Ordinal)))
+            .ToList();
+        var slide = Assert.Single(smartArtSlides);
+
+        var shapes = slide.Elements.Where(e => e.Type == "Shape").ToList();
+        Assert.NotEmpty(shapes);
+
+        var rects = shapes.Where(s => s.Shape?.ShapeType == "rect").ToList();
+        var polygons = shapes.Where(s => s.Shape?.ShapeType == "polygon").ToList();
+        Assert.NotEmpty(rects);
+        Assert.NotEmpty(polygons);
+
+        // Each shape should have a fill colour and positioning.
+        Assert.All(shapes, s =>
+        {
+            Assert.True(s.Width > 0);
+            Assert.True(s.Height > 0);
+            Assert.NotNull(s.Shape);
+        });
+
+        // The 4 text nodes (DIAGNOSE, DESIGN, DELIVER, SUSTAIN) should still be present.
+        var textElements = slide.Elements.Where(e => e.Type == "Text").ToList();
+        Assert.NotEmpty(textElements);
     }
 
     private static P.GraphicFrame GraphicFrame(uint id, string name, double x, double y, double width, double height, string uri)
