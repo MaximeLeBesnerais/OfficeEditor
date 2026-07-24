@@ -325,9 +325,16 @@ public class WorkbookBuilderTests : IDisposable
             .Elements<Row>().First().Elements<Cell>().ToDictionary(c => c.CellReference!.Value!);
         Assert.Equal(CellValues.Number, cells["A1"].DataType?.Value);
         Assert.Equal(CellValues.SharedString, cells["B1"].DataType?.Value);
-        Assert.Equal(CellValues.String, cells["C1"].DataType?.Value);
-        Assert.Equal("Not a formula", cells["C1"].CellValue?.Text);
+        // Literal strings go through the shared string table — t="str" is
+        // reserved for formula string results, not literal values.
+        Assert.Equal(CellValues.SharedString, cells["C1"].DataType?.Value);
+        var sharedStringTable = doc.WorkbookPart!.SharedStringTablePart?.SharedStringTable;
+        Assert.NotNull(sharedStringTable);
+        var sharedStrings = sharedStringTable.Elements<SharedStringItem>().ToList();
+        var c1Text = sharedStrings[int.Parse(cells["C1"].CellValue!.Text)].InnerText;
+        Assert.Equal("Not a formula", c1Text);
         Assert.Equal(0U, cells["D1"].StyleIndex?.Value);
+        OpenXmlAssert.NoValidationErrors(doc);
     }
 
     [Fact]
@@ -1189,6 +1196,90 @@ public class WorkbookBuilderTests : IDisposable
 
         using var reader = WorkbookBuilder.Open(_testFilePath);
         Assert.Equal("Updated", reader.GetWorksheet("Sheet1").GetCellValue("A1"));
+    }
+
+    [Fact]
+    public void OverwriteFormulaCell_WithValue_ShouldClearFormula()
+    {
+        // Act: write a formula, then overwrite the same cell with a literal value
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            var sheet = builder.AddWorksheet("Sheet1");
+            sheet.AddCell("A1", "=SUM(B1:B2)", true);
+            sheet.AddCell("A1", "42");
+            builder.Save();
+        }
+
+        // Assert: no stale <f> survives; the cell is a plain number
+        using var doc = SpreadsheetDocument.Open(_testFilePath, false);
+        var cell = doc.WorkbookPart!.WorksheetParts.First().Worksheet!
+            .GetFirstChild<SheetData>()!.Elements<Row>().Single().Elements<Cell>().Single();
+        Assert.Null(cell.CellFormula);
+        Assert.Equal(CellValues.Number, cell.DataType?.Value);
+        Assert.Equal("42", cell.CellValue?.Text);
+        OpenXmlAssert.NoValidationErrors(doc);
+    }
+
+    [Fact]
+    public void OverwriteValueCell_WithFormula_ShouldClearValueAndDataType()
+    {
+        // Act: write a value, then overwrite the same cell with a formula
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            var sheet = builder.AddWorksheet("Sheet1");
+            sheet.AddCell("A1", "99");
+            sheet.AddCell("A1", "=SUM(B1:B2)", true);
+            builder.Save();
+        }
+
+        // Assert: the stale cached value and data type are gone — Excel
+        // recalculates on open instead of trusting a value we know is wrong.
+        using var doc = SpreadsheetDocument.Open(_testFilePath, false);
+        var cell = doc.WorkbookPart!.WorksheetParts.First().Worksheet!
+            .GetFirstChild<SheetData>()!.Elements<Row>().Single().Elements<Cell>().Single();
+        Assert.NotNull(cell.CellFormula);
+        Assert.Null(cell.CellValue);
+        Assert.Null(cell.DataType);
+        OpenXmlAssert.NoValidationErrors(doc);
+    }
+
+    [Fact]
+    public void OverwriteFormulaCell_WithValue_RoundTrip_ShouldNotReturnStaleState()
+    {
+        // Arrange: a saved formula cell
+        using (var creator = WorkbookBuilder.Create(_testFilePath))
+        {
+            creator.AddWorksheet("Sheet1").AddCell("A1", "=1+1", true);
+            creator.Save();
+        }
+
+        // Act: reopen and overwrite with a value
+        using (var editor = WorkbookBuilder.Open(_testFilePath))
+        {
+            editor.GetWorksheet("Sheet1").AddCell("A1", "done");
+            editor.Save();
+        }
+
+        // Assert
+        using var reader = WorkbookBuilder.Open(_testFilePath);
+        var ws = reader.GetWorksheet("Sheet1");
+        Assert.Null(ws.GetCellFormula("A1"));
+        Assert.Equal("done", ws.GetCellValue("A1"));
+    }
+
+    [Fact]
+    public void GetCellValue_FormulaCellWithoutCachedValue_ShouldReturnNull()
+    {
+        // Arrange: freshly written formula cells have no cached value
+        using (var creator = WorkbookBuilder.Create(_testFilePath))
+        {
+            creator.AddWorksheet("Sheet1").AddCell("A1", "=1+1", true);
+            creator.Save();
+        }
+
+        // Assert: GetCellValue must not fabricate or return stale content
+        using var reader = WorkbookBuilder.Open(_testFilePath);
+        Assert.Null(reader.GetWorksheet("Sheet1").GetCellValue("A1"));
     }
 
     [Fact]
