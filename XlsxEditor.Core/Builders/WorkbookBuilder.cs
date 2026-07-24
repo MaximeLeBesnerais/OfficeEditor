@@ -343,34 +343,37 @@ public class WorkbookBuilder : IWorkbookBuilder
         _documentStream?.Dispose();
     }
 
-    internal string GetSharedString(string text)
-    {
-        var sharedStringPart = _sharedStringPart;
-        if (sharedStringPart == null)
-        {
-            sharedStringPart = _workbookPart.AddNewPart<SharedStringTablePart>();
-            _sharedStringPart = sharedStringPart;
-        }
+    // Text → index cache so writes are O(1) instead of rescanning the table per cell.
+    private Dictionary<string, int>? _sharedStringIndices;
 
-        var sharedStringTable = sharedStringPart.SharedStringTable ??= new SharedStringTable();
-        
-        // Check if string already exists
-        foreach (var item in sharedStringTable.Elements<SharedStringItem>())
+    private Dictionary<string, int> GetSharedStringIndices()
+    {
+        if (_sharedStringIndices == null)
         {
-            if (item.InnerText == text)
+            _sharedStringIndices = new Dictionary<string, int>(StringComparer.Ordinal);
+            var table = _sharedStringPart?.SharedStringTable;
+            if (table != null)
             {
-                return item.InnerText;
+                var index = 0;
+                foreach (var item in table.Elements<SharedStringItem>())
+                {
+                    _sharedStringIndices.TryAdd(item.InnerText, index);
+                    index++;
+                }
             }
         }
 
-        // Add new shared string
-        var newItem = new SharedStringItem(new Text(text));
-        sharedStringTable.Append(newItem);
-        return text;
+        return _sharedStringIndices;
     }
 
     internal int GetSharedStringIndex(string text)
     {
+        var indices = GetSharedStringIndices();
+        if (indices.TryGetValue(text, out var existingIndex))
+        {
+            return existingIndex;
+        }
+
         var sharedStringPart = _sharedStringPart;
         if (sharedStringPart == null)
         {
@@ -379,20 +382,13 @@ public class WorkbookBuilder : IWorkbookBuilder
         }
 
         var sharedStringTable = sharedStringPart.SharedStringTable ??= new SharedStringTable();
-        int index = 0;
-        
-        foreach (var item in sharedStringTable.Elements<SharedStringItem>())
-        {
-            if (item.InnerText == text)
-            {
-                return index;
-            }
-            index++;
-        }
 
-        // Add new shared string
-        var newItem = new SharedStringItem(new Text(text));
+        // xml:space="preserve" so leading/trailing whitespace survives the
+        // save → reload round-trip.
+        var index = sharedStringTable.Elements<SharedStringItem>().Count();
+        var newItem = new SharedStringItem(new Text(text) { Space = SpaceProcessingModeValues.Preserve });
         sharedStringTable.Append(newItem);
+        indices[text] = index;
         return index;
     }
 
@@ -439,8 +435,17 @@ public class WorkbookBuilder : IWorkbookBuilder
         }
     }
 
+    // Cached so repeated AddHeaderRow calls reuse one bold style instead of
+    // appending a new font + cell format to the stylesheet every time.
+    private uint? _headerStyleIndex;
+
     internal uint EnsureHeaderStyleIndex()
     {
+        if (_headerStyleIndex is { } cached)
+        {
+            return cached;
+        }
+
         var stylesPart = _workbookPart.WorkbookStylesPart ?? _workbookPart.AddNewPart<WorkbookStylesPart>();
         stylesPart.Stylesheet ??= new Stylesheet();
         var stylesheet = stylesPart.Stylesheet;
@@ -463,6 +468,7 @@ public class WorkbookBuilder : IWorkbookBuilder
         stylesheet.CellFormats.Count = styleIndex + 1;
 
         stylesPart.Stylesheet.Save();
+        _headerStyleIndex = styleIndex;
         return styleIndex;
     }
 

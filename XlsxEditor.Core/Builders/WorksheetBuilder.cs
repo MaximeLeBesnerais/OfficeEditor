@@ -39,7 +39,14 @@ public class WorksheetBuilder : IWorksheetBuilder
         // (and its cached value) must not survive a value write.
         cell.CellFormula = null;
 
-        if (double.TryParse(value, out var numericValue))
+        // InvariantCulture: number detection must not depend on the machine's
+        // locale (e.g. ',' as decimal separator). NaN/Infinity are rejected —
+        // Excel cannot store them as numbers. NumberStyles.Float excludes
+        // thousands separators, so "1,000" stays a string rather than losing
+        // its formatting.
+        if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var numericValue)
+            && !double.IsNaN(numericValue)
+            && !double.IsInfinity(numericValue))
         {
             cell.CellValue = new CellValue(numericValue);
             cell.DataType = CellValues.Number;
