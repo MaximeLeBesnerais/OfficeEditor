@@ -171,23 +171,51 @@ public class DocumentBuilder : IDocumentBuilder
             throw new ArgumentException("Find must be a non-empty string.", nameof(find));
         }
 
-        var paragraphs = _body.Elements<Paragraph>();
-        foreach (var paragraph in paragraphs)
+        // Descendants (not Elements) covers table cells, nested runs, and any other
+        // container; header/footer parts are included so templated letterheads work.
+        foreach (var text in EnumerateReplaceableTexts())
         {
-            var runs = paragraph.Elements<Run>();
-            foreach (var run in runs)
+            if (text.Text.Contains(find))
             {
-                var texts = run.Elements<Text>();
-                foreach (var text in texts)
-                {
-                    if (text.Text.Contains(find))
-                    {
-                        text.Text = text.Text.Replace(find, replace);
-                    }
-                }
+                text.Text = text.Text.Replace(find, replace);
             }
         }
         return this;
+    }
+
+    private IEnumerable<Text> EnumerateReplaceableTexts()
+    {
+        foreach (var text in _body.Descendants<Text>())
+        {
+            yield return text;
+        }
+
+        var mainPart = _document.MainDocumentPart!;
+        foreach (var headerPart in mainPart.HeaderParts)
+        {
+            if (headerPart.Header == null)
+            {
+                continue;
+            }
+
+            foreach (var text in headerPart.Header.Descendants<Text>())
+            {
+                yield return text;
+            }
+        }
+
+        foreach (var footerPart in mainPart.FooterParts)
+        {
+            if (footerPart.Footer == null)
+            {
+                continue;
+            }
+
+            foreach (var text in footerPart.Footer.Descendants<Text>())
+            {
+                yield return text;
+            }
+        }
     }
 
     public IDocumentBuilder ReplaceParagraph(string targetText, string newText, string? style = null)
