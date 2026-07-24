@@ -681,13 +681,14 @@ public sealed partial class PptxToTypstConverter : IDisposable
         var (strokeColor, strokeWidth) = ExtractShapeStroke(shapeProperties, styleResolver);
 
         // Helper to build TypstShapeElement with common fill+stroke properties
-        TypstShapeElement CreateElement(string shapeType) => new()
+        TypstShapeElement CreateElement(string shapeType, List<(double X, double Y)>? points = null) => new()
         {
             ShapeType = shapeType,
             FillColor = fillColor,
             FillGradient = fillGradient,
             StrokeColor = strokeColor,
-            StrokeWidth = strokeWidth
+            StrokeWidth = strokeWidth,
+            Points = points ?? new List<(double X, double Y)>()
         };
 
         // Check for preset geometry
@@ -713,6 +714,10 @@ public sealed partial class PptxToTypstConverter : IDisposable
             if (prst == Drawing.ShapeTypeValues.Ellipse)
             {
                 return CreateElement("ellipse");
+            }
+            if (prst == Drawing.ShapeTypeValues.Chevron)
+            {
+                return CreateElement("polygon", BuildChevronPoints(prstGeom, shapeWidth, shapeHeight));
             }
         }
 
@@ -865,6 +870,33 @@ public sealed partial class PptxToTypstConverter : IDisposable
         }
 
         return (string.Empty, strokeWidth);
+    }
+
+    /// <summary>
+    /// Normalised [0,1] polygon points for the OOXML chevron preset (ECMA-376): a
+    /// rectangle with an arrow point on the right and a matching notch on the left.
+    /// The point depth is <c>adj</c> (default 50000 = 50%) of the SMALLER shape
+    /// dimension, so the normalised x-offset is aspect-ratio dependent — a fixed
+    /// 0.5 depth is only correct for square chevrons and would carve far too deep
+    /// a notch into the wide (≈3:1) chevrons used in process diagrams.
+    /// </summary>
+    private static List<(double X, double Y)> BuildChevronPoints(Drawing.PresetGeometry prstGeom, double shapeWidth, double shapeHeight)
+    {
+        var adj = 50000.0;
+        var match = Regex.Match(prstGeom.OuterXml, @"\bfmla\s*=\s*""val\s+(\d+)""");
+        if (match.Success && double.TryParse(match.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var adjValue))
+        {
+            adj = adjValue;
+        }
+
+        var depthX = shapeWidth > 0 && shapeHeight > 0
+            ? Math.Clamp(adj / 100000.0 * Math.Min(shapeWidth, shapeHeight) / shapeWidth, 0.0, 1.0)
+            : 0.5;
+
+        return new List<(double X, double Y)>
+        {
+            (0, 0), (1 - depthX, 0), (1, 0.5), (1 - depthX, 1), (0, 1), (depthX, 0.5)
+        };
     }
 
     /// <summary>
