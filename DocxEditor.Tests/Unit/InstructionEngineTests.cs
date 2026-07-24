@@ -309,6 +309,12 @@ public class InstructionEngineTests : IDisposable
             return this;
         }
 
+        public IDocumentBuilder AddHyperlink(string url, string displayText, string? style = null)
+        {
+            Calls.Add($"AddHyperlink:{url}:{displayText}:{style}");
+            return this;
+        }
+
         public IDocumentBuilder AddMarkdown(string markdown, StyleMapping? styleMap = null) => this;
 
         public IDocumentBuilder ReplaceWithMarkdown(string targetText, string markdown, StyleMapping? styleMap = null) => this;
