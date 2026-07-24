@@ -58,7 +58,9 @@ jobs:
     if: needs.changes.outputs.dotnet == 'true'
     runs-on: ubuntu-latest
     env:
-      COVERAGE_THRESHOLD: 41 # floor — raise as coverage grows
+      # floor = measured_union − 3 pp (rounded down); 3 pp headroom for build-noise fluctuation.
+      # Measured union (merged by filename+line, max-hits) on 2025-07-25: 86.59 %.
+      COVERAGE_THRESHOLD: 83
     steps:
       - uses: actions/checkout@v7
 
