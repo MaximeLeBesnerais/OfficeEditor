@@ -1669,6 +1669,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
                 BulletChar = paragraph.BulletChar,
                 AutoNumberType = paragraph.AutoNumberType,
                 HasBullet = paragraph.HasBullet,
+                BulletColor = paragraph.BulletColor,
                 LineSpacing = paragraph.LineSpacing,
                 SpaceBefore = paragraph.SpaceBefore,
                 SpaceAfter = paragraph.SpaceAfter,
@@ -1823,6 +1824,14 @@ public sealed partial class PptxToTypstConverter : IDisposable
             // Resolve bullet properties through full cascade
             var (bulletChar, autoNumberType, hasBullet) = ResolveBulletProperties(pPr, bodyLstStyle, level, styleResolver, placeholderIdx, placeholderType);
 
+            // Resolve bullet color (a:buClr / a:buClrTx) through the same cascade
+            var (bulletColor, bulletFollowsText) = ResolveBulletColor(pPr, bodyLstStyle, level, styleResolver, placeholderIdx, placeholderType);
+            if (hasBullet && bulletColor == null && bulletFollowsText)
+            {
+                // a:buClrTx: the bullet glyph takes the color of the paragraph's first text run
+                bulletColor = runs.FirstOrDefault(r => !r.IsLineBreak)?.Formatting.Color;
+            }
+
             // Resolve line spacing through full cascade
             var paragraphLineSpacing = ResolveLineSpacing(pPr, bodyLstStyle, level, styleResolver, placeholderIdx, placeholderType);
 
@@ -1852,6 +1861,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
                 BulletChar = bulletChar,
                 AutoNumberType = autoNumberType,
                 HasBullet = hasBullet,
+                BulletColor = hasBullet ? bulletColor : null,
                 LineSpacing = paragraphLineSpacing,
                 SpaceBefore = spaceBefore,
                 SpaceAfter = spaceAfter,
@@ -2276,6 +2286,53 @@ public sealed partial class PptxToTypstConverter : IDisposable
         }
 
         return (null, null, false);
+    }
+
+    private static (string? Color, bool FollowsText) ResolveBulletColor(
+        Drawing.ParagraphProperties? pPr,
+        OpenXmlElement? bodyLstStyle,
+        int level,
+        StyleResolver? styleResolver,
+        int? placeholderIdx,
+        PlaceholderValues? placeholderType)
+    {
+        // 1. Paragraph level (a:pPr/a:buClr or a:buClrTx)
+        var info = StyleResolver.ExtractBulletColorInfo(pPr, styleResolver);
+        if (info.Color != null || info.FollowsText)
+            return info;
+
+        // 2. Text body list style
+        info = StyleResolver.ExtractBulletColorInfo(GetLstStyleLevelProperties(bodyLstStyle, level), styleResolver);
+        if (info.Color != null || info.FollowsText)
+            return info;
+
+        if (styleResolver != null)
+        {
+            // 3. Layout placeholder list style
+            info = styleResolver.GetLayoutPlaceholderBulletColor(placeholderIdx, placeholderType, level);
+            if (info.Color != null || info.FollowsText)
+                return info;
+
+            // 4. Master placeholder list style
+            info = styleResolver.GetMasterPlaceholderBulletColor(placeholderIdx, placeholderType, level);
+            if (info.Color != null || info.FollowsText)
+                return info;
+
+            // 5. Master txStyles
+            info = styleResolver.GetMasterTxStyleBulletColor(placeholderType, level);
+            if (info.Color != null || info.FollowsText)
+                return info;
+        }
+
+        return (null, false);
+    }
+
+    private static OpenXmlElement? GetLstStyleLevelProperties(OpenXmlElement? lstStyle, int level)
+    {
+        if (lstStyle == null) return null;
+
+        var levelName = $"lvl{level + 1}pPr";
+        return lstStyle.ChildElements.FirstOrDefault(e => e.LocalName == levelName);
     }
 
     private static double? ResolveLineSpacing(
