@@ -719,6 +719,10 @@ public sealed partial class PptxToTypstConverter : IDisposable
             {
                 return CreateElement("polygon", BuildChevronPoints(prstGeom, shapeWidth, shapeHeight));
             }
+            if (prst == Drawing.ShapeTypeValues.Diamond)
+            {
+                return CreateElement("polygon", DiamondPoints);
+            }
         }
 
         // Check for custom geometry (path-based shapes)
@@ -871,6 +875,15 @@ public sealed partial class PptxToTypstConverter : IDisposable
 
         return (string.Empty, strokeWidth);
     }
+
+    /// <summary>
+    /// Normalised [0,1] polygon points for the OOXML diamond preset — a diamond is a
+    /// square rotated 45°, which Typst cannot express as a native shape.
+    /// </summary>
+    private static readonly List<(double X, double Y)> DiamondPoints = new()
+    {
+        (0.5, 0), (1, 0.5), (0.5, 1), (0, 0.5)
+    };
 
     /// <summary>
     /// Normalised [0,1] polygon points for the OOXML chevron preset (ECMA-376): a
