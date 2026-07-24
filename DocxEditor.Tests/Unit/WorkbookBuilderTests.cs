@@ -355,14 +355,14 @@ public class WorkbookBuilderTests : IDisposable
     [Fact]
     public void AddTable_ShouldCreateTablePartsAndAppendAdditionalTables()
     {
-        // Act
+        // Act: two NON-overlapping tables on one sheet (overlaps are rejected — see below)
         using (var builder = WorkbookBuilder.Create(_testFilePath))
         {
             var worksheet = builder.AddWorksheet("Sheet1");
             worksheet.AddHeaderRow(new List<string> { "A", "B", "C" });
             worksheet.AddDataRow(new List<string> { "1", "2", "3" }, 2);
             worksheet.AddTable("A1", "C2", "FirstTable");
-            worksheet.AddTable("A1", "B2", "SecondTable");
+            worksheet.AddTable("E1", "F2", "SecondTable");
             builder.Save();
         }
 
@@ -374,6 +374,133 @@ public class WorkbookBuilderTests : IDisposable
         Assert.Equal(2, worksheetPart.TableDefinitionParts.Count());
         Assert.Contains(worksheetPart.TableDefinitionParts, p => p.Table?.DisplayName?.Value == "FirstTable");
         Assert.Contains(worksheetPart.TableDefinitionParts, p => p.Table?.DisplayName?.Value == "SecondTable");
+        OpenXmlAssert.NoValidationErrors(doc);
+    }
+
+    [Fact]
+    public void AddTable_ShouldDeriveColumnNamesFromHeaderRow()
+    {
+        // Act
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            var worksheet = builder.AddWorksheet("Sheet1");
+            worksheet.AddHeaderRow(new List<string> { "Product", "Qty", "Price" });
+            worksheet.AddDataRow(new List<string> { "Widget", "3", "9.99" }, 2);
+            worksheet.AddTable("A1", "C2", "Sales");
+            builder.Save();
+        }
+
+        // Assert: Excel requires TableColumn names to match the header cell text
+        using var doc = SpreadsheetDocument.Open(_testFilePath, false);
+        var table = doc.WorkbookPart!.WorksheetParts.First()
+            .TableDefinitionParts.Single().Table!;
+        var names = table.GetFirstChild<TableColumns>()!.Elements<TableColumn>()
+            .Select(c => c.Name?.Value).ToList();
+        Assert.Equal(new[] { "Product", "Qty", "Price" }, names);
+        OpenXmlAssert.NoValidationErrors(doc);
+    }
+
+    [Fact]
+    public void AddTable_ShouldFallbackToGeneratedNames_ForEmptyHeaderCells()
+    {
+        // Act: table over cells with no header values
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            var worksheet = builder.AddWorksheet("Sheet1");
+            worksheet.AddTable("A1", "B2", "EmptyHeaders");
+            builder.Save();
+        }
+
+        // Assert: column names must be non-empty — generated fallback
+        using var doc = SpreadsheetDocument.Open(_testFilePath, false);
+        var table = doc.WorkbookPart!.WorksheetParts.First()
+            .TableDefinitionParts.Single().Table!;
+        var names = table.GetFirstChild<TableColumns>()!.Elements<TableColumn>()
+            .Select(c => c.Name?.Value).ToList();
+        Assert.Equal(new[] { "Column1", "Column2" }, names);
+        OpenXmlAssert.NoValidationErrors(doc);
+    }
+
+    [Fact]
+    public void AddTable_ShouldMakeDuplicateHeaderNamesUnique()
+    {
+        // Act
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            var worksheet = builder.AddWorksheet("Sheet1");
+            worksheet.AddHeaderRow(new List<string> { "Value", "Value" });
+            worksheet.AddDataRow(new List<string> { "1", "2" }, 2);
+            worksheet.AddTable("A1", "B2", "Duplicates");
+            builder.Save();
+        }
+
+        // Assert: Excel requires unique column names within a table
+        using var doc = SpreadsheetDocument.Open(_testFilePath, false);
+        var table = doc.WorkbookPart!.WorksheetParts.First()
+            .TableDefinitionParts.Single().Table!;
+        var names = table.GetFirstChild<TableColumns>()!.Elements<TableColumn>()
+            .Select(c => c.Name?.Value).ToList();
+        Assert.Equal(new[] { "Value", "Value2" }, names);
+        OpenXmlAssert.NoValidationErrors(doc);
+    }
+
+    [Fact]
+    public void AddTable_ReversedRange_ShouldThrow()
+    {
+        // Arrange: a reversed range used to cast a negative column count to uint
+        // (≈4 billion columns) — a corrupt table part.
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var worksheet = builder.AddWorksheet("Sheet1");
+
+        // Act & Assert
+        var ex = Assert.Throws<XlsxException>(() => worksheet.AddTable("C2", "A1", "Backwards"));
+        Assert.Contains("reversed", ex.Message);
+    }
+
+    [Fact]
+    public void AddTable_OverlappingRange_ShouldThrow()
+    {
+        // Arrange
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var worksheet = builder.AddWorksheet("Sheet1");
+        worksheet.AddHeaderRow(new List<string> { "A", "B", "C" });
+        worksheet.AddDataRow(new List<string> { "1", "2", "3" }, 2);
+        worksheet.AddTable("A1", "C2", "FirstTable");
+
+        // Act & Assert: Excel rejects worksheets with overlapping tables
+        var ex = Assert.Throws<XlsxException>(() => worksheet.AddTable("B1", "D2", "SecondTable"));
+        Assert.Contains("overlap", ex.Message.ToLowerInvariant());
+        Assert.Contains("FirstTable", ex.Message);
+    }
+
+    [Theory]
+    [InlineData("My Table")]
+    [InlineData("Table!")]
+    [InlineData("1Table")]
+    [InlineData("")]
+    public void AddTable_InvalidDisplayName_ShouldThrow(string tableName)
+    {
+        // Arrange
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var worksheet = builder.AddWorksheet("Sheet1");
+
+        // Act & Assert
+        var ex = Assert.Throws<XlsxException>(() => worksheet.AddTable("A1", "B2", tableName));
+        Assert.Contains("table name", ex.Message.ToLowerInvariant());
+    }
+
+    [Fact]
+    public void AddTable_DuplicateDisplayName_ShouldThrow_AcrossWorksheets()
+    {
+        // Arrange: table names must be unique workbook-wide (case-insensitive)
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        builder.AddWorksheet("Sheet1").AddTable("A1", "B2", "SalesTable");
+
+        // Act & Assert
+        var other = builder.AddWorksheet("Sheet2");
+        var ex = Assert.Throws<XlsxException>(() => other.AddTable("A1", "B2", "SALESTABLE"));
+        Assert.Contains("SALESTABLE", ex.Message);
+        Assert.Contains("unique", ex.Message);
     }
 
     [Fact]
