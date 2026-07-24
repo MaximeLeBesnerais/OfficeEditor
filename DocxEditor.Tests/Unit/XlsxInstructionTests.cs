@@ -245,20 +245,64 @@ public class XlsxInstructionTests : IDisposable
     }
 
     [Fact]
-    public void Validate_ShouldRejectUnknownCellType()
+    public void Validate_ShouldRejectTypeField_AsNotYetSupported()
+    {
+        // 'type' was previously validated then silently dropped by the executor;
+        // it is now rejected loudly until typed cells land (Phase 2 roadmap).
+        var json = """
+        {
+            "version": "1.0",
+            "worksheets": [{
+                "name": "S",
+                "cells": [{"address": "A1", "value": "x", "type": "number"}]
+            }]
+        }
+        """;
+
+        var ex = Assert.Throws<XlsxException>(() => XlsxInstructionParser.Parse(json));
+        Assert.Contains("'type'", ex.Message);
+        Assert.Contains("Phase 2", ex.Message);
+    }
+
+    [Fact]
+    public void Validate_ShouldRejectNumberFormat_AsNotYetSupported()
     {
         var json = """
         {
             "version": "1.0",
             "worksheets": [{
                 "name": "S",
-                "cells": [{"address": "A1", "value": "x", "type": "currency"}]
+                "cells": [{"address": "A1", "value": "3.14", "numberFormat": "0.00"}]
             }]
         }
         """;
 
         var ex = Assert.Throws<XlsxException>(() => XlsxInstructionParser.Parse(json));
-        Assert.Contains("currency", ex.Message);
+        Assert.Contains("'numberFormat'", ex.Message);
+        Assert.Contains("Phase 2", ex.Message);
+    }
+
+    [Fact]
+    public void Execute_ShouldRejectTypeField_WhenSetBuiltProgrammatically()
+    {
+        // Defense in depth: instruction sets constructed in code bypass the
+        // parser, so the executor must reject unsupported fields itself.
+        var set = new XlsxInstructionSet
+        {
+            Worksheets =
+            [
+                new WorksheetInstruction
+                {
+                    Name = "S",
+                    Cells = [new CellInstruction { Address = "A1", Value = "x", Type = "date" }]
+                }
+            ]
+        };
+
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var ex = Assert.Throws<XlsxException>(() => XlsxInstructionExecutor.Execute(set, builder));
+        Assert.Contains("'type'", ex.Message);
+        Assert.Contains("Phase 2", ex.Message);
     }
 
     [Fact]

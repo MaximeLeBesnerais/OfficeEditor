@@ -56,7 +56,7 @@ public static class XlsxInstructionExecutor
             {
                 foreach (var cell in wsInstruction.Cells)
                 {
-                    ApplyCellInstruction(sheet, cell, variables);
+                    ApplyCellInstruction(sheet, cell, variables, wsInstruction.Name);
                 }
             }
         }
@@ -84,8 +84,12 @@ public static class XlsxInstructionExecutor
     }
 
     private static void ApplyCellInstruction(
-        IWorksheetBuilder sheet, CellInstruction cell, Dictionary<string, string> variables)
+        IWorksheetBuilder sheet, CellInstruction cell, Dictionary<string, string> variables, string sheetName)
     {
+        // Defense in depth: instruction sets built in code (bypassing the parser's
+        // validation) must not silently drop 'type'/'numberFormat' either.
+        XlsxInstructionValidator.RejectUnsupportedCellFields(cell, sheetName);
+
         if (!string.IsNullOrEmpty(cell.Formula))
         {
             var formula = ResolveVariables(cell.Formula, variables);
