@@ -253,6 +253,52 @@ Rather than implementing the OOXML SmartArt layout engine (which would require p
 | **Tier 2c (sp algo)** | Proposed — Phase 3 | Lists, pictures, relationships | Full fidelity | (no warning) |
 | **Unsupported** | Current baseline → Phase 0 doc | Remaining edge cases | Text-only approximation with fallback placeholder | "SmartArt diagram '<name>' not fully supported; rendering as positioned text. See docs/smartart-support-matrix.md." |
 
+#### 4.4.1 Round-2 fixes (2026-07-24, branch `fix/agent-review-findings`)
+
+Behavior changes to the Tier-1 drawing-part extraction, verified against the
+slide-15 XML of `sales_acceleration_deck.pptx`:
+
+- **Preset removals** — `blockArc`, `pie` and `donut` were removed from the preset
+  geometry map: the previous polygon approximations were geometrically wrong
+  (`blockArc`/`donut` shared the same octagon points; `pie` used bounding-box
+  corners outside the ellipse). These presets now return null and degrade to the
+  text fallback instead of emitting misleading geometry. Re-add only with correct
+  arc geometry.
+- **Chevron** — polygon corrected to the real OOXML chevron (adj = 0.5): 6 points
+  `(0,0) (0.5,0) (1,0.5) (0.5,1) (0,1) (0.5,0.5)` (previously an unrelated
+  8-point shape).
+- **Corner radius** — `roundRect` `adj` is a fraction of the smaller side in
+  100000ths (`radiusPt = adj/100000 × min(w,h)`), not an EMU value.
+- **Drawing-space → frame normalisation** — drawing shape coordinates do not
+  necessarily span the frame extents (the REF deck's drawing content covers
+  ~100%/83% of the frame width/height). Shapes and text are now scaled/offset so
+  the drawing bounding box maps onto the frame rect; previously the diagram
+  rendered smaller and top-left anchored.
+- **Multi-diagram association** — the drawing part is NOT in `dgm:relIds` (it
+  carries only `r:dm`/`r:lo`/`r:qs`/`r:cs`). The converter now resolves
+  `r:dm` → data part → `dsp:dataModelExt relId` → drawing part (with a
+  relationship-direction fallback and a single-candidate last resort), so slides
+  with 2+ diagrams no longer cross-render.
+- **dsp:style fontRef** — when diagram runs carry no explicit colour, the
+  paragraph default colour now comes from `dsp:style/a:fontRef/a:schemeClr`
+  resolved through the theme scheme colours (slide 15: `lt1` = white text on
+  accent boxes; previously rendered dark-on-dark).
+- **Position source split** — shape geometry/dimensions always come from
+  `dsp:spPr/a:xfrm`; `dsp:txXfrm` is used only for text placement (previously
+  `txXfrm` was preferred for both).
+- **Colour format** — scheme/srgb colours are normalised to the pipeline-canonical
+  `#RRGGBB` at the extraction boundary (Typst `rgb("…")` requires the `#`).
+  Static Office fallbacks corrected: `dk2 = #44546A`, `lt2 = #E7E6E6`.
+- **Data model** — node text joins multiple paragraphs with `\n` and reads `a:fld`
+  content; `phldr` is parsed as xsd:boolean (`1`/`true`) into `IsPlaceholder`;
+  `dsp:sp modelId` is captured on emitted elements (`TypstElement.ModelId`) so
+  round 3 can join shapes to data nodes; hierarchy levels are computed by a
+  working BFS over the connection graph (slide 15's process5 graph is flat — all
+  nodes are direct children of the doc root, level 0).
+
+**Known limitation:** `a:xfrm flipH/flipV` on diagram shapes is not applied —
+mirrored shapes render unflipped.
+
 ### 4.5 How Tiers Fit the Dual-Emit Discipline
 
 The repo's **layout once, emit twice** discipline applies differently to conversion vs. generation:

@@ -150,14 +150,19 @@ public sealed class PptxToTypstConverterUnsupportedElementTests : IDisposable
     public void Convert_ReferenceDeckWithSmartArt_Slide15YieldsShapeElements()
     {
         // Integration test: convert sales_acceleration_deck.pptx and assert that
-        // slide 15 yields shape elements (roundRect boxes, rightArrow connectors)
-        // in addition to the four text nodes (SUSTAIN, DIAGNOSE, DESIGN, DELIVER).
+        // slide 15 yields exactly the diagram's pre-rendered shapes — 4 roundRect
+        // boxes + 3 rightArrow connectors (per the drawing part) — plus the four
+        // text nodes (SUSTAIN, DIAGNOSE, DESIGN, DELIVER).
         var referencePath = Path.Combine(ResolveReferenceDirectory(), "sales_acceleration_deck.pptx");
         Assert.True(File.Exists(referencePath), $"Reference deck not found: {referencePath}");
 
         using var document = PresentationDocument.Open(referencePath, false);
-        using var converter = new PptxToTypstConverter(document);
 
+        // Frame rect of the diagram graphic frame on slide 15 (for the
+        // bounding-box normalisation assertions below).
+        var (frameX, frameY, frameW, frameH) = FindDiagramFrameRect(document);
+
+        using var converter = new PptxToTypstConverter(document);
         var presentation = converter.Convert();
 
         var smartArtSlides = presentation.Slides
@@ -165,25 +170,80 @@ public sealed class PptxToTypstConverterUnsupportedElementTests : IDisposable
             .ToList();
         var slide = Assert.Single(smartArtSlides);
 
-        var shapes = slide.Elements.Where(e => e.Type == "Shape").ToList();
-        Assert.NotEmpty(shapes);
+        // Diagram-derived elements carry the dsp:sp modelId; the slide's own
+        // shapes (title, text boxes) do not.
+        var diagramShapes = slide.Elements
+            .Where(e => e.Type == "Shape" && e.ModelId != null)
+            .ToList();
+        Assert.Equal(7, diagramShapes.Count);
 
-        var rects = shapes.Where(s => s.Shape?.ShapeType == "rect").ToList();
-        var polygons = shapes.Where(s => s.Shape?.ShapeType == "polygon").ToList();
-        Assert.NotEmpty(rects);
-        Assert.NotEmpty(polygons);
+        var rects = diagramShapes.Where(s => s.Shape?.ShapeType == "rect").ToList();
+        var polygons = diagramShapes.Where(s => s.Shape?.ShapeType == "polygon").ToList();
+        Assert.Equal(4, rects.Count);
+        Assert.Equal(3, polygons.Count);
 
-        // Each shape should have a fill colour and positioning.
-        Assert.All(shapes, s =>
+        // Each shape has geometry and the theme accent fill (accent1 = #C00000).
+        Assert.All(diagramShapes, s =>
         {
             Assert.True(s.Width > 0);
             Assert.True(s.Height > 0);
             Assert.NotNull(s.Shape);
         });
+        Assert.All(rects, s => Assert.Equal("#C00000", s.Shape!.FillColor));
+        // roundRect adj val 10000 → 10% of the smaller (normalised) side.
+        Assert.All(rects, s => Assert.True(s.Shape!.CornerRadius > 0));
 
-        // The 4 text nodes (DIAGNOSE, DESIGN, DELIVER, SUSTAIN) should still be present.
-        var textElements = slide.Elements.Where(e => e.Type == "Text").ToList();
-        Assert.NotEmpty(textElements);
+        // Drawing-space → frame normalisation: the shapes' bounding box must span
+        // the graphic frame's rect, not sit top-left-anchored at native size.
+        var minX = diagramShapes.Min(s => s.X);
+        var minY = diagramShapes.Min(s => s.Y);
+        var maxX = diagramShapes.Max(s => s.X + s.Width);
+        var maxY = diagramShapes.Max(s => s.Y + s.Height);
+        Assert.Equal(frameX, minX, 1.0);
+        Assert.Equal(frameY, minY, 1.0);
+        Assert.Equal(frameX + frameW, maxX, 1.0);
+        Assert.Equal(frameY + frameH, maxY, 1.0);
+
+        // Exactly the 4 node labels, with dsp:style fontRef colour (lt1 = white)
+        // applied as the paragraph default — not the unresolved black default.
+        var diagramTexts = slide.Elements
+            .Where(e => e.Type == "Text" && e.ModelId != null)
+            .ToList();
+        Assert.Equal(4, diagramTexts.Count);
+        var labels = diagramTexts.Select(t => t.Text!.Content).ToList();
+        Assert.Contains("SUSTAIN", labels);
+        Assert.Contains("DIAGNOSE", labels);
+        Assert.Contains("DESIGN", labels);
+        Assert.Contains("DELIVER", labels);
+        Assert.All(diagramTexts, t =>
+            Assert.Equal("#FFFFFF", t.Text!.Formatting.Color));
+    }
+
+    private static (double X, double Y, double Width, double Height) FindDiagramFrameRect(
+        PresentationDocument document)
+    {
+        foreach (var slidePart in document.PresentationPart!.SlideParts)
+        {
+            var slide = slidePart.Slide;
+            if (slide?.CommonSlideData?.ShapeTree == null) continue;
+
+            var graphicFrame = slide.CommonSlideData.ShapeTree
+                .Elements<P.GraphicFrame>()
+                .FirstOrDefault(gf =>
+                    (gf.Graphic?.GraphicData?.Uri?.Value ?? "")
+                        .Contains("/drawingml/2006/diagram", StringComparison.Ordinal));
+
+            if (graphicFrame?.Transform?.Offset == null || graphicFrame.Transform.Extents == null)
+                continue;
+
+            const double emusPerPoint = 12700.0;
+            return (graphicFrame.Transform.Offset.X!.Value / emusPerPoint,
+                    graphicFrame.Transform.Offset.Y!.Value / emusPerPoint,
+                    graphicFrame.Transform.Extents.Cx!.Value / emusPerPoint,
+                    graphicFrame.Transform.Extents.Cy!.Value / emusPerPoint);
+        }
+
+        throw new InvalidOperationException("No diagram graphic frame found in the reference deck.");
     }
 
     private static P.GraphicFrame GraphicFrame(uint id, string name, double x, double y, double width, double height, string uri)

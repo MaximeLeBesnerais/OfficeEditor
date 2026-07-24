@@ -48,8 +48,8 @@ public sealed class SmartArtDrawingExtractorTests
         Assert.True(result.Height > 0);
         Assert.NotNull(result.Shape);
         Assert.Equal("rect", result.Shape.ShapeType);
-        Assert.Equal("C00000", result.Shape.FillColor);
-        Assert.Equal("FFFFFF", result.Shape.StrokeColor);
+        Assert.Equal("#C00000", result.Shape.FillColor);
+        Assert.Equal("#FFFFFF", result.Shape.StrokeColor);
         Assert.True(result.Shape.StrokeWidth > 0);
         Assert.True(result.Shape.CornerRadius > 0);
     }
@@ -116,7 +116,7 @@ public sealed class SmartArtDrawingExtractorTests
         Assert.Equal("polygon", result.Shape.ShapeType);
         Assert.NotEmpty(result.Shape.Points);
         Assert.Equal(7, result.Shape.Points.Count);
-        Assert.Equal("ED7D31", result.Shape.FillColor);
+        Assert.Equal("#ED7D31", result.Shape.FillColor);
     }
 
     [Fact]
@@ -237,7 +237,7 @@ public sealed class SmartArtDrawingExtractorTests
         Assert.Equal(100, result.Width, 0.5);
         Assert.Equal(50, result.Height, 0.5);
         Assert.NotNull(result.Shape);
-        Assert.Equal("4472C4", result.Shape.FillColor);
+        Assert.Equal("#4472C4", result.Shape.FillColor);
     }
 
     [Fact]
