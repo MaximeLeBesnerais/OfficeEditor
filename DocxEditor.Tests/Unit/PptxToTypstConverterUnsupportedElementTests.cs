@@ -120,9 +120,9 @@ public sealed class PptxToTypstConverterUnsupportedElementTests : IDisposable
     public void Convert_ReferenceDeckWithSmartArt_KeepsApproximationAndWarns()
     {
         // sales_acceleration_deck.pptx slide 15 contains a SmartArt diagram ("Diagram 16",
-        // text: SUSTAIN / DIAGNOSE / DESIGN / DELIVER) that the converter approximates as
-        // positioned text. The approximation must be kept (no placeholder) and reported
-        // via Warnings.
+        // text: SUSTAIN / DIAGNOSE / DESIGN / DELIVER).  Shape extraction produces
+        // pre-rendered shapes (roundRect + rightArrow); text content is preserved.
+        // The result must contain shapes + text and warn about theme colour fidelity.
         var referencePath = Path.Combine(ResolveReferenceDirectory(), "sales_acceleration_deck.pptx");
         Assert.True(File.Exists(referencePath), $"Reference deck not found: {referencePath}");
 
@@ -137,9 +137,10 @@ public sealed class PptxToTypstConverterUnsupportedElementTests : IDisposable
         var slide = Assert.Single(smartArtSlides);
 
         var warning = Assert.Single(slide.Warnings);
-        Assert.Contains("approximated", warning);
+        Assert.Contains("rendered from pre-rendered shapes", warning);
 
-        // Approximation stays: positioned text elements, no SmartArt placeholder label.
+        // Both shape elements (rects + arrows) and positioned text must be present.
+        Assert.Contains(slide.Elements, e => e.Type == "Shape");
         Assert.Contains(slide.Elements, e => e.Type == "Text");
         Assert.DoesNotContain(slide.Elements,
             e => e.Text?.Content.Contains("not supported", StringComparison.Ordinal) == true);
