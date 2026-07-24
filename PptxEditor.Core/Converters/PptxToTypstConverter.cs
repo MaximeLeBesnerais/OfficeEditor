@@ -8,6 +8,7 @@ using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Presentation;
 using Drawing = DocumentFormat.OpenXml.Drawing;
 using P = DocumentFormat.OpenXml.Presentation;
+using PptxEditor.Core.Converters.SmartArt;
 using PptxEditor.Core.Models;
 
 namespace PptxEditor.Core.Converters;
@@ -2173,14 +2174,22 @@ public sealed class PptxToTypstConverter : IDisposable
 
             foreach (var shape in diagramShapes)
             {
-                var textElement = ExtractTextFromDiagramShape(shape);
-                if (textElement == null || string.IsNullOrWhiteSpace(textElement.Content))
-                    continue;
-
                 var shapePosition = GetDiagramShapePosition(shape);
                 if (shapePosition == null) continue;
 
                 var (shapeX, shapeY, shapeW, shapeH) = shapePosition.Value;
+
+                var diagramShape = SmartArtDrawingExtractor.TryExtractShape(
+                    shape, offX, offY, scaleX, scaleY,
+                    framePosition.X, framePosition.Y,
+                    shapeW, shapeH);
+
+                if (diagramShape != null)
+                    yield return diagramShape;
+
+                var textElement = ExtractTextFromDiagramShape(shape);
+                if (textElement == null || string.IsNullOrWhiteSpace(textElement.Content))
+                    continue;
 
                 yield return new TypstElement
                 {
