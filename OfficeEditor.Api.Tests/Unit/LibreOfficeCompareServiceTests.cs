@@ -30,8 +30,6 @@ public sealed class LibreOfficeCompareServiceTests
             Assert.Null(probe.SofficePath);
             Assert.False(string.IsNullOrWhiteSpace(probe.SkipReason));
         }
-
-        Assert.True(probe.PdfToPpmAvailable || !probe.PdfToPpmAvailable);
     }
 
     [Fact]
