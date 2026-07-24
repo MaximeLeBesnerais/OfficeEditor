@@ -1,4 +1,5 @@
 {
+  "_schema_status": "planned — not yet executable (Phase 2 XLSX roadmap). This file documents the intended JSON→XLSX vocabulary shape.",
   "version": "1.0",
   "description": "Instructions for creating a budget workbook",
   "worksheets": [

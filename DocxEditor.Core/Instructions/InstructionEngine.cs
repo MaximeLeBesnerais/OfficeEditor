@@ -26,6 +26,12 @@ public class InstructionEngine
             case InsertAfterInstruction insertAfter:
                 builder.InsertAfter(insertAfter.Target, insertAfter.Content.Text, insertAfter.Content.Style);
                 break;
+            case AddRichContentInstruction addRich:
+                builder.AddRichContent(addRich.Blocks);
+                break;
+            case ReplaceWithRichContentInstruction replaceRich:
+                builder.ReplaceWithRichContent(replaceRich.Target, replaceRich.Blocks);
+                break;
             case CreateDocumentInstruction:
                 // Create is handled by the builder initialization
                 break;
