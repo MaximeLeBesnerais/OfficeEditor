@@ -40,8 +40,11 @@ public sealed class SmartArtNode
     /// <summary>Placeholder text hint from <c>dgm:prSet phldrT</c>, e.g. "[Text]".</summary>
     public string PlaceholderText { get; set; } = string.Empty;
 
-    /// <summary>Placeholder index from <c>phldr</c>, or -1 when absent.</summary>
-    public int PlaceholderIndex { get; set; } = -1;
+    /// <summary>
+    /// True when the point is a placeholder (<c>dgm:prSet phldr</c> is xsd:boolean,
+    /// accepting "1"/"true").
+    /// </summary>
+    public bool IsPlaceholder { get; set; }
 
     /// <summary>Nesting depth: 0 = top-level child of doc root, 1 = grandchild, etc.</summary>
     public int HierarchyLevel { get; set; }

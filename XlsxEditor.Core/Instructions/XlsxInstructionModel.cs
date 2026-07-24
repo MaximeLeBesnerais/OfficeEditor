@@ -50,11 +50,19 @@ public sealed record CellInstruction
     [JsonPropertyName("formula")]
     public string? Formula { get; init; }
 
-    /// <summary>Optional type hint: number, string, boolean, date.</summary>
+    /// <summary>
+    /// Reserved for typed cells (Phase 2 of the XLSX roadmap, docs/roadmap-xlsx.md).
+    /// Setting this currently throws an <see cref="Exceptions.XlsxException"/> rather
+    /// than being silently ignored.
+    /// </summary>
     [JsonPropertyName("type")]
     public string? Type { get; init; }
 
-    /// <summary>Excel number format string (e.g. "0.00", "$#,##0.00").</summary>
+    /// <summary>
+    /// Reserved for Excel number formats (e.g. "0.00", "$#,##0.00") — arrives with
+    /// typed cells in Phase 2 of the XLSX roadmap. Setting this currently throws an
+    /// <see cref="Exceptions.XlsxException"/> rather than being silently ignored.
+    /// </summary>
     [JsonPropertyName("numberFormat")]
     public string? NumberFormat { get; init; }
 

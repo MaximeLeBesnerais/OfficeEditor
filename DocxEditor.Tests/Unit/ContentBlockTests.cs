@@ -1,6 +1,7 @@
 using DocxEditor.Core.Builders;
 using DocxEditor.Core.Content;
 using DocxEditor.Core.Models;
+using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using OfficeEditor.Core.Models;
@@ -236,6 +237,7 @@ public class ContentBlockTests : IDisposable
         Assert.Equal("Warning", paragraphs[4].ParagraphProperties?.ParagraphStyleId?.Val?.Value);
         Assert.Contains("Normal", ensuredStyles);
         Assert.Contains("Warning", ensuredStyles);
+        Assert.Contains("Code", ensuredStyles);
     }
 
     [Fact]
@@ -283,16 +285,31 @@ public class ContentBlockTests : IDisposable
         var numbering = numberingPart.Numbering;
         Assert.NotNull(numbering);
 
+        // One abstractNum + one numbering instance per list, with collision-free ids.
         var abstractNums = numbering.Elements<AbstractNum>().ToList();
         Assert.Equal(2, abstractNums.Count);
+        Assert.Equal(2, abstractNums.Select(a => a.AbstractNumberId?.Value).Distinct().Count());
 
         var instances = numbering.Elements<NumberingInstance>().ToList();
         Assert.Equal(2, instances.Count);
+        Assert.Equal(2, instances.Select(i => i.NumberID?.Value).Distinct().Count());
 
-        Assert.Contains(abstractNums, a => a.AbstractNumberId?.Value == 1);
-        Assert.Contains(abstractNums, a => a.AbstractNumberId?.Value == 2);
-        Assert.Contains(instances, i => i.NumberID?.Value == 1);
-        Assert.Contains(instances, i => i.NumberID?.Value == 2);
+        // Every instance must reference an abstractNum that exists.
+        var abstractIds = abstractNums.Select(a => a.AbstractNumberId?.Value).ToHashSet();
+        Assert.All(instances, i => Assert.Contains(i.AbstractNumId?.Val?.Value, abstractIds));
+
+        // Each list restarts at 1 (own abstractNum with its own start value).
+        Assert.All(abstractNums, a =>
+            Assert.Equal(1, a.Elements<Level>().First().StartNumberingValue?.Val?.Value));
+
+        // CT_Numbering sequence: all abstractNum elements precede all num elements.
+        var children = numbering.ChildElements.ToList();
+        var lastAbstractIndex = children.FindLastIndex(c => c is AbstractNum);
+        var firstInstanceIndex = children.FindIndex(c => c is NumberingInstance);
+        Assert.True(lastAbstractIndex < firstInstanceIndex,
+            "abstractNum elements must precede num elements in numbering.xml");
+
+        OpenXmlAssert.NoDocxValidationErrors(_testFilePath);
     }
 
     [Fact]
@@ -314,13 +331,163 @@ public class ContentBlockTests : IDisposable
 
         Assert.Equal(2, paragraphs.Count);
 
-        var bulletProps = paragraphs[0].ParagraphProperties?.NumberingProperties;
-        Assert.NotNull(bulletProps);
-        Assert.Equal(2, bulletProps!.NumberingId?.Val?.Value);
+        var bulletNumId = paragraphs[0].ParagraphProperties?.NumberingProperties?.NumberingId?.Val?.Value;
+        var orderedNumId = paragraphs[1].ParagraphProperties?.NumberingProperties?.NumberingId?.Val?.Value;
+        Assert.NotNull(bulletNumId);
+        Assert.NotNull(orderedNumId);
+        Assert.NotEqual(bulletNumId, orderedNumId);
 
-        var numberProps = paragraphs[1].ParagraphProperties?.NumberingProperties;
-        Assert.NotNull(numberProps);
-        Assert.Equal(1, numberProps!.NumberingId?.Val?.Value);
+        // Each numId must resolve to an abstractNum with the matching format —
+        // binding bullets to a decimal definition (or vice versa) was the collision bug.
+        var numbering = doc.MainDocumentPart!.NumberingDefinitionsPart!.Numbering;
+        Assert.NotNull(numbering);
+        Assert.Equal(NumberFormatValues.Bullet, ResolveNumberingFormat(numbering, bulletNumId!.Value));
+        Assert.Equal(NumberFormatValues.Decimal, ResolveNumberingFormat(numbering, orderedNumId!.Value));
+    }
+
+    [Fact]
+    public void AddRichContent_WithPreExistingNumbering_ShouldAllocateCollisionFreeIdsAndRestart()
+    {
+        // Fixture: document already has a decimal list (abstractNumId 5, numId 7).
+        using (var doc = WordprocessingDocument.Create(_testFilePath, WordprocessingDocumentType.Document))
+        {
+            var mainPart = doc.AddMainDocumentPart();
+            var existingAbstract = new AbstractNum(
+                new Level(
+                    new StartNumberingValue { Val = 1 },
+                    new NumberingFormat { Val = NumberFormatValues.Decimal },
+                    new LevelText { Val = "%1." }
+                ) { LevelIndex = 0 }
+            ) { AbstractNumberId = 5 };
+            var existingInstance = new NumberingInstance(
+                new AbstractNumId { Val = 5 }
+            ) { NumberID = 7 };
+            var numberingPart = mainPart.AddNewPart<NumberingDefinitionsPart>();
+            numberingPart.Numbering = new Numbering(existingAbstract, existingInstance);
+
+            var existingItem = new Paragraph(
+                new ParagraphProperties(
+                    new NumberingProperties(
+                        new NumberingLevelReference { Val = 0 },
+                        new NumberingId { Val = 7 })),
+                new Run(new Text("Existing item")));
+            mainPart.Document = new Document(new Body(existingItem));
+            mainPart.Document.Save();
+        }
+
+        var blocks = new ContentBlockBuilder()
+            .AddList(true, ["New A1", "New A2"])
+            .AddList(true, ["New B1", "New B2"])
+            .Build();
+
+        using (var builder = DocumentBuilder.Open(_testFilePath))
+        {
+            builder.AddRichContent(blocks);
+            builder.Save();
+        }
+
+        using (var doc = WordprocessingDocument.Open(_testFilePath, false))
+        {
+            var numbering = doc.MainDocumentPart!.NumberingDefinitionsPart!.Numbering;
+            Assert.NotNull(numbering);
+            var instances = numbering.Elements<NumberingInstance>().ToList();
+            var abstractNums = numbering.Elements<AbstractNum>().ToList();
+
+            // Pre-existing ids remain untouched; new ids are max+1 allocations.
+            Assert.Contains(instances, i => i.NumberID?.Value == 7 && i.AbstractNumId?.Val?.Value == 5);
+            var newInstances = instances.Where(i => i.NumberID?.Value > 7).ToList();
+            Assert.Equal(2, newInstances.Count);
+            Assert.All(newInstances, i => Assert.True(i.AbstractNumId?.Val?.Value > 5));
+
+            // The two new lists are independent: distinct instances and abstracts,
+            // each starting at 1 so both lists restart instead of continuing 1,2,3,4.
+            var newAbstractIds = newInstances.Select(i => i.AbstractNumId?.Val?.Value).ToList();
+            Assert.All(newAbstractIds, id => Assert.NotNull(id));
+            Assert.Equal(2, newAbstractIds.Distinct().Count());
+            foreach (var abstractId in newAbstractIds)
+            {
+                var abstractNum = abstractNums.Single(a => a.AbstractNumberId?.Value == abstractId);
+                Assert.Equal(1, abstractNum.Elements<Level>().First().StartNumberingValue?.Val?.Value);
+            }
+
+            // The pre-existing list paragraph still binds to its original instance.
+            var paragraphs = doc.MainDocumentPart.Document!.Body!.Elements<Paragraph>().ToList();
+            Assert.Equal(7, paragraphs[0].ParagraphProperties?.NumberingProperties?.NumberingId?.Val?.Value);
+
+            // Each new list's items share one fresh instance id.
+            var listAId = paragraphs[1].ParagraphProperties?.NumberingProperties?.NumberingId?.Val?.Value;
+            var listBId = paragraphs[3].ParagraphProperties?.NumberingProperties?.NumberingId?.Val?.Value;
+            Assert.NotNull(listAId);
+            Assert.NotNull(listBId);
+            Assert.NotEqual(listAId, listBId);
+            Assert.Equal(listAId, paragraphs[2].ParagraphProperties?.NumberingProperties?.NumberingId?.Val?.Value);
+            Assert.Equal(listBId, paragraphs[4].ParagraphProperties?.NumberingProperties?.NumberingId?.Val?.Value);
+        }
+
+        OpenXmlAssert.NoDocxValidationErrors(_testFilePath);
+    }
+
+    [Fact]
+    public void AddRichContent_WithTable_ShouldEmitTblGridMatchingColumnCount()
+    {
+        var blocks = new ContentBlockBuilder()
+            .AddTable(new List<List<string>>
+            {
+                new() { "H1", "H2", "H3" },
+                new() { "A", "B", "C" }
+            })
+            .Build();
+
+        using (var builder = DocumentBuilder.Create(_testFilePath))
+        {
+            builder.AddRichContent(blocks);
+            builder.Save();
+        }
+
+        using (var doc = WordprocessingDocument.Open(_testFilePath, false))
+        {
+            var table = doc.MainDocumentPart!.Document!.Body!.Elements<Table>().Single();
+
+            // CT_Tbl order: tblPr, tblGrid, then rows.
+            Assert.IsType<TableProperties>(table.ChildElements[0]);
+            var grid = Assert.IsType<TableGrid>(table.ChildElements[1]);
+            Assert.Equal(3, grid.Elements<GridColumn>().Count());
+        }
+
+        OpenXmlAssert.NoDocxValidationErrors(_testFilePath);
+    }
+
+    [Fact]
+    public void AddRichContent_WithEmptyTable_ShouldRenderNothing()
+    {
+        var blocks = new List<ContentBlock>
+        {
+            new ParagraphBlock { Text = "Before" },
+            new TableBlock { Rows = [] },
+            new ParagraphBlock { Text = "After" }
+        };
+
+        using (var builder = DocumentBuilder.Create(_testFilePath))
+        {
+            builder.AddRichContent(blocks);
+            builder.Save();
+        }
+
+        using (var doc = WordprocessingDocument.Open(_testFilePath, false))
+        {
+            var body = doc.MainDocumentPart!.Document!.Body!;
+            Assert.Empty(body.Elements<Table>());
+            Assert.Equal(2, body.Elements<Paragraph>().Count());
+        }
+
+        OpenXmlAssert.NoDocxValidationErrors(_testFilePath);
+    }
+
+    private static NumberFormatValues? ResolveNumberingFormat(Numbering numbering, int numberingId)
+    {
+        var instance = numbering.Elements<NumberingInstance>().Single(i => i.NumberID?.Value == numberingId);
+        var abstractNum = numbering.Elements<AbstractNum>().Single(a => a.AbstractNumberId?.Value == instance.AbstractNumId?.Val?.Value);
+        return abstractNum.Elements<Level>().First().NumberingFormat?.Val?.Value;
     }
 
     public void Dispose()

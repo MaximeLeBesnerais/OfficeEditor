@@ -167,6 +167,111 @@ public class VariableBranchTests : IDisposable
     }
 
     [Fact]
+    public void DocxReplacer_WithVariableSpanningMoreThanTwoRuns_ShouldReplaceAcrossAllRuns()
+    {
+        var para = new W.Paragraph(
+            new W.Run(new W.Text("Start {{va")),
+            new W.Run(new W.Text("ri")),
+            new W.Run(new W.Text("able}} end")));
+        var path = CreateDocx(new[] { para });
+
+        using (var document = WordprocessingDocument.Open(path, true))
+        {
+            new DocxVariableReplacer().Replace(document, new Dictionary<string, string>
+            {
+                ["variable"] = "VALUE"
+            });
+        }
+
+        using var reopened = WordprocessingDocument.Open(path, false);
+        Assert.Equal("Start VALUE end", reopened.MainDocumentPart!.Document!.Body!.InnerText);
+    }
+
+    [Fact]
+    public void DocxReplacer_WithAdjacentVariablesSplitAcrossRuns_ShouldReplaceEach()
+    {
+        var para = new W.Paragraph(
+            new W.Run(new W.Text("{{fi")),
+            new W.Run(new W.Text("rst}}{{sec")),
+            new W.Run(new W.Text("ond}}")));
+        var path = CreateDocx(new[] { para });
+
+        using (var document = WordprocessingDocument.Open(path, true))
+        {
+            new DocxVariableReplacer().Replace(document, new Dictionary<string, string>
+            {
+                ["first"] = "1",
+                ["second"] = "2"
+            });
+        }
+
+        using var reopened = WordprocessingDocument.Open(path, false);
+        Assert.Equal("12", reopened.MainDocumentPart!.Document!.Body!.InnerText);
+    }
+
+    [Fact]
+    public void DocxReplacer_WithVariableInsideHyperlinkRun_ShouldReplace()
+    {
+        var para = new W.Paragraph(
+            new W.Hyperlink(new W.Run(new W.Text("Visit {{site}}"))));
+        var path = CreateDocx(new[] { para });
+
+        using (var document = WordprocessingDocument.Open(path, true))
+        {
+            new DocxVariableReplacer().Replace(document, new Dictionary<string, string>
+            {
+                ["site"] = "example.com"
+            });
+        }
+
+        using var reopened = WordprocessingDocument.Open(path, false);
+        Assert.Equal("Visit example.com", reopened.MainDocumentPart!.Document!.Body!.InnerText);
+    }
+
+    [Fact]
+    public void DocxReplacer_SingleRunReplacement_ShouldPreserveWhitespace()
+    {
+        var path = CreateDocx(new W.Paragraph(new W.Run(new W.Text("Hello {{name}}!"))));
+
+        using (var document = WordprocessingDocument.Open(path, true))
+        {
+            new DocxVariableReplacer().Replace(document, new Dictionary<string, string>
+            {
+                ["name"] = " Ada "
+            });
+        }
+
+        using var reopened = WordprocessingDocument.Open(path, false);
+        var text = reopened.MainDocumentPart!.Document!.Body!.Descendants<W.Text>().Single();
+        Assert.Equal("Hello  Ada !", text.Text);
+        Assert.Equal(SpaceProcessingModeValues.Preserve, text.Space?.Value);
+    }
+
+    [Fact]
+    public void DocxReplacer_WithNullDataValue_ShouldTreatAsMissingInBothPaths()
+    {
+        // Null values reach the dictionary through JSON deserialization of merge data;
+        // semantics: null == missing, so defaults apply and bare placeholders are preserved.
+        var data = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(
+            """{"single": null, "split": null}""");
+        Assert.NotNull(data);
+
+        var para = new W.Paragraph(
+            new W.Run(new W.Text("A {{single|Fallback}} B {{single}} C {{sp")),
+            new W.Run(new W.Text("lit|SplitDefault}} D {{split}}")));
+        var path = CreateDocx(new[] { para });
+
+        using (var document = WordprocessingDocument.Open(path, true))
+        {
+            new DocxVariableReplacer().Replace(document, data);
+        }
+
+        using var reopened = WordprocessingDocument.Open(path, false);
+        Assert.Equal("A Fallback B {{single}} C SplitDefault D {{split}}",
+            reopened.MainDocumentPart!.Document!.Body!.InnerText);
+    }
+
+    [Fact]
     public void XlsxDetector_ShouldScanSharedAndPlainCellsWithDefaultsAndDuplicateLocations()
     {
         var path = CreateXlsx(includeSharedStringPart: true,

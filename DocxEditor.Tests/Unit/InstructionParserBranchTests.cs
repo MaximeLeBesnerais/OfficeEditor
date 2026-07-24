@@ -477,6 +477,126 @@ public class InstructionParserBranchTests
         Assert.Contains("operations", errors[0]);
     }
 
+    [Theory]
+    [InlineData(@"{ ""operations"": [ { ""type"": ""replaceText"", ""find"": """", ""replace"": ""x"" } ] }")]
+    public void JsonParser_WithEmptyFind_ShouldThrowArgumentException(string json)
+    {
+        // Empty find would insert the replacement between every character of the document.
+        var ex = Assert.Throws<ArgumentException>(() => new DocxJsonInstructionParser().Parse(json));
+        Assert.Contains("Find", ex.Message);
+        Assert.Contains("non-empty", ex.Message);
+    }
+
+    [Fact]
+    public void YamlParser_WithEmptyFind_ShouldThrowArgumentException()
+    {
+        var yaml = "operations:\n  - type: replaceText\n    find: ''\n    replace: x";
+
+        var ex = Assert.Throws<ArgumentException>(() => new DocxYamlInstructionParser().Parse(yaml));
+        Assert.Contains("non-empty", ex.Message);
+    }
+
+    [Fact]
+    public void YamlParser_WithInsertAfterMissingContentText_ShouldThrowArgumentException()
+    {
+        // YamlDotNet ignores C# 'required', so content without text must be rejected explicitly.
+        var yaml = "operations:\n  - type: insertAfter\n    target: t\n    content:\n      style: Body";
+
+        var ex = Assert.Throws<ArgumentException>(() => new DocxYamlInstructionParser().Parse(yaml));
+        Assert.Contains("text", ex.Message);
+    }
+
+    [Fact]
+    public void Parsers_HeadingWithoutLevel_ShouldDefaultToLevelOne()
+    {
+        var json = """
+        { "operations": [ { "type": "addRichContent", "blocks": [ { "type": "heading", "text": "J" } ] } ] }
+        """;
+        var yaml = """
+        operations:
+          - type: addRichContent
+            blocks:
+              - type: heading
+                text: Y
+        """;
+
+        var jsonHeading = Assert.IsType<HeadingBlock>(
+            Assert.IsType<AddRichContentInstruction>(new DocxJsonInstructionParser().Parse(json).Operations[0]).Blocks[0]);
+        var yamlHeading = Assert.IsType<HeadingBlock>(
+            Assert.IsType<AddRichContentInstruction>(new DocxYamlInstructionParser().Parse(yaml).Operations[0]).Blocks[0]);
+
+        Assert.Equal(1, jsonHeading.Level);
+        Assert.Equal(1, yamlHeading.Level);
+    }
+
+    [Theory]
+    // level: 1.5 — raw GetInt32 would throw a framework FormatException
+    [InlineData(@"{ ""operations"": [ { ""type"": ""addRichContent"", ""blocks"": [ { ""type"": ""heading"", ""level"": 1.5, ""text"": ""x"" } ] } ] }", "level")]
+    // items: [1] — raw GetString would throw InvalidOperationException
+    [InlineData(@"{ ""operations"": [ { ""type"": ""addRichContent"", ""blocks"": [ { ""type"": ""list"", ""items"": [1] } ] } ] }", "items[0]")]
+    // rows: "x" — raw EnumerateArray would throw InvalidOperationException
+    [InlineData(@"{ ""operations"": [ { ""type"": ""addRichContent"", ""blocks"": [ { ""type"": ""table"", ""rows"": ""x"" } ] } ] }", "rows")]
+    public void JsonParser_WithMalformedBlockValueKinds_ShouldThrowDescriptiveArgumentException(string json, string fieldHint)
+    {
+        var ex = Assert.Throws<ArgumentException>(() => new DocxJsonInstructionParser().Parse(json));
+        Assert.Contains(fieldHint, ex.Message);
+        Assert.Contains("blocks[0]", ex.Message);
+    }
+
+    [Theory]
+    [InlineData("operations:\n  - type: addRichContent\n    blocks:\n      - type: heading\n        level: abc\n        text: x", "level")]
+    [InlineData("operations:\n  - type: addRichContent\n    blocks:\n      - type: heading\n        level: 1.5\n        text: x", "level")]
+    [InlineData("operations:\n  - type: addRichContent\n    blocks:\n      - type: table\n        rows: notalist", "rows")]
+    [InlineData("operations:\n  - type: addRichContent\n    blocks:\n      - type: list\n        ordered: maybe", "ordered")]
+    public void YamlParser_WithMalformedBlockValueKinds_ShouldThrowDescriptiveArgumentException(string yaml, string fieldHint)
+    {
+        var ex = Assert.Throws<ArgumentException>(() => new DocxYamlInstructionParser().Parse(yaml));
+        Assert.Contains(fieldHint, ex.Message);
+    }
+
+    [Fact]
+    public void DocxInstructionValidator_WithEmptyFind_ShouldReportError()
+    {
+        var json = """
+        { "operations": [ { "type": "replaceText", "find": "", "replace": "x" } ] }
+        """;
+
+        var errors = new DocxInstructionValidator().Validate(json);
+
+        Assert.Single(errors);
+        Assert.Contains("find", errors[0]);
+        Assert.Contains("empty", errors[0]);
+    }
+
+    [Fact]
+    public void DocxInstructionValidator_HeadingLevelOptionalButMustBeInteger()
+    {
+        var missingLevel = """
+        { "operations": [ { "type": "addRichContent", "blocks": [ { "type": "heading", "text": "H" } ] } ] }
+        """;
+        var fractionalLevel = """
+        { "operations": [ { "type": "addRichContent", "blocks": [ { "type": "heading", "level": 1.5, "text": "H" } ] } ] }
+        """;
+
+        Assert.Empty(new DocxInstructionValidator().Validate(missingLevel));
+
+        var errors = new DocxInstructionValidator().Validate(fractionalLevel);
+        Assert.Single(errors);
+        Assert.Contains("level", errors[0]);
+    }
+
+    [Fact]
+    public void DocxInstructionValidator_ShouldReturnIndependentErrorLists()
+    {
+        var validator = new DocxInstructionValidator();
+
+        var first = validator.Validate("{}");
+        var second = validator.Validate("{ \"operations\": [] }");
+
+        Assert.Single(first);
+        Assert.Empty(second);
+    }
+
     [Fact]
     public void DocxInstructionValidator_WithRichContentAndValidBlocks_ShouldReturnNoErrors()
     {

@@ -148,10 +148,10 @@ public static class SmartArtDataExtractor
                 if (!string.IsNullOrEmpty(text) || type == "node" || type == "doc" || string.IsNullOrEmpty(type))
                 {
                     var plText = prSet != null ? ReadAttribute(prSet, "phldrT") ?? string.Empty : string.Empty;
-                    var plIdxStr = prSet != null ? ReadAttribute(prSet, "phldr") : null;
-                    var plIdx = -1;
-                    if (plIdxStr != null && int.TryParse(plIdxStr, out var idx))
-                        plIdx = idx;
+                    // phldr is xsd:boolean ("1"/"true"), not an integer index.
+                    var phldrStr = prSet != null ? ReadAttribute(prSet, "phldr") : null;
+                    var isPlaceholder = string.Equals(phldrStr, "1", StringComparison.Ordinal) ||
+                                        string.Equals(phldrStr, "true", StringComparison.OrdinalIgnoreCase);
 
                     if (type != "doc")
                     {
@@ -160,7 +160,7 @@ public static class SmartArtDataExtractor
                             ModelId = modelId,
                             Text = text ?? string.Empty,
                             PlaceholderText = plText,
-                            PlaceholderIndex = plIdx,
+                            IsPlaceholder = isPlaceholder,
                             HierarchyLevel = 0
                         });
                     }
@@ -231,7 +231,6 @@ public static class SmartArtDataExtractor
             {
                 var destId = cxn.DestId;
                 if (visited.Contains(destId)) continue;
-                visited.Add(destId);
 
                 // Skip presentation overrides — they don't define hierarchy structure.
                 // Only "connection" edges (with parTransId/sibTransId) and "presParOf" edges
@@ -242,37 +241,21 @@ public static class SmartArtDataExtractor
 
                 if (isHierarchyEdge)
                 {
-                    var targetId = destId;
-
-                    // When type is "presParOf", the destination is a "pres" node;
-                    // but the meaningful hierarchical target is what the pres node
-                    // itself references through presOf connections in the next hop.
-                    // For the first round we let BFS traverse all edges and
-                    // finalise levels after processing pres redirects.
-
-                    // If this is a "connection" with a sibTransId, the sibTrans is
-                    // a sibling transition — a peer, not a child.
-                    if (!string.IsNullOrEmpty(cxn.SibTransId) || !string.IsNullOrEmpty(cxn.ParTransId))
-                    {
-                        // The sibTransId/parTransId are intermediate points;
-                        // the hierarchy continues from them to the real destination.
-                        // The child is the destId (the sibling transition target).
-                    }
-
                     // Use intermediate transition nodes to extend the graph
-                    if (!string.IsNullOrEmpty(cxn.ParTransId) && !visited.Contains(cxn.ParTransId))
+                    if (!string.IsNullOrEmpty(cxn.ParTransId) && visited.Add(cxn.ParTransId))
                     {
                         queue.Enqueue((cxn.ParTransId, currentLevel + 1));
-                        visited.Add(cxn.ParTransId);
                     }
 
-                    if (!string.IsNullOrEmpty(cxn.SibTransId) && !visited.Contains(cxn.SibTransId))
+                    if (!string.IsNullOrEmpty(cxn.SibTransId) && visited.Add(cxn.SibTransId))
                     {
                         queue.Enqueue((cxn.SibTransId, currentLevel + 1));
-                        visited.Add(cxn.SibTransId);
                     }
 
-                    if (!visited.Contains(destId))
+                    // Mark + enqueue the destination exactly once: a previous
+                    // implementation added destId to visited before this guard,
+                    // so the guard never passed and no level was ever assigned.
+                    if (visited.Add(destId))
                     {
                         // Determine if dest is a content node
                         var isContentNode = nodeIds.Contains(destId);
@@ -283,7 +266,6 @@ public static class SmartArtDataExtractor
                         }
 
                         queue.Enqueue((destId, currentLevel + 1));
-                        visited.Add(destId);
                     }
                 }
                 else if (cxn.Type == "presOf")
@@ -291,10 +273,9 @@ public static class SmartArtDataExtractor
                     // "presOf" connects a real node to its presentation override.
                     // The override is a child in the presentation hierarchy but
                     // not a content node — just mark it visited and enqueue.
-                    if (!visited.Contains(destId))
+                    if (visited.Add(destId))
                     {
                         queue.Enqueue((destId, currentLevel));
-                        visited.Add(destId);
                     }
                 }
             }
@@ -315,30 +296,34 @@ public static class SmartArtDataExtractor
         var t = GetChild(pt, "t", DiagramNs);
         if (t == null) return null;
 
-        var runs = new System.Text.StringBuilder();
+        // Join paragraphs with a newline separator instead of concatenating them.
+        var paragraphTexts = new List<string>();
         var paragraphs = t.Elements()
             .Where(e => e.LocalName == "p" && e.NamespaceUri == DrawingmlNs);
 
         foreach (var p in paragraphs)
         {
-            var rElements = p.Elements()
-                .Where(e => e.LocalName == "r" && e.NamespaceUri == DrawingmlNs);
+            var paragraphText = new System.Text.StringBuilder();
 
-            foreach (var r in rElements)
+            // Text lives in runs (a:r) and fields (a:fld); both carry a:t children.
+            foreach (var child in p.Elements())
             {
-                var text = r.Elements()
-                    .Where(e => e.LocalName == "t" && e.NamespaceUri == DrawingmlNs)
-                    .Select(e => e.InnerText)
-                    .ToList();
+                if (child.LocalName is not ("r" or "fld") || child.NamespaceUri != DrawingmlNs)
+                    continue;
 
-                foreach (var tPart in text)
+                foreach (var tPart in child.Elements()
+                             .Where(e => e.LocalName == "t" && e.NamespaceUri == DrawingmlNs)
+                             .Select(e => e.InnerText))
                 {
-                    runs.Append(tPart);
+                    paragraphText.Append(tPart);
                 }
             }
+
+            paragraphTexts.Add(paragraphText.ToString());
         }
 
-        return runs.Length > 0 ? runs.ToString() : null;
+        var text = string.Join("\n", paragraphTexts);
+        return text.Length > 0 ? text : null;
     }
 
     private static OpenXmlPart? ResolveDataPart(SlidePart slidePart, OpenXmlElement graphicData)

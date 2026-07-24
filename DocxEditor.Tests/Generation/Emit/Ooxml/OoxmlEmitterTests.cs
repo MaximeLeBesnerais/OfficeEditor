@@ -715,6 +715,37 @@ public sealed class OoxmlEmitterTests : IDisposable
         Assert.Throws<ArgumentException>(() => new OoxmlEmitter().Emit(layout));
     }
 
+    [Fact]
+    public void Image_TraversalSource_Throws()
+    {
+        // "../../…" must be rejected whether or not the target exists: the containment
+        // check runs before any file probe (repo root first, then the CWD fallback,
+        // which is containment-checked too), so neither root can be escaped.
+        var layout = LayoutWith(new ResolvedImage { X = 0, Y = 0, Width = 10, Height = 10, Source = "../../../../../../etc/passwd", Fit = ImageFitMode.Fill });
+        Assert.Throws<ArgumentException>(() => new OoxmlEmitter().Emit(layout));
+    }
+
+    [Fact]
+    public void Image_UnknownExtension_Throws()
+    {
+        // The default arm used to silently label any unknown extension as JPEG.
+        var path = WriteImage("mystery.xyz", PngWithSize(100, 100));
+        var layout = LayoutWith(new ResolvedImage { X = 0, Y = 0, Width = 10, Height = 10, Source = path, Fit = ImageFitMode.Stretch });
+        var ex = Assert.Throws<ArgumentException>(() => new OoxmlEmitter().Emit(layout));
+        Assert.Contains(".xyz", ex.Message);
+    }
+
+    [Fact]
+    public void Image_RepoRelativeSource_ResolvesAgainstRepositoryRoot()
+    {
+        // demo/assets/dashboard.png ships with the repo (also exercised end-to-end by
+        // the API's DeckGenerationServiceTests) — legitimate repo-root-relative sources
+        // must keep resolving under the new repo-root-first precedence.
+        var layout = LayoutWith(new ResolvedImage { X = 0, Y = 0, Width = 100, Height = 100, Source = "demo/assets/dashboard.png", Fit = ImageFitMode.Fill });
+        using var document = EmitAndOpen(layout, out _);
+        Assert.Single(FirstShapeTree(document).Elements<P.Picture>());
+    }
+
     #endregion
 
     #region End-to-end: JSON → resolve → emit → validate

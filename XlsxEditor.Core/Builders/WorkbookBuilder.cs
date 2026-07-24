@@ -83,11 +83,16 @@ public class WorkbookBuilder : IWorkbookBuilder
     private readonly string? _path;
     private readonly MemoryStream? _documentStream;
     private readonly bool _isNewDocument;
-    private readonly Dictionary<string, WorksheetBuilder> _worksheets = new();
+    // Excel worksheet names are case-insensitive; an Ordinal dictionary would allow
+    // "Sales" and "SALES" to coexist and produce a corrupt workbook.
+    private readonly Dictionary<string, WorksheetBuilder> _worksheets = new(StringComparer.OrdinalIgnoreCase);
     private WorkbookPart _workbookPart;
     private SharedStringTablePart? _sharedStringPart;
     private uint _nextSheetId = 1;
     private uint _nextTableId = 1;
+
+    // Excel table display names must be unique workbook-wide (case-insensitive).
+    private readonly HashSet<string> _tableNames = new(StringComparer.OrdinalIgnoreCase);
 
     private WorkbookBuilder(SpreadsheetDocument document, string? path, bool isNew, MemoryStream? documentStream = null)
     {
@@ -184,7 +189,7 @@ public class WorkbookBuilder : IWorkbookBuilder
         {
             throw new XlsxException(
                 $"A worksheet named '{name}' already exists in this workbook. " +
-                "Worksheet names must be unique.");
+                "Worksheet names must be unique (comparison is case-insensitive, as in Excel).");
         }
 
         var worksheetPart = _workbookPart.AddNewPart<WorksheetPart>();
@@ -230,7 +235,8 @@ public class WorkbookBuilder : IWorkbookBuilder
         var sheets = workbook.Sheets;
         if (sheets != null)
         {
-            var sheet = sheets.Elements<Sheet>().FirstOrDefault(s => s.Name?.Value == name);
+            var sheet = sheets.Elements<Sheet>().FirstOrDefault(
+                s => string.Equals(s.Name?.Value, name, StringComparison.OrdinalIgnoreCase));
             if (sheet != null)
             {
                 sheet.Remove();
@@ -337,34 +343,37 @@ public class WorkbookBuilder : IWorkbookBuilder
         _documentStream?.Dispose();
     }
 
-    internal string GetSharedString(string text)
-    {
-        var sharedStringPart = _sharedStringPart;
-        if (sharedStringPart == null)
-        {
-            sharedStringPart = _workbookPart.AddNewPart<SharedStringTablePart>();
-            _sharedStringPart = sharedStringPart;
-        }
+    // Text → index cache so writes are O(1) instead of rescanning the table per cell.
+    private Dictionary<string, int>? _sharedStringIndices;
 
-        var sharedStringTable = sharedStringPart.SharedStringTable ??= new SharedStringTable();
-        
-        // Check if string already exists
-        foreach (var item in sharedStringTable.Elements<SharedStringItem>())
+    private Dictionary<string, int> GetSharedStringIndices()
+    {
+        if (_sharedStringIndices == null)
         {
-            if (item.InnerText == text)
+            _sharedStringIndices = new Dictionary<string, int>(StringComparer.Ordinal);
+            var table = _sharedStringPart?.SharedStringTable;
+            if (table != null)
             {
-                return item.InnerText;
+                var index = 0;
+                foreach (var item in table.Elements<SharedStringItem>())
+                {
+                    _sharedStringIndices.TryAdd(item.InnerText, index);
+                    index++;
+                }
             }
         }
 
-        // Add new shared string
-        var newItem = new SharedStringItem(new Text(text));
-        sharedStringTable.Append(newItem);
-        return text;
+        return _sharedStringIndices;
     }
 
     internal int GetSharedStringIndex(string text)
     {
+        var indices = GetSharedStringIndices();
+        if (indices.TryGetValue(text, out var existingIndex))
+        {
+            return existingIndex;
+        }
+
         var sharedStringPart = _sharedStringPart;
         if (sharedStringPart == null)
         {
@@ -373,20 +382,13 @@ public class WorkbookBuilder : IWorkbookBuilder
         }
 
         var sharedStringTable = sharedStringPart.SharedStringTable ??= new SharedStringTable();
-        int index = 0;
-        
-        foreach (var item in sharedStringTable.Elements<SharedStringItem>())
-        {
-            if (item.InnerText == text)
-            {
-                return index;
-            }
-            index++;
-        }
 
-        // Add new shared string
-        var newItem = new SharedStringItem(new Text(text));
+        // xml:space="preserve" so leading/trailing whitespace survives the
+        // save → reload round-trip.
+        var index = sharedStringTable.Elements<SharedStringItem>().Count();
+        var newItem = new SharedStringItem(new Text(text) { Space = SpaceProcessingModeValues.Preserve });
         sharedStringTable.Append(newItem);
+        indices[text] = index;
         return index;
     }
 
@@ -407,8 +409,43 @@ public class WorkbookBuilder : IWorkbookBuilder
         return items[index].InnerText;
     }
 
+    /// <summary>
+    /// Ensures the workbook has a stylesheet whose cell formats (cellXfs) include
+    /// <paramref name="styleIndex"/>; otherwise writing s= on the cell would corrupt
+    /// the file (Excel repair prompt).
+    /// </summary>
+    internal void EnsureStyleIndexExists(uint styleIndex, string cellReference)
+    {
+        var cellFormats = _workbookPart.WorkbookStylesPart?.Stylesheet?.CellFormats;
+        if (cellFormats == null)
+        {
+            throw new XlsxException(
+                $"Cell {cellReference} references styleId {styleIndex}, but this workbook has no " +
+                "stylesheet (no cell formats are defined). Create a style first " +
+                "(e.g. via AddHeaderRow) or use the Phase 3 style builder.");
+        }
+
+        var count = cellFormats.Count?.Value ?? (uint)cellFormats.Elements<CellFormat>().Count();
+        if (styleIndex >= count)
+        {
+            throw new XlsxException(
+                $"Cell {cellReference} references styleId {styleIndex}, but the stylesheet only " +
+                $"defines {count} cell format(s) (valid ids: 0–{count - 1}). " +
+                "Create the style first or use the Phase 3 style builder.");
+        }
+    }
+
+    // Cached so repeated AddHeaderRow calls reuse one bold style instead of
+    // appending a new font + cell format to the stylesheet every time.
+    private uint? _headerStyleIndex;
+
     internal uint EnsureHeaderStyleIndex()
     {
+        if (_headerStyleIndex is { } cached)
+        {
+            return cached;
+        }
+
         var stylesPart = _workbookPart.WorkbookStylesPart ?? _workbookPart.AddNewPart<WorkbookStylesPart>();
         stylesPart.Stylesheet ??= new Stylesheet();
         var stylesheet = stylesPart.Stylesheet;
@@ -431,12 +468,26 @@ public class WorkbookBuilder : IWorkbookBuilder
         stylesheet.CellFormats.Count = styleIndex + 1;
 
         stylesPart.Stylesheet.Save();
+        _headerStyleIndex = styleIndex;
         return styleIndex;
     }
 
     internal uint NextTableId()
     {
         return _nextTableId++;
+    }
+
+    /// <summary>
+    /// Registers a table display name, throwing if it is already used in this workbook.
+    /// </summary>
+    internal void RegisterTableName(string tableName)
+    {
+        if (!_tableNames.Add(tableName))
+        {
+            throw new XlsxException(
+                $"A table named '{tableName}' already exists in this workbook. " +
+                "Table names must be unique workbook-wide (case-insensitive).");
+        }
     }
 
     private void InitializeNewWorkbook()
@@ -469,7 +520,8 @@ public class WorkbookBuilder : IWorkbookBuilder
         // Load shared string part if exists
         _sharedStringPart = _workbookPart.GetPartsOfType<SharedStringTablePart>().FirstOrDefault();
 
-        // Scan for max existing table ID to avoid collisions
+        // Scan for max existing table ID to avoid collisions, and register existing
+        // table names so new tables cannot reuse them.
         uint maxTableId = 0;
         foreach (var wsPart in _workbookPart.WorksheetParts)
         {
@@ -478,6 +530,11 @@ public class WorkbookBuilder : IWorkbookBuilder
                 if (tdPart.Table?.Id?.Value > maxTableId)
                 {
                     maxTableId = tdPart.Table.Id.Value;
+                }
+
+                if (tdPart.Table?.DisplayName?.Value is { Length: > 0 } displayName)
+                {
+                    _tableNames.Add(displayName);
                 }
             }
         }
