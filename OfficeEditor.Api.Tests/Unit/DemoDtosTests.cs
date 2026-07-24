@@ -69,7 +69,7 @@ public sealed class DemoDtosTests
     }
 
     [Fact]
-    public void DemoRenderResponse_EmptyPreviews_HandlesNullList()
+    public void DemoRenderResponse_EmptyPreviews_HandlesEmptyList()
     {
         var response = new DemoRenderResponse(false, Guid.Empty, 0, 0, []);
 
@@ -96,6 +96,10 @@ public sealed class DemoDtosTests
         Assert.Equal(original.SlideCount, deserialized.SlideCount);
         Assert.Equal(original.TotalMilliseconds, deserialized.TotalMilliseconds);
         Assert.Equal(original.Previews.Count, deserialized.Previews.Count);
+        Assert.Equal(original.Previews[0], deserialized.Previews[0]);
+        Assert.Contains("\"DeckId\"", json);
+        Assert.Contains("\"SlideCount\"", json);
+        Assert.Contains("\"TotalMilliseconds\"", json);
     }
 
     [Fact]
@@ -135,6 +139,9 @@ public sealed class DemoDtosTests
         Assert.Equal(original.SlideCount, deserialized.SlideCount);
         Assert.Equal(original.Source, deserialized.Source);
         Assert.Equal(original.Previews.Count, deserialized.Previews.Count);
+        Assert.Equal(original.Previews[0], deserialized.Previews[0]);
+        Assert.Contains("\"Name\"", json);
+        Assert.Contains("\"SlideCount\"", json);
     }
 
     [Fact]
@@ -172,6 +179,8 @@ public sealed class DemoDtosTests
         Assert.Equal(original.Version, deserialized.Version);
         Assert.Equal(original.PdfToPpmAvailable, deserialized.PdfToPpmAvailable);
         Assert.Equal(original.SkipReason, deserialized.SkipReason);
+        Assert.Contains("\"Available\"", json);
+        Assert.Contains("\"PdfToPpmAvailable\"", json);
     }
 
     [Fact]
@@ -279,8 +288,12 @@ public sealed class DemoDtosTests
         Assert.Equal(original.RasterizationMilliseconds, deserialized.RasterizationMilliseconds);
         Assert.Equal(original.TotalMilliseconds, deserialized.TotalMilliseconds);
         Assert.Equal(original.Previews!.Count, deserialized.Previews!.Count);
+        Assert.Equal(original.Previews[0], deserialized.Previews[0]);
         Assert.Equal(original.PdfDownloadUrl, deserialized.PdfDownloadUrl);
         Assert.Equal(original.Error, deserialized.Error);
+        Assert.Contains("\"Deck\"", json);
+        Assert.Contains("\"SlideCount\"", json);
+        Assert.Contains("\"ConversionMilliseconds\"", json);
     }
 
     [Fact]
@@ -355,8 +368,11 @@ public sealed class DemoDtosTests
         Assert.Equal(original.PdfMilliseconds, deserialized.PdfMilliseconds);
         Assert.Equal(original.TotalMilliseconds, deserialized.TotalMilliseconds);
         Assert.Equal(original.Previews.Count, deserialized.Previews.Count);
+        Assert.Equal(original.Previews[0], deserialized.Previews[0]);
         Assert.Equal(original.PdfDownloadUrl, deserialized.PdfDownloadUrl);
         Assert.Equal(original.PdfError, deserialized.PdfError);
+        Assert.Contains("\"PngMilliseconds\"", json);
+        Assert.Contains("\"PdfDownloadUrl\"", json);
     }
 
     [Fact]
@@ -378,6 +394,66 @@ public sealed class DemoDtosTests
     }
 
     [Fact]
+    public void DemoDeckDto_Deserialize_FromPinnedJson()
+    {
+        var json = """{"Name":"Northwind","FileName":"northwind-demo.pptx","Description":"A 15-slide demo deck","SlideCount":15}""";
+        var dto = JsonSerializer.Deserialize<DemoDeckDto>(json);
+
+        Assert.NotNull(dto);
+        Assert.Equal("Northwind", dto.Name);
+        Assert.Equal("northwind-demo.pptx", dto.FileName);
+        Assert.Equal("A 15-slide demo deck", dto.Description);
+        Assert.Equal(15, dto.SlideCount);
+    }
+
+    [Fact]
+    public void CompareCapabilitiesDto_Deserialize_FromPinnedJson()
+    {
+        var json = """{"Available":true,"Version":"24.8.3.2","PdfToPpmAvailable":true,"SkipReason":null}""";
+        var dto = JsonSerializer.Deserialize<CompareCapabilitiesDto>(json);
+
+        Assert.NotNull(dto);
+        Assert.True(dto.Available);
+        Assert.Equal("24.8.3.2", dto.Version);
+        Assert.True(dto.PdfToPpmAvailable);
+        Assert.Null(dto.SkipReason);
+    }
+
+    [Fact]
+    public void OfficialSlidesResponse_Deserialize_FromPinnedJson()
+    {
+        var json = """{"Name":"sales","SlideCount":16,"Source":"PowerPoint PDF export","Previews":[{"Slide":1,"Format":"png","ContentType":"image/png","ContentBase64":"AAA="}]}""";
+        var dto = JsonSerializer.Deserialize<OfficialSlidesResponse>(json);
+
+        Assert.NotNull(dto);
+        Assert.Equal("sales", dto.Name);
+        Assert.Equal(16, dto.SlideCount);
+        Assert.Equal("PowerPoint PDF export", dto.Source);
+        Assert.Single(dto.Previews);
+        Assert.Equal(1, dto.Previews[0].Slide);
+        Assert.Equal("png", dto.Previews[0].Format);
+        Assert.Equal("AAA=", dto.Previews[0].ContentBase64);
+    }
+
+    [Fact]
+    public void DemoRenderResponse_Deserialize_FromPinnedJson()
+    {
+        var json = """{"Success":true,"DeckId":"00000000-0000-0000-0000-000000000001","SlideCount":3,"TotalMilliseconds":542.1,"Previews":[{"Slide":1,"Format":"svg","ContentType":"image/svg+xml","ContentBase64":"PHN2Zy8+"}]}""";
+        var dto = JsonSerializer.Deserialize<DemoRenderResponse>(json);
+
+        Assert.NotNull(dto);
+        Assert.True(dto.Success);
+        Assert.Equal(Guid.Parse("00000000-0000-0000-0000-000000000001"), dto.DeckId);
+        Assert.Equal(3, dto.SlideCount);
+        Assert.Equal(542.1, dto.TotalMilliseconds);
+        Assert.Single(dto.Previews);
+        Assert.Equal(1, dto.Previews[0].Slide);
+        Assert.Equal("svg", dto.Previews[0].Format);
+        Assert.Equal("image/svg+xml", dto.Previews[0].ContentType);
+        Assert.Equal("PHN2Zy8+", dto.Previews[0].ContentBase64);
+    }
+
+    [Fact]
     public void AllDemoDtos_AreRecordTypes_WithValueEquality()
     {
         var dto1 = new DemoDeckDto("a", "b.pptx", "c", 1);
@@ -388,8 +464,8 @@ public sealed class DemoDtosTests
         var caps2 = new CompareCapabilitiesDto(true, "v1", true, null);
         Assert.Equal(caps1, caps2);
 
-        var slides1 = new OfficialSlidesResponse("n", 1, "s", []);
-        var slides2 = new OfficialSlidesResponse("n", 1, "s", []);
-        Assert.Equal(slides1, slides2);
+        // OfficialSlidesResponse and other IReadOnlyList-bearing records are
+        // excluded — C# record equality uses reference equality for interfaces,
+        // so two instances with identical list contents are not .Equal.
     }
 }
