@@ -21,6 +21,9 @@ public interface IDocumentBuilder : IDisposable
     IDocumentBuilder AddRichContent(List<ContentBlock> blocks);
     IDocumentBuilder ReplaceWithRichContent(string targetText, List<ContentBlock> blocks);
     
+    // Hyperlinks
+    IDocumentBuilder AddHyperlink(string url, string displayText, string? style = null);
+    
     // Markdown
     IDocumentBuilder AddMarkdown(string markdown, StyleMapping? styleMap = null);
     IDocumentBuilder ReplaceWithMarkdown(string targetText, string markdown, StyleMapping? styleMap = null);
@@ -514,6 +517,28 @@ public class DocumentBuilder : IDocumentBuilder
             targetParagraph.Remove();
         }
 
+        return this;
+    }
+
+    public IDocumentBuilder AddHyperlink(string url, string displayText, string? style = null)
+    {
+        var mainPart = _document.MainDocumentPart!;
+        var hyperlinkRelationship = mainPart.AddHyperlinkRelationship(new Uri(url), true);
+        var paragraph = new Paragraph();
+        var hyperlink = new Hyperlink() { History = true, Id = hyperlinkRelationship.Id };
+        var run = new Run(new Text(displayText));
+        hyperlink.Append(run);
+        paragraph.Append(hyperlink);
+
+        if (!string.IsNullOrEmpty(style))
+        {
+            EnsureStyle(style);
+            paragraph.ParagraphProperties = new ParagraphProperties(
+                new ParagraphStyleId { Val = style }
+            );
+        }
+
+        _body.Append(paragraph);
         return this;
     }
 
