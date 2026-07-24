@@ -71,6 +71,79 @@ public sealed class PptxToTypstConverterTextListTests : IDisposable
         Assert.Contains("#list(marker: [#text(fill: rgb(\"#FF0000\"))[•]]", source);
     }
 
+    [Fact]
+    public void GenerateTypstSource_LineSpacingPercent_EmitsPerParagraphLeading()
+    {
+        // Two paragraphs with different spcPct values: the second leading can only come
+        // from per-paragraph emission (element-level fallback only knows the first).
+        var shape = TextShape(2,
+            new Drawing.Paragraph(
+                new Drawing.ParagraphProperties(
+                    new Drawing.LineSpacing(new Drawing.SpacingPercent { Val = 125000 })),
+                new Drawing.Run(
+                    new Drawing.RunProperties { FontSize = new Int32Value(1100) },
+                    new Drawing.Text { Text = "First body line" })),
+            new Drawing.Paragraph(
+                new Drawing.ParagraphProperties(
+                    new Drawing.LineSpacing(new Drawing.SpacingPercent { Val = 150000 })),
+                new Drawing.Run(
+                    new Drawing.RunProperties { FontSize = new Int32Value(1100) },
+                    new Drawing.Text { Text = "Second body line" })));
+        var path = CreatePptx("line-spacing-pct.pptx", customizeMaster: null, shape);
+
+        var source = ConvertToTypstSource(path);
+
+        // 11pt * 1.25 - 11pt * 0.65 = 6.60pt ; 11pt * 1.50 - 11pt * 0.65 = 9.35pt
+        Assert.Contains("#set par(leading: 6.60pt)", source);
+        Assert.Contains("#set par(leading: 9.35pt)", source);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_LineSpacingPoints_EmitsAbsoluteLeading()
+    {
+        var shape = TextShape(2,
+            new Drawing.Paragraph(
+                new Drawing.ParagraphProperties(
+                    new Drawing.LineSpacing(new Drawing.SpacingPoints { Val = 2000 })),
+                new Drawing.Run(
+                    new Drawing.RunProperties { FontSize = new Int32Value(1100) },
+                    new Drawing.Text { Text = "Absolute spaced line" })));
+        var path = CreatePptx("line-spacing-pts.pptx", customizeMaster: null, shape);
+
+        var source = ConvertToTypstSource(path);
+
+        // spcPts 2000 = 20pt target line pitch; 20 - 11pt * 0.65 = 12.85pt
+        Assert.Contains("#set par(leading: 12.85pt)", source);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_LineSpacingPercent_UsesRunFontSizeNotElementDefault()
+    {
+        // Mixed-formatting runs: the paragraph default falls back to 18pt, but leading
+        // must be computed from the first run's 13pt (old behavior emitted 8.46pt).
+        var shape = TextShape(2,
+            new Drawing.Paragraph(
+                new Drawing.ParagraphProperties(
+                    new Drawing.LineSpacing(new Drawing.SpacingPercent { Val = 112000 })),
+                new Drawing.Run(
+                    new Drawing.RunProperties { FontSize = new Int32Value(1300), Bold = new BooleanValue(true) },
+                    new Drawing.Text { Text = "Bold lead" })),
+            new Drawing.Paragraph(
+                new Drawing.ParagraphProperties(
+                    new Drawing.LineSpacing(new Drawing.SpacingPercent { Val = 112000 })),
+                new Drawing.Run(
+                    new Drawing.RunProperties { FontSize = new Int32Value(1150) },
+                    new Drawing.Text { Text = "Regular follow" })));
+        var path = CreatePptx("line-spacing-mixed.pptx", customizeMaster: null, shape);
+
+        var source = ConvertToTypstSource(path);
+
+        // 13pt * 1.12 - 13pt * 0.65 = 6.11pt ; 11.5pt * 1.12 - 11.5pt * 0.65 = 5.41pt (rounded)
+        Assert.Contains("#set par(leading: 6.11pt)", source);
+        Assert.Contains("#set par(leading: 5.41pt)", source);
+        Assert.DoesNotContain("#set par(leading: 8.46pt)", source);
+    }
+
     private static Drawing.Paragraph BulletParagraph(string text, int level, int marL, int indent, string bulletChar)
     {
         var pPr = new Drawing.ParagraphProperties(new Drawing.CharacterBullet { Char = bulletChar })

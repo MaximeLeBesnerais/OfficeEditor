@@ -251,6 +251,10 @@ public sealed partial class PptxToTypstConverter
                     // Don't add extra break when entering a list
                 }
 
+                // Emit per-paragraph leading (a:lnSpc) — overrides any element-level fallback.
+                // spcPct multiplies the paragraph's own font size, so it must be computed per paragraph.
+                AppendParagraphLeading(sb, paragraph);
+
                 // Emit space before if present
                 if (paragraph.SpaceBefore > 0.01)
                 {
@@ -327,12 +331,15 @@ public sealed partial class PptxToTypstConverter
             bool isNumbered = !string.IsNullOrEmpty(paragraph.AutoNumberType);
             int groupSize = groupEnd - i + 1;
 
-            // Check if all items in the group share the same formatting
-            var firstFmt = paragraphs[i].Formatting;
+            // Check if all items in the group share the same formatting.
+            // Compare first-run (collapsed) formatting: paragraph defaults fall back to the
+            // 18pt placeholder for mixed-formatting runs, which would inflate the marker
+            // glyph and the line height of every item in the group.
+            var firstFmt = GetCollapsedRunFormatting(paragraphs[i]);
             bool allSameFormatting = true;
             for (int k = i + 1; k <= groupEnd; k++)
             {
-                if (!AreFormattingEqual(firstFmt, paragraphs[k].Formatting))
+                if (!AreFormattingEqual(firstFmt, GetCollapsedRunFormatting(paragraphs[k])))
                 {
                     allSameFormatting = false;
                     break;
@@ -354,6 +361,9 @@ public sealed partial class PptxToTypstConverter
                     sb.Append("\n\n");
                 }
             }
+
+            // Emit per-paragraph leading (a:lnSpc) for the list group
+            AppendParagraphLeading(sb, paragraphs[i]);
 
             // Emit space before first list item if present
             var listSpaceBefore = paragraphs[i].SpaceBefore;
@@ -705,6 +715,40 @@ public sealed partial class PptxToTypstConverter
             if (!string.IsNullOrEmpty(parts[p]))
                 sb.Append(EscapeTypstText(parts[p]));
         }
+    }
+
+    private static void AppendParagraphLeading(StringBuilder sb, TypstParagraph paragraph)
+    {
+        var leading = GetParagraphLeading(paragraph);
+        if (leading > 0.01)
+        {
+            sb.Append($"#set par(leading: {FormatPt(leading)})\n");
+        }
+    }
+
+    private static double GetParagraphLeading(TypstParagraph paragraph)
+    {
+        if (paragraph.LineSpacing == null)
+            return 0;
+
+        // Percentage values (spcPct) multiply the paragraph's own effective font size —
+        // the element-level default size is wrong for mixed-formatting paragraphs.
+        var fontSize = GetCollapsedRunFormatting(paragraph).FontSize;
+        double lineSpacingPts;
+        if (paragraph.LineSpacing.Value < 10)
+        {
+            // Percentage value (e.g., 1.2 = 120%)
+            lineSpacingPts = fontSize * paragraph.LineSpacing.Value;
+        }
+        else
+        {
+            // Absolute points value (spcPts)
+            lineSpacingPts = paragraph.LineSpacing.Value;
+        }
+
+        // Typst's par.leading is added to its own default line advance, while PPTX spcPts is the target line pitch.
+        var estimatedTypstLineAdvance = fontSize * 0.65;
+        return Math.Max(0, lineSpacingPts - estimatedTypstLineAdvance);
     }
 
     private static double GetTypstParagraphLeading(TypstTextElement text)
