@@ -1403,29 +1403,6 @@ public class PptxToTypstConverterTests : IDisposable
     }
 
     [Fact]
-    public void PresPro_Slide1_TitleFontSize_FromMaster()
-    {
-        var baseDir = AppContext.BaseDirectory;
-        var path = Path.Combine(baseDir, "..", "..", "..", "..", "examples", "REF", "pres-pro.pptx");
-        path = Path.GetFullPath(path);
-        if (!File.Exists(path))
-            return; // REF fixture purged pre-public-release (licensing); none of the license-clean
-                    // replacement decks use master-inherited title placeholders (all textboxes),
-                    // so this stays guarded until a placeholder-driven REF deck ships
-
-        using var doc = PresentationDocument.Open(path, false);
-        var converter = new PptxToTypstConverter(doc);
-        var presentation = converter.Convert();
-
-        var slide1 = presentation.Slides.FirstOrDefault();
-        Assert.NotNull(slide1);
-
-        var titleElement = slide1.Elements.FirstOrDefault(e => e.Name == "Title 1");
-        Assert.NotNull(titleElement);
-        Assert.Equal(72.0, titleElement.Text?.Formatting.FontSize);
-    }
-
-    [Fact]
     public void StyleResolver_LayoutPlaceholder_MatchesByType_WhenIdxIsNull()
     {
         var path = CreatePlaceholderByTypePptx();
