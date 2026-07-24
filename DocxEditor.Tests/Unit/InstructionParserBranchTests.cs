@@ -161,4 +161,347 @@ public class InstructionParserBranchTests
         Assert.NotNull(exception);
         Assert.IsAssignableFrom(expectedException, exception);
     }
+
+    [Fact]
+    public void JsonParser_WithAddRichContent_ShouldParseContentBlocks()
+    {
+        var json = """
+        {
+          "operations": [
+            {
+              "type": "addRichContent",
+              "blocks": [
+                { "type": "paragraph", "text": "Hello" },
+                { "type": "heading", "level": 1, "text": "Title" },
+                { "type": "list", "ordered": true, "items": ["One", "Two"] },
+                { "type": "blockquote", "text": "Quote text" },
+                { "type": "code", "text": "var x = 1;", "language": "csharp" },
+                { "type": "horizontalRule" },
+                { "type": "custom", "customType": "callout", "text": "Note", "style": "Note" }
+              ]
+            }
+          ]
+        }
+        """;
+
+        var instructions = new DocxJsonInstructionParser().Parse(json);
+
+        Assert.Single(instructions.Operations);
+        var rich = Assert.IsType<AddRichContentInstruction>(instructions.Operations[0]);
+        Assert.Equal(7, rich.Blocks.Count);
+        Assert.IsType<ParagraphBlock>(rich.Blocks[0]);
+        Assert.IsType<HeadingBlock>(rich.Blocks[1]);
+        Assert.IsType<ListBlock>(rich.Blocks[2]);
+        Assert.IsType<BlockquoteBlock>(rich.Blocks[3]);
+        Assert.IsType<CodeBlock>(rich.Blocks[4]);
+        Assert.IsType<HorizontalRuleBlock>(rich.Blocks[5]);
+        Assert.IsType<CustomBlock>(rich.Blocks[6]);
+    }
+
+    [Fact]
+    public void JsonParser_WithReplaceWithRichContent_ShouldParse()
+    {
+        var json = """
+        {
+          "operations": [
+            {
+              "type": "replaceWithRichContent",
+              "target": "find me",
+              "blocks": [
+                { "type": "paragraph", "text": "Replacement content" }
+              ]
+            }
+          ]
+        }
+        """;
+
+        var instructions = new DocxJsonInstructionParser().Parse(json);
+
+        Assert.Single(instructions.Operations);
+        var replace = Assert.IsType<ReplaceWithRichContentInstruction>(instructions.Operations[0]);
+        Assert.Equal("find me", replace.Target);
+        Assert.Single(replace.Blocks);
+        Assert.IsType<ParagraphBlock>(replace.Blocks[0]);
+    }
+
+    [Fact]
+    public void JsonParser_WithAddRichContentMissingBlocks_ShouldThrow()
+    {
+        var json = """
+        { "operations": [ { "type": "addRichContent" } ] }
+        """;
+
+        Assert.Throws<ArgumentException>(() => new DocxJsonInstructionParser().Parse(json));
+    }
+
+    [Fact]
+    public void JsonParser_WithTableBlock_ShouldParseCells()
+    {
+        var json = """
+        {
+          "operations": [
+            {
+              "type": "addRichContent",
+              "blocks": [
+                {
+                  "type": "table",
+                  "rows": [
+                    { "cells": [ { "text": "A" }, { "text": "B" } ] },
+                    { "cells": [ { "text": "C" }, { "text": "D" } ] }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+        """;
+
+        var instructions = new DocxJsonInstructionParser().Parse(json);
+
+        var rich = Assert.IsType<AddRichContentInstruction>(instructions.Operations[0]);
+        var table = Assert.IsType<TableBlock>(rich.Blocks[0]);
+        Assert.Equal(2, table.Rows.Count);
+        Assert.Equal(2, table.Rows[0].Cells.Count);
+        Assert.Equal("A", table.Rows[0].Cells[0].Text);
+        Assert.Equal("D", table.Rows[1].Cells[1].Text);
+    }
+
+    [Fact]
+    public void JsonParser_WithUnknownBlockType_ShouldThrow()
+    {
+        var json = """
+        { "operations": [ { "type": "addRichContent", "blocks": [ { "type": "image" } ] } ] }
+        """;
+
+        var ex = Assert.Throws<NotSupportedException>(() => new DocxJsonInstructionParser().Parse(json));
+        Assert.Contains("image", ex.Message);
+        Assert.Contains("Valid types", ex.Message);
+    }
+
+    [Fact]
+    public void JsonParser_WithBlockMissingType_ShouldThrow()
+    {
+        var json = """
+        { "operations": [ { "type": "addRichContent", "blocks": [ { "text": "no type" } ] } ] }
+        """;
+
+        Assert.Throws<ArgumentException>(() => new DocxJsonInstructionParser().Parse(json));
+    }
+
+    [Fact]
+    public void YamlParser_WithAddRichContent_ShouldParseContentBlocks()
+    {
+        var yaml = """
+        operations:
+          - type: addRichContent
+            blocks:
+              - type: paragraph
+                text: Hello YAML
+              - type: heading
+                level: 2
+                text: YAML Heading
+              - type: list
+                ordered: false
+                items:
+                  - Apple
+                  - Banana
+              - type: blockquote
+                text: Think different
+              - type: code
+                text: print("hello")
+                language: python
+              - type: horizontalRule
+              - type: custom
+                customType: tip
+                text: Pro tip
+                style: Tip
+        """;
+
+        var instructions = new DocxYamlInstructionParser().Parse(yaml);
+
+        Assert.Single(instructions.Operations);
+        var rich = Assert.IsType<AddRichContentInstruction>(instructions.Operations[0]);
+        Assert.Equal(7, rich.Blocks.Count);
+        Assert.IsType<ParagraphBlock>(rich.Blocks[0]);
+        Assert.IsType<HeadingBlock>(rich.Blocks[1]);
+        Assert.IsType<ListBlock>(rich.Blocks[2]);
+        Assert.IsType<BlockquoteBlock>(rich.Blocks[3]);
+        Assert.IsType<CodeBlock>(rich.Blocks[4]);
+        Assert.IsType<HorizontalRuleBlock>(rich.Blocks[5]);
+        Assert.IsType<CustomBlock>(rich.Blocks[6]);
+
+        var list = Assert.IsType<ListBlock>(rich.Blocks[2]);
+        Assert.Equal(["Apple", "Banana"], list.Items);
+    }
+
+    [Fact]
+    public void YamlParser_WithReplaceWithRichContent_ShouldParse()
+    {
+        var yaml = """
+        operations:
+          - type: replaceWithRichContent
+            target: old paragraph
+            blocks:
+              - type: paragraph
+                text: New content
+        """;
+
+        var instructions = new DocxYamlInstructionParser().Parse(yaml);
+
+        Assert.Single(instructions.Operations);
+        var replace = Assert.IsType<ReplaceWithRichContentInstruction>(instructions.Operations[0]);
+        Assert.Equal("old paragraph", replace.Target);
+        Assert.Single(replace.Blocks);
+    }
+
+    [Fact]
+    public void YamlParser_WithAddRichContentMissingBlocks_ShouldThrow()
+    {
+        var yaml = "operations:\n  - type: addRichContent";
+
+        Assert.Throws<ArgumentException>(() => new DocxYamlInstructionParser().Parse(yaml));
+    }
+
+    [Fact]
+    public void DocxInstructionValidator_WithValidJson_ShouldReturnNoErrors()
+    {
+        var json = """
+        {
+          "operations": [
+            { "type": "create" },
+            { "type": "addParagraph", "text": "Hello" },
+            { "type": "replaceText", "find": "{{x}}", "replace": "y" },
+            { "type": "insertAfter", "target": "t", "content": { "text": "ins" } }
+          ]
+        }
+        """;
+
+        var errors = new DocxInstructionValidator().Validate(json);
+
+        Assert.Empty(errors);
+    }
+
+    [Fact]
+    public void DocxInstructionValidator_WithUnknownOpType_ShouldReportError()
+    {
+        var json = """
+        { "operations": [ { "type": "badOp" } ] }
+        """;
+
+        var errors = new DocxInstructionValidator().Validate(json);
+
+        Assert.Single(errors);
+        Assert.Contains("badOp", errors[0]);
+        Assert.Contains("supported", errors[0]);
+    }
+
+    [Fact]
+    public void DocxInstructionValidator_WithMissingRequiredFields_ShouldReportErrors()
+    {
+        var json = """
+        {
+          "operations": [
+            { "type": "addParagraph" },
+            { "type": "replaceText", "replace": "x" },
+            { "type": "addRichContent" },
+            { "type": "replaceWithRichContent", "target": "x" }
+          ]
+        }
+        """;
+
+        var errors = new DocxInstructionValidator().Validate(json);
+
+        Assert.Equal(4, errors.Count);
+        Assert.Contains(errors, e => e.Contains("text") && e.Contains("addParagraph"));
+        Assert.Contains(errors, e => e.Contains("find") && e.Contains("replaceText"));
+        Assert.Contains(errors, e => e.Contains("blocks") && e.Contains("addRichContent"));
+        Assert.Contains(errors, e => e.Contains("blocks") && e.Contains("replaceWithRichContent"));
+    }
+
+    [Fact]
+    public void DocxInstructionValidator_WithUnknownFields_ShouldReportErrors()
+    {
+        var json = """
+        {
+          "operations": [
+            { "type": "addParagraph", "text": "ok", "weirdField": 42 }
+          ]
+        }
+        """;
+
+        var errors = new DocxInstructionValidator().Validate(json);
+
+        Assert.Single(errors);
+        Assert.Contains("weirdField", errors[0]);
+    }
+
+    [Fact]
+    public void DocxInstructionValidator_WithUnknownBlockType_ShouldReportError()
+    {
+        var json = """
+        {
+          "operations": [
+            {
+              "type": "addRichContent",
+              "blocks": [
+                { "type": "paragraph", "text": "ok" },
+                { "type": "unknownBlock" }
+              ]
+            }
+          ]
+        }
+        """;
+
+        var errors = new DocxInstructionValidator().Validate(json);
+
+        Assert.Single(errors);
+        Assert.Contains("unknownBlock", errors[0]);
+        Assert.Contains("blocks[1]", errors[0]);
+    }
+
+    [Fact]
+    public void DocxInstructionValidator_WithInvalidJson_ShouldReportParseError()
+    {
+        var errors = new DocxInstructionValidator().Validate("not json");
+
+        Assert.Single(errors);
+        Assert.Contains("Invalid JSON", errors[0]);
+    }
+
+    [Fact]
+    public void DocxInstructionValidator_WithMissingOperations_ShouldReportError()
+    {
+        var errors = new DocxInstructionValidator().Validate("{}");
+
+        Assert.Single(errors);
+        Assert.Contains("operations", errors[0]);
+    }
+
+    [Fact]
+    public void DocxInstructionValidator_WithRichContentAndValidBlocks_ShouldReturnNoErrors()
+    {
+        var json = """
+        {
+          "operations": [
+            {
+              "type": "addRichContent",
+              "blocks": [
+                { "type": "paragraph", "text": "P1" },
+                { "type": "heading", "level": 1, "text": "H1" },
+                { "type": "list", "ordered": false, "items": ["a", "b"] },
+                { "type": "table", "rows": [ { "cells": [ { "text": "c1" } ] } ] },
+                { "type": "blockquote", "text": "Q" },
+                { "type": "code", "text": "x" },
+                { "type": "horizontalRule" },
+                { "type": "custom", "customType": "tip", "text": "T" }
+              ]
+            }
+          ]
+        }
+        """;
+
+        var errors = new DocxInstructionValidator().Validate(json);
+
+        Assert.Empty(errors);
+    }
 }
