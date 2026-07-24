@@ -10,8 +10,20 @@
     <Description>Managed bridge for Typst typesetting engine native bindings</Description>
     <RepositoryUrl>https://github.com/MaximeLeBesnerais/OfficeEditor</RepositoryUrl>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <TypstBridgeLinuxX64NativeLibrary>$(MSBuildThisFileDirectory)../runtimes/linux-x64/native/libtypst_bridge.so</TypstBridgeLinuxX64NativeLibrary>
-    <TypstBridgeCanBuildLinuxX64NativeAsset Condition="'$(OS)' == 'Unix' and '$([System.OperatingSystem]::IsLinux())' == 'true' and '$([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture)' == 'X64' and ('$(RuntimeIdentifier)' == '' or '$(RuntimeIdentifier)' == 'linux-x64')">true</TypstBridgeCanBuildLinuxX64NativeAsset>
+    <!-- Host RID detection: the native crate has no platform-specific code, so the
+         auto-build target fires on whatever platform the build runs on. -->
+    <TypstBridgeHostRid Condition="$([System.OperatingSystem]::IsLinux()) == 'true' and $([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture) == 'X64'">linux-x64</TypstBridgeHostRid>
+    <TypstBridgeHostRid Condition="$([System.OperatingSystem]::IsLinux()) == 'true' and $([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture) == 'Arm64'">linux-arm64</TypstBridgeHostRid>
+    <TypstBridgeHostRid Condition="$([System.OperatingSystem]::IsMacOS()) == 'true' and $([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture) == 'X64'">osx-x64</TypstBridgeHostRid>
+    <TypstBridgeHostRid Condition="$([System.OperatingSystem]::IsMacOS()) == 'true' and $([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture) == 'Arm64'">osx-arm64</TypstBridgeHostRid>
+    <TypstBridgeHostRid Condition="$([System.OperatingSystem]::IsWindows()) == 'true' and $([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture) == 'X64'">win-x64</TypstBridgeHostRid>
+    <TypstBridgeHostRid Condition="$([System.OperatingSystem]::IsWindows()) == 'true' and $([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture) == 'Arm64'">win-arm64</TypstBridgeHostRid>
+    <TypstBridgeNativeLibName Condition="'$(TypstBridgeHostRid)' == 'linux-x64' or '$(TypstBridgeHostRid)' == 'linux-arm64'">libtypst_bridge.so</TypstBridgeNativeLibName>
+    <TypstBridgeNativeLibName Condition="'$(TypstBridgeHostRid)' == 'osx-x64' or '$(TypstBridgeHostRid)' == 'osx-arm64'">libtypst_bridge.dylib</TypstBridgeNativeLibName>
+    <TypstBridgeNativeLibName Condition="'$(TypstBridgeHostRid)' == 'win-x64' or '$(TypstBridgeHostRid)' == 'win-arm64'">typst_bridge.dll</TypstBridgeNativeLibName>
+    <TypstBridgeHostNativeLibrary>$(MSBuildThisFileDirectory)../runtimes/$(TypstBridgeHostRid)/native/$(TypstBridgeNativeLibName)</TypstBridgeHostNativeLibrary>
+    <!-- Only build the host asset when not cross-building for a different RID. -->
+    <TypstBridgeCanBuildHostNativeAsset Condition="'$(TypstBridgeHostRid)' != '' and ('$(RuntimeIdentifier)' == '' or '$(RuntimeIdentifier)' == '$(TypstBridgeHostRid)')">true</TypstBridgeCanBuildHostNativeAsset>
   </PropertyGroup>
 
   <ItemGroup>
@@ -21,21 +33,27 @@
           CopyToOutputDirectory="PreserveNewest"
           Pack="true"
           PackagePath="runtimes/%(RecursiveDir)%(Filename)%(Extension)" />
-    <None Include="$(TypstBridgeLinuxX64NativeLibrary)"
-          Condition="'$(TypstBridgeCanBuildLinuxX64NativeAsset)' == 'true' and !Exists('$(TypstBridgeLinuxX64NativeLibrary)')"
-          Link="runtimes/linux-x64/native/libtypst_bridge.so"
-          TargetPath="runtimes/linux-x64/native/libtypst_bridge.so"
+    <!-- Item globs are evaluated before targets run, so an asset built mid-build
+         needs this explicit entry to be copied/packed. -->
+    <None Include="$(TypstBridgeHostNativeLibrary)"
+          Condition="'$(TypstBridgeCanBuildHostNativeAsset)' == 'true' and !Exists('$(TypstBridgeHostNativeLibrary)')"
+          Link="runtimes/$(TypstBridgeHostRid)/native/$(TypstBridgeNativeLibName)"
+          TargetPath="runtimes/$(TypstBridgeHostRid)/native/$(TypstBridgeNativeLibName)"
           CopyToOutputDirectory="PreserveNewest"
           Pack="true"
-          PackagePath="runtimes/linux-x64/native/libtypst_bridge.so" />
+          PackagePath="runtimes/$(TypstBridgeHostRid)/native/$(TypstBridgeNativeLibName)" />
   </ItemGroup>
 
-  <Target Name="EnsureTypstBridgeLinuxX64NativeAsset"
+  <Target Name="EnsureTypstBridgeHostNativeAsset"
           BeforeTargets="AssignTargetPaths;GetCopyToOutputDirectoryItems;GenerateNuspec"
-          Condition="'$(TypstBridgeCanBuildLinuxX64NativeAsset)' == 'true'
-                     and !Exists('$(TypstBridgeLinuxX64NativeLibrary)')">
-    <Message Importance="high" Text="TypstBridge linux-x64 native asset is missing; building it locally." />
-    <Exec Command="bash &quot;$(MSBuildThisFileDirectory)../packaging/build-native.sh&quot; linux-x64"
+          Condition="'$(TypstBridgeCanBuildHostNativeAsset)' == 'true'
+                     and !Exists('$(TypstBridgeHostNativeLibrary)')">
+    <Message Importance="high" Text="TypstBridge $(TypstBridgeHostRid) native asset is missing; building it locally." />
+    <Exec Condition="'$(OS)' == 'Unix'"
+          Command="bash &quot;$(MSBuildThisFileDirectory)../packaging/build-native.sh&quot; $(TypstBridgeHostRid)"
+          WorkingDirectory="$(MSBuildThisFileDirectory).." />
+    <Exec Condition="'$(OS)' == 'Windows_NT'"
+          Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)../packaging/build-native.ps1&quot; -Rid $(TypstBridgeHostRid)"
           WorkingDirectory="$(MSBuildThisFileDirectory).." />
   </Target>
 </Project>

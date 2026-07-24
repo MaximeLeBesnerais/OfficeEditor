@@ -24,14 +24,21 @@ case "$RID" in
     RUST_TARGET="aarch64-unknown-linux-gnu"
     ARTIFACT="$NATIVE_DIR/target/$RUST_TARGET/release/$LIB_NAME"
     ;;
-  osx-x64|osx-arm64)
-    fail "$RID packaging is planned but not wired yet. Build on macOS and copy libtypst_bridge.dylib to runtimes/$RID/native."
+  osx-x64)
+    LIB_NAME="libtypst_bridge.dylib"
+    RUST_TARGET="x86_64-apple-darwin"
+    ARTIFACT="$NATIVE_DIR/target/$RUST_TARGET/release/$LIB_NAME"
+    ;;
+  osx-arm64)
+    LIB_NAME="libtypst_bridge.dylib"
+    RUST_TARGET="aarch64-apple-darwin"
+    ARTIFACT="$NATIVE_DIR/target/$RUST_TARGET/release/$LIB_NAME"
     ;;
   win-x64|win-arm64)
     fail "$RID packaging is handled by build-native.ps1 on Windows."
     ;;
   *)
-    fail "unsupported RID '$RID'. Supported by this script: linux-x64, linux-arm64. Planned elsewhere: osx-x64, osx-arm64, win-x64, win-arm64."
+    fail "unsupported RID '$RID'. Supported by this script: linux-x64, linux-arm64, osx-x64, osx-arm64. Windows RIDs: build-native.ps1."
     ;;
 esac
 
@@ -39,12 +46,17 @@ esac
 
 mkdir -p "$BRIDGE_ROOT/runtimes/$RID/native"
 
-EXISTING_RUSTFLAGS="${RUSTFLAGS:-}"
-if [[ -n "$EXISTING_RUSTFLAGS" ]]; then
-  export RUSTFLAGS="$EXISTING_RUSTFLAGS -C link-arg=-Wl,-z,noexecstack"
-else
-  export RUSTFLAGS="-C link-arg=-Wl,-z,noexecstack"
-fi
+# noexecstack is a GNU ld flag — Linux only; Apple ld rejects it.
+case "$RID" in
+  linux-*)
+    EXISTING_RUSTFLAGS="${RUSTFLAGS:-}"
+    if [[ -n "$EXISTING_RUSTFLAGS" ]]; then
+      export RUSTFLAGS="$EXISTING_RUSTFLAGS -C link-arg=-Wl,-z,noexecstack"
+    else
+      export RUSTFLAGS="-C link-arg=-Wl,-z,noexecstack"
+    fi
+    ;;
+esac
 
 printf 'Building TypstBridge native crate for %s (%s)...\n' "$RID" "$RUST_TARGET"
 cargo build --release --target "$RUST_TARGET" --manifest-path "$NATIVE_DIR/Cargo.toml"
