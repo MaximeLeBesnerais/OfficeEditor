@@ -75,6 +75,7 @@ class Program
         }
 
         var json = File.ReadAllText(inputPath);
+        var generated = false;
 
         AnsiConsole.Status()
             .Start("Generating...", ctx =>
@@ -100,7 +101,11 @@ class Program
                     (layout.Warnings.Count + emitResult.Warnings.Count == 0
                         ? "[green]0 warnings[/]"
                         : $"[yellow]{layout.Warnings.Count + emitResult.Warnings.Count} warnings[/]"));
+                generated = true;
             });
+
+        if (!generated)
+            return false;
 
         AnsiConsole.MarkupLine($"[green]Saved: {Markup.Escape(outputPath)}[/]");
         return true;
