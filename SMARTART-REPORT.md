@@ -354,3 +354,164 @@ Given the complexity of a full Tier 1 implementation (>1 week), the optional pro
 | `PptxToTypstConverter.cs:2291–2340` | 50 | Shape position extraction |
 | `PptxToTypstConverter.cs:1997–2006` | 10 | Warning emission |
 | `packages/` — OpenXML SDK | — | Provides `DiagramPersistLayoutPart`, `GraphicFrame` types |
+
+---
+
+## 7. SmartArt ⇄ JSON Vocabulary Specification
+
+> **Status:** Spec (round 3 implementation guide) — 2026-07-24
+
+### 7.1 JSON Model Shape
+
+The single JSON object that represents one SmartArt diagram:
+
+```jsonc
+{
+  // $schema: "https://officeeditor.ai/schemas/smartart/v1.json",
+  "version": "1.0",
+  "layout": "process5",                    // short-name suffix from loTypeId URN
+  "layoutCategory": "process",             // process | list | cycle | hierarchy | matrix | pyramid | picture | relationship
+  "quickStyle": "simple1",                 // from qsTypeId URN
+  "colorStyle": "accent1_2",               // from csTypeId URN
+  "nodes": [
+    {
+      "id": "n1",                          // stable logical id — NOT the OOXML GUID
+      "text": "SUSTAIN",                    // display text
+      "order": 0,                           // sequence in the layout (srcOrd from cxnLst)
+      "level": 0                            // hierarchy depth (0 = direct child of root)
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "from": "n1",                         // source node id
+      "to": "n2",                           // dest node id
+      "type": "directed",                   // directed | bidirectional | parentOf
+      "label": ""                           // connector text (rare)
+    }
+  ]
+}
+```
+
+**Design decisions:**
+
+- **`id` uses a logical naming scheme** (`n1`, `n2`, …) rather than the OOXML GUID. The GUID is opaque and non-deterministic; a stable logical id enables merge, diff, and re-generation.
+- **`order` comes from `srcOrd`** on `dgm:cxn` where `srcId=doc`. It captures the layout sequence independent of the algorithm.
+- **`level` = 0** for direct children of the `doc` root. For hierarchical diagrams (`hierChild` algorithm), deeper nesting is represented with `level = 1, 2, …`.
+- **Edges model explicit connections** between sibling nodes (where the layout includes connector shapes). In most layout types edges are inferred from the layout algorithm; explicit edges are present only when the data model defines them (e.g., cycle diagrams, relationship diagrams).
+- **Design tokens** (colours, fonts) are NOT embedded in the model — they are resolved from the document's theme at generation time, matching how the rest of the generation pipeline works (see `DesignTokens` in `FixtureCatalog.cs`).
+
+### 7.2 Layout-Type Mapping
+
+Each SmartArt layout type URN maps to a **layout algorithm** and a **visual template**. The mapping table below is the driver for round 3's layout engine:
+
+| Layout suffix | Algorithm | Visual template | Nodes per row | Connectors? | Round-3 priority |
+|---|---|---|---|---|---|
+| `process1`–`process5` | `snake` | Horizontal process flow with arrows | 2–3 | Yes (rightArrow) | P0 |
+| `chevron1`–`chevron2` | `snake` | Chevron-shaped process blocks | 3–4 | No (imbricated) | P1 |
+| `hProcess3`–`hProcess11` | `snake` | Horizontal multi-row process | varies | Yes | P1 |
+| `vProcess5` | `snake` | Vertical process flow | 1 | Yes | P1 |
+| `hierarchy1`–`hierarchy6` | `hierChild` | Org chart with boxes + connectors | 1+ | Yes (rightArrow+dogleg) | P0 |
+| `orgChart1` | `hierChild` | Horizontal org chart | varies | Yes | P1 |
+| `list1`, `vList2`–`vList6` | `sp` | Vertical bullets in containers | 1 | No | P2 |
+| `hList1`–`hList9` | `sp` | Horizontal arrangement | 3–5 | No | P2 |
+| `cycle1`–`cycle8` | `tx` | Circular text-only | N/A | No (text-only) | P3 |
+| `venn1`–`venn3` | `tx` | Overlapping-circles text | N/A | No (text-only) | P3 |
+| `pyramid1`–`pyramid4` | `sp` | Stacked segments | 1 | No | P2 |
+| `matrix1`–`matrix3` | `tx` | Grid text | N/A | No (text-only) | P3 |
+
+**Algorithm key:**
+- **`snake`** — multi-row flow with `grDir`, `flowDir`, `contDir` controls. Nodes laid out row-major; connectors between sequential nodes.
+- **`hierChild`** — parent–child tree with offsets. Each node positioned relative to parent, with transition shapes (parTrans/sibTrans) computing connector routes.
+- **`sp`** — space-filling. Nodes tile the available container space. Tile direction depends on the layout variant.
+- **`tx`** — text-only. No shapes generated; text is placed at computed positions.
+
+### 7.3 WRITE Half Design (Round 3)
+
+The WRITE path takes the JSON model above and produces:
+1. **OOXML diagram parts** (`dgm:dataModel`, `dgm:layoutDef`, `dgm:styleDef`, `dgm:colorsDef`)
+2. **A synthesized drawing part** (`dsp:spTree`) with positioned shapes
+3. **The `dgm:relIds` element** referencing all five parts in the slide's graphic frame
+
+#### 7.3.1 Architecture
+
+```
+JSON model ──┬──► DataModelGenerator ──► dgm:data1.xml
+             ├──► LayoutDefGenerator ──► dgm:layout1.xml
+             ├──► StyleDefGenerator ───► dgm:quickStyle1.xml
+             ├──► ColorsDefGenerator ──► dgm:colors1.xml
+             └──► DrawingPartGenerator ──┬──► drawing1.xml (OOXML shapes)
+                                         └──► #place shapes (Typst source)
+```
+
+#### 7.3.2 Layout Engine (small, pure C#)
+
+The layout engine for the WRITE half has a reduced scope compared to the full OOXML layout engine:
+
+1. **Input:** Node list with text, order, level, and a layout algorithm choice.
+2. **Output:** Positioned shape descriptors (x, y, w, h, rotation, geometry preset, fill, stroke, text).
+
+**Implemented algorithms:**
+- **`snake` engine** — Given `flowDir` (row/col), `contDir` (sameDir/reverseDir), `breakCount` (nodes per row), positions nodes in a grid and routes right-angle connector arrows between sequential nodes.
+- **`hierChild` engine** — Given parent–child edges, stacks children horizontally below each parent, routes dogleg connectors.
+- **`simpleSp` engine** — Tiles nodes into a fixed aspect ratio container with configurable padding and direction.
+
+These are **pure C# layout** (no OOXML constraint resolution) — they compute positions directly from the JSON parameters. This matches the repo's "layout once, emit twice" discipline:
+- The layout engine outputs a `List<LayoutShape>` (position, size, geometry, text).
+- The OOXML emitter writes those shapes into `dsp:spTree` (drawing part) AND the diagram parts.
+- The Typst emitter writes `#place(rect(…))` and `#place(line(…))` elements.
+
+#### 7.3.3 Data Model Synthesis
+
+The WRITE half must also **synthesize** a valid `dgm:dataModel` that references the layout/styling/colors parts:
+
+```xml
+<dgm:dataModel>
+  <dgm:ptLst>
+    <dgm:pt modelId="{doc-guid}" type="doc">
+      <dgm:prSet loTypeId="urn:…layout/process5" loCatId="process"
+                 qsTypeId="urn:…quickstyle/simple1" qsCatId="simple"
+                 csTypeId="urn:…colors/accent1_2" csCatId="accent1"/>
+    </dgm:pt>
+    <!-- One pt per node, type="node", with prSet + text + modelId -->
+  </dgm:ptLst>
+  <dgm:cxnLst>
+    <!-- Connections from doc → each node, srcOrd matching "order" in JSON -->
+  </dgm:cxnLst>
+  <dgm:extLst>
+    <a:ext uri="{2008-diagram-ns}">
+      <dsp:dataModelExt relId="rIdDrawing" minVer="…"/>
+    </a:ext>
+  </dgm:extLst>
+</dgm:dataModel>
+```
+
+The model IDs are deterministic GUIDs derived from the logical node `id` via UUIDv5 to ensure stable round-trip.
+
+#### 7.3.4 Style & Colour Synthesis
+
+- **QuickStyle** — a minimal `dgm:styleDef` with `styleLbl` entries for `node0` and `node1` referencing fill/line/effect references from the theme.
+- **Colours** — a `dgm:colorsDef` with `styleLbl` entries for fill/line/text colour lists using scheme colour references (`accent1`, `lt1`, etc.) with optional tint/shade transforms.
+- **Theme integration** — all colours are scheme references resolved through the document's master theme.
+
+#### 7.3.5 Dual-Emit Discipline
+
+Every generated SmartArt produces:
+1. **OOXML** — a real `.pptx` with valid `dgm:*` parts + `dsp:spTree` → opens in PowerPoint with native rendering.
+2. **Typst** — a `.typ` source with `#place` blocks for each shape → renders to PDF/PNG via `TypstBridge`.
+
+The Typst render is the **spec of record** for visual fidelity. Parity fixtures will be created per layout type (e.g., `smartart-process5-parity`) with a JSON model as input, both emitters run, and the output PDFs diffed with the same RMSE thresholds used for other generation primitives.
+
+#### 7.3.6 Validation Rules
+
+The import validator (READ path) checks:
+- `layout` is a known suffix — reject unknown layouts
+- Every `node.id` is referenced by at least one edge (or is a root child)
+- `order` values are sequential and dense starting from 0
+- `level` is ≤ `maxDepth` for the layout type (e.g., process layouts are always level 0)
+- `text` length ≤ 200 characters (constraint from OOXML data model)
+
+The export validator (WRITE path) checks:
+- Node count matches the layout type's min/max (e.g., process5 requires ≥3 nodes)
+- Hierarchical layouts must have at least one level-1 node
+- Cycle layouts must have edge count = node count (closed loop)
