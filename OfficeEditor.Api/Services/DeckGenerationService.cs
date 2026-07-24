@@ -65,13 +65,14 @@ public sealed class DeckGenerationService : IDeckGenerationService
 {
     /// <summary>
     /// Repository root (located once per process by walking up from the app base directory
-    /// for a .git folder, same pattern as SampleFileService/DemoDeckService). Used as the
-    /// Typst project root so repo-root-relative asset paths in generation documents resolve
-    /// inside the repository sandbox — and to absolutize the same paths for the OOXML pass,
-    /// which reads image files relative to the process CWD. Null when no .git folder is
-    /// found: the compile then keeps the compiler default (process CWD), the pre-fix behavior.
+    /// for a ".git" entry — directory in a normal checkout, file in a git worktree; see
+    /// <see cref="RepositoryRootLocator"/>). Used as the Typst project root so
+    /// repo-root-relative asset paths in generation documents resolve inside the
+    /// repository sandbox — and to absolutize the same paths for the OOXML pass, which
+    /// reads image files relative to the process CWD. Null when no ".git" entry is found:
+    /// the compile then keeps the compiler default (process CWD), the pre-fix behavior.
     /// </summary>
-    private static readonly Lazy<string?> RepositoryRoot = new(FindRepositoryRoot);
+    private static readonly Lazy<string?> RepositoryRoot = new(RepositoryRootLocator.FindOrNull);
 
     private readonly TypstCompilerService _compiler;
     private readonly string? _fontDirectory;
@@ -193,22 +194,6 @@ public sealed class DeckGenerationService : IDeckGenerationService
             previews.Add(new GeneratedSlidePreview(i + 1, normalizedFormat, contentType, result.Pages[i]));
         }
         return (previews, null);
-    }
-
-    private static string? FindRepositoryRoot()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null)
-        {
-            if (Directory.Exists(Path.Combine(directory.FullName, ".git")))
-            {
-                return directory.FullName;
-            }
-
-            directory = directory.Parent;
-        }
-
-        return null;
     }
 
     /// <summary>
