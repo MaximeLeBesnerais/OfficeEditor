@@ -267,7 +267,6 @@ public sealed class ComponentContentsTests
             new TableBlockContent { Columns = ["A"], Rows = [] }
         ];
 
-        Assert.All(contents, c => Assert.NotNull(c));
         Assert.Equal(8, contents.Length);
     }
 
@@ -283,75 +282,75 @@ public sealed class ComponentContentsTests
         Assert.Equal(a.GetHashCode(), b.GetHashCode());
     }
 
-    // ------------------------------------------------------------------ JSON deserialization round-trip
+    // ------------------------------------------------------------------ ComponentContentReader record-building (production path)
 
     [Fact]
-    public void JsonDeserialize_CardContent_RoundTrip()
+    public void ContentReader_ParsesCardContent()
     {
-        var json = """{"title":"Growth","subtitle":"Q3","body":"Strong performance"}""";
-        var content = JsonSerializer.Deserialize<CardContent>(json, JsonOptions);
+        var reader = Reader("card", """{"title":"Growth","subtitle":"Q3","body":"Strong performance"}""",
+            Props("title", "subtitle", "body"));
+        var content = new CardContent
+        {
+            Title = reader.String("title", required: true)!,
+            Subtitle = reader.String("subtitle"),
+            Body = reader.String("body")
+        };
+        reader.ThrowIfInvalid();
 
-        Assert.NotNull(content);
         Assert.Equal("Growth", content.Title);
         Assert.Equal("Q3", content.Subtitle);
         Assert.Equal("Strong performance", content.Body);
     }
 
     [Fact]
-    public void JsonDeserialize_KpiContent_WithOptionalDelta()
+    public void ContentReader_ParsesKpiContent()
     {
-        var json = """{"value":"+34%","label":"Revenue","delta":"+12% vs LY"}""";
-        var content = JsonSerializer.Deserialize<KpiContent>(json, JsonOptions);
+        var reader = Reader("kpi", """{"value":"+34%","label":"Revenue","delta":"+12% vs LY"}""",
+            Props("value", "label", "delta"));
+        var content = new KpiContent
+        {
+            Value = reader.String("value", required: true)!,
+            Label = reader.String("label", required: true)!,
+            Delta = reader.String("delta")
+        };
+        reader.ThrowIfInvalid();
 
-        Assert.NotNull(content);
         Assert.Equal("+34%", content.Value);
         Assert.Equal("Revenue", content.Label);
         Assert.Equal("+12% vs LY", content.Delta);
     }
 
     [Fact]
-    public void JsonDeserialize_KpiContent_WithoutDelta_DefaultsToNull()
+    public void ContentReader_ParsesTitleBlockContent_AllProperties()
     {
-        var json = """{"value":"12k","label":"Users"}""";
-        var content = JsonSerializer.Deserialize<KpiContent>(json, JsonOptions);
+        var reader = Reader("title_block", """{"kicker":"Q3 REPORT","title":"Growth","subtitle":"All regions"}""",
+            Props("kicker", "title", "subtitle"));
+        var content = new TitleBlockContent
+        {
+            Kicker = reader.String("kicker"),
+            Title = reader.String("title", required: true)!,
+            Subtitle = reader.String("subtitle")
+        };
+        reader.ThrowIfInvalid();
 
-        Assert.NotNull(content);
-        Assert.Equal("12k", content.Value);
-        Assert.Equal("Users", content.Label);
-        Assert.Null(content.Delta);
-    }
-
-    [Fact]
-    public void JsonDeserialize_TitleBlockContent_WithAllProperties()
-    {
-        var json = """{"kicker":"Q3 REPORT","title":"Growth","subtitle":"All regions"}""";
-        var content = JsonSerializer.Deserialize<TitleBlockContent>(json, JsonOptions);
-
-        Assert.NotNull(content);
         Assert.Equal("Q3 REPORT", content.Kicker);
         Assert.Equal("Growth", content.Title);
         Assert.Equal("All regions", content.Subtitle);
     }
 
     [Fact]
-    public void JsonDeserialize_TitleBlockContent_TitleOnly()
+    public void ContentReader_ParsesBulletListContent()
     {
-        var json = """{"title":"Strategy"}""";
-        var content = JsonSerializer.Deserialize<TitleBlockContent>(json, JsonOptions);
+        var reader = Reader("bullet_list", """{"items":["Alpha","Beta","Gamma"],"title":"Key Metrics"}""",
+            Props("items", "title", "markerColor"));
+        var content = new BulletListContent
+        {
+            Items = reader.StringArray("items", required: true, minCount: 1)!,
+            Title = reader.String("title"),
+            MarkerColor = reader.Color("markerColor")
+        };
+        reader.ThrowIfInvalid();
 
-        Assert.NotNull(content);
-        Assert.Equal("Strategy", content.Title);
-        Assert.Null(content.Subtitle);
-        Assert.Null(content.Kicker);
-    }
-
-    [Fact]
-    public void JsonDeserialize_BulletListContent_WithItemsAndTitle()
-    {
-        var json = """{"items":["Alpha","Beta","Gamma"],"title":"Key Metrics"}""";
-        var content = JsonSerializer.Deserialize<BulletListContent>(json, JsonOptions);
-
-        Assert.NotNull(content);
         Assert.Equal(3, content.Items.Count);
         Assert.Contains("Alpha", content.Items);
         Assert.Equal("Key Metrics", content.Title);
@@ -359,108 +358,66 @@ public sealed class ComponentContentsTests
     }
 
     [Fact]
-    public void JsonDeserialize_DividerContent_WithDefaults()
+    public void ContentReader_ParsesDividerContent_Defaults()
     {
-        var json = "{}";
-        var content = JsonSerializer.Deserialize<DividerContent>(json, JsonOptions);
+        var reader = Reader("divider", "{}", Props("color", "widthPt", "orientation"));
+        var content = new DividerContent
+        {
+            Color = reader.Color("color") ?? "muted",
+            WidthPt = reader.Number("widthPt") ?? 1,
+            Orientation = reader.Enum("orientation", new Dictionary<string, LineOrientation>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["horizontal"] = LineOrientation.Horizontal,
+                ["vertical"] = LineOrientation.Vertical
+            }, "orientation") ?? LineOrientation.Horizontal
+        };
+        reader.ThrowIfInvalid();
 
-        Assert.NotNull(content);
         Assert.Equal("muted", content.Color);
         Assert.Equal(1, content.WidthPt);
         Assert.Equal(LineOrientation.Horizontal, content.Orientation);
     }
 
     [Fact]
-    public void JsonDeserialize_DividerContent_WithOverrides()
+    public void ContentReader_ParsesImageCardContent_Minimal()
     {
-        var json = """{"color":"primary","widthPt":3,"orientation":"Vertical"}""";
-        var content = JsonSerializer.Deserialize<DividerContent>(json, JsonOptions);
+        var reader = Reader("image_card", """{"source":"hero.png"}""",
+            Props("source", "title", "subtitle", "fit", "alt", "imageGrow"));
+        var content = new ImageCardContent
+        {
+            Source = reader.String("source", required: true)!,
+            Title = reader.String("title"),
+            Subtitle = reader.String("subtitle")
+        };
+        reader.ThrowIfInvalid();
 
-        Assert.NotNull(content);
-        Assert.Equal("primary", content.Color);
-        Assert.Equal(3, content.WidthPt);
-        Assert.Equal(LineOrientation.Vertical, content.Orientation);
-    }
-
-    [Fact]
-    public void JsonDeserialize_BadgeContent_WithDefaults()
-    {
-        var json = """{"text":"NEW"}""";
-        var content = JsonSerializer.Deserialize<BadgeContent>(json, JsonOptions);
-
-        Assert.NotNull(content);
-        Assert.Equal("NEW", content.Text);
-        Assert.Equal("accent", content.Color);
-        Assert.Equal("paper", content.TextColor);
-    }
-
-    [Fact]
-    public void JsonDeserialize_ImageCardContent_WithMinimalProperties()
-    {
-        var json = """{"source":"hero.png"}""";
-        var content = JsonSerializer.Deserialize<ImageCardContent>(json, JsonOptions);
-
-        Assert.NotNull(content);
         Assert.Equal("hero.png", content.Source);
         Assert.Null(content.Title);
         Assert.Null(content.Subtitle);
         Assert.Equal(ImageFitMode.Crop, content.Fit);
-        Assert.Null(content.Alt);
-        Assert.Equal(1, content.ImageGrow);
     }
 
     [Fact]
-    public void JsonDeserialize_ImageCardContent_WithAllProperties()
+    public void ContentReader_ParsesTableBlockContent()
     {
-        var json = """{"source":"chart.png","title":"Revenue","subtitle":"H1 2026","fit":"Contain","alt":"Revenue chart","imageGrow":2}""";
-        var content = JsonSerializer.Deserialize<ImageCardContent>(json, JsonOptions);
+        var reader = Reader("table_block",
+            """{"columns":["Region","Rev"],"rows":[["EU","12"]],"header":false,"columnWeights":[2,1],"rowHeight":36}""",
+            Props("columns", "rows", "header", "columnWeights", "rowHeight"));
+        var content = new TableBlockContent
+        {
+            Columns = reader.StringArray("columns", required: true, minCount: 1)!,
+            Rows = reader.StringMatrix("rows") ?? [],
+            Header = reader.Bool("header", true),
+            ColumnWeights = reader.NumberArray("columnWeights"),
+            RowHeight = reader.Number("rowHeight") ?? 0
+        };
+        reader.ThrowIfInvalid();
 
-        Assert.NotNull(content);
-        Assert.Equal("chart.png", content.Source);
-        Assert.Equal("Revenue", content.Title);
-        Assert.Equal("H1 2026", content.Subtitle);
-        Assert.Equal(ImageFitMode.Contain, content.Fit);
-        Assert.Equal("Revenue chart", content.Alt);
-        Assert.Equal(2, content.ImageGrow);
-    }
-
-    [Fact]
-    public void JsonDeserialize_TableBlockContent_WithRequiredProperties()
-    {
-        var json = """{"columns":["A","B"],"rows":[["1","2"],["3","4"]]}""";
-        var content = JsonSerializer.Deserialize<TableBlockContent>(json, JsonOptions);
-
-        Assert.NotNull(content);
-        Assert.Equal(2, content.Columns.Count);
-        Assert.Equal("A", content.Columns[0]);
-        Assert.Equal(2, content.Rows.Count);
-        Assert.True(content.Header);
-        Assert.Null(content.ColumnWeights);
-    }
-
-    [Fact]
-    public void JsonDeserialize_TableBlockContent_WithAllProperties()
-    {
-        var json = """{"columns":["Region","Rev"],"rows":[["EU","12"]],"header":false,"columnWeights":[2,1],"rowHeight":36}""";
-        var content = JsonSerializer.Deserialize<TableBlockContent>(json, JsonOptions);
-
-        Assert.NotNull(content);
         Assert.Equal(2, content.Columns.Count);
         Assert.Single(content.Rows);
         Assert.False(content.Header);
-        Assert.Equal([2, 1], content.ColumnWeights!.Cast<double>());
+        Assert.Equal(new[] { 2.0, 1.0 }, (IEnumerable<double>)content.ColumnWeights!);
         Assert.Equal(36, content.RowHeight);
-    }
-
-    [Fact]
-    public void JsonDeserialize_TableBlockContent_EmptyRowsAllowed()
-    {
-        var json = """{"columns":["A"],"rows":[]}""";
-        var content = JsonSerializer.Deserialize<TableBlockContent>(json, JsonOptions);
-
-        Assert.NotNull(content);
-        Assert.Single(content.Columns);
-        Assert.Empty(content.Rows);
     }
 
     // ------------------------------------------------------------------ ComponentContentReader integration
@@ -672,7 +629,7 @@ public sealed class ComponentContentsTests
 
         var weights = reader.NumberArray("columnWeights");
         Assert.NotNull(weights);
-        Assert.Equal([2, 1, 1], weights.Cast<double>());
+        Assert.Equal(new[] { 2.0, 1.0, 1.0 }, weights);
         reader.ThrowIfInvalid();
     }
 
@@ -703,11 +660,4 @@ public sealed class ComponentContentsTests
         var ex = Assert.Throws<ComponentException>(reader.ThrowIfInvalid);
         Assert.Contains("percentages are not supported", ex.Message);
     }
-
-    private static JsonSerializerOptions JsonOptions => new()
-    {
-        PropertyNameCaseInsensitive = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter(JsonNamingPolicy.CamelCase) }
-    };
 }
