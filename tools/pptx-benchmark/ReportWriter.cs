@@ -45,6 +45,7 @@ public static class ReportWriter
         sb.AppendLine($"| .NET SDK | {env.Sdk} |");
         sb.AppendLine($"| TypstBridge | {env.TypstBridgeVersion} |");
         sb.AppendLine($"| LibreOffice | {(libreOffice.Available ? libreOffice.Version ?? libreOffice.SofficePath ?? "present" : "not available on this machine")} |");
+        sb.AppendLine($"| pdftoppm (poppler) | {(libreOffice.PdfToPpmAvailable ? "present" : "not available on this machine")} |");
         sb.AppendLine();
     }
 
@@ -70,7 +71,7 @@ public static class ReportWriter
         sb.AppendLine("captured via the `OFFICEEDITOR_TIMING` hooks in `TypstCompilerService`.");
         sb.AppendLine();
 
-        sb.AppendLine("### LibreOffice (soffice --headless --convert-to pdf)");
+        sb.AppendLine("### LibreOffice (soffice → PDF → pdftoppm PNG @150dpi)");
         sb.AppendLine();
         var loDeck = libreOffice.Decks.FirstOrDefault(d => d.DeckName == deck.DeckName);
         if (!libreOffice.Available)
@@ -82,7 +83,23 @@ public static class ReportWriter
             sb.AppendLine($"| Stage | Cold (ms) | Warm median (ms, N={warmRuns}) | Warm per-slide (ms, derived) |");
             sb.AppendLine("|---|---|---|---|");
             sb.AppendLine(CultureInfo.InvariantCulture,
-                $"| soffice convert-to pdf | {loDeck.ColdMs:F1} | {loDeck.WarmMedianMs:F1} | {loDeck.WarmMedianMs / deck.SlideCount:F1} |");
+                $"| soffice convert-to pdf | {loDeck.PdfColdMs:F1} | {loDeck.PdfWarmMedianMs:F1} | {loDeck.PdfWarmMedianMs / deck.SlideCount:F1} |");
+            if (loDeck.RasterWarmMedianMs is { } rasterWarm)
+            {
+                sb.AppendLine(CultureInfo.InvariantCulture,
+                    $"| pdftoppm rasterize (PNG @150dpi) | {F(loDeck.RasterColdMs!.Value)} | {rasterWarm:F1} | {rasterWarm / deck.SlideCount:F1} |");
+                AppendTotalRow(sb, "Total (PDF + rasterize)", loDeck.TotalColdMs!.Value, loDeck.TotalWarmMedianMs!.Value, deck.SlideCount);
+                if (loDeck.RasterPageCount is { } pages && pages != deck.SlideCount)
+                {
+                    sb.AppendLine();
+                    sb.AppendLine(CultureInfo.InvariantCulture,
+                        $"> WARNING: pdftoppm produced {pages} pages for a {deck.SlideCount}-slide deck — per-slide LO numbers are off.");
+                }
+            }
+            else
+            {
+                sb.AppendLine($"> {libreOffice.RasterSkipReason}");
+            }
         }
         sb.AppendLine();
     }
@@ -121,7 +138,11 @@ public static class ReportWriter
             var coldTotal = deck.ColdMs("open") + deck.ColdMs("png");
             var warmTotal = deck.WarmMedianMs("open") + deck.WarmMedianMs("png");
             var loDeck = libreOffice.Decks.FirstOrDefault(d => d.DeckName == deck.DeckName);
-            var loText = libreOffice.Available && loDeck is not null ? F(loDeck.WarmMedianMs) : "n/a (not installed)";
+            var loText = !libreOffice.Available || loDeck is null
+                ? "n/a (not installed)"
+                : loDeck.TotalWarmMedianMs is { } loTotal
+                    ? F(loTotal)
+                    : F(loDeck.PdfWarmMedianMs) + " (PDF only)";
             sb.AppendLine(CultureInfo.InvariantCulture,
                 $"| {deck.DeckName} | {deck.SlideCount} | {coldTotal:F1} | {warmTotal:F1} | {warmTotal / deck.SlideCount:F1} | {loText} |");
         }
@@ -141,9 +162,13 @@ public static class ReportWriter
         sb.AppendLine("  hooks in `TypstCompilerService` (backend, total compile ms per call).");
         sb.AppendLine("- Per-slide times are derived as stage total ÷ slide count (the current pipeline renders the whole deck).");
         sb.AppendLine("- LibreOffice leg: `soffice --headless --norestore --convert-to pdf --outdir <tmp> <deck>`,");
-        sb.AppendLine("  timed from process start to exit. Cold run uses a fresh `-env:UserInstallation` profile");
+        sb.AppendLine("  timed from process start to exit, followed by `pdftoppm -png -r 150 <pdf> <tmp>/slide`, timed");
+        sb.AppendLine("  separately in the same run. Cold run uses a fresh `-env:UserInstallation` profile");
         sb.AppendLine($"  directory; warm runs reuse one profile (median of N={warmRuns}). When `soffice` is not on PATH");
-        sb.AppendLine("  or at `/Applications/LibreOffice.app/Contents/MacOS/soffice`, the leg is skipped without failing.");
+        sb.AppendLine("  or at `/Applications/LibreOffice.app/Contents/MacOS/soffice`, the leg is skipped without failing;");
+        sb.AppendLine("  when `pdftoppm` is missing, the rasterization half is reported as unavailable without failing.");
+        sb.AppendLine("- LibreOffice cannot rasterize PPTX natively; total = PDF conversion + pdftoppm rasterization at 150dpi.");
+        sb.AppendLine("  OfficeEditor renders PNGs natively in a single compile.");
         sb.AppendLine("- No third-party benchmark dependencies: `Stopwatch` + `Process` only.");
         sb.AppendLine();
     }
@@ -156,7 +181,8 @@ public static class ReportWriter
         sb.AppendLine("- Cold runs include one-time costs (assembly load/JIT, TypstBridge probe,");
         sb.AppendLine("  system-font discovery) exactly as a fresh API process would experience them.");
         sb.AppendLine("- `soffice --convert-to png` historically renders only slide 1 for Impress decks, so the LibreOffice");
-        sb.AppendLine("  leg converts to PDF and per-slide LO numbers are derived from the PDF total ÷ slide count.");
+        sb.AppendLine("  leg converts to PDF, rasterizes with pdftoppm, and per-slide LO numbers are derived from the");
+        sb.AppendLine("  total (PDF + rasterize) ÷ slide count.");
         sb.AppendLine("- LibreOffice numbers (when present) include full process start + profile cost, not just rendering.");
         sb.AppendLine("- Converter-internal stages (font extraction, system-font discovery, per-slide conversion) are not");
         sb.AppendLine("  split out yet — `ExportThumbnails`/`ExportToPdf` are measured end to end, with the Typst compile");

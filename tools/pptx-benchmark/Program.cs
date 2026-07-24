@@ -89,6 +89,14 @@ var libreOffice = LibreOfficeLeg.Run(deckPaths.Where(File.Exists).ToArray(), run
 Console.WriteLine(libreOffice.Available
     ? $"  soffice: {libreOffice.Version ?? libreOffice.SofficePath}"
     : $"  {libreOffice.SkipReason}");
+foreach (var loDeck in libreOffice.Decks)
+{
+    Console.WriteLine(loDeck.TotalWarmMedianMs is { } loTotal
+        ? $"  {loDeck.DeckName}: pdf warm {loDeck.PdfWarmMedianMs:F1} ms, " +
+          $"raster warm {loDeck.RasterWarmMedianMs:F1} ms, total warm {loTotal:F1} ms"
+        : $"  {loDeck.DeckName}: pdf warm {loDeck.PdfWarmMedianMs:F1} ms " +
+          $"(rasterization unavailable: {libreOffice.RasterSkipReason})");
+}
 
 var report = ReportWriter.Build(environment, results, libreOffice, runs);
 WriteFile(outPath, report);
