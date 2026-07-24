@@ -73,7 +73,7 @@ public class WorksheetBuilder : IWorksheetBuilder
 
     public IWorksheetBuilder AddCell(string cellReference, string value, string styleId)
     {
-        if (!uint.TryParse(styleId, out var parsedStyleId))
+        if (!uint.TryParse(styleId, NumberStyles.None, CultureInfo.InvariantCulture, out var parsedStyleId))
         {
             throw new XlsxException(
                 $"Invalid styleId '{styleId}' for cell {cellReference}. " +
@@ -81,8 +81,13 @@ public class WorksheetBuilder : IWorksheetBuilder
                 "Use the Phase 3 style builder for named styles.");
         }
 
-        AddCell(cellReference, value);
-        var cell = GetOrCreateCell(cellReference);
+        // Validate BEFORE writing anything: an s= attribute pointing past the
+        // stylesheet's cellXfs entries triggers Excel's repair prompt.
+        var normalized = NormalizeCellReference(cellReference);
+        _workbookBuilder.EnsureStyleIndexExists(parsedStyleId, normalized);
+
+        AddCell(normalized, value);
+        var cell = GetOrCreateCell(normalized);
         cell.StyleIndex = parsedStyleId;
         return this;
     }

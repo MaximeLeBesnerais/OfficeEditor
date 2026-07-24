@@ -313,6 +313,8 @@ public class WorkbookBuilderTests : IDisposable
             worksheet.AddCell("A1", "42.5");
             worksheet.AddCell("B1", "Text");
             worksheet.AddCell("C1", "Not a formula", false);
+            // Header row on row 2 creates the stylesheet so styleId "0" is valid.
+            worksheet.AddHeaderRow(new List<string> { "H" }, 2);
             worksheet.AddCell("D1", "7", "0");
             builder.Save();
         }
@@ -777,20 +779,52 @@ public class WorkbookBuilderTests : IDisposable
     }
 
     [Fact]
-    public void AddCell_StyleId_ShouldAcceptValidUintStyleId()
+    public void AddCell_StyleId_ShouldApplyExistingStyleIndex()
     {
-        // Arrange & Act
+        // Arrange & Act: AddHeaderRow creates the stylesheet (2 cell formats:
+        // 0 = default, 1 = bold header), so styleId "1" is a valid reference.
         using (var builder = WorkbookBuilder.Create(_testFilePath))
         {
-            builder.AddWorksheet("Sheet1").AddCell("A1", "42", "5");
+            var sheet = builder.AddWorksheet("Sheet1");
+            sheet.AddHeaderRow(new List<string> { "H" });
+            sheet.AddCell("A2", "42", "1");
             builder.Save();
         }
 
         // Assert
         using var doc = SpreadsheetDocument.Open(_testFilePath, false);
         var cell = doc.WorkbookPart!.WorksheetParts.First().Worksheet!
-            .GetFirstChild<SheetData>()!.Elements<Row>().First().Elements<Cell>().First();
-        Assert.Equal(5U, cell.StyleIndex?.Value);
+            .GetFirstChild<SheetData>()!.Elements<Row>()
+            .Single(r => r.RowIndex?.Value == 2U).Elements<Cell>().First();
+        Assert.Equal(1U, cell.StyleIndex?.Value);
+        OpenXmlAssert.NoValidationErrors(doc);
+    }
+
+    [Fact]
+    public void AddCell_StyleId_ShouldThrow_WhenWorkbookHasNoStylesheet()
+    {
+        // Arrange: a fresh workbook has no WorkbookStylesPart; writing s="5"
+        // would point at a nonexistent cellXfs entry (Excel repair prompt).
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var sheet = builder.AddWorksheet("Sheet1");
+
+        // Act & Assert
+        var ex = Assert.Throws<XlsxException>(() => sheet.AddCell("A1", "42", "5"));
+        Assert.Contains("stylesheet", ex.Message);
+    }
+
+    [Fact]
+    public void AddCell_StyleId_ShouldThrow_WhenIndexOutOfRange()
+    {
+        // Arrange: header style gives us 2 cell formats (valid ids 0 and 1)
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var sheet = builder.AddWorksheet("Sheet1");
+        sheet.AddHeaderRow(new List<string> { "H" });
+
+        // Act & Assert
+        var ex = Assert.Throws<XlsxException>(() => sheet.AddCell("A2", "42", "7"));
+        Assert.Contains("7", ex.Message);
+        Assert.Contains("0–1", ex.Message);
     }
 
     [Fact]
