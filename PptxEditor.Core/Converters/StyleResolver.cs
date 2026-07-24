@@ -120,6 +120,10 @@ public sealed class StyleResolver
         {
             return ExtractBackgroundColor(bg.BackgroundProperties);
         }
+        if (bg?.BackgroundStyleReference != null)
+        {
+            return ExtractBackgroundReferenceColor(bg.BackgroundStyleReference);
+        }
         return null;
     }
 
@@ -129,6 +133,10 @@ public sealed class StyleResolver
         if (bg?.BackgroundProperties != null)
         {
             return ExtractBackgroundColor(bg.BackgroundProperties);
+        }
+        if (bg?.BackgroundStyleReference != null)
+        {
+            return ExtractBackgroundReferenceColor(bg.BackgroundStyleReference);
         }
         return null;
     }
@@ -140,7 +148,33 @@ public sealed class StyleResolver
         {
             return ExtractBackgroundColor(bg.BackgroundProperties);
         }
+        if (bg?.BackgroundStyleReference != null)
+        {
+            return ExtractBackgroundReferenceColor(bg.BackgroundStyleReference);
+        }
         return null;
+    }
+
+    /// <summary>
+    /// Resolves the color of a &lt;p:bgRef&gt; background reference. The <c>idx</c> attribute
+    /// points into the theme's <c>bgFillStyleLst</c> (1001-based); honoring the themed fill
+    /// style is out of scope — the referenced color is resolved directly, which is exact for
+    /// the common <c>idx="1001"</c> case (a solid phClr fill style) and a close approximation
+    /// otherwise.
+    /// </summary>
+    private string? ExtractBackgroundReferenceColor(BackgroundStyleReference bgRef)
+    {
+        var rgb = bgRef.Elements<Drawing.RgbColorModelHex>().FirstOrDefault();
+        if (rgb?.Val != null)
+            return $"#{rgb.Val.Value}";
+
+        var schemeClr = bgRef.Elements<Drawing.SchemeColor>().FirstOrDefault();
+        if (schemeClr == null)
+            return null;
+
+        // Raw XML attribute read per AGENTS.pptx.md rule 1 — SDK enum parsing is unreliable.
+        var schemeName = GetAttributeValue(schemeClr, "val");
+        return string.IsNullOrEmpty(schemeName) ? null : ResolveSchemeColor(schemeName);
     }
 
     private string? ExtractBackgroundColor(BackgroundProperties bgProps)
