@@ -354,7 +354,7 @@ internal static class SmartArtDrawingExtractor
         {
             var val = ReadAttribute(srgbClr, "val");
             if (!string.IsNullOrEmpty(val))
-                return (NormalizeHexColor(val), strokeWidth);
+                return (ApplyColorTransforms(NormalizeHexColor(val), srgbClr), strokeWidth);
         }
 
         var schemeClr = GetChild(solidFill, "schemeClr", DrawingmlNs);
@@ -373,10 +373,11 @@ internal static class SmartArtDrawingExtractor
 
     /// <summary>
     /// Applies OOXML colour transforms (<c>a:tint</c>, <c>a:shade</c>, <c>a:lumMod</c>,
-    /// <c>a:lumOff</c>) in document order. Per-channel arithmetic — a close approximation of
-    /// the HSL-space spec (ECMA-376) that matches PowerPoint for common tint/shade usage
-    /// (e.g. SmartArt connector fills like accent1 + tint 60% = pale accent). Saturation and
-    /// alpha transforms are not applied (rare in diagram drawing parts).
+    /// <c>a:lumOff</c>, <c>a:alpha</c>) in document order. Per-channel arithmetic — a close
+    /// approximation of the HSL-space spec (ECMA-376) that matches PowerPoint for common
+    /// tint/shade usage (e.g. SmartArt connector fills like accent1 + tint 60% = pale accent).
+    /// <c>a:alpha</c> yields an 8-digit <c>#RRGGBBAA</c> hex (Typst <c>rgb()</c> accepts it).
+    /// Saturation transforms are not applied (rare in diagram drawing parts).
     /// </summary>
     private static string ApplyColorTransforms(string hex, OpenXmlElement colorElement)
     {
@@ -387,6 +388,7 @@ internal static class SmartArtDrawingExtractor
         double r = Convert.ToInt32(hexValue[..2], 16);
         double g = Convert.ToInt32(hexValue[2..4], 16);
         double b = Convert.ToInt32(hexValue[4..6], 16);
+        double alpha = 1.0;
 
         foreach (var child in colorElement.ChildElements)
         {
@@ -408,10 +410,18 @@ internal static class SmartArtDrawingExtractor
                 case "lumOff": // luminance offset (per-channel approximation)
                     r += 255 * f; g += 255 * f; b += 255 * f;
                     break;
+                case "alpha": // opacity multiplier
+                    alpha = f;
+                    break;
             }
         }
 
-        return $"#{ClampChannel(r):X2}{ClampChannel(g):X2}{ClampChannel(b):X2}";
+        var rgbOut = $"#{ClampChannel(r):X2}{ClampChannel(g):X2}{ClampChannel(b):X2}";
+        if (alpha < 1.0)
+        {
+            rgbOut += $"{ClampChannel(alpha * 255):X2}";
+        }
+        return rgbOut;
     }
 
     private static int ClampChannel(double v)
