@@ -166,7 +166,15 @@ public sealed partial class PptxToTypstConverter
             sb.Append($"#block(width: {width})[");
         }
 
-        var leading = GetTypstParagraphLeading(text);
+        // PowerPoint has no implicit inter-paragraph gap: spacing comes only from
+        // spcBef/spcAft (emitted as explicit #v) and the line pitch. Typst's default
+        // par.spacing (~0.65em) would otherwise double-count between list groups.
+        sb.Append("#set par(spacing: 0pt)\n");
+
+        // Element-level fallback leading: only when no paragraph carries its own
+        // a:lnSpc — per-paragraph emission below supersedes it otherwise (and uses
+        // each paragraph's own font size instead of the element default).
+        var leading = text.Paragraphs.Any(p => p.LineSpacing.HasValue) ? 0 : GetTypstParagraphLeading(text);
         if (leading > 0.01)
         {
             sb.Append($"#set par(leading: {FormatPt(leading)})\n");
@@ -368,7 +376,10 @@ public sealed partial class PptxToTypstConverter
                 }
                 else
                 {
-                    sb.Append("\n\n");
+                    // Between adjacent list groups (split by level/marker/indent): no blank
+                    // line — a Typst parbreak would add par.spacing (~1.2em) on top of the
+                    // OOXML spcAft already emitted after the previous group.
+                    sb.Append('\n');
                 }
             }
 
@@ -489,17 +500,26 @@ public sealed partial class PptxToTypstConverter
     private static string BuildListIndentParams(TypstParagraph paragraph)
     {
         var (markerPos, bodyIndent) = ComputeListIndents(paragraph);
-        if (markerPos == null)
-            return "";
 
         var parts = new List<string>();
-        if (markerPos.Value > 0.01)
+        if (markerPos != null)
         {
-            parts.Add($"indent: {FormatPt(markerPos.Value)}");
+            if (markerPos.Value > 0.01)
+            {
+                parts.Add($"indent: {FormatPt(markerPos.Value)}");
+            }
+            if (bodyIndent > 0.01)
+            {
+                parts.Add($"body-indent: {FormatPt(bodyIndent)}");
+            }
         }
-        if (bodyIndent > 0.01)
+        // PowerPoint applies spcAft between every pair of items; Typst's list spacing
+        // parameter is the exact analogue. tight: false is required — tight lists
+        // ignore spacing and fall back to par.leading between items.
+        if (paragraph.SpaceAfter > 0.01)
         {
-            parts.Add($"body-indent: {FormatPt(bodyIndent)}");
+            parts.Add("tight: false");
+            parts.Add($"spacing: {FormatPt(paragraph.SpaceAfter.Value)}");
         }
         return parts.Count > 0 ? ", " + string.Join(", ", parts) : "";
     }
@@ -542,6 +562,11 @@ public sealed partial class PptxToTypstConverter
             {
                 parts.Add($"body-indent: {FormatPt(bodyIndent)}");
             }
+        }
+        if (paragraph.SpaceAfter > 0.01)
+        {
+            parts.Add("tight: false");
+            parts.Add($"spacing: {FormatPt(paragraph.SpaceAfter.Value)}");
         }
 
         return parts.Count > 0 ? "(" + string.Join(", ", parts) + ")" : "";
