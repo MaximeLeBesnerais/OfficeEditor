@@ -2423,13 +2423,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
     private static string? ExtractDefRPrColorStatic(Drawing.DefaultRunProperties defRPr)
     {
         var solidFill = defRPr.Elements<Drawing.SolidFill>().FirstOrDefault();
-        if (solidFill != null)
-        {
-            var rgb = solidFill.RgbColorModelHex;
-            if (rgb?.Val != null)
-                return $"#{rgb.Val.Value}";
-        }
-        return null;
+        return solidFill != null ? ExtractSolidFillColorStatic(solidFill, null) : null;
     }
 
     private string? ExtractRunColor(Drawing.RunProperties runProps, StyleResolver? styleResolver = null)
@@ -2444,25 +2438,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
     }
 
     private string? ExtractColor(Drawing.SolidFill solidFill, StyleResolver? styleResolver = null)
-    {
-        var rgb = solidFill.RgbColorModelHex;
-        if (rgb?.Val != null)
-        {
-            return $"#{rgb.Val.Value}";
-        }
-
-        var schemeColor = solidFill.SchemeColor;
-        if (schemeColor != null)
-        {
-            var schemeColorName = GetAttributeValue(schemeColor, "val") ?? schemeColor.Val?.Value.ToString();
-            if (!string.IsNullOrEmpty(schemeColorName))
-            {
-                return styleResolver?.ResolveSchemeColor(schemeColorName);
-            }
-        }
-
-        return null;
-    }
+        => ExtractSolidFillColorStatic(solidFill, styleResolver);
 
     /// <summary>
     /// Reads the native pixel dimensions from a PNG or JPEG byte array header.
@@ -3454,7 +3430,9 @@ public sealed partial class PptxToTypstConverter : IDisposable
                     break;
             }
         }
-        return FormatHexColor(color, alpha);
+        // Fully transparent solid fill is visually identical to a:noFill — report no
+        // color so callers treat the fill/stroke/text color as absent.
+        return alpha == 0 ? null : FormatHexColor(color, alpha);
     }
 
     private static bool TryGetOoxmlVal(OpenXmlElement element, out int value)
