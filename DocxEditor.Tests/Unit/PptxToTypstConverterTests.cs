@@ -1459,6 +1459,45 @@ public class PptxToTypstConverterTests : IDisposable
     }
 
     [Fact]
+    public void ExtractTable_HorizontalOnlyBorders_UndefinedVerticalEdgesRenderAsNone()
+    {
+        var path = CreateSimplePptx();
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        const string ns = "xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\"";
+        // Horizontal-only table: cells define lnT/lnB but no lnL/lnR at all.
+        var cell = CreateTableCell(
+            $"<a:tcPr {ns}>" +
+            "<a:lnT><a:noFill/></a:lnT>" +
+            "<a:lnB w=\"12700\"><a:solidFill><a:srgbClr val=\"BFBFBF\"/></a:solidFill></a:lnB>" +
+            "</a:tcPr>",
+            "Row");
+
+        var table = new Drawing.Table(
+            new Drawing.TableProperties(),
+            new Drawing.TableGrid(
+                new Drawing.GridColumn { Width = 2113280 },
+                new Drawing.GridColumn { Width = 2113280 }),
+            new Drawing.TableRow(cell, CreateTableCell($"<a:tcPr {ns}><a:lnT><a:noFill/></a:lnT><a:lnB w=\"12700\"><a:solidFill><a:srgbClr val=\"BFBFBF\"/></a:solidFill></a:lnB></a:tcPr>", "Row2"))
+            {
+                Height = 685800
+            });
+
+        var result = InvokeExtractTable(converter, table);
+
+        foreach (var rowCell in result.Rows[0])
+        {
+            // Vertical edges were defined nowhere → no stroke, never a default grid line.
+            Assert.Equal(TableBorderState.None, rowCell.StylePart!.BorderLeftState);
+            Assert.Equal(TableBorderState.None, rowCell.StylePart.BorderRightState);
+            Assert.Equal(TableBorderState.Visible, rowCell.StylePart.BorderBottomState);
+            Assert.Equal("#BFBFBF", rowCell.StylePart.BorderBottomColor);
+        }
+    }
+
+    [Fact]
     public void GenerateTypstSource_PartialStrokeCell_EmitsOnlyDefinedEdges()
     {
         var path = CreateSimplePptx();

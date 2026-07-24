@@ -3426,6 +3426,17 @@ public sealed partial class PptxToTypstConverter : IDisposable
         var leftState = stylePart.BorderLeftExplicit ? stylePart.BorderLeftState : (col == 0 ? stylePart.BorderLeftState : TableBorderState.None);
         var rightState = stylePart.BorderRightExplicit ? stylePart.BorderRightState : (col == colCount - 1 ? stylePart.BorderRightState : stylePart.BorderInsideVState);
 
+        // This cell participates in per-cell stroke emission (at least one edge state is
+        // defined). An edge that is still Inherit here is defined nowhere — not by the
+        // cell, not by the table style, not by inside-border defaults. PowerPoint renders
+        // such edges with no stroke ("No Style, No Grid" semantics), so force None instead
+        // of leaving the edge to Typst's default table grid. This is what makes partial
+        // stroke tables (e.g. horizontal-only rules) emit exactly the defined edges.
+        topState = topState == TableBorderState.Inherit ? TableBorderState.None : topState;
+        bottomState = bottomState == TableBorderState.Inherit ? TableBorderState.None : bottomState;
+        leftState = leftState == TableBorderState.Inherit ? TableBorderState.None : leftState;
+        rightState = rightState == TableBorderState.Inherit ? TableBorderState.None : rightState;
+
         return new TableStylePart
         {
             BackgroundColor = stylePart.BackgroundColor,
