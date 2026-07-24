@@ -98,6 +98,75 @@ public class VariableBranchTests : IDisposable
     }
 
     [Fact]
+    public void DocxReplacer_WithMultiRunMixedFormatting_ShouldPreserveRunProperties()
+    {
+        var para = new W.Paragraph(
+            new W.Run(
+                new W.RunProperties(new W.Bold()),
+                new W.Text("Bold {{user")),
+            new W.Run(
+                new W.RunProperties(new W.Italic()),
+                new W.Text("name}} suffix")),
+            new W.Run(
+                new W.RunProperties(new W.Bold(), new W.Italic()),
+                new W.Text(" tail")));
+        var path = CreateDocx(new[] { para });
+
+        using (var document = WordprocessingDocument.Open(path, true))
+        {
+            new DocxVariableReplacer().Replace(document, new Dictionary<string, string>
+            {
+                ["username"] = "Ada"
+            });
+        }
+
+        using var reopened = WordprocessingDocument.Open(path, false);
+        var body = reopened.MainDocumentPart!.Document!.Body!;
+        Assert.Equal("Bold Ada suffix tail", body.InnerText);
+
+        var runs = body.Descendants<W.Paragraph>().First().Elements<W.Run>().ToList();
+        Assert.Equal(3, runs.Count);
+
+        var rp0 = runs[0].GetFirstChild<W.RunProperties>();
+        var rp1 = runs[1].GetFirstChild<W.RunProperties>();
+        var rp2 = runs[2].GetFirstChild<W.RunProperties>();
+
+        Assert.NotNull(rp0);
+        Assert.NotEmpty(rp0!.Elements<W.Bold>());
+        Assert.Empty(rp0.Elements<W.Italic>());
+
+        Assert.NotNull(rp1);
+        Assert.Empty(rp1!.Elements<W.Bold>());
+        Assert.NotEmpty(rp1.Elements<W.Italic>());
+
+        Assert.NotNull(rp2);
+        Assert.NotEmpty(rp2!.Elements<W.Bold>());
+        Assert.NotEmpty(rp2.Elements<W.Italic>());
+    }
+
+    [Fact]
+    public void DocxReplacer_WithMultiRunVariableSplitAcrossManyRuns_ShouldPreserveAll()
+    {
+        var para = new W.Paragraph(
+            new W.Run(new W.Text("Prefix {{my")),
+            new W.Run(new W.Text("_var}}")));
+        var path = CreateDocx(new[] { para });
+
+        using (var document = WordprocessingDocument.Open(path, true))
+        {
+            new DocxVariableReplacer().Replace(document, new Dictionary<string, string>
+            {
+                ["my_var"] = "replaced"
+            });
+        }
+
+        using var reopened = WordprocessingDocument.Open(path, false);
+        var body = reopened.MainDocumentPart!.Document!.Body!;
+        var innerText = body.InnerText;
+        Assert.Equal("Prefix replaced", innerText);
+    }
+
+    [Fact]
     public void XlsxDetector_ShouldScanSharedAndPlainCellsWithDefaultsAndDuplicateLocations()
     {
         var path = CreateXlsx(includeSharedStringPart: true,
