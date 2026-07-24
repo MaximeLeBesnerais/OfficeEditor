@@ -453,22 +453,28 @@ public class XlsxInstructionTests : IDisposable
             "version": "1.0",
             "worksheets": [{
                 "name": "Styled",
+                "headers": ["H"],
                 "cells": [
-                    {"address": "A1", "value": "7", "style": "0"}
+                    {"address": "A2", "value": "7", "style": "0"}
                 ]
             }]
         }
         """);
 
+        // The header row creates the stylesheet, so styleId "0" (default format) is valid.
         using (var builder = WorkbookBuilder.Create(_testFilePath))
         {
             XlsxInstructionExecutor.Execute(set, builder);
             builder.Save();
         }
 
-        using var reader = WorkbookBuilder.Open(_testFilePath);
-        var ws = reader.GetWorksheet("Styled");
-        Assert.Equal("7", ws.GetCellValue("A1"));
+        using (var reader = WorkbookBuilder.Open(_testFilePath))
+        {
+            var ws = reader.GetWorksheet("Styled");
+            Assert.Equal("7", ws.GetCellValue("A2"));
+        }
+
+        OpenXmlAssert.NoValidationErrors(_testFilePath);
     }
 
     [Fact]

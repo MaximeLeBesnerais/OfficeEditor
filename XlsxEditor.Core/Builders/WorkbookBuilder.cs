@@ -413,6 +413,32 @@ public class WorkbookBuilder : IWorkbookBuilder
         return items[index].InnerText;
     }
 
+    /// <summary>
+    /// Ensures the workbook has a stylesheet whose cell formats (cellXfs) include
+    /// <paramref name="styleIndex"/>; otherwise writing s= on the cell would corrupt
+    /// the file (Excel repair prompt).
+    /// </summary>
+    internal void EnsureStyleIndexExists(uint styleIndex, string cellReference)
+    {
+        var cellFormats = _workbookPart.WorkbookStylesPart?.Stylesheet?.CellFormats;
+        if (cellFormats == null)
+        {
+            throw new XlsxException(
+                $"Cell {cellReference} references styleId {styleIndex}, but this workbook has no " +
+                "stylesheet (no cell formats are defined). Create a style first " +
+                "(e.g. via AddHeaderRow) or use the Phase 3 style builder.");
+        }
+
+        var count = cellFormats.Count?.Value ?? (uint)cellFormats.Elements<CellFormat>().Count();
+        if (styleIndex >= count)
+        {
+            throw new XlsxException(
+                $"Cell {cellReference} references styleId {styleIndex}, but the stylesheet only " +
+                $"defines {count} cell format(s) (valid ids: 0–{count - 1}). " +
+                "Create the style first or use the Phase 3 style builder.");
+        }
+    }
+
     internal uint EnsureHeaderStyleIndex()
     {
         var stylesPart = _workbookPart.WorkbookStylesPart ?? _workbookPart.AddNewPart<WorkbookStylesPart>();
