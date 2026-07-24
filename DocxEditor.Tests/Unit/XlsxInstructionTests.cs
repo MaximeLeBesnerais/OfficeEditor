@@ -251,12 +251,16 @@ public class XlsxInstructionTests : IDisposable
             builder.Save();
         }
 
-        using var reader = WorkbookBuilder.Open(_testFilePath);
-        var ws = reader.GetWorksheet("Sales");
-        Assert.Equal("Product", ws.GetCellValue("A1"));
-        Assert.Equal("Q1", ws.GetCellValue("B1"));
-        Assert.Equal("Widget", ws.GetCellValue("A2"));
-        Assert.Equal("100", ws.GetCellValue("B2"));
+        using (var reader = WorkbookBuilder.Open(_testFilePath))
+        {
+            var ws = reader.GetWorksheet("Sales");
+            Assert.Equal("Product", ws.GetCellValue("A1"));
+            Assert.Equal("Q1", ws.GetCellValue("B1"));
+            Assert.Equal("Widget", ws.GetCellValue("A2"));
+            Assert.Equal("100", ws.GetCellValue("B2"));
+        }
+
+        OpenXmlAssert.NoValidationErrors(_testFilePath);
     }
 
     [Fact]

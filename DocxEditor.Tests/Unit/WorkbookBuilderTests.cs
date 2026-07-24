@@ -85,8 +85,9 @@ public class WorkbookBuilderTests : IDisposable
         Assert.NotNull(sheetData);
         var row = sheetData.Elements<Row>().First();
         var cells = row.Elements<Cell>().ToList();
-        
+
         Assert.Equal(3, cells.Count);
+        OpenXmlAssert.NoValidationErrors(_testFilePath);
     }
 
     [Fact]
@@ -367,6 +368,7 @@ public class WorkbookBuilderTests : IDisposable
         using var doc = SpreadsheetDocument.Open(stream, false);
         Assert.NotNull(doc.WorkbookPart);
         Assert.Single(doc.WorkbookPart!.Workbook!.Sheets!.Elements<Sheet>());
+        OpenXmlAssert.NoValidationErrors(doc);
     }
 
     [Fact]
