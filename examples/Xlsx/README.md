@@ -207,7 +207,9 @@ builder.Save("05-processed.xlsx");
 
 ---
 
-## JSON Instructions
+## JSON Instructions *(planned schema — Phase 2, not yet executable)*
+
+The JSON instruction engine for XLSX is on the Phase 2 roadmap. `instructions/sample.json` documents the intended vocabulary shape. Today, use the fluent C# API (`WorkbookBuilder`/`WorksheetBuilder`) to create workbooks programmatically.
 
 **Input:** `instructions/sample.json`
 
@@ -240,7 +242,7 @@ builder.Save("05-processed.xlsx");
 }
 ```
 
-**Output:** Workbook generated from the instruction set.
+**Output:** *(not yet executable — this schema will drive generation after Phase 2 is complete)*
 
 ---
 
