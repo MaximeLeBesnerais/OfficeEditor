@@ -11,4 +11,5 @@ Pre-existing condition: 16 DocxEditor.Tests failures (TypstBridge native lib not
 | Phase 0: Un-skip remaining guarded tests | DONE | — | No file-based guards found. All env-gated tests use correct `OE_RUN_TYPST_COMPILE_TESTS` pattern for Typst-dependent tests. |
 | Phase 0: Re-mine design tokens | DONE | 0ae199c | TokenMiner created; aetherlink.tokens.json regenerated from refreshed corpus. Round-trip test added. |
 | Phase 0: OfficeEditor.Cli instrumentation | DONE | 0cdf946 | OfficeEditor.Cli.Tests project created with 20 command-level tests. Invokes Main() via reflection. |
-| Phase 0: WebApplicationFactory smoke tests | DONE | TBD | 22 integration tests via `WebApplicationFactory<Program>` covering deck lifecycle, generation, conversion, demo, health, and error contracts. Adds `Microsoft.AspNetCore.Mvc.Testing` 9.0.7. |
+| Phase 0: WebApplicationFactory smoke tests | DONE | 52cf85d | 22 integration tests via `WebApplicationFactory<Program>` covering all endpoint categories. |
+| Phase 1: Split PptxToTypstConverter | DONE | TBD | Moved Typst source generation methods (~1036 lines) to partial file `PptxToTypstConverter.SourceGeneration.cs`. Main file reduced from 4696 to 3660 lines. No behavior change, all tests green. Further splits (text extraction, table extraction, fonts) remain for future work. |
