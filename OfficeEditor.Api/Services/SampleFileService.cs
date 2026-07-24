@@ -38,7 +38,7 @@ public sealed class SampleFileService : ISampleFileService
         var sample = SampleFiles.FirstOrDefault(s => s.Name == name)
             ?? throw new FileNotFoundException($"Sample file '{name}' was not found.");
 
-        var repoRoot = FindRepositoryRoot();
+        var repoRoot = RepositoryRootLocator.FindOrFallback();
         var fullPath = Path.GetFullPath(Path.Combine(repoRoot, sample.Path.Replace('/', Path.DirectorySeparatorChar)));
 
         if (!File.Exists(fullPath))
@@ -47,32 +47,6 @@ public sealed class SampleFileService : ISampleFileService
         }
 
         return await File.ReadAllBytesAsync(fullPath, ct).ConfigureAwait(false);
-    }
-
-    private static string FindRepositoryRoot()
-    {
-        var baseDirectory = AppContext.BaseDirectory;
-        var directory = new DirectoryInfo(baseDirectory);
-
-        while (directory != null)
-        {
-            var gitDirectory = new DirectoryInfo(Path.Combine(directory.FullName, ".git"));
-            if (gitDirectory.Exists)
-            {
-                return directory.FullName;
-            }
-
-            directory = directory.Parent;
-        }
-
-        // Fallback to the parent of the API project folder (bin/Debug/net9.0 -> OfficeEditor.Api -> repo root).
-        var fallback = new DirectoryInfo(baseDirectory);
-        for (var i = 0; i < 4 && fallback != null; i++)
-        {
-            fallback = fallback.Parent;
-        }
-
-        return fallback?.FullName ?? baseDirectory;
     }
 }
 
