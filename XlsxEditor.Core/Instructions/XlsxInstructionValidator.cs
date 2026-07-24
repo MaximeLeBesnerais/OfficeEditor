@@ -39,7 +39,8 @@ public static class XlsxInstructionValidator
                 "Instruction set must contain at least one worksheet in 'worksheets'.");
         }
 
-        var seenSheetNames = new HashSet<string>(StringComparer.Ordinal);
+        // Excel worksheet names are case-insensitive: "Sales" and "SALES" collide.
+        var seenSheetNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var ws in instructions.Worksheets)
         {
             ValidateWorksheet(ws, seenSheetNames);
@@ -74,7 +75,7 @@ public static class XlsxInstructionValidator
         if (!seenNames.Add(ws.Name))
         {
             throw new XlsxException(
-                $"Duplicate worksheet name '{ws.Name}'. Worksheet names must be unique.");
+                $"Duplicate worksheet name '{ws.Name}'. Worksheet names must be unique (case-insensitive).");
         }
 
         var hasHeaders = ws.Headers is { Count: > 0 };
