@@ -350,6 +350,45 @@ public class DocumentBuilderAdvancedTests : IDisposable
         Assert.Equal("Normal", paragraph.ParagraphProperties?.ParagraphStyleId?.Val?.Value);
     }
 
+    [Fact]
+    public void AddHyperlink_ShouldApplyHyperlinkCharacterStyle()
+    {
+        using (var builder = DocumentBuilder.Create(_testFilePath))
+        {
+            builder.AddHyperlink("https://example.com", "Click here");
+            builder.Save();
+        }
+
+        using var doc = WordprocessingDocument.Open(_testFilePath, false);
+        var hyperlink = doc.MainDocumentPart!.Document!.Body!
+            .Descendants<DocumentFormat.OpenXml.Wordprocessing.Hyperlink>().Single();
+        var runStyle = hyperlink.Descendants<DocumentFormat.OpenXml.Wordprocessing.Run>().Single()
+            .RunProperties?.RunStyle?.Val?.Value;
+        Assert.Equal("Hyperlink", runStyle);
+
+        var stylesPart = doc.MainDocumentPart.StyleDefinitionsPart;
+        Assert.NotNull(stylesPart);
+        var hyperlinkStyle = stylesPart.Styles!.Elements<DocumentFormat.OpenXml.Wordprocessing.Style>()
+            .SingleOrDefault(s => s.StyleId?.Value == "Hyperlink");
+        Assert.NotNull(hyperlinkStyle);
+        Assert.Equal(DocumentFormat.OpenXml.Wordprocessing.StyleValues.Character, hyperlinkStyle.Type?.Value);
+
+        OpenXmlAssert.NoDocxValidationErrors(_testFilePath);
+    }
+
+    [Theory]
+    [InlineData("not a url")]
+    [InlineData("example.com")]
+    [InlineData("")]
+    public void AddHyperlink_WithInvalidUrl_ShouldThrowDomainException(string url)
+    {
+        using var builder = DocumentBuilder.Create(_testFilePath);
+
+        var ex = Assert.Throws<OfficeEditor.Core.Exceptions.OfficeEditorException>(
+            () => builder.AddHyperlink(url, "text"));
+        Assert.Contains("Invalid hyperlink URL", ex.Message);
+    }
+
     public void Dispose()
     {
         if (File.Exists(_testFilePath))
