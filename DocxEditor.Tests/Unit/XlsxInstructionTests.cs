@@ -547,6 +547,66 @@ public class XlsxInstructionTests : IDisposable
     }
 
     [Fact]
+    public void Execute_ShouldThrow_ForUnresolvedVariable_InRowValue()
+    {
+        var set = XlsxInstructionParser.Parse("""
+        {
+            "version": "1.0",
+            "worksheets": [{
+                "name": "T",
+                "headers": ["Field"],
+                "rows": [["{{missing}}"]]
+            }]
+        }
+        """);
+
+        // An unresolved placeholder must never be written verbatim into the file.
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var ex = Assert.Throws<XlsxException>(() => XlsxInstructionExecutor.Execute(set, builder));
+        Assert.Contains("{{missing}}", ex.Message);
+        Assert.Contains("A2", ex.Message);
+        Assert.Contains("variables", ex.Message);
+    }
+
+    [Fact]
+    public void Execute_ShouldThrow_ForUnresolvedVariable_InFormula()
+    {
+        var set = XlsxInstructionParser.Parse("""
+        {
+            "version": "1.0",
+            "worksheets": [{
+                "name": "Calc",
+                "cells": [{"address": "B1", "formula": "=A1*{{factor}}"}]
+            }]
+        }
+        """);
+
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var ex = Assert.Throws<XlsxException>(() => XlsxInstructionExecutor.Execute(set, builder));
+        Assert.Contains("{{factor}}", ex.Message);
+        Assert.Contains("B1", ex.Message);
+    }
+
+    [Fact]
+    public void Execute_ShouldThrow_ForUnresolvedVariable_InHeader()
+    {
+        var set = XlsxInstructionParser.Parse("""
+        {
+            "version": "1.0",
+            "worksheets": [{
+                "name": "T",
+                "headers": ["{{title}}", "Other"]
+            }]
+        }
+        """);
+
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var ex = Assert.Throws<XlsxException>(() => XlsxInstructionExecutor.Execute(set, builder));
+        Assert.Contains("{{title}}", ex.Message);
+        Assert.Contains("header", ex.Message);
+    }
+
+    [Fact]
     public void EndToEnd_SampleJson_ShouldProduceValidWorkbook()
     {
         var json = """
