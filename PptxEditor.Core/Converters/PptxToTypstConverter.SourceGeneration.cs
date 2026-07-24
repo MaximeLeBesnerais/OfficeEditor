@@ -273,7 +273,7 @@ public sealed partial class PptxToTypstConverter
                     else if (effectiveHasBullet)
                     {
                         var marker = effectiveBulletChar ?? "•";
-                        var markerEscaped = EscapeTypstText(marker);
+                        var markerEscaped = FormatBulletMarker(EscapeTypstText(marker), paragraph.BulletColor);
                         var indent = paragraph.Level > 0 ? $"#h({paragraph.Level * 1.5}em) " : "";
                         var paramStr = BuildTextParameters(paragraph.Formatting, availableFonts);
                         var escapedContent = EscapeTypstText(content);
@@ -411,7 +411,7 @@ public sealed partial class PptxToTypstConverter
             {
                 // Bulleted list
                 var marker = effectiveBulletChar ?? "•";
-                var markerEscaped = EscapeTypstText(marker);
+                var markerEscaped = FormatBulletMarker(EscapeTypstText(marker), paragraph.BulletColor);
                 var listIndent = BuildListIndentParams(paragraph);
                 
                 if (!string.IsNullOrEmpty(groupParamStr))
@@ -455,6 +455,15 @@ public sealed partial class PptxToTypstConverter
 
             i = groupEnd + 1;
         }
+    }
+
+    private static string FormatBulletMarker(string escapedMarker, string? bulletColor)
+    {
+        // a:buClr / a:buClrTx supply an explicit glyph color; otherwise the marker
+        // inherits the surrounding text color (OOXML default behavior).
+        return string.IsNullOrEmpty(bulletColor)
+            ? escapedMarker
+            : $"#text(fill: rgb(\"{bulletColor}\"))[{escapedMarker}]";
     }
 
     private static string BuildListIndentParams(TypstParagraph paragraph)
