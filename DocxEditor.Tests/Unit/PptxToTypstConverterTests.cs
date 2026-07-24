@@ -3150,4 +3150,71 @@ public class PptxToTypstConverterTests : IDisposable
                 new Drawing.Extents { Cx = Pt(width), Cy = Pt(height) }),
             new Drawing.Graphic(graphicData));
     }
+
+    private const string PresentationmlNs = "http://schemas.openxmlformats.org/presentationml/2006/main";
+    private const string DrawingmlANs = "http://schemas.openxmlformats.org/drawingml/2006/main";
+
+    private static P.Shape ShapeFromXml(string spPrFillXml, string txBodyXml = "")
+    {
+        return new P.Shape($@"<p:sp xmlns:p=""{PresentationmlNs}"" xmlns:a=""{DrawingmlANs}"">
+  <p:nvSpPr><p:cNvPr id=""42"" name=""Alpha shape""/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+  <p:spPr>
+    <a:xfrm><a:off x=""12700"" y=""12700""/><a:ext cx=""914400"" cy=""914400""/></a:xfrm>
+    <a:prstGeom prst=""rect""><a:avLst/></a:prstGeom>
+    {spPrFillXml}
+  </p:spPr>
+  <p:txBody><a:bodyPr/><a:lstStyle/>{(string.IsNullOrEmpty(txBodyXml) ? "<a:p><a:pPr algn=\"ctr\"/></a:p>" : txBodyXml)}</p:txBody>
+</p:sp>");
+    }
+
+    [Fact]
+    public void GenerateTypstSource_ShapeSolidFillWithAlpha_EmitsEightDigitHex()
+    {
+        var shape = ShapeFromXml("""<a:solidFill><a:srgbClr val="FFFFFF"><a:alpha val="15000"/></a:srgbClr></a:solidFill>""");
+        var path = CreateGroupShapePptx("alpha-shape-fill.pptx", shape);
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = converter.Convert();
+        var shapeElement = Assert.Single(presentation.Slides[0].Elements, e => e.Shape != null);
+        Assert.Equal("#FFFFFF26", shapeElement.Shape!.FillColor); // 15% opacity → 0x26 alpha byte
+
+        var source = converter.GenerateTypstSource(presentation);
+        Assert.Contains("""fill: rgb("#FFFFFF26")""", source);
+    }
+
+    [Fact]
+    public void Convert_ShapeSolidFillWithZeroAlpha_TreatedAsNoFill()
+    {
+        var shape = ShapeFromXml("""<a:solidFill><a:srgbClr val="FF0000"><a:alpha val="0"/></a:srgbClr></a:solidFill>""");
+        var path = CreateGroupShapePptx("zero-alpha-shape-fill.pptx", shape);
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = converter.Convert();
+        // Fully transparent fill == a:noFill: no shape element is emitted at all.
+        Assert.DoesNotContain(presentation.Slides[0].Elements, e => e.Shape != null);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_TextRunSolidFillWithAlpha_EmitsEightDigitHex()
+    {
+        const string txBody = """
+            <a:p><a:r><a:rPr lang="en-US"><a:solidFill><a:srgbClr val="FFFFFF"><a:alpha val="50000"/></a:srgbClr></a:solidFill></a:rPr><a:t>Glass</a:t></a:r></a:p>
+            """;
+        var shape = ShapeFromXml(string.Empty, txBody);
+        var path = CreateGroupShapePptx("alpha-text-run.pptx", shape);
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = converter.Convert();
+        var textElement = Assert.Single(presentation.Slides[0].Elements, e => e.Text != null);
+        Assert.Equal("#FFFFFF7F", textElement.Text!.Formatting.Color); // 50% opacity → 0x7F alpha byte
+
+        var source = converter.GenerateTypstSource(presentation);
+        Assert.Contains("""fill: rgb("#FFFFFF7F")""", source);
+    }
 }

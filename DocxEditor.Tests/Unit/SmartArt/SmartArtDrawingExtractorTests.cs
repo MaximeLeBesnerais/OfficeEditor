@@ -90,6 +90,7 @@ public sealed class SmartArtDrawingExtractorTests
     [InlineData("C00000", "shade", 50000, "#600000")]
     [InlineData("4472C4", "lumMod", 50000, "#223962")]
     [InlineData("000000", "lumOff", 20000, "#333333")]
+    [InlineData("FFFFFF", "alpha", 15000, "#FFFFFF26")] // 15% opacity → 8-digit hex (Typst rgb accepts #RRGGBBAA)
     public void Extract_FillWithColorTransform_AppliesTransform(string baseColor, string op, int opVal, string expected)
     {
         var xml = $@"
