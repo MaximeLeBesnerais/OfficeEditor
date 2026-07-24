@@ -193,40 +193,13 @@ Status: Shipped
 
 ```json
 {
-  "version": "1.0",
   "operations": [
-    {
-      "type": "AddParagraph",
-      "content": "This paragraph was added via JSON instructions.",
-      "style": "Normal"
-    },
-    {
-      "type": "AddHeading",
-      "content": "Section Added by Instructions",
-      "level": 2
-    },
-    {
-      "type": "AddBulletList",
-      "items": [
-        "First bullet point",
-        "Second bullet point",
-        "Third bullet point"
-      ]
-    },
-    {
-      "type": "Replace",
-      "target": "{{companyName}}",
-      "content": "Acme Corporation"
-    },
-    {
-      "type": "AddTable",
-      "headers": ["Item", "Quantity", "Price"],
-      "rows": [
-        ["Widget", "10", "$25.00"],
-        ["Gadget", "5", "$50.00"],
-        ["Tool", "3", "$75.00"]
-      ]
-    }
+    { "type": "create" },
+    { "type": "addParagraph", "text": "This paragraph was added via JSON instructions.", "style": "Normal" },
+    { "type": "addParagraph", "text": "Section Added by Instructions", "style": "Heading2" },
+    { "type": "replaceText", "find": "{{companyName}}", "replace": "Acme Corporation" },
+    { "type": "replaceText", "find": "{{date}}", "replace": "2024-01-15" },
+    { "type": "insertAfter", "target": "added via JSON", "content": { "text": "Inserted line.", "style": "Normal" } }
   ]
 }
 ```
@@ -239,7 +212,23 @@ var engine = new InstructionEngine();
 engine.Execute(document, instructions);
 ```
 
+**Supported instruction types** (6 total):
+
+| Type | Required fields | Description |
+|---|---|---|
+| `create` | *(none)* | Initialise a new document |
+| `addParagraph` | `text` | Add a paragraph, optional `style` |
+| `addRichContent` | `blocks` | Add structured content (paragraph, heading, list, table, blockquote, code, hr, custom) |
+| `replaceText` | `find`, `replace` | Find and replace text |
+| `replaceWithRichContent` | `target`, `blocks` | Replace a paragraph with structured content blocks |
+| `insertAfter` | `target`, `content` | Insert a paragraph after the given target text |
+
+Validate instruction JSON before parsing with `DocxInstructionValidator` for field-level error messages.
+
 **Output:** Document modified according to the instruction set.
+
+**Current limitations:** images, headers/footers, and table styling are not yet available via the builder. Hyperlinks are flattened to plain text in the converter.
+
 
 ---
 

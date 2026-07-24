@@ -309,6 +309,47 @@ public class DocumentBuilderAdvancedTests : IDisposable
         Assert.Contains("Hello Bob", secondDoc.MainDocumentPart!.Document!.Body!.InnerText);
     }
 
+    [Fact]
+    public void AddHyperlink_ShouldCreateHyperlinkRelationshipAndElement()
+    {
+        using (var builder = DocumentBuilder.Create(_testFilePath))
+        {
+            builder.AddHyperlink("https://example.com", "Click here");
+            builder.Save();
+        }
+
+        using var doc = WordprocessingDocument.Open(_testFilePath, false);
+        var body = doc.MainDocumentPart!.Document!.Body!;
+
+        var paragraphs = body.Elements<DocumentFormat.OpenXml.Wordprocessing.Paragraph>().ToList();
+        Assert.Single(paragraphs);
+
+        var hyperlinks = paragraphs[0].Elements<DocumentFormat.OpenXml.Wordprocessing.Hyperlink>().ToList();
+        Assert.Single(hyperlinks);
+        Assert.Equal("Click here", hyperlinks[0].InnerText);
+
+        var hyperlinkParts = doc.MainDocumentPart.HyperlinkRelationships;
+        Assert.NotEmpty(hyperlinkParts);
+        var rel = hyperlinkParts.First();
+        Assert.Equal(new Uri("https://example.com"), rel.Uri);
+        Assert.True(rel.IsExternal);
+    }
+
+    [Fact]
+    public void AddHyperlink_WithStyle_ShouldApplyStyle()
+    {
+        using (var builder = DocumentBuilder.Create(_testFilePath))
+        {
+            builder.AddHyperlink("https://example.com", "Styled link", "Normal");
+            builder.Save();
+        }
+
+        using var doc = WordprocessingDocument.Open(_testFilePath, false);
+        var paragraph = doc.MainDocumentPart!.Document!.Body!.Elements<DocumentFormat.OpenXml.Wordprocessing.Paragraph>().First();
+
+        Assert.Equal("Normal", paragraph.ParagraphProperties?.ParagraphStyleId?.Val?.Value);
+    }
+
     public void Dispose()
     {
         if (File.Exists(_testFilePath))
