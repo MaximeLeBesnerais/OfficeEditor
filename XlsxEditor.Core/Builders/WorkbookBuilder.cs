@@ -29,6 +29,7 @@ public interface IWorkbookBuilder : IDisposable
 
 public interface IWorksheetBuilder
 {
+    // Write
     IWorksheetBuilder AddCell(string cellReference, string value);
     IWorksheetBuilder AddCell(string cellReference, string formula, bool isFormula);
     IWorksheetBuilder AddCell(string cellReference, string value, string styleId);
@@ -37,6 +38,35 @@ public interface IWorksheetBuilder
     IWorksheetBuilder AddFormulaRow(List<string> formulas, int rowIndex);
     IWorksheetBuilder AddTable(string startCell, string endCell, string tableName);
     IWorksheetBuilder AddChart(ChartType type, string dataRange);
+
+    // Read
+    string? GetCellValue(string cellReference);
+    string? GetCellFormula(string cellReference);
+    bool CellExists(string cellReference);
+    CellInfo? GetCellInfo(string cellReference);
+    List<CellInfo> GetRange(string start, string end);
+    List<RowInfo> GetRows();
+    RowInfo? GetRow(int rowIndex);
+    (int firstRow, int lastRow, int firstCol, int lastCol) GetDimensions();
+
+    // Edit
+    IWorksheetBuilder DeleteCell(string cellReference);
+    IWorksheetBuilder DeleteRow(int rowIndex);
+    IWorksheetBuilder ClearRange(string start, string end);
+}
+
+public sealed record CellInfo
+{
+    public string Reference { get; init; } = string.Empty;
+    public string? Value { get; init; }
+    public string? Formula { get; init; }
+    public CellValues? DataType { get; init; }
+}
+
+public sealed record RowInfo
+{
+    public int RowIndex { get; init; }
+    public List<CellInfo> Cells { get; init; } = new();
 }
 
 public enum ChartType
@@ -358,6 +388,23 @@ public class WorkbookBuilder : IWorkbookBuilder
         var newItem = new SharedStringItem(new Text(text));
         sharedStringTable.Append(newItem);
         return index;
+    }
+
+    internal string? GetSharedStringByIndex(int index)
+    {
+        var sharedStringPart = _workbookPart.GetPartsOfType<SharedStringTablePart>().FirstOrDefault();
+        if (sharedStringPart?.SharedStringTable is not SharedStringTable table)
+        {
+            return null;
+        }
+
+        var items = table.Elements<SharedStringItem>().ToList();
+        if (index < 0 || index >= items.Count)
+        {
+            return null;
+        }
+
+        return items[index].InnerText;
     }
 
     internal uint EnsureHeaderStyleIndex()

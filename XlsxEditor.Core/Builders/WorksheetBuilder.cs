@@ -176,6 +176,222 @@ public class WorksheetBuilder : IWorksheetBuilder
             "Use fluent-API or JSON instructions to build worksheet content without charts for now.");
     }
 
+    public string? GetCellValue(string cellReference)
+    {
+        var cell = FindCell(cellReference);
+        if (cell == null) return null;
+
+        if (cell.CellFormula != null && cell.CellValue != null)
+        {
+            return cell.CellValue.Text;
+        }
+
+        if (cell.DataType?.Value == CellValues.SharedString)
+        {
+            if (int.TryParse(cell.CellValue?.Text, out var idx))
+            {
+                return _workbookBuilder.GetSharedStringByIndex(idx);
+            }
+            return null;
+        }
+
+        if (cell.DataType?.Value == CellValues.InlineString || cell.DataType?.Value == CellValues.String)
+        {
+            return cell.InnerText;
+        }
+
+        if (cell.CellValue != null)
+        {
+            return cell.CellValue.Text;
+        }
+
+        return null;
+    }
+
+    public string? GetCellFormula(string cellReference)
+    {
+        var cell = FindCell(cellReference);
+        return cell?.CellFormula?.Text;
+    }
+
+    public bool CellExists(string cellReference)
+    {
+        return FindCell(cellReference) != null;
+    }
+
+    public CellInfo? GetCellInfo(string cellReference)
+    {
+        var cell = FindCell(cellReference);
+        if (cell == null) return null;
+
+        return new CellInfo
+        {
+            Reference = cell.CellReference?.Value ?? cellReference,
+            Value = GetCellValue(cellReference),
+            Formula = cell.CellFormula?.Text,
+            DataType = cell.DataType?.Value
+        };
+    }
+
+    public List<CellInfo> GetRange(string start, string end)
+    {
+        var startCol = GetColumnIndex(start);
+        var startRow = GetRowIndex(start);
+        var endCol = GetColumnIndex(end);
+        var endRow = GetRowIndex(end);
+
+        var results = new List<CellInfo>();
+        for (int r = startRow; r <= endRow; r++)
+        {
+            for (int c = startCol; c <= endCol; c++)
+            {
+                var ref_ = GetCellReference(c - 1, r);
+                var info = GetCellInfo(ref_);
+                results.Add(info ?? new CellInfo { Reference = ref_ });
+            }
+        }
+        return results;
+    }
+
+    public List<RowInfo> GetRows()
+    {
+        return _sheetData.Elements<Row>()
+            .OrderBy(r => r.RowIndex?.Value)
+            .Select(row => new RowInfo
+            {
+                RowIndex = (int?)row.RowIndex?.Value ?? 0,
+                Cells = row.Elements<Cell>()
+                    .Select(c => new CellInfo
+                    {
+                        Reference = c.CellReference?.Value ?? string.Empty,
+                        Value = ResolveCellValue(c),
+                        Formula = c.CellFormula?.Text,
+                        DataType = c.DataType?.Value
+                    })
+                    .ToList()
+            })
+            .ToList();
+    }
+
+    public RowInfo? GetRow(int rowIndex)
+    {
+        var row = _sheetData.Elements<Row>()
+            .FirstOrDefault(r => r.RowIndex?.Value == (uint)rowIndex);
+        if (row == null) return null;
+
+        return new RowInfo
+        {
+            RowIndex = rowIndex,
+            Cells = row.Elements<Cell>()
+                .Select(c => new CellInfo
+                {
+                    Reference = c.CellReference?.Value ?? string.Empty,
+                    Value = ResolveCellValue(c),
+                    Formula = c.CellFormula?.Text,
+                    DataType = c.DataType?.Value
+                })
+                .ToList()
+        };
+    }
+
+    public (int firstRow, int lastRow, int firstCol, int lastCol) GetDimensions()
+    {
+        var rows = _sheetData.Elements<Row>().ToList();
+        if (rows.Count == 0)
+        {
+            return (0, 0, 0, 0);
+        }
+
+        var rowIndices = rows.Select(r => (int)r.RowIndex!.Value).OrderBy(i => i).ToList();
+        var firstRow = rowIndices.First();
+        var lastRow = rowIndices.Last();
+
+        int firstCol = int.MaxValue;
+        int lastCol = 0;
+        foreach (var row_ in rows)
+        {
+            foreach (var c in row_.Elements<Cell>())
+            {
+                if (c.CellReference?.Value is not string ref_) continue;
+                var col = GetColumnIndex(ref_);
+                if (col < firstCol) firstCol = col;
+                if (col > lastCol) lastCol = col;
+            }
+        }
+
+        if (firstCol == int.MaxValue) firstCol = 0;
+
+        return (firstRow, lastRow, firstCol, lastCol);
+    }
+
+    public IWorksheetBuilder DeleteCell(string cellReference)
+    {
+        var cell = FindCell(cellReference);
+        cell?.Remove();
+        return this;
+    }
+
+    public IWorksheetBuilder DeleteRow(int rowIndex)
+    {
+        var row = _sheetData.Elements<Row>()
+            .FirstOrDefault(r => r.RowIndex?.Value == (uint)rowIndex);
+        row?.Remove();
+        return this;
+    }
+
+    public IWorksheetBuilder ClearRange(string start, string end)
+    {
+        var startCol = GetColumnIndex(start);
+        var startRow = GetRowIndex(start);
+        var endCol = GetColumnIndex(end);
+        var endRow = GetRowIndex(end);
+
+        for (int r = startRow; r <= endRow; r++)
+        {
+            for (int c = startCol; c <= endCol; c++)
+            {
+                var ref_ = GetCellReference(c - 1, r);
+                DeleteCell(ref_);
+            }
+        }
+        return this;
+    }
+
+    private Cell? FindCell(string cellReference)
+    {
+        var rowIndex = GetRowIndex(cellReference);
+        var row = _sheetData.Elements<Row>()
+            .FirstOrDefault(r => r.RowIndex?.Value == (uint)rowIndex);
+        if (row == null) return null;
+
+        return row.Elements<Cell>()
+            .FirstOrDefault(c => c.CellReference?.Value == cellReference);
+    }
+
+    private string? ResolveCellValue(Cell cell)
+    {
+        if (cell.CellFormula != null && cell.CellValue != null)
+        {
+            return cell.CellValue.Text;
+        }
+
+        if (cell.DataType?.Value == CellValues.SharedString)
+        {
+            if (int.TryParse(cell.CellValue?.Text, out var idx))
+            {
+                return _workbookBuilder.GetSharedStringByIndex(idx);
+            }
+            return null;
+        }
+
+        if (cell.DataType?.Value == CellValues.InlineString || cell.DataType?.Value == CellValues.String)
+        {
+            return cell.InnerText;
+        }
+
+        return cell.CellValue?.Text;
+    }
+
     private Cell GetOrCreateCell(string cellReference)
     {
         var rowIndex = GetRowIndex(cellReference);

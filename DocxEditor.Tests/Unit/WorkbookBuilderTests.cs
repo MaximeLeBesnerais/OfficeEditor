@@ -673,6 +673,344 @@ public class WorkbookBuilderTests : IDisposable
         Assert.Contains("Phase 4", ex.Message);
     }
 
+    // ─── Phase 1 tests: Read API ──────────────────────────────────
+
+    [Fact]
+    public void GetCellValue_ShouldReturnNumericString_ForNumberCell()
+    {
+        using (var creator = WorkbookBuilder.Create(_testFilePath))
+        {
+            creator.AddWorksheet("Sheet1").AddCell("A1", "42.5");
+            creator.Save();
+        }
+
+        using var reader = WorkbookBuilder.Open(_testFilePath);
+        Assert.Equal("42.5", reader.GetWorksheet("Sheet1").GetCellValue("A1"));
+    }
+
+    [Fact]
+    public void GetCellValue_ShouldResolveSharedString_ForStringCell()
+    {
+        using (var creator = WorkbookBuilder.Create(_testFilePath))
+        {
+            creator.AddWorksheet("Sheet1").AddCell("A1", "Hello World");
+            creator.Save();
+        }
+
+        using var reader = WorkbookBuilder.Open(_testFilePath);
+        Assert.Equal("Hello World", reader.GetWorksheet("Sheet1").GetCellValue("A1"));
+    }
+
+    [Fact]
+    public void GetCellValue_ShouldReturnCachedValue_ForFormulaCell()
+    {
+        using (var creator = WorkbookBuilder.Create(_testFilePath))
+        {
+            creator.AddWorksheet("Sheet1")
+                .AddCell("A1", "10")
+                .AddCell("A2", "=A1+5", true);
+            creator.Save();
+        }
+
+        using var reader = WorkbookBuilder.Open(_testFilePath);
+        var ws = reader.GetWorksheet("Sheet1");
+        Assert.NotNull(ws.GetCellFormula("A2"));
+        Assert.Equal("=A1+5", ws.GetCellFormula("A2"));
+    }
+
+    [Fact]
+    public void GetCellValue_ShouldReturnNull_ForMissingCell()
+    {
+        using (var creator = WorkbookBuilder.Create(_testFilePath))
+        {
+            creator.AddWorksheet("Sheet1").AddCell("A1", "There");
+            creator.Save();
+        }
+
+        using var reader = WorkbookBuilder.Open(_testFilePath);
+        Assert.Null(reader.GetWorksheet("Sheet1").GetCellValue("Z99"));
+        Assert.Null(reader.GetWorksheet("Sheet1").GetCellFormula("Z99"));
+        Assert.False(reader.GetWorksheet("Sheet1").CellExists("Z99"));
+    }
+
+    [Fact]
+    public void CellExists_ShouldReturnTrue_ForExistingCell()
+    {
+        using (var creator = WorkbookBuilder.Create(_testFilePath))
+        {
+            creator.AddWorksheet("Sheet1").AddCell("B2", "Present");
+            creator.Save();
+        }
+
+        using var reader = WorkbookBuilder.Open(_testFilePath);
+        var ws = reader.GetWorksheet("Sheet1");
+        Assert.True(ws.CellExists("B2"));
+        Assert.False(ws.CellExists("C3"));
+    }
+
+    [Fact]
+    public void GetCellInfo_ShouldReturnNull_ForMissingCell()
+    {
+        using (var creator = WorkbookBuilder.Create(_testFilePath))
+        {
+            creator.AddWorksheet("Sheet1");
+            creator.Save();
+        }
+
+        using var reader = WorkbookBuilder.Open(_testFilePath);
+        Assert.Null(reader.GetWorksheet("Sheet1").GetCellInfo("J10"));
+    }
+
+    [Fact]
+    public void GetRange_ShouldReturnAllCells_IncludingEmpty()
+    {
+        using (var creator = WorkbookBuilder.Create(_testFilePath))
+        {
+            var sht = creator.AddWorksheet("Sheet1");
+            sht.AddCell("A1", "TopLeft");
+            sht.AddCell("C1", "TopRight");
+            sht.AddCell("A3", "BottomLeft");
+            creator.Save();
+        }
+
+        using var reader = WorkbookBuilder.Open(_testFilePath);
+        var range = reader.GetWorksheet("Sheet1").GetRange("A1", "C3");
+
+        Assert.Equal(9, range.Count);
+        Assert.Contains(range, c => c.Reference == "A1" && c.Value == "TopLeft");
+        Assert.Contains(range, c => c.Reference == "C1" && c.Value == "TopRight");
+        Assert.Contains(range, c => c.Reference == "A3" && c.Value == "BottomLeft");
+        Assert.Contains(range, c => c.Reference == "B1" && c.Value == null);
+    }
+
+    [Fact]
+    public void GetRows_ShouldReturnAllRowsWithCells()
+    {
+        using (var creator = WorkbookBuilder.Create(_testFilePath))
+        {
+            creator.AddWorksheet("Sheet1")
+                .AddCell("A1", "R1C1")
+                .AddCell("B1", "R1C2")
+                .AddCell("A2", "R2C1");
+            creator.Save();
+        }
+
+        using var reader = WorkbookBuilder.Open(_testFilePath);
+        var rows = reader.GetWorksheet("Sheet1").GetRows();
+
+        Assert.Equal(2, rows.Count);
+        Assert.Equal(1, rows[0].RowIndex);
+        Assert.Equal(2, rows[1].RowIndex);
+        Assert.Equal(2, rows[0].Cells.Count);
+        Assert.Single(rows[1].Cells);
+    }
+
+    [Fact]
+    public void GetRow_ShouldReturnSpecificRow()
+    {
+        using (var creator = WorkbookBuilder.Create(_testFilePath))
+        {
+            var sht = creator.AddWorksheet("Sheet1");
+            for (int i = 1; i <= 5; i++)
+            {
+                sht.AddCell($"A{i}", $"Row{i}");
+            }
+            creator.Save();
+        }
+
+        using var reader = WorkbookBuilder.Open(_testFilePath);
+        var row3 = reader.GetWorksheet("Sheet1").GetRow(3);
+        var rowMissing = reader.GetWorksheet("Sheet1").GetRow(99);
+
+        Assert.NotNull(row3);
+        Assert.Equal(3, row3!.RowIndex);
+        Assert.Single(row3.Cells);
+        Assert.Null(rowMissing);
+    }
+
+    [Fact]
+    public void GetDimensions_ShouldComputeUsedRange()
+    {
+        using (var creator = WorkbookBuilder.Create(_testFilePath))
+        {
+            var sht = creator.AddWorksheet("Sheet1");
+            sht.AddCell("B2", "1");
+            sht.AddCell("D5", "2");
+            creator.Save();
+        }
+
+        using var reader = WorkbookBuilder.Open(_testFilePath);
+        var (firstRow, lastRow, firstCol, lastCol) = reader.GetWorksheet("Sheet1").GetDimensions();
+
+        Assert.Equal(2, firstRow);
+        Assert.Equal(5, lastRow);
+        Assert.Equal(2, firstCol);
+        Assert.Equal(4, lastCol);
+    }
+
+    [Fact]
+    public void GetDimensions_ShouldReturnZeros_ForEmptySheet()
+    {
+        using (var creator = WorkbookBuilder.Create(_testFilePath))
+        {
+            creator.AddWorksheet("Sheet1");
+            creator.Save();
+        }
+
+        using var reader = WorkbookBuilder.Open(_testFilePath);
+        var dims = reader.GetWorksheet("Sheet1").GetDimensions();
+        Assert.Equal((0, 0, 0, 0), dims);
+    }
+
+    // ─── Phase 1 tests: Edit ──────────────────────────────────────
+
+    [Fact]
+    public void RoundTrip_BuildReopenReadback_ShouldMatchWrittenValues()
+    {
+        using (var creator = WorkbookBuilder.Create(_testFilePath))
+        {
+            var sht = creator.AddWorksheet("Data");
+            sht.AddCell("A1", "42");
+            sht.AddCell("B1", "Hello");
+            sht.AddCell("C1", "=SUM(A1:A1)", true);
+            creator.Save();
+        }
+
+        using var reader = WorkbookBuilder.Open(_testFilePath);
+        var ws = reader.GetWorksheet("Data");
+        Assert.Equal("42", ws.GetCellValue("A1"));
+        Assert.Equal("Hello", ws.GetCellValue("B1"));
+        Assert.Equal("=SUM(A1:A1)", ws.GetCellFormula("C1"));
+    }
+
+    [Fact]
+    public void OverwriteCell_ShouldReplaceExistingValue()
+    {
+        using (var creator = WorkbookBuilder.Create(_testFilePath))
+        {
+            creator.AddWorksheet("Sheet1").AddCell("A1", "Initial");
+            creator.Save();
+        }
+
+        using (var editor = WorkbookBuilder.Open(_testFilePath))
+        {
+            editor.GetWorksheet("Sheet1").AddCell("A1", "Updated");
+            editor.Save();
+        }
+
+        using var reader = WorkbookBuilder.Open(_testFilePath);
+        Assert.Equal("Updated", reader.GetWorksheet("Sheet1").GetCellValue("A1"));
+    }
+
+    [Fact]
+    public void DeleteCell_ShouldRemoveCell()
+    {
+        using (var creator = WorkbookBuilder.Create(_testFilePath))
+        {
+            var sht = creator.AddWorksheet("Sheet1");
+            sht.AddCell("A1", "one");
+            sht.AddCell("B1", "two");
+            sht.AddCell("C1", "three");
+            creator.Save();
+        }
+
+        using (var editor = WorkbookBuilder.Open(_testFilePath))
+        {
+            var sht = editor.GetWorksheet("Sheet1");
+            sht.DeleteCell("B1");
+            editor.Save();
+        }
+
+        using var reader = WorkbookBuilder.Open(_testFilePath);
+        var ws = reader.GetWorksheet("Sheet1");
+        Assert.True(ws.CellExists("A1"));
+        Assert.False(ws.CellExists("B1"));
+        Assert.True(ws.CellExists("C1"));
+    }
+
+    [Fact]
+    public void DeleteRow_ShouldRemoveRowAndCells()
+    {
+        using (var creator = WorkbookBuilder.Create(_testFilePath))
+        {
+            var sht = creator.AddWorksheet("Sheet1");
+            sht.AddCell("A1", "Row1");
+            sht.AddCell("A2", "Row2");
+            sht.AddCell("A3", "Row3");
+            creator.Save();
+        }
+
+        using (var editor = WorkbookBuilder.Open(_testFilePath))
+        {
+            editor.GetWorksheet("Sheet1").DeleteRow(2);
+            editor.Save();
+        }
+
+        using var reader = WorkbookBuilder.Open(_testFilePath);
+        var ws = reader.GetWorksheet("Sheet1");
+        Assert.True(ws.CellExists("A1"));
+        Assert.False(ws.CellExists("A2"));
+        Assert.True(ws.CellExists("A3"));
+        var rows = ws.GetRows();
+        Assert.Equal(2, rows.Count);
+        Assert.DoesNotContain(rows, r => r.RowIndex == 2);
+    }
+
+    [Fact]
+    public void ClearRange_ShouldRemoveAllCellsInRange()
+    {
+        using (var creator = WorkbookBuilder.Create(_testFilePath))
+        {
+            var sht = creator.AddWorksheet("Sheet1");
+            sht.AddCell("A1", "1");
+            sht.AddCell("B1", "2");
+            sht.AddCell("A2", "3");
+            sht.AddCell("B2", "4");
+            sht.AddCell("C3", "keep");
+            creator.Save();
+        }
+
+        using (var editor = WorkbookBuilder.Open(_testFilePath))
+        {
+            editor.GetWorksheet("Sheet1").ClearRange("A1", "B2");
+            editor.Save();
+        }
+
+        using var reader = WorkbookBuilder.Open(_testFilePath);
+        var ws = reader.GetWorksheet("Sheet1");
+        Assert.False(ws.CellExists("A1"));
+        Assert.False(ws.CellExists("B1"));
+        Assert.False(ws.CellExists("A2"));
+        Assert.False(ws.CellExists("B2"));
+        Assert.True(ws.CellExists("C3"));
+        Assert.Equal("keep", ws.GetCellValue("C3"));
+    }
+
+    [Fact]
+    public void OpenExisting_ThenEditOneCell_UntouchedCellsPreserved()
+    {
+        using (var creator = WorkbookBuilder.Create(_testFilePath))
+        {
+            var sht = creator.AddWorksheet("Sheet1");
+            sht.AddCell("A1", "Untouched");
+            sht.AddCell("B1", "original");
+            sht.AddCell("C1", "42");
+            creator.Save();
+        }
+
+        using (var editor = WorkbookBuilder.Open(_testFilePath))
+        {
+            editor.GetWorksheet("Sheet1").AddCell("B1", "modified");
+            editor.Save();
+        }
+
+        using var reader = WorkbookBuilder.Open(_testFilePath);
+        var ws = reader.GetWorksheet("Sheet1");
+        Assert.Equal("Untouched", ws.GetCellValue("A1"));
+        Assert.Equal("modified", ws.GetCellValue("B1"));
+        Assert.Equal("42", ws.GetCellValue("C1"));
+    }
+
     public void Dispose()
     {
         if (File.Exists(_testFilePath))
