@@ -193,16 +193,18 @@ public sealed class PptxToTypstConverterUnsupportedElementTests : IDisposable
         // roundRect adj val 10000 → 10% of the smaller (normalised) side.
         Assert.All(rects, s => Assert.True(s.Shape!.CornerRadius > 0));
 
-        // Drawing-space → frame normalisation: the shapes' bounding box must span
-        // the graphic frame's rect, not sit top-left-anchored at native size.
+        // Drawing-space → frame normalisation: the cached drawing is authored in
+        // frame coordinates, so the shapes' bounding box spans the frame width but
+        // keeps PowerPoint's symmetric internal vertical margins (≈24pt top/bottom
+        // on slide 15) instead of being stretched to fill the full frame height.
         var minX = diagramShapes.Min(s => s.X);
         var minY = diagramShapes.Min(s => s.Y);
         var maxX = diagramShapes.Max(s => s.X + s.Width);
         var maxY = diagramShapes.Max(s => s.Y + s.Height);
         Assert.Equal(frameX, minX, 1.0);
-        Assert.Equal(frameY, minY, 1.0);
         Assert.Equal(frameX + frameW, maxX, 1.0);
-        Assert.Equal(frameY + frameH, maxY, 1.0);
+        Assert.Equal(minY - frameY, frameY + frameH - maxY, 1.0);
+        Assert.Equal(24.0, minY - frameY, 1.0);
 
         // Exactly the 4 node labels, with dsp:style fontRef colour (lt1 = white)
         // applied as the paragraph default — not the unresolved black default.

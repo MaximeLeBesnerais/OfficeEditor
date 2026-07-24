@@ -115,6 +115,36 @@ internal static class SmartArtDrawingExtractor
     }
 
     /// <summary>
+    /// Maps the drawing-space bounding box onto the graphic frame with a uniform
+    /// (aspect-preserving) scale, centred within the frame. Returns the draw scale
+    /// plus the adjusted frame origin expected by <see cref="TryExtractShape"/>
+    /// (final = off + (frame + shapeOff) · scale).
+    ///
+    /// Calibration (sales_acceleration_deck slide 15): PowerPoint's cached
+    /// dsp:drawing is authored in frame coordinates — the drawing bbox width equals
+    /// the frame width (359.86pt vs 360pt) and the content is vertically centred
+    /// with symmetric 24pt internal margins — so the previous per-axis bbox stretch
+    /// over-sized shapes (~20% too tall) whenever the content did not span the full
+    /// frame. Uniform fit + centring reproduces PowerPoint's effective layout box
+    /// for cached drawings, and degrades gracefully (fit + centre) when the frame
+    /// was resized after the cache was generated.
+    /// </summary>
+    internal static (double ScaleX, double ScaleY, double FrameX, double FrameY) ComputeFrameFit(
+        (double MinX, double MinY, double Width, double Height) bounds,
+        (double X, double Y, double Width, double Height) frame)
+    {
+        var scale = Math.Min(frame.Width / bounds.Width, frame.Height / bounds.Height);
+        var centerOffsetX = (frame.Width - bounds.Width * scale) / 2;
+        var centerOffsetY = (frame.Height - bounds.Height * scale) / 2;
+
+        return (
+            scale,
+            scale,
+            (frame.X + centerOffsetX) / scale - bounds.MinX,
+            (frame.Y + centerOffsetY) / scale - bounds.MinY);
+    }
+
+    /// <summary>
     /// Attempts to extract a shape element from a &lt;dsp:sp&gt; diagram shape.
     /// Returns null when the shape has no recognisable geometry or cannot be rendered.
     /// </summary>
