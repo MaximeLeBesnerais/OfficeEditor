@@ -462,7 +462,7 @@ public sealed partial class PptxToTypstConverter
         var parts = new List<string>();
         if (paragraph.MarginLeft.HasValue && paragraph.MarginLeft.Value > 0.01)
         {
-            parts.Add($"indent: {FormatPtStatic(paragraph.MarginLeft.Value)}");
+            parts.Add($"indent: {FormatPt(paragraph.MarginLeft.Value)}");
         }
         if (paragraph.Indent.HasValue)
         {
@@ -471,7 +471,7 @@ public sealed partial class PptxToTypstConverter
             var bodyIndent = Math.Abs(paragraph.Indent.Value);
             if (bodyIndent > 0.01)
             {
-                parts.Add($"body-indent: {FormatPtStatic(bodyIndent)}");
+                parts.Add($"body-indent: {FormatPt(bodyIndent)}");
             }
         }
         return parts.Count > 0 ? ", " + string.Join(", ", parts) : "";
@@ -486,23 +486,18 @@ public sealed partial class PptxToTypstConverter
         }
         if (paragraph.MarginLeft.HasValue && paragraph.MarginLeft.Value > 0.01)
         {
-            parts.Add($"indent: {FormatPtStatic(paragraph.MarginLeft.Value)}");
+            parts.Add($"indent: {FormatPt(paragraph.MarginLeft.Value)}");
         }
         if (paragraph.Indent.HasValue)
         {
             var bodyIndent = Math.Abs(paragraph.Indent.Value);
             if (bodyIndent > 0.01)
             {
-                parts.Add($"body-indent: {FormatPtStatic(bodyIndent)}");
+                parts.Add($"body-indent: {FormatPt(bodyIndent)}");
             }
         }
 
         return parts.Count > 0 ? "(" + string.Join(", ", parts) + ")" : "";
-    }
-
-    private static string FormatPtStatic(double pt)
-    {
-        return pt.ToString("F2", CultureInfo.InvariantCulture) + "pt";
     }
 
     private string BuildTextParameters(TypstTextFormatting fmt, HashSet<string> availableFonts)
