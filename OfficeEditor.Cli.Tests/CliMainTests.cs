@@ -240,7 +240,7 @@ public sealed class CliMainTests : IDisposable
             ?? throw new InvalidOperationException("Main method not found.");
 
         var result = method.Invoke(null, [args]);
-        return (int)(result ?? 1);
+        return (int)(result ?? throw new InvalidOperationException("Main signature changed; update InvokeMain"));
     }
 
     private string TempPath(string fileName)
@@ -291,7 +291,10 @@ public sealed class CliMainTests : IDisposable
             if (Directory.Exists(_tempDir))
                 Directory.Delete(_tempDir, true);
         }
-        catch
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
         {
         }
     }
