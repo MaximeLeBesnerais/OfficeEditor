@@ -164,15 +164,21 @@ public sealed class ApiIntegrationTests : IClassFixture<WebApplicationFactory<Pr
     [Fact]
     public async Task Convert_SampleFile_ReturnsResult()
     {
+        const string enableEnvVar = "OE_RUN_TYPST_COMPILE_TESTS";
+        if (Environment.GetEnvironmentVariable(enableEnvVar) != "1")
+        {
+            return;
+        }
+
         using var content = new MultipartFormDataContent();
         content.Add(new StringContent("northwind-demo"), "sampleName");
         content.Add(new StringContent("pdf"), "targetFormat");
 
         var response = await _client.PostAsync("/api/convert", content);
 
-        var status = response.StatusCode;
-        Assert.True(status == HttpStatusCode.OK || status == HttpStatusCode.BadRequest,
-            $"Unexpected status {status}");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var bytes = await response.Content.ReadAsByteArrayAsync();
+        Assert.True(bytes.Length > 0, "Converted PDF payload should be non-empty");
     }
 
     [Fact]
@@ -204,7 +210,7 @@ public sealed class ApiIntegrationTests : IClassFixture<WebApplicationFactory<Pr
     {
         var response = await _client.GetAsync($"/api/decks/{Guid.NewGuid()}/slides/1/preview");
 
-        Assert.True(response.StatusCode == HttpStatusCode.NotFound || response.StatusCode == HttpStatusCode.BadRequest);
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
     [Fact]

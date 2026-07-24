@@ -172,15 +172,6 @@ public sealed class TypstBridgeSessionTests
         Assert.Contains("font", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static TypstBridgeCompiler CreateAvailableCompiler()
-    {
-        TypstBridgeCompiler compiler = new();
-        if (!compiler.Probe())
-        {
-            throw new InvalidOperationException(
-                "TypstBridge native library is not available. Build runtime assets first, e.g. TypstBridge/packaging/build-native.sh linux-x64.");
-        }
-
-        return compiler;
-    }
+    private static TypstBridgeCompiler CreateAvailableCompiler() =>
+        TestCompilerFactory.CreateAvailableCompiler();
 }

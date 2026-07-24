@@ -12,6 +12,10 @@ namespace PptxEditor.Core.Generation.Design;
 
 public static class TokenMiner
 {
+    /// <summary>
+    /// Mines design tokens from a PPTX file. Only explicit <c>SolidFill</c> colors on
+    /// slides are counted; style <c>fillRef</c>/<c>lnRef</c> and layout/master colors are not included.
+    /// </summary>
     public static DesignTokens Mine(string pptxPath)
     {
         if (!File.Exists(pptxPath))
@@ -94,13 +98,6 @@ public static class TokenMiner
         var table = graphicFrame.Descendants<DocumentFormat.OpenXml.Drawing.Table>().FirstOrDefault();
         if (table != null)
         {
-            foreach (var gridCol in table.Descendants<Drawing.GridColumn>())
-            {
-                if (gridCol.Width?.Value != null)
-                {
-                }
-            }
-
             foreach (var row in table.Elements<Drawing.TableRow>())
             {
                 foreach (var cell in row.Elements<Drawing.TableCell>())
@@ -304,26 +301,18 @@ public static class TokenMiner
     private static FontTokens BuildFonts(BrandProfile brandProfile, Dictionary<string, int> shapeFonts)
     {
         var display = brandProfile.MajorFont ?? PickTopFont(shapeFonts);
-        var body = brandProfile.MinorFont ?? display;
+        var body = brandProfile.MinorFont ?? PickTopFont(shapeFonts) ?? display;
 
         return new FontTokens { Display = display, Body = body };
     }
 
     private static string? PickTopFont(Dictionary<string, int> fonts)
     {
-        string? best = null;
-        var bestCount = -1;
-
-        foreach (var (family, count) in fonts)
-        {
-            if (count > bestCount)
-            {
-                bestCount = count;
-                best = family;
-            }
-        }
-
-        return best;
+        return fonts
+            .OrderByDescending(kv => kv.Value)
+            .ThenBy(kv => kv.Key, StringComparer.Ordinal)
+            .Select(kv => kv.Key)
+            .FirstOrDefault();
     }
 
     private static MetricTokens BuildMetrics(BrandProfile brandProfile)
@@ -332,7 +321,7 @@ public static class TokenMiner
         {
             MarginPt = 48,
             GutterPt = 18,
-            TitleSizePt = brandProfile.Title?.FontSizePt ?? 32,
+            TitleSizePt = brandProfile.Title?.FontSizePt is { } titleSize and > 0 ? titleSize : 32,
             BodySizePt = brandProfile.Body?.FontSizePt is { } bodySize and > 0 ? bodySize : 14
         };
     }
