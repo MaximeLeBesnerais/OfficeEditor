@@ -531,19 +531,30 @@ public sealed partial class PptxToTypstConverter : IDisposable
 
     private static bool IsUserDrawnShape(OpenXmlElement element)
     {
-        if (element is not P.Shape shape)
-            return false;
+        switch (element)
+        {
+            case P.Shape shape:
+            {
+                var nvSpPr = shape.NonVisualShapeProperties;
+                if (nvSpPr == null)
+                    return false;
 
-        var nvSpPr = shape.NonVisualShapeProperties;
-        if (nvSpPr == null)
-            return false;
+                var ph = nvSpPr.Elements<PlaceholderShape>().FirstOrDefault();
+                if (ph != null)
+                    return false;
 
-        var ph = nvSpPr.Elements<PlaceholderShape>().FirstOrDefault();
-        if (ph != null)
-            return false;
-
-        ph = nvSpPr.ApplicationNonVisualDrawingProperties?.Elements<PlaceholderShape>().FirstOrDefault();
-        return ph == null;
+                ph = nvSpPr.ApplicationNonVisualDrawingProperties?.Elements<PlaceholderShape>().FirstOrDefault();
+                return ph == null;
+            }
+            // Layout pictures (logos, footer art) are always user-drawn content.
+            case P.Picture:
+                return true;
+            // Layout groups render unless they wrap placeholder shapes.
+            case P.GroupShape groupShape:
+                return !groupShape.Descendants<PlaceholderShape>().Any();
+            default:
+                return false;
+        }
     }
 
     private static List<(double X, double Y, double W, double H)> CollectShapePositions(OpenXmlElementList elements)
@@ -633,6 +644,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
             P.Picture picture => ConvertPicture(slidePart, picture, offX, offY, scaleX, scaleY),
             P.GraphicFrame graphicFrame => ConvertGraphicFrame(slidePart, graphicFrame, styleResolver, offX, offY, scaleX, scaleY),
             P.GroupShape groupShape => ConvertGroupShape(slidePart, groupShape, styleResolver, slideIndex, offX, offY, scaleX, scaleY),
+            P.ConnectionShape connectionShape => ConvertConnectionShape(connectionShape, styleResolver, offX, offY, scaleX, scaleY),
             _ => Array.Empty<TypstElement>()
         };
     }
@@ -826,6 +838,10 @@ public sealed partial class PptxToTypstConverter : IDisposable
             {
                 return CreateElement("polygon", DiamondPoints);
             }
+            if (prst == Drawing.ShapeTypeValues.DiagonalStripe)
+            {
+                return CreateElement("polygon", BuildDiagStripePoints(prstGeom));
+            }
         }
 
         // Check for custom geometry (path-based shapes)
@@ -935,6 +951,27 @@ public sealed partial class PptxToTypstConverter : IDisposable
     {
         (0.5, 0), (1, 0.5), (0.5, 1), (0, 0.5)
     };
+
+    /// <summary>
+    /// Normalised [0,1] polygon points for the OOXML diagStripe preset (ECMA-376): a
+    /// diagonal band of relative thickness <c>adj</c> (default 50000 = 50%) running
+    /// from the top edge to the left edge — path (0,a) (a,0) (1,0) (0,1).
+    /// </summary>
+    private static List<(double X, double Y)> BuildDiagStripePoints(Drawing.PresetGeometry prstGeom)
+    {
+        var adj = 50000.0;
+        var match = Regex.Match(prstGeom.OuterXml, @"\bfmla\s*=\s*""val\s+(\d+)""");
+        if (match.Success && double.TryParse(match.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var adjValue))
+        {
+            adj = adjValue;
+        }
+
+        var f = Math.Clamp(adj / 100000.0, 0.0, 1.0);
+        return new List<(double X, double Y)>
+        {
+            (0, f), (f, 0), (1, 0), (0, 1)
+        };
+    }
 
     /// <summary>
     /// Normalised [0,1] polygon points for the OOXML chevron preset (ECMA-376): a
@@ -1721,11 +1758,15 @@ public sealed partial class PptxToTypstConverter : IDisposable
             var chExtX = (double)(grpXfrm.ChildExtents?.Cx?.Value ?? 1);
             var chExtY = (double)(grpXfrm.ChildExtents?.Cy?.Value ?? 1);
 
-            var localScaleX = grpExtX / chExtX;
-            var localScaleY = grpExtY / chExtY;
+            // Degenerate groups (e.g. zero-height connector groups) have chExt 0 on an
+            // axis; fall back to an unscaled (translate-only) mapping on that axis.
+            var localScaleX = chExtX != 0 ? grpExtX / chExtX : 1;
+            var localScaleY = chExtY != 0 ? grpExtY / chExtY : 1;
 
-            newOffX = parentOffX + (grpOffX - chOffX) * parentScaleX;
-            newOffY = parentOffY + (grpOffY - chOffY) * parentScaleY;
+            // ECMA-376 §20.1.9.5: child point p maps to
+            // grpOff + (p − chOff) × (ext / chExt) — chOff must be scaled too.
+            newOffX = parentOffX + (grpOffX - chOffX * localScaleX) * parentScaleX;
+            newOffY = parentOffY + (grpOffY - chOffY * localScaleY) * parentScaleY;
             newScaleX = parentScaleX * localScaleX;
             newScaleY = parentScaleY * localScaleY;
         }
@@ -1735,6 +1776,43 @@ public sealed partial class PptxToTypstConverter : IDisposable
             foreach (var element in ConvertElement(slidePart, child, styleResolver, slideIndex, newOffX, newOffY, newScaleX, newScaleY))
                 yield return element;
         }
+    }
+
+    /// <summary>
+    /// Converts a connection shape (p:cxnSp — e.g. the straight connectors used as
+    /// list-glyph lines inside SmartArt-style groups) to a stroked shape element.
+    /// Zero-height/zero-width connectors render via their stroke only.
+    /// </summary>
+    private IEnumerable<TypstElement> ConvertConnectionShape(P.ConnectionShape connectionShape, StyleResolver styleResolver, double offX, double offY, double scaleX, double scaleY)
+    {
+        var (id, name) = GetElementIdAndName(connectionShape.NonVisualConnectionShapeProperties);
+        var position = GetElementPosition(connectionShape.ShapeProperties);
+
+        var finalX = offX + position.X * scaleX;
+        var finalY = offY + position.Y * scaleY;
+        var finalW = position.Width * scaleX;
+        var finalH = position.Height * scaleY;
+
+        var shapeElement = ExtractShapeGeometry(connectionShape.ShapeProperties, styleResolver, finalW, finalH);
+        if (shapeElement == null || (string.IsNullOrEmpty(shapeElement.FillColor)
+            && shapeElement.FillGradient == null
+            && (string.IsNullOrEmpty(shapeElement.StrokeColor) || shapeElement.StrokeWidth <= 0)))
+        {
+            yield break;
+        }
+
+        yield return new TypstElement
+        {
+            Type = "Shape",
+            Id = id,
+            Name = name,
+            X = finalX,
+            Y = finalY,
+            Width = finalW,
+            Height = finalH,
+            Rotation = position.Rotation,
+            Shape = shapeElement
+        };
     }
 
     private TypstTextElement ExtractTextFromShape(P.Shape shape, StyleResolver styleResolver, SlidePart? slidePart = null)
@@ -1890,6 +1968,23 @@ public sealed partial class PptxToTypstConverter : IDisposable
             if (align == null)
             {
                 align = ExtractParagraphAlignment(paragraph);
+
+                // Placeholder inheritance: when the slide paragraph sets no algn, fall
+                // back to the layout placeholder lstStyle, then the master txStyles
+                // (e.g. decks whose titles are right-aligned via titleStyle algn="r").
+                if (align == null && styleResolver != null && placeholderType != null)
+                {
+                    var inherited = styleResolver.GetLayoutPlaceholderAlignment(placeholderIdx, placeholderType, 0)
+                        ?? styleResolver.GetMasterTxStyleAlignment(placeholderType, 0);
+                    align = inherited switch
+                    {
+                        "ctr" => "center",
+                        "r" => "right",
+                        "just" => "left",
+                        "l" => "left",
+                        _ => null
+                    };
+                }
             }
 
             var paragraphText = new StringBuilder();
@@ -2912,7 +3007,9 @@ public sealed partial class PptxToTypstConverter : IDisposable
         var embed = blip.Embed?.Value;
         if (string.IsNullOrEmpty(embed)) return null;
 
-        var imagePart = slidePart.GetPartById(embed) as ImagePart;
+        // See ExtractImage: layout shapes resolve image rels via the layout part.
+        var imagePart = TryGetImagePart(slidePart, embed)
+            ?? TryGetImagePart(slidePart.SlideLayoutPart, embed);
         if (imagePart == null) return null;
 
         // Determine file extension
@@ -2963,7 +3060,10 @@ public sealed partial class PptxToTypstConverter : IDisposable
         var embed = blip.Embed?.Value;
         if (string.IsNullOrEmpty(embed)) return null;
 
-        var imagePart = slidePart.GetPartById(embed) as ImagePart;
+        // Layout pictures reference image parts through the LAYOUT part's
+        // relationships, not the slide part's — try both.
+        var imagePart = TryGetImagePart(slidePart, embed)
+            ?? TryGetImagePart(slidePart.SlideLayoutPart, embed);
         if (imagePart == null) return null;
 
         // Determine file extension
@@ -3004,6 +3104,17 @@ public sealed partial class PptxToTypstConverter : IDisposable
             PixelWidth = dimensions?.Width,
             PixelHeight = dimensions?.Height
         };
+    }
+
+    private static ImagePart? TryGetImagePart(OpenXmlPartContainer? container, string relationshipId)
+    {
+        if (container == null) return null;
+        foreach (var part in container.Parts)
+        {
+            if (part.RelationshipId == relationshipId && part.OpenXmlPart is ImagePart imagePart)
+                return imagePart;
+        }
+        return null;
     }
 
     private TypstTableElement ExtractTable(Drawing.Table table, StyleResolver styleResolver)

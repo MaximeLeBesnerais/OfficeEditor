@@ -395,7 +395,8 @@ public class PptxToTypstConverterTests : IDisposable
         var presentation = converter.Convert();
         var element = AssertSingleTextElement(presentation, "Grouped text");
 
-        AssertPosition(element, x: 130, y: 90, width: 200, height: 80);
+        // ECMA-376: abs = grpOff + (child − chOff) × (ext / chExt)
+        AssertPosition(element, x: 120, y: 70, width: 200, height: 80);
     }
 
     [Fact]
@@ -417,7 +418,7 @@ public class PptxToTypstConverterTests : IDisposable
         var presentation = converter.Convert();
         var element = AssertSingleTextElement(presentation, "Inherited transform");
 
-        AssertPosition(element, x: 130, y: 90, width: 200, height: 80);
+        AssertPosition(element, x: 120, y: 70, width: 200, height: 80);
     }
 
     [Fact]
@@ -474,7 +475,7 @@ public class PptxToTypstConverterTests : IDisposable
         var presentation = converter.Convert();
         var element = AssertSingleTextElement(presentation, "Supported sibling");
 
-        AssertPosition(element, x: 130, y: 90, width: 200, height: 80);
+        AssertPosition(element, x: 120, y: 70, width: 200, height: 80);
     }
 
     [Fact]
@@ -1965,6 +1966,22 @@ public class PptxToTypstConverterTests : IDisposable
     }
 
     [Fact]
+    public void ExtractTextFromShape_TitleAlignment_InheritedFromMasterTxStyles()
+    {
+        var path = CreateMasterTitleRightAlignedPptx();
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = converter.Convert();
+        var element = Assert.Single(presentation.Slides[0].Elements);
+        Assert.Equal("right", element.Text!.Formatting.Align);
+
+        var source = converter.GenerateTypstSource(presentation);
+        Assert.Contains("#align(right)", source);
+    }
+
+    [Fact]
     public void StyleResolver_MasterPlaceholder_SkipsIdxMatch_WhenTypeDiffers()
     {
         var path = CreateMismatchedMasterPlaceholderPptx();
@@ -2159,6 +2176,154 @@ public class PptxToTypstConverterTests : IDisposable
                                 new Drawing.ListStyle(),
                                 new Drawing.Paragraph(
                                     new Drawing.Run(new Drawing.Text { Text = "Title Text" })
+                                )
+                            )
+                        )
+                    )
+                )
+            );
+            slidePart.Slide = slide;
+            slidePart.AddPart(slideLayoutPart);
+
+            var slideId = new SlideId
+            {
+                Id = 256,
+                RelationshipId = presentationPart.GetIdOfPart(slidePart)
+            };
+            presentationPart.Presentation.SlideIdList.Append(slideId);
+
+            presentationPart.Presentation.SlideSize = new SlideSize
+            {
+                Cx = 9144000,
+                Cy = 6858000,
+                Type = SlideSizeValues.Screen4x3
+            };
+        }
+
+        return path;
+    }
+
+    private string CreateMasterTitleRightAlignedPptx()
+    {
+        var path = Path.Combine(_tempDir, "master-title-right-aligned.pptx");
+
+        using (var document = PresentationDocument.Create(path, PresentationDocumentType.Presentation))
+        {
+            var presentationPart = document.AddPresentationPart();
+            presentationPart.Presentation = new Presentation();
+            presentationPart.Presentation.SlideMasterIdList = new SlideMasterIdList();
+
+            var slideMasterPart = presentationPart.AddNewPart<SlideMasterPart>();
+            var slideMaster = new SlideMaster(
+                new CommonSlideData(
+                    new ShapeTree(
+                        new NonVisualGroupShapeProperties(
+                            new NonVisualDrawingProperties { Id = 0, Name = "" },
+                            new NonVisualGroupShapeDrawingProperties(),
+                            new ApplicationNonVisualDrawingProperties()
+                        ),
+                        new GroupShapeProperties(
+                            new Drawing.TransformGroup(
+                                new Drawing.Offset { X = 0, Y = 0 },
+                                new Drawing.Extents { Cx = 0, Cy = 0 },
+                                new Drawing.ChildOffset { X = 0, Y = 0 },
+                                new Drawing.ChildExtents { Cx = 0, Cy = 0 }
+                            )
+                        )
+                    )
+                ),
+                new ColorMap(),
+                new SlideLayoutIdList(),
+                // Master declares right-aligned titles: <p:titleStyle><a:lvl1pPr algn="r">
+                new TextStyles(
+                    new TitleStyle(
+                        new Drawing.Level1ParagraphProperties { Alignment = Drawing.TextAlignmentTypeValues.Right }
+                    )
+                )
+            );
+            slideMasterPart.SlideMaster = slideMaster;
+
+            var slideLayoutPart = slideMasterPart.AddNewPart<SlideLayoutPart>();
+            slideLayoutPart.SlideLayout = new P.SlideLayout(new CommonSlideData(new ShapeTree(
+                new NonVisualGroupShapeProperties(
+                    new NonVisualDrawingProperties { Id = 0, Name = "" },
+                    new NonVisualGroupShapeDrawingProperties(),
+                    new ApplicationNonVisualDrawingProperties()
+                ),
+                new GroupShapeProperties(
+                    new Drawing.TransformGroup(
+                        new Drawing.Offset { X = 0, Y = 0 },
+                        new Drawing.Extents { Cx = 0, Cy = 0 },
+                        new Drawing.ChildOffset { X = 0, Y = 0 },
+                        new Drawing.ChildExtents { Cx = 0, Cy = 0 }
+                    )
+                ),
+                new P.Shape(
+                    new NonVisualShapeProperties(
+                        new NonVisualDrawingProperties { Id = 1, Name = "Title" },
+                        new NonVisualShapeDrawingProperties(new Drawing.ShapeLocks { NoGrouping = true }),
+                        new ApplicationNonVisualDrawingProperties(
+                            new PlaceholderShape { Type = PlaceholderValues.Title }
+                        )
+                    ),
+                    new ShapeProperties(),
+                    new TextBody(
+                        new Drawing.BodyProperties(),
+                        new Drawing.ListStyle()
+                    )
+                )
+            )));
+            slideLayoutPart.AddPart(slideMasterPart);
+
+            var layoutId = new SlideLayoutId
+            {
+                Id = 2147483649,
+                RelationshipId = slideMasterPart.GetIdOfPart(slideLayoutPart)
+            };
+            slideMaster.SlideLayoutIdList!.Append(layoutId);
+
+            presentationPart.Presentation.SlideIdList = new SlideIdList();
+            presentationPart.Presentation.SlideMasterIdList.Append(new SlideMasterId
+            {
+                Id = 2147483648,
+                RelationshipId = presentationPart.GetIdOfPart(slideMasterPart)
+            });
+
+            var slidePart = presentationPart.AddNewPart<SlidePart>();
+            var slide = new Slide(
+                new CommonSlideData(
+                    new ShapeTree(
+                        new NonVisualGroupShapeProperties(
+                            new NonVisualDrawingProperties { Id = 0, Name = "" },
+                            new NonVisualGroupShapeDrawingProperties(),
+                            new ApplicationNonVisualDrawingProperties()
+                        ),
+                        new GroupShapeProperties(
+                            new Drawing.TransformGroup(
+                                new Drawing.Offset { X = 0, Y = 0 },
+                                new Drawing.Extents { Cx = 0, Cy = 0 },
+                                new Drawing.ChildOffset { X = 0, Y = 0 },
+                                new Drawing.ChildExtents { Cx = 0, Cy = 0 }
+                            )
+                        ),
+                        new P.Shape(
+                            new NonVisualShapeProperties(
+                                new NonVisualDrawingProperties { Id = 2, Name = "Title" },
+                                new NonVisualShapeDrawingProperties(new Drawing.ShapeLocks { NoGrouping = true }),
+                                new ApplicationNonVisualDrawingProperties(
+                                    new PlaceholderShape { Type = PlaceholderValues.Title }
+                                )
+                            ),
+                            new ShapeProperties(
+                                new Drawing.Transform2D(
+                                    new Drawing.Offset { X = Pt(40), Y = Pt(20) },
+                                    new Drawing.Extents { Cx = Pt(400), Cy = Pt(60) })),
+                            new TextBody(
+                                new Drawing.BodyProperties(),
+                                new Drawing.ListStyle(),
+                                // No algn on the slide paragraph — must inherit from master txStyles
+                                new Drawing.Paragraph(
+                                    new Drawing.Run(new Drawing.Text { Text = "BASIC BLOCK LIST" })
                                 )
                             )
                         )
@@ -3715,6 +3880,36 @@ public class PptxToTypstConverterTests : IDisposable
     }
 
     [Fact]
+    public void GenerateTypstSource_ShapeSolidFillWithLumMod_DarkensColor()
+    {
+        // bg1/lt1 (white) with lumMod 75% must resolve to light gray (#BFBFBF), not
+        // white — the SmartArt fixtures section headers ("List //") depend on this.
+        var shape = ShapeFromXml("""<a:solidFill><a:srgbClr val="FFFFFF"><a:lumMod val="75000"/></a:srgbClr></a:solidFill>""");
+        var path = CreateGroupShapePptx("lumod-shape-fill.pptx", shape);
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = converter.Convert();
+        var shapeElement = Assert.Single(presentation.Slides[0].Elements, e => e.Shape != null);
+        Assert.Equal("#BFBFBF", shapeElement.Shape!.FillColor);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_ShapeSolidFillWithLumOff_LightensColor()
+    {
+        var shape = ShapeFromXml("""<a:solidFill><a:srgbClr val="000000"><a:lumOff val="20000"/></a:srgbClr></a:solidFill>""");
+        var path = CreateGroupShapePptx("lumoff-shape-fill.pptx", shape);
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = converter.Convert();
+        var shapeElement = Assert.Single(presentation.Slides[0].Elements, e => e.Shape != null);
+        Assert.Equal("#333333", shapeElement.Shape!.FillColor);
+    }
+
+    [Fact]
     public void GenerateTypstSource_ShapeSolidFillWithAlpha_EmitsEightDigitHex()
     {
         var shape = ShapeFromXml("""<a:solidFill><a:srgbClr val="FFFFFF"><a:alpha val="15000"/></a:srgbClr></a:solidFill>""");
@@ -4039,5 +4234,268 @@ public class PptxToTypstConverterTests : IDisposable
 
         Assert.Equal("#0B1026", bg);
         Assert.Contains("""#set page(fill: rgb("#0B1026"))""", source);
+    }
+
+    // ---------------------------------------------------------------------
+    // SmartArt-corpus slide-1 fidelity: group child-offset math, connector
+    // shapes (p:cxnSp), diagStripe preset geometry, layout footer content.
+    // ---------------------------------------------------------------------
+
+    private static P.Shape FilledRectShape(uint id, double x, double y, double width, double height, string hexFill)
+    {
+        return new P.Shape(
+            new NonVisualShapeProperties(
+                new NonVisualDrawingProperties { Id = id, Name = $"Rect {id}" },
+                new NonVisualShapeDrawingProperties(),
+                new ApplicationNonVisualDrawingProperties()),
+            new ShapeProperties(
+                new Drawing.Transform2D(
+                    new Drawing.Offset { X = Pt(x), Y = Pt(y) },
+                    new Drawing.Extents { Cx = Pt(width), Cy = Pt(height) }),
+                new Drawing.PresetGeometry(new Drawing.AdjustValueList()) { Preset = Drawing.ShapeTypeValues.Rectangle },
+                new Drawing.SolidFill(new Drawing.RgbColorModelHex { Val = hexFill })));
+    }
+
+    private static P.ConnectionShape LineConnector(uint id, double x, double y, double width, double height, string hexStroke, int strokeEmus)
+    {
+        return new P.ConnectionShape(
+            new NonVisualConnectionShapeProperties(
+                new NonVisualDrawingProperties { Id = id, Name = $"Connector {id}" },
+                new NonVisualConnectorShapeDrawingProperties(),
+                new ApplicationNonVisualDrawingProperties()),
+            new ShapeProperties(
+                new Drawing.Transform2D(
+                    new Drawing.Offset { X = Pt(x), Y = Pt(y) },
+                    new Drawing.Extents { Cx = Pt(width), Cy = Pt(height) }),
+                new Drawing.PresetGeometry(new Drawing.AdjustValueList()) { Preset = Drawing.ShapeTypeValues.Line },
+                new Drawing.Outline(new Drawing.SolidFill(new Drawing.RgbColorModelHex { Val = hexStroke }))
+                {
+                    Width = new Int32Value(strokeEmus)
+                }));
+    }
+
+    [Fact]
+    public void Convert_GroupShapeWithScaledChildOffset_MapsChildrenIntoGroupCoordinateSpace()
+    {
+        // ECMA-376 group mapping: abs = grpOff + (child − chOff) × (ext / chExt).
+        // A child spanning the whole child space must land exactly on the group bbox
+        // (mirrors the SmartArt fixtures title-slide group: chOff.y ≠ 0, scale ≠ 1).
+        var group = GroupShape(
+            10,
+            TransformGroup(x: 27, y: 16, width: 190, height: 140, childX: 0, childY: 224, childWidth: 296, childHeight: 218),
+            FilledRectShape(11, x: 0, y: 224, width: 296, height: 218, "4472C4"));
+        var path = CreateGroupShapePptx("group-scaled-child-offset.pptx", group);
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = converter.Convert();
+        var element = Assert.Single(presentation.Slides[0].Elements);
+
+        AssertPosition(element, x: 27, y: 16, width: 190, height: 140);
+    }
+
+    [Fact]
+    public void Convert_ConnectionShapeInsideZeroHeightGroup_RendersStrokeAtMappedPosition()
+    {
+        // List-glyph pattern: nested grpSp with cy=0/chExt cy=0 (degenerate) holding a
+        // horizontal straight connector (p:cxnSp). The connector must render (stroke)
+        // and the 0/0 group scale must not poison positions with NaN.
+        var innerGroup = GroupShape(
+            11,
+            TransformGroup(x: 20, y: 60, width: 130, height: 0, childX: 20, childY: 60, childWidth: 130, childHeight: 0),
+            LineConnector(12, x: 20, y: 60, width: 80, height: 0, hexStroke: "ED7D31", strokeEmus: 76200));
+        var outerGroup = GroupShape(
+            10,
+            TransformGroup(x: 100, y: 100, width: 260, height: 130, childX: 0, childY: 40, childWidth: 520, childHeight: 260),
+            innerGroup);
+        var path = CreateGroupShapePptx("connector-zero-height-group.pptx", outerGroup);
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = converter.Convert();
+        var element = Assert.Single(presentation.Slides[0].Elements);
+
+        Assert.Equal("Shape", element.Type);
+        Assert.False(double.IsNaN(element.X) || double.IsNaN(element.Y), "Connector position must not be NaN");
+        AssertPosition(element, x: 110, y: 110, width: 40, height: 0);
+        Assert.Equal("#ED7D31", element.Shape!.StrokeColor);
+        Assert.Equal(6, element.Shape.StrokeWidth, 2);
+    }
+
+    [Fact]
+    public void Convert_DiagonalStripePreset_EmitsStripePolygonNotBoundingRect()
+    {
+        // diagStripe (adj = stripe thickness in 1/100000 of the bbox) is a diagonal
+        // band: (0,f) (f,0) (1,0) (0,1) — not the full square bbox.
+        var stripe = new P.Shape(
+            new NonVisualShapeProperties(
+                new NonVisualDrawingProperties { Id = 2, Name = "Stripe" },
+                new NonVisualShapeDrawingProperties(),
+                new ApplicationNonVisualDrawingProperties()),
+            new ShapeProperties(
+                new Drawing.Transform2D(
+                    new Drawing.Offset { X = Pt(500), Y = Pt(0) },
+                    new Drawing.Extents { Cx = Pt(200), Cy = Pt(200) })
+                {
+                    Rotation = new Int32Value(5400000)
+                },
+                new Drawing.PresetGeometry(
+                    new Drawing.AdjustValueList(
+                        new Drawing.ShapeGuide { Name = "adj", Formula = "val 30578" }))
+                {
+                    Preset = Drawing.ShapeTypeValues.DiagonalStripe
+                },
+                new Drawing.SolidFill(new Drawing.RgbColorModelHex { Val = "ED7D31" })));
+        var path = CreateGroupShapePptx("diag-stripe.pptx", stripe);
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = converter.Convert();
+        var element = Assert.Single(presentation.Slides[0].Elements);
+
+        Assert.Equal("Shape", element.Type);
+        Assert.Equal("polygon", element.Shape!.ShapeType);
+        Assert.Equal(90, element.Rotation, 2);
+        Assert.Equal(4, element.Shape.Points.Count);
+        Assert.Equal(0.0, element.Shape.Points[0].X, 5);
+        Assert.Equal(0.30578, element.Shape.Points[0].Y, 5);
+        Assert.Equal(0.30578, element.Shape.Points[1].X, 5);
+        Assert.Equal(0.0, element.Shape.Points[1].Y, 5);
+        Assert.Equal(1.0, element.Shape.Points[2].X, 5);
+        Assert.Equal(0.0, element.Shape.Points[2].Y, 5);
+        Assert.Equal(0.0, element.Shape.Points[3].X, 5);
+        Assert.Equal(1.0, element.Shape.Points[3].Y, 5);
+
+        var source = converter.GenerateTypstSource(presentation);
+        Assert.Contains("#rotate(90.0deg", source);
+        Assert.Contains("#polygon(", source);
+    }
+
+    [Fact]
+    public void Convert_LayoutUserDrawnGroupShape_RendersChildren()
+    {
+        // Footer-byline pattern: a grpSp on the slide layout (no placeholders inside)
+        // must render on the slide, mapped through its child coordinate space.
+        var footerGroup = GroupShape(
+            20,
+            TransformGroup(x: 400, y: 500, width: 150, height: 30, childX: 390, childY: 495, childWidth: 150, childHeight: 30),
+            TextShape(21, "Made with love", x: 390, y: 495, width: 150, height: 30));
+        var path = CreateLayoutContentPptx("layout-user-drawn-group.pptx", null, footerGroup);
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = converter.Convert();
+        var element = AssertSingleTextElement(presentation, "Made with love");
+
+        AssertPosition(element, x: 400, y: 500, width: 150, height: 30);
+    }
+
+    [Fact]
+    public void Convert_LayoutUserDrawnPicture_RendersImageResolvedFromLayoutPart()
+    {
+        // Footer logo pattern: a p:pic on the layout whose a:blip r:embed is a
+        // relationship of the LAYOUT part (not the slide part).
+        var picture = new P.Picture(
+            new P.NonVisualPictureProperties(
+                new NonVisualDrawingProperties { Id = 30, Name = "Logo" },
+                new P.NonVisualPictureDrawingProperties(),
+                new ApplicationNonVisualDrawingProperties()),
+            new P.BlipFill(
+                new Drawing.Blip { Embed = "rIdLogo" },
+                new Drawing.Stretch(new Drawing.FillRectangle())),
+            new ShapeProperties(
+                new Drawing.Transform2D(
+                    new Drawing.Offset { X = Pt(600), Y = Pt(490) },
+                    new Drawing.Extents { Cx = Pt(100), Cy = Pt(30) })));
+
+        // 1x1 transparent PNG
+        var pngBytes = Convert.FromBase64String(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==");
+
+        var path = CreateLayoutContentPptx("layout-user-drawn-picture.pptx", layoutPart =>
+        {
+            var imagePart = layoutPart.AddNewPart<ImagePart>("image/png", "rIdLogo");
+            using (var stream = imagePart.GetStream(FileMode.Create, FileAccess.Write))
+            {
+                stream.Write(pngBytes, 0, pngBytes.Length);
+            }
+        }, picture);
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = converter.Convert();
+        var element = Assert.Single(presentation.Slides[0].Elements, e => e.Type == "Image");
+
+        AssertPosition(element, x: 600, y: 490, width: 100, height: 30);
+    }
+
+    private string CreateLayoutContentPptx(string fileName, Action<SlideLayoutPart>? customizeLayout, params OpenXmlElement[] layoutElements)
+    {
+        var path = Path.Combine(_tempDir, fileName);
+
+        using (var document = PresentationDocument.Create(path, PresentationDocumentType.Presentation))
+        {
+            var presentationPart = document.AddPresentationPart();
+            presentationPart.Presentation = new Presentation
+            {
+                SlideMasterIdList = new SlideMasterIdList(),
+                SlideIdList = new SlideIdList(),
+                SlideSize = new SlideSize { Cx = (int)Pt(720), Cy = (int)Pt(540), Type = SlideSizeValues.Screen4x3 }
+            };
+
+            var slideMasterPart = presentationPart.AddNewPart<SlideMasterPart>();
+            slideMasterPart.SlideMaster = new SlideMaster(
+                new CommonSlideData(CreateShapeTree()),
+                new ColorMap
+                {
+                    Background1 = Drawing.ColorSchemeIndexValues.Light1,
+                    Text1 = Drawing.ColorSchemeIndexValues.Dark1,
+                    Background2 = Drawing.ColorSchemeIndexValues.Light2,
+                    Text2 = Drawing.ColorSchemeIndexValues.Dark2,
+                    Accent1 = Drawing.ColorSchemeIndexValues.Accent1,
+                    Accent2 = Drawing.ColorSchemeIndexValues.Accent2,
+                    Accent3 = Drawing.ColorSchemeIndexValues.Accent3,
+                    Accent4 = Drawing.ColorSchemeIndexValues.Accent4,
+                    Accent5 = Drawing.ColorSchemeIndexValues.Accent5,
+                    Accent6 = Drawing.ColorSchemeIndexValues.Accent6,
+                    Hyperlink = Drawing.ColorSchemeIndexValues.Hyperlink,
+                    FollowedHyperlink = Drawing.ColorSchemeIndexValues.FollowedHyperlink
+                },
+                new SlideLayoutIdList());
+
+            var slideLayoutPart = slideMasterPart.AddNewPart<SlideLayoutPart>();
+            slideLayoutPart.SlideLayout = new P.SlideLayout(new CommonSlideData(CreateShapeTree(layoutElements)));
+            slideLayoutPart.AddPart(slideMasterPart);
+            slideMasterPart.SlideMaster.SlideLayoutIdList!.Append(new SlideLayoutId
+            {
+                Id = 2147483649,
+                RelationshipId = slideMasterPart.GetIdOfPart(slideLayoutPart)
+            });
+
+            presentationPart.Presentation.SlideMasterIdList.Append(new SlideMasterId
+            {
+                Id = 2147483648,
+                RelationshipId = presentationPart.GetIdOfPart(slideMasterPart)
+            });
+
+            var slidePart = presentationPart.AddNewPart<SlidePart>();
+            slidePart.Slide = new Slide(new CommonSlideData(CreateShapeTree()));
+            slidePart.AddPart(slideLayoutPart);
+
+            customizeLayout?.Invoke(slideLayoutPart);
+
+            presentationPart.Presentation.SlideIdList.Append(new SlideId
+            {
+                Id = 256,
+                RelationshipId = presentationPart.GetIdOfPart(slidePart)
+            });
+        }
+
+        return path;
     }
 }

@@ -134,6 +134,14 @@ internal static class GradientFillReader
                     if (TryGetOoxmlVal(mod, out var alphaVal))
                         alpha = ApplyAlpha(alphaVal);
                     break;
+                case "lumMod":
+                    if (TryGetOoxmlVal(mod, out var lumModVal))
+                        color = ScaleChannels(color, lumModVal / 100000.0);
+                    break;
+                case "lumOff":
+                    if (TryGetOoxmlVal(mod, out var lumOffVal))
+                        color = OffsetChannels(color, lumOffVal / 100000.0);
+                    break;
             }
         }
         // Fully transparent solid fill is visually identical to a:noFill — report no
@@ -159,6 +167,24 @@ internal static class GradientFillReader
         var linear = Math.Pow(channel / 255.0, 2.2);
         var tinted = linear * sourceWeight + (1.0 - sourceWeight);
         return (byte)Math.Round(Math.Pow(tinted, 1.0 / 2.2) * 255.0, MidpointRounding.AwayFromZero);
+    }
+
+    // lumMod/lumOff are HSL-luminance transforms in the spec; the per-channel
+    // approximation matches PowerPoint for grayscale bases (e.g. bg1 + lumMod 75%
+    // = #BFBFBF) and stays close for colored bases.
+    private static (byte R, byte G, byte B) ScaleChannels((byte R, byte G, byte B) color, double factor)
+    {
+        return (Clamp(color.R * factor), Clamp(color.G * factor), Clamp(color.B * factor));
+    }
+
+    private static (byte R, byte G, byte B) OffsetChannels((byte R, byte G, byte B) color, double offset)
+    {
+        return (Clamp(color.R + 255 * offset), Clamp(color.G + 255 * offset), Clamp(color.B + 255 * offset));
+    }
+
+    private static byte Clamp(double v)
+    {
+        return (byte)Math.Round(Math.Clamp(v, 0, 255), MidpointRounding.AwayFromZero);
     }
 
     private static byte ApplyAlpha(int alpha)
