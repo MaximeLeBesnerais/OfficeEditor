@@ -98,9 +98,10 @@ public sealed class DemoDeckService : IDemoDeckService
 
     /// <summary>
     /// Upload cap for the demo render: the whole response is a base64 previews payload,
-    /// so arbitrarily large decks are rejected up front.
+    /// so arbitrarily large decks are rejected up front. 500 slides keeps the payload
+    /// within local-demo bounds (tens of MB) while covering real stress decks.
     /// </summary>
-    internal const int MaxUploadSlides = 60;
+    internal const int MaxUploadSlides = 500;
 
     private static readonly IReadOnlyList<DemoDeckEntry> Catalog =
     [
