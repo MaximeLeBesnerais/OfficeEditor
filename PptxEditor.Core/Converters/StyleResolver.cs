@@ -70,6 +70,14 @@ public sealed class StyleResolver
             key = "Body";
         else if (placeholderType == PlaceholderValues.Object)
             key = "Other";
+        else if (placeholderType == PlaceholderValues.Footer
+            || placeholderType == PlaceholderValues.SlideNumber
+            || placeholderType == PlaceholderValues.DateAndTime
+            || placeholderType == PlaceholderValues.Header)
+            // Footer/date/slide-number/header placeholders take their defaults from the
+            // master's "other" text style when the master carries no matching
+            // placeholder of its own (PowerPoint's fallback for aux placeholders).
+            key = "Other";
         else
             return new DefaultTextStyle();
 
@@ -1115,6 +1123,45 @@ public sealed class StyleResolver
     {
         var shape = FindMasterPlaceholder(idx, type);
         return shape?.TextBody?.Elements<Drawing.BodyProperties>().FirstOrDefault();
+    }
+
+    /// <summary>
+    /// Shape properties (&lt;p:spPr&gt;) of the layout placeholder matching idx/type, or
+    /// null when the layout has no such placeholder. Used for placeholder fill/line
+    /// inheritance (ECMA-376: a slide placeholder without its own fill/line takes them
+    /// from the layout placeholder).
+    /// </summary>
+    public ShapeProperties? GetLayoutPlaceholderShapeProperties(int? idx, PlaceholderValues? type)
+        => FindLayoutPlaceholder(idx, type)?.ShapeProperties;
+
+    /// <summary>
+    /// Shape properties (&lt;p:spPr&gt;) of the master placeholder matching idx/type —
+    /// the final fallback of placeholder fill/line inheritance after the layout.
+    /// </summary>
+    public ShapeProperties? GetMasterPlaceholderShapeProperties(int? idx, PlaceholderValues? type)
+        => FindMasterPlaceholder(idx, type)?.ShapeProperties;
+
+    /// <summary>
+    /// Resolves an &lt;a:solidFill&gt; to a hex color: explicit sRGB wins; scheme colors
+    /// go through the theme with lumMod/lumOff luminance transforms applied (HSL space,
+    /// per ECMA-376). Returns null when no usable color is present.
+    /// </summary>
+    public string? ResolveSolidFillColor(Drawing.SolidFill solidFill)
+    {
+        var rgb = solidFill.RgbColorModelHex;
+        if (rgb?.Val != null)
+            return $"#{rgb.Val.Value}";
+
+        var schemeClr = solidFill.SchemeColor;
+        if (schemeClr == null)
+            return null;
+
+        var schemeName = GetAttributeValue(schemeClr, "val");
+        if (string.IsNullOrEmpty(schemeName))
+            return null;
+
+        var resolved = ResolveSchemeColor(schemeName);
+        return resolved == null ? null : ApplyLumTransforms(schemeClr, resolved);
     }
 
     #endregion
