@@ -363,7 +363,9 @@ public sealed partial class PptxToTypstConverter
                     break;
                 }
             }
-            var groupParamStr = allSameFormatting ? BuildTextParameters(firstFmt, availableFonts) : "";
+            var groupParamStr = allSameFormatting
+                ? BuildTextParameters(GetUniformGroupFormatting(paragraphs, i, groupEnd, firstFmt), availableFonts)
+                : "";
 
             // Determine paragraph break before list
             if (i > 0)
@@ -636,6 +638,38 @@ public sealed partial class PptxToTypstConverter
     private static TypstTextFormatting GetCollapsedRunFormatting(TypstParagraph paragraph)
     {
         return paragraph.Runs.FirstOrDefault(run => !run.IsLineBreak)?.Formatting ?? paragraph.Formatting;
+    }
+
+    /// <summary>
+    /// Computes the formatting asserted by a list-group #text wrapper. Weight and
+    /// italics may only be asserted at group level when EVERY text run in the group
+    /// agrees: inner per-run #text wrappers emit weight/style only when set, and
+    /// Typst inherits unset parameters from the enclosing context — so a wrapper
+    /// taken from a bold lead-in run would otherwise leak bold onto the regular
+    /// runs of mixed-formatting items (e.g. sales deck slide 3 body bullets).
+    /// Size/fill/font stay on the collapsed first run to keep marker glyph metrics.
+    /// </summary>
+    private static TypstTextFormatting GetUniformGroupFormatting(
+        List<TypstParagraph> paragraphs, int groupStart, int groupEnd, TypstTextFormatting firstFmt)
+    {
+        var bold = firstFmt.Bold;
+        var italic = firstFmt.Italic;
+
+        for (int k = groupStart; k <= groupEnd && (bold || italic); k++)
+        {
+            foreach (var run in paragraphs[k].Runs)
+            {
+                if (run.IsLineBreak)
+                    continue;
+
+                bold &= run.Formatting.Bold;
+                italic &= run.Formatting.Italic;
+            }
+        }
+
+        return bold == firstFmt.Bold && italic == firstFmt.Italic
+            ? firstFmt
+            : firstFmt with { Bold = bold, Italic = italic };
     }
 
     private TypstTextFormatting MergeRunWithParagraphDefaults(TypstTextFormatting paragraphDefault, Drawing.Run run, StyleResolver? styleResolver, bool requireExplicitOnOff = false)
