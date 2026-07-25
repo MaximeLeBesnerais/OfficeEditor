@@ -99,6 +99,46 @@ public sealed class PptxToTypstConverterShapeGeometryTests : IDisposable
         Assert.Contains("#rotate(45.0deg", source);
     }
 
+    [Fact]
+    public void GenerateTypstSource_PolygonWithoutFillOrStroke_EmitsValidPolygonSyntax()
+    {
+        // Regression: a fill-less, stroke-less polygon emitted "#polygon(, (x, y), …)"
+        // — a leading empty argument that Typst rejects with "unexpected comma".
+        // Triggered by SmartArt fixtures shapes whose fills don't resolve to a solid
+        // color (e.g. dsp gradient fills the extractor does not parse).
+        var path = CreateDeck(PresetShape(2, Drawing.ShapeTypeValues.Chevron, cx: 2540000, cy: 1270000));
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = new TypstPresentation
+        {
+            Slides =
+            {
+                new TypstSlide
+                {
+                    SlideIndex = 1,
+                    Elements =
+                    {
+                        new TypstElement
+                        {
+                            Type = "Shape", X = 100, Y = 50, Width = 44, Height = 9,
+                            Shape = new TypstShapeElement
+                            {
+                                ShapeType = "polygon",
+                                Points = { (0, 0), (0.5, 0), (1, 0.5), (0.5, 1), (0, 1), (0.5, 0.5) }
+                            }
+                        }
+                    }
+                }
+            }
+        };
+
+        var source = converter.GenerateTypstSource(presentation);
+
+        Assert.DoesNotContain("#polygon(,", source);
+        Assert.Contains("#polygon(fill: none, ", source);
+    }
+
     private static P.Shape PresetShape(uint id, Drawing.ShapeTypeValues preset, long cx, long cy, int? rot = null, int? adj = null)
     {
         var transform = rot.HasValue

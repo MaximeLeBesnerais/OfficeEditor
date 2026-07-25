@@ -947,23 +947,34 @@ public sealed partial class PptxToTypstConverter
                 sb.Append(")");
                 break;
             case "polygon":
+                // Typst rejects a leading empty argument ("#polygon(, ...)"), so the
+                // first emitted argument must not be preceded by a comma. Shapes with
+                // neither fill nor stroke (noFill decorators, unparsed gradient fills)
+                // get an explicit fill: none — invisible, matching PowerPoint semantics.
+                sb.Append("#polygon(");
+                var hasPolygonArg = false;
                 if (!string.IsNullOrEmpty(fill))
                 {
-                    sb.Append($"#polygon({fill}");
-                }
-                else
-                {
-                    sb.Append("#polygon(");
+                    sb.Append(fill);
+                    hasPolygonArg = true;
                 }
                 if (!string.IsNullOrEmpty(stroke))
                 {
-                    sb.Append(string.IsNullOrEmpty(fill) ? stroke : $", {stroke}");
+                    if (hasPolygonArg) sb.Append(", ");
+                    sb.Append(stroke);
+                    hasPolygonArg = true;
+                }
+                if (!hasPolygonArg)
+                {
+                    sb.Append("fill: none");
+                    hasPolygonArg = true;
                 }
                 foreach (var (x, y) in shape.Points)
                 {
                     var px = FormatPt(x * width);  // Scale to element width
                     var py = FormatPt(y * height); // Scale to element height
-                    sb.Append($", ({px}, {py})");
+                    sb.Append(hasPolygonArg ? $", ({px}, {py})" : $"({px}, {py})");
+                    hasPolygonArg = true;
                 }
                 sb.Append(")");
                 break;
