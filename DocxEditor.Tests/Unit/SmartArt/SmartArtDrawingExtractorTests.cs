@@ -446,6 +446,105 @@ public sealed class SmartArtDrawingExtractorTests
     }
 
     [Fact]
+    public void Extract_NoLineElement_SetsNoStrokeFlag()
+    {
+        // Text-container shapes in cached SmartArt drawings often have no a:ln at
+        // all — PowerPoint renders them borderless. The flag makes the Typst emitter
+        // write stroke: none instead of inheriting Typst's default 1pt black stroke.
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""1904255"" cy=""1142553""/>
+    </a:xfrm>
+    <a:prstGeom prst=""rect"">
+      <a:avLst/>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""4472C4""/>
+    </a:solidFill>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 150, shapeH: 90);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.True(result.Shape.NoStroke);
+    }
+
+    [Fact]
+    public void Extract_LineWithNoFill_SetsNoStrokeFlag()
+    {
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""2072723"" y=""640544""/>
+      <a:ext cx=""403702"" cy=""472255""/>
+    </a:xfrm>
+    <a:prstGeom prst=""rightArrow"">
+      <a:avLst/>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""ED7D31""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 50, shapeH: 40);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.True(result.Shape.NoStroke);
+    }
+
+    [Fact]
+    public void Extract_ExplicitStroke_ClearsNoStrokeFlag()
+    {
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""1904255"" cy=""1142553""/>
+    </a:xfrm>
+    <a:prstGeom prst=""rect"">
+      <a:avLst/>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""4472C4""/>
+    </a:solidFill>
+    <a:ln w=""25400"">
+      <a:solidFill>
+        <a:srgbClr val=""FFFFFF""/>
+      </a:solidFill>
+    </a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 150, shapeH: 90);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.False(result.Shape.NoStroke);
+    }
+
+    [Fact]
     public void ComputeFrameFit_SalesDeckCalibration_UniformScaleCentersContent()
     {
         // Slide 15 calibration numbers: drawing bbox 359.86x239.91pt inside a

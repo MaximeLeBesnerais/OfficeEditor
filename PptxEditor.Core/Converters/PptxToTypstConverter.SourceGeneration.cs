@@ -929,7 +929,9 @@ public sealed partial class PptxToTypstConverter
             : !string.IsNullOrEmpty(shape.FillColor) ? $"fill: rgb(\"{shape.FillColor}\")" : "";
         var stroke = shape.StrokeWidth > 0 && !string.IsNullOrEmpty(shape.StrokeColor)
             ? $"stroke: {FormatPt(shape.StrokeWidth)} + rgb(\"{shape.StrokeColor}\")"
-            : "";
+            // SmartArt-extracted shapes with no resolved stroke must suppress Typst's
+            // default 1pt black stroke (PowerPoint "no border" semantics).
+            : shape.NoStroke ? "stroke: none" : "";
 
         switch (shape.ShapeType)
         {
