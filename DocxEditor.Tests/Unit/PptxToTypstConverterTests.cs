@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Text.RegularExpressions;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Presentation;
@@ -474,6 +475,157 @@ public class PptxToTypstConverterTests : IDisposable
         var element = AssertSingleTextElement(presentation, "Supported sibling");
 
         AssertPosition(element, x: 130, y: 90, width: 200, height: 80);
+    }
+
+    [Fact]
+    public void Convert_RunWithEmbeddedNewline_SplitsIntoLineBreakRunPreservingPerRunFormatting()
+    {
+        // Sales deck slide 8 chevrons: one a:p holding "WEEKS 1–3\n" (9pt) + "DIAGNOSE" (16pt).
+        var shape = TwoRunChevronTextShape(2, firstRunText: "WEEKS 1–3\n", secondRunText: "DIAGNOSE");
+        var path = CreateGroupShapePptx("embedded-newline.pptx", shape);
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = converter.Convert();
+        var element = Assert.Single(presentation.Slides[0].Elements);
+        var text = element.Text ?? throw new InvalidOperationException("Expected shape text element.");
+        var paragraph = Assert.Single(text.Paragraphs);
+
+        Assert.Equal(3, paragraph.Runs.Count);
+        Assert.Equal("WEEKS 1–3", paragraph.Runs[0].Content);
+        Assert.False(paragraph.Runs[0].IsLineBreak);
+        Assert.Equal(9.0, paragraph.Runs[0].Formatting.FontSize);
+        Assert.True(paragraph.Runs[1].IsLineBreak);
+        Assert.Equal("DIAGNOSE", paragraph.Runs[2].Content);
+        Assert.False(paragraph.Runs[2].IsLineBreak);
+        Assert.Equal(16.0, paragraph.Runs[2].Formatting.FontSize);
+        Assert.True(text.HasExplicitLineBreaks);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_RunWithEmbeddedNewline_EmitsLinebreakBetweenDifferentlySizedRuns()
+    {
+        var shape = TwoRunChevronTextShape(2, firstRunText: "WEEKS 1–3\n", secondRunText: "DIAGNOSE");
+        var path = CreateGroupShapePptx("embedded-newline-source.pptx", shape);
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var source = converter.GenerateTypstSource(converter.Convert());
+
+        Assert.Contains("#linebreak()", source);
+        Assert.Contains("size: 9.00pt", source);
+        Assert.Contains("size: 16.00pt", source);
+        // The break must sit between the two run wrappers, not collapse to a space.
+        Assert.Matches(new Regex(@"WEEKS 1–3\]\s*#linebreak\(\)\s*#text\([^)]*size: 16\.00pt[^)]*\)\[DIAGNOSE\]"), source);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_TwoParagraphsDifferentSizes_EmitsBothLinesWithPerParagraphProperties()
+    {
+        var shape = new P.Shape(
+            new NonVisualShapeProperties(
+                new NonVisualDrawingProperties { Id = 2, Name = "Chevron 2" },
+                new NonVisualShapeDrawingProperties(new Drawing.ShapeLocks { NoGrouping = true }),
+                new ApplicationNonVisualDrawingProperties()),
+            new ShapeProperties(
+                new Drawing.Transform2D(
+                    new Drawing.Offset { X = Pt(48), Y = Pt(160) },
+                    new Drawing.Extents { Cx = Pt(222), Cy = Pt(76) })),
+            new TextBody(
+                new Drawing.BodyProperties { Anchor = Drawing.TextAnchoringTypeValues.Center },
+                new Drawing.ListStyle(),
+                new Drawing.Paragraph(
+                    new Drawing.Run(
+                        new Drawing.RunProperties { FontSize = new Int32Value(900), Bold = new BooleanValue(false) },
+                        new Drawing.Text { Text = "WEEKS 1–3" })),
+                new Drawing.Paragraph(
+                    new Drawing.Run(
+                        new Drawing.RunProperties { FontSize = new Int32Value(1600), Bold = new BooleanValue(true) },
+                        new Drawing.Text { Text = "DIAGNOSE" }))));
+        var path = CreateGroupShapePptx("two-paragraph-shape.pptx", shape);
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = converter.Convert();
+        var element = Assert.Single(presentation.Slides[0].Elements);
+        var text = element.Text ?? throw new InvalidOperationException("Expected shape text element.");
+
+        Assert.Equal(2, text.Paragraphs.Count);
+        Assert.Equal("WEEKS 1–3", text.Paragraphs[0].Content);
+        Assert.Equal(9.0, text.Paragraphs[0].Formatting.FontSize);
+        Assert.False(text.Paragraphs[0].Formatting.Bold);
+        Assert.Equal("DIAGNOSE", text.Paragraphs[1].Content);
+        Assert.Equal(16.0, text.Paragraphs[1].Formatting.FontSize);
+        Assert.True(text.Paragraphs[1].Formatting.Bold);
+
+        var source = converter.GenerateTypstSource(presentation);
+        Assert.Contains("size: 9.00pt", source);
+        Assert.Contains("size: 16.00pt", source);
+        Assert.Contains("WEEKS 1–3", source);
+        Assert.Contains("DIAGNOSE", source);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_CenteredShapeText_AppliesCenterAlignment()
+    {
+        var shape = new P.Shape(
+            new NonVisualShapeProperties(
+                new NonVisualDrawingProperties { Id = 2, Name = "Chevron 2" },
+                new NonVisualShapeDrawingProperties(new Drawing.ShapeLocks { NoGrouping = true }),
+                new ApplicationNonVisualDrawingProperties()),
+            new ShapeProperties(
+                new Drawing.Transform2D(
+                    new Drawing.Offset { X = Pt(48), Y = Pt(160) },
+                    new Drawing.Extents { Cx = Pt(222), Cy = Pt(76) })),
+            new TextBody(
+                new Drawing.BodyProperties { Anchor = Drawing.TextAnchoringTypeValues.Center },
+                new Drawing.ListStyle(),
+                new Drawing.Paragraph(
+                    new Drawing.ParagraphProperties { Alignment = Drawing.TextAlignmentTypeValues.Center },
+                    new Drawing.Run(
+                        new Drawing.RunProperties { FontSize = new Int32Value(900) },
+                        new Drawing.Text { Text = "WEEKS 1–3\n" }),
+                    new Drawing.Run(
+                        new Drawing.RunProperties { FontSize = new Int32Value(1600), Bold = new BooleanValue(true) },
+                        new Drawing.Text { Text = "DIAGNOSE" }))));
+        var path = CreateGroupShapePptx("centered-shape.pptx", shape);
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = converter.Convert();
+        var element = Assert.Single(presentation.Slides[0].Elements);
+        Assert.Equal("center", element.Text!.Paragraphs[0].Formatting.Align);
+
+        var source = converter.GenerateTypstSource(presentation);
+        Assert.Contains("#align(center)", source);
+        Assert.Contains("#linebreak()", source);
+    }
+
+    private static P.Shape TwoRunChevronTextShape(uint id, string firstRunText, string secondRunText)
+    {
+        return new P.Shape(
+            new NonVisualShapeProperties(
+                new NonVisualDrawingProperties { Id = id, Name = $"Chevron {id}" },
+                new NonVisualShapeDrawingProperties(new Drawing.ShapeLocks { NoGrouping = true }),
+                new ApplicationNonVisualDrawingProperties()),
+            new ShapeProperties(
+                new Drawing.Transform2D(
+                    new Drawing.Offset { X = Pt(48), Y = Pt(160) },
+                    new Drawing.Extents { Cx = Pt(222), Cy = Pt(76) })),
+            new TextBody(
+                new Drawing.BodyProperties { Anchor = Drawing.TextAnchoringTypeValues.Center },
+                new Drawing.ListStyle(),
+                new Drawing.Paragraph(
+                    new Drawing.Run(
+                        new Drawing.RunProperties { FontSize = new Int32Value(900), Bold = new BooleanValue(true) },
+                        new Drawing.Text { Text = firstRunText }),
+                    new Drawing.Run(
+                        new Drawing.RunProperties { FontSize = new Int32Value(1600), Bold = new BooleanValue(true) },
+                        new Drawing.Text { Text = secondRunText }))));
     }
 
     [Fact]
