@@ -10,7 +10,7 @@ namespace PptxEditor.Core.Converters.SmartArt;
 /// shapes (<c>dsp:sp</c> elements).  Only reads pre-rendered shapes — does not
 /// perform DataModel-driven layout.
 /// </summary>
-internal static class SmartArtDrawingExtractor
+    internal static class SmartArtDrawingExtractor
 {
     private const string Diagram2006Ns = "http://schemas.openxmlformats.org/drawing/2006/diagram";
     private const string Diagram2008Ns = "http://schemas.microsoft.com/office/drawing/2008/diagram";
@@ -21,10 +21,6 @@ internal static class SmartArtDrawingExtractor
         Diagram2006Ns, Diagram2008Ns
     };
 
-    /// <summary>
-    /// Preset geometry name → (output ShapeType, polygon-point list for "polygon" shapes).
-    /// Point coordinates are normalised to [0,1] in each axis.
-    /// </summary>
     private static readonly Dictionary<string, (ShapeType Type, List<(double, double)>? Points)> PresetGeometryMap = new(StringComparer.Ordinal)
     {
         ["rect"] = (ShapeType.Rect, null),
@@ -38,10 +34,16 @@ internal static class SmartArtDrawingExtractor
         ["diamond"] = (ShapeType.Diamond, null),
         ["pentagon"] = (ShapeType.Pentagon, null),
         ["hexagon"] = (ShapeType.Hexagon, null),
-        // NOTE: blockArc, pie and donut were removed deliberately — the previous
-        // polygon approximations were geometrically wrong (blockArc and donut shared
-        // the same octagon points; pie used bounding-box corners outside the
-        // ellipse). Unknown presets return null and degrade to the text fallback.
+        ["line"] = (ShapeType.Rect, null),
+        ["downArrow"] = (ShapeType.DownArrow, null),
+        ["upArrow"] = (ShapeType.UpArrow, null),
+        ["leftArrow"] = (ShapeType.LeftArrow, null),
+        ["leftRightArrow"] = (ShapeType.LeftRightArrow, null),
+        ["upDownArrow"] = (ShapeType.UpDownArrow, null),
+        ["trapezoid"] = (ShapeType.Trapezoid, null),
+        ["circularArrow"] = (ShapeType.CircularArrow, null),
+        ["gear6"] = (ShapeType.Gear6, null),
+        ["gear9"] = (ShapeType.Gear9, null),
     };
 
     /// <summary>
@@ -74,6 +76,54 @@ internal static class SmartArtDrawingExtractor
         [ShapeType.Hexagon] = new()
         {
             (0.25, 0), (0.75, 0), (1, 0.5), (0.75, 1), (0.25, 1), (0, 0.5)
+        },
+        [ShapeType.DownArrow] = new()
+        {
+            (0.25, 0), (0.75, 0), (0.75, 0.6), (1, 0.6),
+            (0.5, 1), (0, 0.6), (0.25, 0.6)
+        },
+        [ShapeType.UpArrow] = new()
+        {
+            (0.25, 1), (0.75, 1), (0.75, 0.4), (1, 0.4),
+            (0.5, 0), (0, 0.4), (0.25, 0.4)
+        },
+        [ShapeType.LeftArrow] = new()
+        {
+            (1, 0.25), (0.4, 0.25), (0.4, 0), (0, 0.5),
+            (0.4, 1), (0.4, 0.75), (1, 0.75)
+        },
+        [ShapeType.LeftRightArrow] = new()
+        {
+            (0, 0.5), (0.4, 0), (0.4, 0.25), (0.6, 0.25), (0.6, 0),
+            (1, 0.5), (0.6, 1), (0.6, 0.75), (0.4, 0.75), (0.4, 1)
+        },
+        [ShapeType.UpDownArrow] = new()
+        {
+            (0.5, 0), (1, 0.4), (0.75, 0.4), (0.75, 0.6), (1, 0.6),
+            (0.5, 1), (0, 0.6), (0.25, 0.6), (0.25, 0.4), (0, 0.4)
+        },
+        [ShapeType.Trapezoid] = new()
+        {
+            (0.25, 0), (0.75, 0), (1, 1), (0, 1)
+        },
+        [ShapeType.CircularArrow] = new()
+        {
+            (0.1, 0.15), (0.3, 0.05), (0.6, 0.2), (0.8, 0.5),
+            (0.7, 0.75), (0.5, 0.65), (0.35, 0.4), (0.2, 0.25)
+        },
+        [ShapeType.Gear6] = new()
+        {
+            (1, 0.5), (0.803, 0.675), (0.75, 0.933), (0.5, 0.85),
+            (0.25, 0.933), (0.197, 0.675), (0, 0.5), (0.197, 0.325),
+            (0.25, 0.067), (0.5, 0.15), (0.75, 0.067), (0.803, 0.325)
+        },
+        [ShapeType.Gear9] = new()
+        {
+            (1, 0.5), (0.829, 0.620), (0.883, 0.821), (0.675, 0.803),
+            (0.587, 0.992), (0.439, 0.845), (0.25, 0.933), (0.232, 0.725),
+            (0.03, 0.671), (0.15, 0.5), (0.03, 0.329), (0.232, 0.275),
+            (0.25, 0.067), (0.439, 0.155), (0.587, 0.008), (0.675, 0.197),
+            (0.883, 0.179), (0.829, 0.380)
         },
     };
 
@@ -580,6 +630,15 @@ internal static class SmartArtDrawingExtractor
         Triangle,
         Diamond,
         Pentagon,
-        Hexagon
+        Hexagon,
+        DownArrow,
+        UpArrow,
+        LeftArrow,
+        LeftRightArrow,
+        UpDownArrow,
+        Trapezoid,
+        CircularArrow,
+        Gear6,
+        Gear9
     }
 }
