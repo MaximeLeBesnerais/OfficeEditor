@@ -168,6 +168,13 @@ internal static class SmartArtDrawingExtractor
         if (geometry == null) return null;
 
         var fillColor = ReadFillColor(spPr, schemeColors);
+        // Many SmartArt drawing parts carry their colors as a:gradFill on the shape
+        //  rather than a:solidFill — read gradients through the same
+        // shared reader the main slide-shape path uses.
+        var fillGradient = fillColor == null
+            ? GradientFillReader.TryReadLinearGradient(
+                spPr, name => ResolveSchemeColor(name, schemeColors))
+            : null;
         var (strokeColor, strokeWidth) = ReadStroke(spPr, schemeColors);
 
         var x = offX + (frameX + geometry.OffsetX) * scaleX;
@@ -178,7 +185,7 @@ internal static class SmartArtDrawingExtractor
 
         return geometry.ShapeType switch
         {
-            ShapeType.Rect => BuildRect(x, y, w, h, rotation, fillColor, strokeColor, strokeWidth, geometry.CornerRadius, modelId),
+            ShapeType.Rect => BuildRect(x, y, w, h, rotation, fillColor, fillGradient, strokeColor, strokeWidth, geometry.CornerRadius, modelId),
 
             ShapeType.Ellipse => new TypstElement
             {
@@ -189,17 +196,18 @@ internal static class SmartArtDrawingExtractor
                 {
                     ShapeType = "ellipse",
                     FillColor = fillColor ?? string.Empty,
+                    FillGradient = fillGradient,
                     StrokeColor = strokeColor ?? string.Empty,
                     StrokeWidth = strokeWidth
                 }
             },
 
-            _ => BuildPolygon(x, y, w, h, rotation, fillColor, strokeColor, strokeWidth, geometry.ShapeType, modelId)
+            _ => BuildPolygon(x, y, w, h, rotation, fillColor, fillGradient, strokeColor, strokeWidth, geometry.ShapeType, modelId)
         };
     }
 
     private static TypstElement BuildRect(double x, double y, double w, double h, double rotation,
-        string? fillColor, string? strokeColor, double strokeWidth, double cornerRadius, string? modelId)
+        string? fillColor, TypstGradientFill? fillGradient, string? strokeColor, double strokeWidth, double cornerRadius, string? modelId)
     {
         return new TypstElement
         {
@@ -210,6 +218,7 @@ internal static class SmartArtDrawingExtractor
             {
                 ShapeType = "rect",
                 FillColor = fillColor ?? string.Empty,
+                FillGradient = fillGradient,
                 StrokeColor = strokeColor ?? string.Empty,
                 StrokeWidth = strokeWidth,
                 CornerRadius = cornerRadius
@@ -218,7 +227,7 @@ internal static class SmartArtDrawingExtractor
     }
 
     private static TypstElement BuildPolygon(double x, double y, double w, double h, double rotation,
-        string? fillColor, string? strokeColor, double strokeWidth, ShapeType shapeType, string? modelId)
+        string? fillColor, TypstGradientFill? fillGradient, string? strokeColor, double strokeWidth, ShapeType shapeType, string? modelId)
     {
         var points = PolygonPoints.TryGetValue(shapeType, out var pts)
             ? pts
@@ -233,6 +242,7 @@ internal static class SmartArtDrawingExtractor
             {
                 ShapeType = "polygon",
                 FillColor = fillColor ?? string.Empty,
+                FillGradient = fillGradient,
                 StrokeColor = strokeColor ?? string.Empty,
                 StrokeWidth = strokeWidth,
                 Points = points

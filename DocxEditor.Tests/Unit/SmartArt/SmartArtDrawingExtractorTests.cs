@@ -324,6 +324,128 @@ public sealed class SmartArtDrawingExtractorTests
     }
 
     [Fact]
+    public void Extract_GradientFill_PopulatesFillGradient()
+    {
+        // SmartArt fixtures pattern: SmartArt colors live in a:gradFill on dsp:sp, not
+        // a:solidFill. Two stops — scheme color (static fallback accent1) plus an
+        // srgbClr stop with per-stop alpha.
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""1904255"" cy=""1142553""/>
+    </a:xfrm>
+    <a:prstGeom prst=""rect"">
+      <a:avLst/>
+    </a:prstGeom>
+    <a:gradFill>
+      <a:gsLst>
+        <a:gs pos=""0""><a:schemeClr val=""accent1""/></a:gs>
+        <a:gs pos=""100000""><a:srgbClr val=""0B1026""><a:alpha val=""50000""/></a:srgbClr></a:gs>
+      </a:gsLst>
+      <a:lin ang=""5400000"" scaled=""1""/>
+    </a:gradFill>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 150, shapeH: 90);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.True(string.IsNullOrEmpty(result.Shape.FillColor));
+        var gradient = Assert.IsType<TypstGradientFill>(result.Shape.FillGradient);
+        Assert.Equal(90.0, gradient.Angle); // 5400000 / 60000
+        Assert.Equal(2, gradient.Stops.Count);
+        Assert.Equal(new TypstGradientStop("#4472C4", 0.0), gradient.Stops[0]);
+        Assert.Equal(new TypstGradientStop("#0B10267F", 1.0), gradient.Stops[1]);
+    }
+
+    [Fact]
+    public void Extract_GradientFill_ThemeSchemeColors_ResolvedFromMap()
+    {
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""1904255"" cy=""1142553""/>
+    </a:xfrm>
+    <a:prstGeom prst=""ellipse"">
+      <a:avLst/>
+    </a:prstGeom>
+    <a:gradFill>
+      <a:gsLst>
+        <a:gs pos=""0""><a:schemeClr val=""accent1""/></a:gs>
+        <a:gs pos=""100000""><a:schemeClr val=""accent2""/></a:gs>
+      </a:gsLst>
+      <a:lin ang=""0"" scaled=""1""/>
+    </a:gradFill>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+        var schemeColors = new Dictionary<string, string>
+        {
+            ["accent1"] = "112233",
+            ["accent2"] = "AABBCC"
+        };
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 150, shapeH: 90,
+            schemeColors: schemeColors);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        var gradient = Assert.IsType<TypstGradientFill>(result.Shape.FillGradient);
+        Assert.Equal(new TypstGradientStop("#112233", 0.0), gradient.Stops[0]);
+        Assert.Equal(new TypstGradientStop("#AABBCC", 1.0), gradient.Stops[1]);
+    }
+
+    [Fact]
+    public void Extract_SolidFillTakesPrecedenceOverGradient_IgnoresGradient()
+    {
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""1904255"" cy=""1142553""/>
+    </a:xfrm>
+    <a:prstGeom prst=""rect"">
+      <a:avLst/>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""C00000""/>
+    </a:solidFill>
+    <a:gradFill>
+      <a:gsLst>
+        <a:gs pos=""0""><a:srgbClr val=""000000""/></a:gs>
+        <a:gs pos=""100000""><a:srgbClr val=""FFFFFF""/></a:gs>
+      </a:gsLst>
+      <a:lin ang=""0"" scaled=""1""/>
+    </a:gradFill>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 150, shapeH: 90);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal("#C00000", result.Shape.FillColor);
+        Assert.Null(result.Shape.FillGradient);
+    }
+
+    [Fact]
     public void ComputeFrameFit_SalesDeckCalibration_UniformScaleCentersContent()
     {
         // Slide 15 calibration numbers: drawing bbox 359.86x239.91pt inside a

@@ -799,66 +799,14 @@ public sealed partial class PptxToTypstConverter : IDisposable
 
     /// <summary>
     /// Extracts a linear gradient fill (&lt;a:gradFill&gt;) from shape properties, including
-    /// per-stop &lt;a:alpha&gt; opacities. Returns null when there is no gradient, when it has
-    /// fewer than two resolvable stops, or when a stop color cannot be resolved.
+    /// per-stop &lt;a:alpha&gt; opacities. Delegates to the shared <see cref="GradientFillReader"/>
+    /// so the SmartArt drawing extractor produces identical results for the same markup.
     /// Decks like AetherLink use full-bleed gradient rectangles as slide backgrounds.
     /// </summary>
     private TypstGradientFill? ExtractShapeFillGradient(ShapeProperties shapeProperties, StyleResolver? styleResolver)
-    {
-        var gradFill = shapeProperties.Elements<Drawing.GradientFill>().FirstOrDefault();
-        if (gradFill?.GradientStopList is not { } stopList)
-            return null;
-
-        var stops = new List<TypstGradientStop>();
-        foreach (var gs in stopList.Elements<Drawing.GradientStop>())
-        {
-            var color = ExtractGradientStopColor(gs, styleResolver);
-            if (color == null)
-                return null;
-
-            var pos = gs.Position?.Value ?? 0;
-            stops.Add(new TypstGradientStop(color, Math.Clamp(pos / 100000.0, 0.0, 1.0)));
-        }
-
-        if (stops.Count < 2)
-            return null;
-
-        // OOXML a:lin ang is in 60000ths of a degree; OOXML and Typst gradient.linear both
-        // measure the axis clockwise from the left→right direction, so degrees pass through
-        // verbatim (same convention as the generation pipeline's emitters).
-        var angle = (gradFill.Elements<Drawing.LinearGradientFill>().FirstOrDefault()?.Angle?.Value ?? 0) / 60000.0;
-        return new TypstGradientFill(angle, stops);
-    }
-
-    private static string? ExtractGradientStopColor(Drawing.GradientStop stop, StyleResolver? styleResolver)
-    {
-        var rgb = stop.Elements<Drawing.RgbColorModelHex>().FirstOrDefault();
-        if (rgb?.Val?.Value is { } hex)
-        {
-            // Unlike a solid fill, a fully transparent gradient stop is meaningful
-            // (fade-out) — keep it as #RRGGBB00 instead of treating it as noFill.
-            return ApplyColorModifiers(ParseHexColor(hex), rgb.ChildElements)
-                ?? FormatHexColor(ParseHexColor(hex), 0);
-        }
-
-        var schemeColor = stop.Elements<Drawing.SchemeColor>().FirstOrDefault();
-        if (schemeColor != null)
-        {
-            // Raw XML attribute read per AGENTS.pptx.md rule 1 — SDK enum parsing is unreliable.
-            var match = Regex.Match(schemeColor.OuterXml, @"val=""([^""]+)""");
-            if (match.Success)
-            {
-                var resolved = styleResolver?.ResolveSchemeColor(match.Groups[1].Value);
-                if (!string.IsNullOrEmpty(resolved))
-                {
-                    return ApplyColorModifiers(ParseHexColor(resolved), schemeColor.ChildElements)
-                        ?? FormatHexColor(ParseHexColor(resolved), 0);
-                }
-            }
-        }
-
-        return null;
-    }
+        => GradientFillReader.TryReadLinearGradient(
+            shapeProperties,
+            name => styleResolver?.ResolveSchemeColor(name));
 
     /// <summary>
     /// Extracts stroke (outline) properties from a shape's &lt;a:ln&gt; element.
@@ -3484,8 +3432,8 @@ public sealed partial class PptxToTypstConverter : IDisposable
         var rgb = solidFill.RgbColorModelHex;
         if (rgb?.Val != null)
         {
-            var color = ParseHexColor(rgb.Val.Value!);
-            return ApplyColorModifiers(color, rgb.ChildElements);
+            var color = GradientFillReader.ParseHexColor(rgb.Val.Value!);
+            return GradientFillReader.ApplyColorModifiers(color, rgb.ChildElements);
         }
 
         var schemeColor = solidFill.SchemeColor;
@@ -3506,8 +3454,8 @@ public sealed partial class PptxToTypstConverter : IDisposable
                 var resolved = styleResolver?.ResolveSchemeColor(schemeName);
                 if (!string.IsNullOrEmpty(resolved))
                 {
-                    var color = ParseHexColor(resolved);
-                    return ApplyColorModifiers(color, schemeColor.ChildElements);
+                    var color = GradientFillReader.ParseHexColor(resolved);
+                    return GradientFillReader.ApplyColorModifiers(color, schemeColor.ChildElements);
                 }
             }
         }
@@ -3753,83 +3701,8 @@ public sealed partial class PptxToTypstConverter : IDisposable
         };
     }
 
-    private static (byte R, byte G, byte B) ParseHexColor(string hex)
-    {
-        hex = hex.TrimStart('#');
-        if (hex.Length == 6)
-        {
-            return (
-                (byte)int.Parse(hex.Substring(0, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture),
-                (byte)int.Parse(hex.Substring(2, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture),
-                (byte)int.Parse(hex.Substring(4, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture)
-            );
-        }
-        return (0, 0, 0);
-    }
-
-    private static string FormatHexColor((byte R, byte G, byte B) color, byte alpha = 255)
-    {
-        if (alpha == 255)
-            return $"#{color.R:X2}{color.G:X2}{color.B:X2}";
-        return $"#{color.R:X2}{color.G:X2}{color.B:X2}{alpha:X2}";
-    }
-
-    private static (byte R, byte G, byte B) ApplyTint((byte R, byte G, byte B) color, int tint)
-    {
-        // DrawingML tint values specify how much of the source color to keep;
-        // the remainder is blended toward white. Blend in linear light so very
-        // light tints match PowerPoint's rendered colors more closely.
-        double sourceWeight = Math.Clamp(tint / 100000.0, 0.0, 1.0);
-        return (
-            ApplyTintChannel(color.R, sourceWeight),
-            ApplyTintChannel(color.G, sourceWeight),
-            ApplyTintChannel(color.B, sourceWeight)
-        );
-    }
-
-    private static byte ApplyTintChannel(byte channel, double sourceWeight)
-    {
-        var linear = Math.Pow(channel / 255.0, 2.2);
-        var tinted = linear * sourceWeight + (1.0 - sourceWeight);
-        return (byte)Math.Round(Math.Pow(tinted, 1.0 / 2.2) * 255.0, MidpointRounding.AwayFromZero);
-    }
-
-    private static byte ApplyAlpha(int alpha)
-    {
-        return (byte)(alpha / 100000.0 * 255);
-    }
-
-    private static string? ApplyColorModifiers((byte R, byte G, byte B) color, OpenXmlElementList modifiers)
-    {
-        byte alpha = 255;
-        foreach (var mod in modifiers)
-        {
-            switch (mod.LocalName)
-            {
-                case "tint":
-                    if (TryGetOoxmlVal(mod, out var tintVal))
-                        color = ApplyTint(color, tintVal);
-                    break;
-                case "alpha":
-                    if (TryGetOoxmlVal(mod, out var alphaVal))
-                        alpha = ApplyAlpha(alphaVal);
-                    break;
-            }
-        }
-        // Fully transparent solid fill is visually identical to a:noFill — report no
-        // color so callers treat the fill/stroke/text color as absent.
-        return alpha == 0 ? null : FormatHexColor(color, alpha);
-    }
-
-    private static bool TryGetOoxmlVal(OpenXmlElement element, out int value)
-    {
-        var match = Regex.Match(element.OuterXml, @"\bval=""(-?\d+)""");
-        return int.TryParse(
-            match.Success ? match.Groups[1].Value : null,
-            NumberStyles.Integer,
-            CultureInfo.InvariantCulture,
-            out value);
-    }
+    // ParseHexColor / FormatHexColor / ApplyColorModifiers live in GradientFillReader
+    // (shared with the SmartArt drawing extractor) — see Converters/GradientFillReader.cs.
 
     private (double X, double Y, double Width, double Height, double Rotation) GetElementPosition(ShapeProperties? shapeProperties)
     {
