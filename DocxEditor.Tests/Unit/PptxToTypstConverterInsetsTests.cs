@@ -20,6 +20,12 @@ public sealed class PptxToTypstConverterInsetsTests : IDisposable
     private const double DefaultHorizontalInsetPt = 7.2; // 91440 EMU / 12700
     private const double DefaultVerticalInsetPt = 3.6;   // 45720 EMU / 12700
 
+    // Shared shape geometry: off (1000000, 500000), ext (4000000, 1000000) EMU.
+    private const double ShapeXPt = 1000000.0 / 12700;   // 78.74 pt
+    private const double ShapeYPt = 500000.0 / 12700;    // 39.37 pt
+    private const double ShapeWidthPt = 4000000.0 / 12700;  // 314.96 pt
+    private const double ShapeHeightPt = 1000000.0 / 12700; // 78.74 pt
+
     private readonly string _tempDir;
 
     public PptxToTypstConverterInsetsTests()
@@ -91,15 +97,70 @@ public sealed class PptxToTypstConverterInsetsTests : IDisposable
         Assert.Equal(DefaultVerticalInsetPt, text.PaddingBottom, precision: 3);
     }
 
+    [Fact]
+    public void Convert_RectShapeText_KeepsFullBoundingBoxTextRect()
+    {
+        // ECMA-376: rect's preset text rectangle is the full bounding box — only the
+        // bodyPr insets (PaddingLeft etc.) apply, the text element box is NOT shifted.
+        var path = CreateDeck(PresetShape(2, Drawing.ShapeTypeValues.Rectangle,
+            new Drawing.BodyProperties { LeftInset = 304800 }, "Hello", adjustValue: null));
+
+        var element = ConvertSingleTextElementBox(path);
+
+        Assert.Equal(ShapeXPt, element.X, precision: 3);
+        Assert.Equal(ShapeYPt, element.Y, precision: 3);
+        Assert.Equal(ShapeWidthPt, element.Width, precision: 3);
+        Assert.Equal(ShapeHeightPt, element.Height, precision: 3);
+        Assert.Equal(24.0, element.Text!.PaddingLeft, precision: 3); // lIns=304800 EMU
+    }
+
+    [Fact]
+    public void Convert_ChevronShapeText_StartsAtNotchTipAndAppliesBodyPrInsetsInside()
+    {
+        // ECMA-376 chevron text rect: l = dx1 = ss·adj/100000 (default adj 50000),
+        // so the text box starts at the notch tip — NOT at the shape's left edge.
+        // bodyPr lIns then applies inside that rectangle (carried on PaddingLeft).
+        var path = CreateDeck(PresetShape(2, Drawing.ShapeTypeValues.Chevron,
+            new Drawing.BodyProperties { LeftInset = 304800 }, "Hello", adjustValue: null));
+
+        var element = ConvertSingleTextElementBox(path);
+
+        var notchDepth = Math.Min(ShapeWidthPt, ShapeHeightPt) * 0.5; // ss·adj/100000
+        Assert.True(element.X > ShapeXPt, "Chevron text must not start at the shape's left edge.");
+        Assert.Equal(ShapeXPt + notchDepth, element.X, precision: 3);
+        Assert.Equal(ShapeYPt, element.Y, precision: 3);
+        Assert.Equal(ShapeWidthPt - 2 * notchDepth, element.Width, precision: 3);
+        Assert.Equal(ShapeHeightPt, element.Height, precision: 3);
+        Assert.Equal(24.0, element.Text!.PaddingLeft, precision: 3); // lIns=304800 EMU
+    }
+
+    [Fact]
+    public void Convert_ChevronShapeTextWithCustomAdj_UsesAdjustedNotchDepth()
+    {
+        // adj = 25000 → notch depth = ss·0.25.
+        var path = CreateDeck(PresetShape(2, Drawing.ShapeTypeValues.Chevron,
+            new Drawing.BodyProperties(), "Hello", adjustValue: 25000));
+
+        var element = ConvertSingleTextElementBox(path);
+
+        var notchDepth = Math.Min(ShapeWidthPt, ShapeHeightPt) * 0.25;
+        Assert.Equal(ShapeXPt + notchDepth, element.X, precision: 3);
+        Assert.Equal(ShapeWidthPt - 2 * notchDepth, element.Width, precision: 3);
+    }
+
     private static TypstTextElement ConvertSingleTextElement(string path)
+    {
+        return ConvertSingleTextElementBox(path).Text!;
+    }
+
+    private static TypstElement ConvertSingleTextElementBox(string path)
     {
         using var document = PresentationDocument.Open(path, false);
         using var converter = new PptxToTypstConverter(document);
 
         var presentation = converter.Convert();
 
-        var element = Assert.Single(presentation.Slides[0].Elements, e => e.Type == "Text");
-        return element.Text!;
+        return Assert.Single(presentation.Slides[0].Elements, e => e.Type == "Text");
     }
 
     private static P.Shape TextShape(uint id, Drawing.BodyProperties bodyPr, string text)
@@ -113,6 +174,31 @@ public sealed class PptxToTypstConverterInsetsTests : IDisposable
                 new Drawing.Transform2D(
                     new Drawing.Offset { X = 1000000, Y = 500000 },
                     new Drawing.Extents { Cx = 4000000, Cy = 1000000 })),
+            new TextBody(
+                bodyPr,
+                new Drawing.ListStyle(),
+                new Drawing.Paragraph(new Drawing.Run(new Drawing.Text { Text = text }))));
+    }
+
+    private static P.Shape PresetShape(uint id, Drawing.ShapeTypeValues preset,
+        Drawing.BodyProperties bodyPr, string text, int? adjustValue)
+    {
+        var presetGeometry = new Drawing.PresetGeometry { Preset = preset };
+        presetGeometry.Append(adjustValue.HasValue
+            ? new Drawing.AdjustValueList(
+                new Drawing.ShapeGuide { Name = "adj", Formula = $"val {adjustValue.Value}" })
+            : new Drawing.AdjustValueList());
+
+        return new P.Shape(
+            new NonVisualShapeProperties(
+                new NonVisualDrawingProperties { Id = id, Name = $"Preset {id}" },
+                new NonVisualShapeDrawingProperties(new Drawing.ShapeLocks { NoGrouping = true }),
+                new ApplicationNonVisualDrawingProperties()),
+            new ShapeProperties(
+                new Drawing.Transform2D(
+                    new Drawing.Offset { X = 1000000, Y = 500000 },
+                    new Drawing.Extents { Cx = 4000000, Cy = 1000000 }),
+                presetGeometry),
             new TextBody(
                 bodyPr,
                 new Drawing.ListStyle(),
