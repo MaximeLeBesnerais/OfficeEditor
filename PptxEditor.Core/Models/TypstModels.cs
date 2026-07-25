@@ -135,6 +135,7 @@ public sealed record TypstTextFormatting
     public string Color { get; init; } = "#000000";
     public string FontFamily { get; init; } = "Arial";
     public string Align { get; init; } = "left";
+    public string? Caps { get; init; }
 }
 
 public sealed class TypstImageElement

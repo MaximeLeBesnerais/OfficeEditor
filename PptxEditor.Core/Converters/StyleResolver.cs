@@ -274,7 +274,8 @@ public sealed class StyleResolver
                 Bold = defRPr.Bold?.Value,
                 Italic = defRPr.Italic?.Value,
                 Underline = defRPr.Underline?.Value != null && defRPr.Underline.Value != Drawing.TextUnderlineValues.None,
-                Color = ExtractColorFromRunProperties(defRPr)
+                Color = ExtractColorFromRunProperties(defRPr),
+                Caps = ExtractCapAttribute(defRPr)
             };
 
             var latinFont = defRPr.Elements<Drawing.LatinFont>().FirstOrDefault();
@@ -971,7 +972,8 @@ public sealed class StyleResolver
             Bold = defRPr.Bold?.Value,
             Italic = defRPr.Italic?.Value,
             Underline = defRPr.Underline?.Value != null && defRPr.Underline.Value != Drawing.TextUnderlineValues.None,
-            Color = ExtractColorFromRunProperties(defRPr)
+            Color = ExtractColorFromRunProperties(defRPr),
+            Caps = ExtractCapAttribute(defRPr)
         };
 
         var latinFont = defRPr.Elements<Drawing.LatinFont>().FirstOrDefault();
@@ -979,6 +981,19 @@ public sealed class StyleResolver
             style.FontFamily = latinFont.Typeface.Value;
 
         return style;
+    }
+
+    private static string? ExtractCapAttribute(OpenXmlElement element)
+    {
+        var match = System.Text.RegularExpressions.Regex.Match(element.OuterXml, @"\bcap\s*=\s*""([^""]*)""");
+        if (match.Success)
+        {
+            var value = match.Groups[1].Value;
+            if (value == "none")
+                return null;
+            return value;
+        }
+        return null;
     }
 
     private static PlaceholderValues? GetPlaceholderType(Shape shape)
@@ -1202,6 +1217,7 @@ public sealed class StyleResolver
         public bool? Underline { get; set; }
         public string? Color { get; set; }
         public string? FontFamily { get; set; }
+        public string? Caps { get; set; }
     }
 
     /// <summary>

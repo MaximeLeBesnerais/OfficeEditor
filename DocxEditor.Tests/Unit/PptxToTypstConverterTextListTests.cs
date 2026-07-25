@@ -364,6 +364,11 @@ public sealed class PptxToTypstConverterTextListTests : IDisposable
 
     private string CreatePptx(string fileName, Action<SlideMaster>? customizeMaster, params OpenXmlElement[] slideElements)
     {
+        return CreatePptx(fileName, customizeMaster, slideElements, layoutElements: null);
+    }
+
+    private string CreatePptx(string fileName, Action<SlideMaster>? customizeMaster, OpenXmlElement[] slideElements, OpenXmlElement[]? layoutElements)
+    {
         var path = Path.Combine(_tempDir, fileName);
 
         using (var document = PresentationDocument.Create(path, PresentationDocumentType.Presentation))
@@ -398,7 +403,10 @@ public sealed class PptxToTypstConverterTextListTests : IDisposable
             customizeMaster?.Invoke(slideMasterPart.SlideMaster);
 
             var slideLayoutPart = slideMasterPart.AddNewPart<SlideLayoutPart>();
-            slideLayoutPart.SlideLayout = new P.SlideLayout(new CommonSlideData(CreateShapeTree()));
+            var layoutShapeTree = layoutElements != null && layoutElements.Length > 0
+                ? CreateShapeTree(layoutElements)
+                : CreateShapeTree();
+            slideLayoutPart.SlideLayout = new P.SlideLayout(new CommonSlideData(layoutShapeTree));
             slideLayoutPart.AddPart(slideMasterPart);
             slideMasterPart.SlideMaster.SlideLayoutIdList!.Append(new SlideLayoutId
             {
@@ -449,4 +457,210 @@ public sealed class PptxToTypstConverterTextListTests : IDisposable
     }
 
     private static long Pt(double points) => (long)Math.Round(points * EmusPerPoint);
+
+    [Fact]
+    public void GenerateTypstSource_RunPrCapAll_EmitsUppercaseContent()
+    {
+        var runProps = new Drawing.RunProperties
+        {
+            FontSize = new Int32Value(1200)
+        };
+        runProps.SetAttribute(new OpenXmlAttribute("cap", "", "all"));
+
+        var shape = TextShape(2, "Basic Block List",
+            new Drawing.ParagraphProperties(),
+            runProps);
+        var path = CreatePptx("caps-run.pptx", customizeMaster: null, shape);
+
+        var source = ConvertToTypstSource(path);
+
+        Assert.Contains("#upper[Basic Block List]", source);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_MasterDefRPrCapAll_InheritsUppercase()
+    {
+        void CustomizeMaster(SlideMaster master)
+        {
+            var defRPr = new Drawing.DefaultRunProperties(
+                new Drawing.LatinFont { Typeface = "Calibri" }
+            )
+            {
+                FontSize = new Int32Value(2400)
+            };
+            defRPr.SetAttribute(new OpenXmlAttribute("cap", "", "all"));
+
+            master.TextStyles = new TextStyles(
+                new TitleStyle(
+                    new Drawing.Level1ParagraphProperties(defRPr)),
+                new BodyStyle(),
+                new OtherStyle());
+        }
+
+        var shape = TextShape(2,
+            new Drawing.Paragraph[] {
+                new Drawing.Paragraph(
+                    new Drawing.ParagraphProperties(),
+                    new Drawing.Run(
+                        new Drawing.RunProperties { FontSize = new Int32Value(1800) },
+                        new Drawing.Text { Text = "Basic Block List" }))
+            },
+            placeholderType: PlaceholderValues.Title);
+        var path = CreatePptx("caps-master-defrpr.pptx", CustomizeMaster, shape);
+
+        var source = ConvertToTypstSource(path);
+
+        Assert.Contains("#upper[Basic Block List]", source);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_NoCap_EmitsUnchangedText()
+    {
+        var shape = TextShape(2, "Basic Block List",
+            new Drawing.ParagraphProperties(),
+            new Drawing.RunProperties { FontSize = new Int32Value(1200) });
+        var path = CreatePptx("caps-none.pptx", customizeMaster: null, shape);
+
+        var source = ConvertToTypstSource(path);
+
+        Assert.DoesNotContain("#upper", source);
+        Assert.Contains("Basic Block List", source);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_CapNone_EmitsUnchangedText()
+    {
+        var runProps = new Drawing.RunProperties
+        {
+            FontSize = new Int32Value(1200)
+        };
+        runProps.SetAttribute(new OpenXmlAttribute("cap", "", "none"));
+
+        var shape = TextShape(2, "Basic Block List",
+            new Drawing.ParagraphProperties(),
+            runProps);
+        var path = CreatePptx("caps-none-explicit.pptx", customizeMaster: null, shape);
+
+        var source = ConvertToTypstSource(path);
+
+        Assert.DoesNotContain("#upper", source);
+        Assert.Contains("Basic Block List", source);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_LayoutUserDrawnTextbox_AppearsInOutput()
+    {
+        var layoutShape = CreateUserDrawnTextShape(10, "Section Header", x: 50, y: 10, w: 300, h: 30);
+        var slideShape = TextShape(2, "Slide content", new Drawing.ParagraphProperties(),
+            new Drawing.RunProperties { FontSize = new Int32Value(1200) });
+        var path = CreatePptx("layout-user-drawn.pptx",
+            customizeMaster: null,
+            slideElements: new OpenXmlElement[] { slideShape },
+            layoutElements: new OpenXmlElement[] { layoutShape });
+
+        var source = ConvertToTypstSource(path);
+
+        Assert.Contains("Section Header", source);
+        Assert.Contains("Slide content", source);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_LayoutUserDrawnShape_RendersBeforeSlideContent()
+    {
+        var layoutShape = CreateUserDrawnTextShape(10, "Layout text", x: 50, y: 10, w: 300, h: 30);
+        var slideShape = TextShape(2, "Slide text", new Drawing.ParagraphProperties(),
+            new Drawing.RunProperties { FontSize = new Int32Value(1200) });
+        var path = CreatePptx("layout-z-order.pptx",
+            customizeMaster: null,
+            slideElements: new OpenXmlElement[] { slideShape },
+            layoutElements: new OpenXmlElement[] { layoutShape });
+
+        var source = ConvertToTypstSource(path);
+
+        var layoutIndex = source.IndexOf("Layout text", StringComparison.Ordinal);
+        var slideIndex = source.IndexOf("Slide text", StringComparison.Ordinal);
+        Assert.True(layoutIndex >= 0, "Layout text not found");
+        Assert.True(slideIndex >= 0, "Slide text not found");
+        Assert.True(layoutIndex < slideIndex,
+            $"Layout text (at {layoutIndex}) should appear before slide text (at {slideIndex})");
+    }
+
+    [Fact]
+    public void GenerateTypstSource_LayoutPlaceholderShapes_NotDuplicated()
+    {
+        var layoutPlaceholder = CreatePlaceholderShape(10,
+            new Drawing.Paragraph(
+                new Drawing.ParagraphProperties(),
+                new Drawing.Run(
+                    new Drawing.RunProperties { FontSize = new Int32Value(1200) },
+                    new Drawing.Text { Text = "Layout placeholder" })),
+            PlaceholderValues.Body);
+        var path = CreatePptx("layout-placeholder-not-duped.pptx",
+            customizeMaster: null,
+            slideElements: Array.Empty<OpenXmlElement>(),
+            layoutElements: new OpenXmlElement[] { layoutPlaceholder });
+
+        var source = ConvertToTypstSource(path);
+
+        Assert.DoesNotContain("Layout placeholder", source);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_LayoutShapeOverriddenBySlide_Skipped()
+    {
+        var layoutShape = CreateUserDrawnTextShape(10, "Layout header",
+            x: 50, y: 10, w: 300, h: 30);
+        var slideShape = CreateUserDrawnTextShape(2, "Slide header - override",
+            x: 50, y: 10, w: 300, h: 30);
+        var path = CreatePptx("layout-override.pptx",
+            customizeMaster: null,
+            slideElements: new OpenXmlElement[] { slideShape },
+            layoutElements: new OpenXmlElement[] { layoutShape });
+
+        var source = ConvertToTypstSource(path);
+
+        Assert.DoesNotContain("Layout header", source);
+        Assert.Contains("Slide header - override", source);
+    }
+
+    private static P.Shape CreateUserDrawnTextShape(uint id, string text, double x, double y, double w, double h)
+    {
+        return new P.Shape(
+            new NonVisualShapeProperties(
+                new NonVisualDrawingProperties { Id = id, Name = $"UserDrawn {id}" },
+                new NonVisualShapeDrawingProperties(new Drawing.ShapeLocks { NoGrouping = true }),
+                new ApplicationNonVisualDrawingProperties()),
+            new ShapeProperties(
+                new Drawing.Transform2D(
+                    new Drawing.Offset { X = Pt(x), Y = Pt(y) },
+                    new Drawing.Extents { Cx = Pt(w), Cy = Pt(h) })),
+            new TextBody(
+                new Drawing.BodyProperties { LeftInset = 0, TopInset = 0, RightInset = 0, BottomInset = 0 },
+                new Drawing.ListStyle(),
+                new Drawing.Paragraph(
+                    new Drawing.ParagraphProperties(),
+                    new Drawing.Run(
+                        new Drawing.RunProperties { FontSize = new Int32Value(1200) },
+                        new Drawing.Text { Text = text }))));
+    }
+
+    private static P.Shape CreatePlaceholderShape(uint id, Drawing.Paragraph paragraph, PlaceholderValues placeholderType)
+    {
+        var appProps = new ApplicationNonVisualDrawingProperties();
+        appProps.Append(new PlaceholderShape { Type = placeholderType, Index = new UInt32Value(id) });
+
+        return new P.Shape(
+            new NonVisualShapeProperties(
+                new NonVisualDrawingProperties { Id = id, Name = $"Placeholder {id}" },
+                new NonVisualShapeDrawingProperties(new Drawing.ShapeLocks { NoGrouping = true }),
+                appProps),
+            new ShapeProperties(
+                new Drawing.Transform2D(
+                    new Drawing.Offset { X = Pt(50), Y = Pt(40) },
+                    new Drawing.Extents { Cx = Pt(400), Cy = Pt(200) })),
+            new TextBody(
+                new Drawing.BodyProperties { LeftInset = 0, TopInset = 0, RightInset = 0, BottomInset = 0 },
+                new Drawing.ListStyle(),
+                paragraph));
+    }
 }
