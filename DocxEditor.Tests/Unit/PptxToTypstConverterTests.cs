@@ -1561,6 +1561,133 @@ public class PptxToTypstConverterTests : IDisposable
         Assert.Null(result.Rows[2][0].BackgroundColor);
     }
 
+    private static Drawing.Table CreateBuiltInStyledTable(string tblPrXml, params Drawing.TableRow[] rows)
+    {
+        var table = new Drawing.Table(
+            new Drawing.TableProperties(tblPrXml),
+            new Drawing.TableGrid(
+                new Drawing.GridColumn { Width = 2113280 },
+                new Drawing.GridColumn { Width = 2113280 }));
+        foreach (var row in rows)
+            table.Append(row);
+        return table;
+    }
+
+    [Fact]
+    public void BuiltInTableStyles_AllEntries_ParseAsValidTableStyleXml()
+    {
+        Assert.NotEmpty(BuiltInTableStyles.OuterXmlById);
+
+        foreach (var (styleId, outerXml) in BuiltInTableStyles.OuterXmlById)
+        {
+            var entry = new Drawing.TableStyleEntry(outerXml);
+            Assert.Equal(styleId, entry.StyleId?.Value, ignoreCase: true);
+            // Every registered built-in must define at least the whole-table part,
+            // otherwise registering it has no effect.
+            Assert.NotNull(entry.WholeTable);
+        }
+    }
+
+    [Fact]
+    public void ExtractTable_BuiltInStyleId_ResolvesHeaderFillBordersAndBanding()
+    {
+        var path = CreateSimplePptx();
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+        // Runs the real LoadTableStyles wiring (built-in registry included), resolving
+        // scheme colors against the deck theme: accent1 = 4F81BD, lt1 = FFFFFF.
+        _ = converter.Convert();
+
+        const string ns = "xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\"";
+        var table = CreateBuiltInStyledTable(
+            $"<a:tblPr {ns} firstRow=\"1\" bandRow=\"1\">" +
+            $"<a:tableStyleId>{BuiltInTableStyles.MediumStyle2Accent1Id}</a:tableStyleId></a:tblPr>",
+            new Drawing.TableRow(CreateTableCell($"<a:tcPr {ns}/>", "H1"), CreateTableCell($"<a:tcPr {ns}/>", "H2")) { Height = 685800 },
+            new Drawing.TableRow(CreateTableCell($"<a:tcPr {ns}/>", "B1"), CreateTableCell($"<a:tcPr {ns}/>", "B2")) { Height = 685800 },
+            new Drawing.TableRow(CreateTableCell($"<a:tcPr {ns}/>", "B3"), CreateTableCell($"<a:tcPr {ns}/>", "B4")) { Height = 685800 });
+
+        var result = InvokeExtractTable(converter, table);
+
+        // wholeTbl: white 1pt grid everywhere (invisible against the header fill).
+        Assert.Equal("#FFFFFF", result.BorderColor);
+        Assert.Equal(1.0, result.BorderWidth, 3);
+
+        // firstRow: accent1 fill, bold white text, white borders (not black grid lines).
+        var header = result.Rows[0][0];
+        Assert.Equal("#4F81BD", header.BackgroundColor);
+        Assert.True(header.Formatting.Bold);
+        Assert.Equal("#FFFFFF", header.Formatting.Color);
+        Assert.Equal(TableBorderState.Visible, header.StylePart!.BorderTopState);
+        Assert.Equal("#FFFFFF", header.StylePart.BorderTopColor);
+        Assert.Equal(TableBorderState.Visible, header.StylePart.BorderBottomState);
+        Assert.Equal("#FFFFFF", header.StylePart.BorderBottomColor);
+
+        // Banding restarts after the header: band1H (tint 20%) on row 1, band2H
+        // (tint 40%) on row 2 — both distinct from the solid header fill. DrawingML
+        // a:tint states how much of the source color is KEPT (rest blends to white),
+        // so tint 20% renders lighter than tint 40%.
+        var band1 = result.Rows[1][0].BackgroundColor;
+        var band2 = result.Rows[2][0].BackgroundColor;
+        Assert.NotNull(band1);
+        Assert.NotNull(band2);
+        Assert.NotEqual("#4F81BD", band1);
+        Assert.NotEqual(band1, band2);
+        Assert.True(Luminance(band1!) > Luminance(band2!), "band1H (tint 20%) must be lighter than band2H (tint 40%)");
+
+        // Inside horizontal rule between banded rows comes from wholeTbl: white.
+        var bandStylePart = result.Rows[1][0].StylePart;
+        Assert.NotNull(bandStylePart);
+        Assert.Equal(TableBorderState.Visible, bandStylePart.BorderBottomState);
+        Assert.Equal("#FFFFFF", bandStylePart.BorderBottomColor);
+    }
+
+    [Fact]
+    public void ExtractTable_BuiltInStyleId_ExplicitCellPropertiesOverrideBuiltInStyle()
+    {
+        var path = CreateSimplePptx();
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+        _ = converter.Convert();
+
+        const string ns = "xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\"";
+        // Header cell with explicit fill, a red 1.5pt bottom edge and a suppressed top edge.
+        var headerCell = CreateTableCell(
+            $"<a:tcPr {ns}>" +
+            "<a:lnT><a:noFill/></a:lnT>" +
+            "<a:lnB w=\"19050\"><a:solidFill><a:srgbClr val=\"FF0000\"/></a:solidFill></a:lnB>" +
+            "<a:solidFill><a:srgbClr val=\"C00000\"/></a:solidFill>" +
+            "</a:tcPr>",
+            "H");
+        var table = CreateBuiltInStyledTable(
+            $"<a:tblPr {ns} firstRow=\"1\" bandRow=\"1\">" +
+            $"<a:tableStyleId>{BuiltInTableStyles.MediumStyle2Accent1Id}</a:tableStyleId></a:tblPr>",
+            new Drawing.TableRow(headerCell, CreateTableCell($"<a:tcPr {ns}/>", "H2")) { Height = 685800 },
+            new Drawing.TableRow(CreateTableCell($"<a:tcPr {ns}/>", "B1"), CreateTableCell($"<a:tcPr {ns}/>", "B2")) { Height = 685800 });
+
+        var result = InvokeExtractTable(converter, table);
+
+        var header = result.Rows[0][0];
+        // Explicit per-cell fill and borders win over the built-in style...
+        Assert.Equal("#C00000", header.BackgroundColor);
+        Assert.Equal(TableBorderState.None, header.StylePart!.BorderTopState);
+        Assert.Equal(TableBorderState.Visible, header.StylePart.BorderBottomState);
+        Assert.Equal("#FF0000", header.StylePart.BorderBottomColor);
+        Assert.Equal(1.5, header.StylePart.BorderBottomWidth!.Value, 3);
+        // ...while undefined edges keep the built-in wholeTbl white border.
+        Assert.Equal(TableBorderState.Visible, header.StylePart.BorderLeftState);
+        Assert.Equal("#FFFFFF", header.StylePart.BorderLeftColor);
+    }
+
+    private static double Luminance(string hexColor)
+    {
+        var r = Convert.ToInt32(hexColor.Substring(1, 2), 16);
+        var g = Convert.ToInt32(hexColor.Substring(3, 2), 16);
+        var b = Convert.ToInt32(hexColor.Substring(5, 2), 16);
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    }
+
     [Fact]
     public void GenerateTypstSource_PartialStrokeCell_EmitsOnlyDefinedEdges()
     {
