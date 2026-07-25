@@ -4498,4 +4498,391 @@ public class PptxToTypstConverterTests : IDisposable
 
         return path;
     }
+    #region SmartArt text/style fidelity: normAutofit, slidenum field, placeholder fill, footer color
+
+    /// <summary>
+    /// Builds a deck whose slide layout and slide each carry the given shape XML
+    /// (<c>p:sp</c> fragments), with a minimal theme (dk1 = 404040) so scheme colors
+    /// resolve deterministically.
+    /// </summary>
+    private string CreateDeckWithLayoutShapes(string fileName, string[] layoutShapesXml, string[] slideShapesXml, string? masterTxStylesXml = null)
+    {
+        var path = Path.Combine(_tempDir, fileName);
+
+        using (var document = PresentationDocument.Create(path, PresentationDocumentType.Presentation))
+        {
+            var presentationPart = document.AddPresentationPart();
+            presentationPart.Presentation = new Presentation
+            {
+                SlideMasterIdList = new SlideMasterIdList(),
+                SlideIdList = new SlideIdList(),
+                SlideSize = new SlideSize { Cx = (int)Pt(960), Cy = (int)Pt(540), Type = SlideSizeValues.Screen4x3 }
+            };
+
+            var slideMasterPart = presentationPart.AddNewPart<SlideMasterPart>();
+            var master = new SlideMaster(
+                new CommonSlideData(CreateShapeTree()),
+                new ColorMap
+                {
+                    Background1 = Drawing.ColorSchemeIndexValues.Light1,
+                    Text1 = Drawing.ColorSchemeIndexValues.Dark1,
+                    Background2 = Drawing.ColorSchemeIndexValues.Light2,
+                    Text2 = Drawing.ColorSchemeIndexValues.Dark2,
+                    Accent1 = Drawing.ColorSchemeIndexValues.Accent1,
+                    Accent2 = Drawing.ColorSchemeIndexValues.Accent2,
+                    Accent3 = Drawing.ColorSchemeIndexValues.Accent3,
+                    Accent4 = Drawing.ColorSchemeIndexValues.Accent4,
+                    Accent5 = Drawing.ColorSchemeIndexValues.Accent5,
+                    Accent6 = Drawing.ColorSchemeIndexValues.Accent6,
+                    Hyperlink = Drawing.ColorSchemeIndexValues.Hyperlink,
+                    FollowedHyperlink = Drawing.ColorSchemeIndexValues.FollowedHyperlink
+                },
+                new SlideLayoutIdList());
+            if (masterTxStylesXml != null)
+            {
+                master.Append(new P.TextStyles(masterTxStylesXml));
+            }
+            slideMasterPart.SlideMaster = master;
+
+            var themePart = slideMasterPart.AddNewPart<ThemePart>();
+            themePart.Theme = new Drawing.Theme($@"<a:theme xmlns:a=""{DrawingmlANs}"" name=""T"">
+  <a:themeElements>
+    <a:clrScheme name=""T"">
+      <a:dk1><a:srgbClr val=""404040""/></a:dk1>
+      <a:lt1><a:srgbClr val=""FFFFFF""/></a:lt1>
+      <a:dk2><a:srgbClr val=""111111""/></a:dk2>
+      <a:lt2><a:srgbClr val=""EEEEEE""/></a:lt2>
+      <a:accent1><a:srgbClr val=""4472C4""/></a:accent1>
+      <a:accent2><a:srgbClr val=""ED7D31""/></a:accent2>
+      <a:accent3><a:srgbClr val=""A5A5A5""/></a:accent3>
+      <a:accent4><a:srgbClr val=""FFC000""/></a:accent4>
+      <a:accent5><a:srgbClr val=""5B9BD5""/></a:accent5>
+      <a:accent6><a:srgbClr val=""70AD47""/></a:accent6>
+      <a:hlink><a:srgbClr val=""0563C1""/></a:hlink>
+      <a:folHlink><a:srgbClr val=""954F72""/></a:folHlink>
+    </a:clrScheme>
+  </a:themeElements>
+</a:theme>");
+
+            var layoutShapes = layoutShapesXml.Select(xml => new P.Shape(xml)).Cast<OpenXmlElement>().ToArray();
+            var slideLayoutPart = slideMasterPart.AddNewPart<SlideLayoutPart>();
+            slideLayoutPart.SlideLayout = new P.SlideLayout(new CommonSlideData(CreateShapeTree(layoutShapes)));
+            slideLayoutPart.AddPart(slideMasterPart);
+            master.SlideLayoutIdList!.Append(new SlideLayoutId
+            {
+                Id = 2147483649,
+                RelationshipId = slideMasterPart.GetIdOfPart(slideLayoutPart)
+            });
+
+            presentationPart.Presentation.SlideMasterIdList.Append(new SlideMasterId
+            {
+                Id = 2147483648,
+                RelationshipId = presentationPart.GetIdOfPart(slideMasterPart)
+            });
+
+            var slideShapes = slideShapesXml.Select(xml => new P.Shape(xml)).Cast<OpenXmlElement>().ToArray();
+            var slidePart = presentationPart.AddNewPart<SlidePart>();
+            slidePart.Slide = new Slide(new CommonSlideData(CreateShapeTree(slideShapes)));
+            slidePart.AddPart(slideLayoutPart);
+
+            presentationPart.Presentation.SlideIdList.Append(new SlideId
+            {
+                Id = 256,
+                RelationshipId = presentationPart.GetIdOfPart(slidePart)
+            });
+        }
+
+        return path;
+    }
+
+    [Fact]
+    public void Convert_NormalAutoFitFontScaleAndLineSpaceReduction_AppliedToSizesAndLineSpacing()
+    {
+        var shape = new P.Shape($@"<p:sp xmlns:p=""{PresentationmlNs}"" xmlns:a=""{DrawingmlANs}"">
+  <p:nvSpPr><p:cNvPr id=""2"" name=""Shrinking""/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+  <p:spPr><a:xfrm><a:off x=""12700"" y=""12700""/><a:ext cx=""914400"" cy=""914400""/></a:xfrm></p:spPr>
+  <p:txBody>
+    <a:bodyPr><a:normAutofit fontScale=""50000"" lnSpcReduction=""20000""/></a:bodyPr>
+    <a:lstStyle/>
+    <a:p>
+      <a:pPr><a:lnSpc><a:spcPct val=""100000""/></a:lnSpc></a:pPr>
+      <a:r><a:rPr lang=""en-US"" sz=""2000""/><a:t>Shrink me</a:t></a:r>
+    </a:p>
+  </p:txBody>
+</p:sp>");
+        var path = CreateGroupShapePptx("normautofit-fontscale.pptx", shape);
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = converter.Convert();
+        var element = AssertSingleTextElement(presentation, "Shrink me");
+        var paragraph = Assert.Single(element.Text!.Paragraphs);
+        Assert.Equal(10.0, paragraph.Formatting.FontSize, 3);
+        Assert.Equal(10.0, Assert.Single(paragraph.Runs).Formatting.FontSize, 3);
+        Assert.Equal(0.8, paragraph.LineSpacing!.Value, 3);
+    }
+
+    [Fact]
+    public void Convert_NormalAutoFitWithoutAttributes_LeavesSizesAndLineSpacingUnchanged()
+    {
+        var shape = new P.Shape($@"<p:sp xmlns:p=""{PresentationmlNs}"" xmlns:a=""{DrawingmlANs}"">
+  <p:nvSpPr><p:cNvPr id=""2"" name=""Plain autofit""/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+  <p:spPr><a:xfrm><a:off x=""12700"" y=""12700""/><a:ext cx=""914400"" cy=""914400""/></a:xfrm></p:spPr>
+  <p:txBody>
+    <a:bodyPr><a:normAutofit/></a:bodyPr>
+    <a:lstStyle/>
+    <a:p>
+      <a:pPr><a:lnSpc><a:spcPct val=""90000""/></a:lnSpc></a:pPr>
+      <a:r><a:rPr lang=""en-US"" sz=""2000""/><a:t>No shrink</a:t></a:r>
+    </a:p>
+  </p:txBody>
+</p:sp>");
+        var path = CreateGroupShapePptx("normautofit-plain.pptx", shape);
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = converter.Convert();
+        var element = AssertSingleTextElement(presentation, "No shrink");
+        var paragraph = Assert.Single(element.Text!.Paragraphs);
+        Assert.Equal(20.0, paragraph.Formatting.FontSize, 3);
+        Assert.Equal(0.9, paragraph.LineSpacing!.Value, 3);
+    }
+
+    [Fact]
+    public void Convert_SlideNumberFieldInUserDrawnLayoutTextbox_RendersActualSlideIndex()
+    {
+        var layoutTextbox = $@"<p:sp xmlns:p=""{PresentationmlNs}"" xmlns:a=""{DrawingmlANs}"">
+  <p:nvSpPr><p:cNvPr id=""13"" name=""Slide Number Placeholder 5""/><p:cNvSpPr txBox=""1""/><p:nvPr userDrawn=""1""/></p:nvSpPr>
+  <p:spPr><a:xfrm><a:off x=""11382764"" y=""6253489""/><a:ext cx=""562643"" cy=""390437""/></a:xfrm><a:prstGeom prst=""rect""><a:avLst/></a:prstGeom></p:spPr>
+  <p:txBody>
+    <a:bodyPr anchor=""ctr""/>
+    <a:lstStyle/>
+    <a:p>
+      <a:fld id=""{{F68327C5-B821-4FE9-A59A-A60D9EB59A9A}}"" type=""slidenum"">
+        <a:rPr lang=""en-US""><a:solidFill><a:srgbClr val=""6F6D6A""/></a:solidFill></a:rPr>
+        <a:t>&lt;#&gt;</a:t>
+      </a:fld>
+    </a:p>
+  </p:txBody>
+</p:sp>";
+        var path = CreateDeckWithLayoutShapes("slidenum-field.pptx", [layoutTextbox], []);
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = converter.Convert();
+        var element = AssertSingleTextElement(presentation, "1");
+        Assert.Equal("#6F6D6A", Assert.Single(element.Text!.Paragraphs[0].Runs).Formatting.Color);
+    }
+
+    [Fact]
+    public void Convert_PlaceholderWithoutFillOrLine_InheritsLayoutPlaceholderFillAndStroke()
+    {
+        var layoutPlaceholder = $@"<p:sp xmlns:p=""{PresentationmlNs}"" xmlns:a=""{DrawingmlANs}"">
+  <p:nvSpPr><p:cNvPr id=""51"" name=""Text Placeholder""/><p:cNvSpPr/><p:nvPr><p:ph type=""body"" sz=""quarter"" idx=""13""/></p:nvPr></p:nvSpPr>
+  <p:spPr>
+    <a:xfrm><a:off x=""371475"" y=""1556792""/><a:ext cx=""1920240"" cy=""584775""/></a:xfrm>
+    <a:solidFill><a:srgbClr val=""CCCCCC""/></a:solidFill>
+    <a:ln w=""12700""><a:solidFill><a:srgbClr val=""999999""/></a:solidFill></a:ln>
+  </p:spPr>
+  <p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang=""en-US""/><a:t>Layout text</a:t></a:r></a:p></p:txBody>
+</p:sp>";
+        var slidePlaceholder = $@"<p:sp xmlns:p=""{PresentationmlNs}"" xmlns:a=""{DrawingmlANs}"">
+  <p:nvSpPr><p:cNvPr id=""6"" name=""Text Placeholder 5""/><p:cNvSpPr/><p:nvPr><p:ph type=""body"" sz=""quarter"" idx=""13""/></p:nvPr></p:nvSpPr>
+  <p:spPr><a:xfrm><a:off x=""371475"" y=""1556792""/><a:ext cx=""1920240"" cy=""3539430""/></a:xfrm></p:spPr>
+  <p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang=""en-US""/><a:t>Explanation</a:t></a:r></a:p></p:txBody>
+</p:sp>";
+        var path = CreateDeckWithLayoutShapes("placeholder-fill-inherit.pptx", [layoutPlaceholder], [slidePlaceholder]);
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = converter.Convert();
+        var shapeElement = Assert.Single(presentation.Slides[0].Elements, e => e.Shape != null);
+        Assert.Equal("#CCCCCC", shapeElement.Shape!.FillColor);
+        Assert.Equal("#999999", shapeElement.Shape.StrokeColor);
+        Assert.Equal(1.0, shapeElement.Shape.StrokeWidth, 3);
+    }
+
+    [Fact]
+    public void Convert_PlaceholderWithExplicitNoFill_DoesNotInheritLayoutFill()
+    {
+        var layoutPlaceholder = $@"<p:sp xmlns:p=""{PresentationmlNs}"" xmlns:a=""{DrawingmlANs}"">
+  <p:nvSpPr><p:cNvPr id=""51"" name=""Text Placeholder""/><p:cNvSpPr/><p:nvPr><p:ph type=""body"" sz=""quarter"" idx=""13""/></p:nvPr></p:nvSpPr>
+  <p:spPr>
+    <a:xfrm><a:off x=""371475"" y=""1556792""/><a:ext cx=""1920240"" cy=""584775""/></a:xfrm>
+    <a:solidFill><a:srgbClr val=""CCCCCC""/></a:solidFill>
+  </p:spPr>
+  <p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang=""en-US""/><a:t>Layout text</a:t></a:r></a:p></p:txBody>
+</p:sp>";
+        var slidePlaceholder = $@"<p:sp xmlns:p=""{PresentationmlNs}"" xmlns:a=""{DrawingmlANs}"">
+  <p:nvSpPr><p:cNvPr id=""6"" name=""Text Placeholder 5""/><p:cNvSpPr/><p:nvPr><p:ph type=""body"" sz=""quarter"" idx=""13""/></p:nvPr></p:nvSpPr>
+  <p:spPr>
+    <a:xfrm><a:off x=""371475"" y=""1556792""/><a:ext cx=""1920240"" cy=""3539430""/></a:xfrm>
+    <a:noFill/>
+  </p:spPr>
+  <p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang=""en-US""/><a:t>Explanation</a:t></a:r></a:p></p:txBody>
+</p:sp>";
+        var path = CreateDeckWithLayoutShapes("placeholder-nofill-wins.pptx", [layoutPlaceholder], [slidePlaceholder]);
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = converter.Convert();
+        Assert.DoesNotContain(presentation.Slides[0].Elements, e => e.Shape != null);
+    }
+
+    [Fact]
+    public void Convert_FooterPlaceholder_InheritsMasterOtherStyleTextColor()
+    {
+        const string txStylesXml = $@"<p:txStyles xmlns:p=""{PresentationmlNs}"" xmlns:a=""{DrawingmlANs}"">
+  <p:bodyStyle><a:lvl1pPr><a:defRPr sz=""3200""/></a:lvl1pPr></p:bodyStyle>
+  <p:otherStyle>
+    <a:lvl1pPr>
+      <a:defRPr sz=""1200""><a:solidFill><a:srgbClr val=""808080""/></a:solidFill></a:defRPr>
+    </a:lvl1pPr>
+  </p:otherStyle>
+</p:txStyles>";
+        var footerShape = $@"<p:sp xmlns:p=""{PresentationmlNs}"" xmlns:a=""{DrawingmlANs}"">
+  <p:nvSpPr><p:cNvPr id=""3"" name=""Footer Placeholder 2""/><p:cNvSpPr/><p:nvPr><p:ph type=""ftr"" sz=""quarter"" idx=""11""/></p:nvPr></p:nvSpPr>
+  <p:spPr><a:xfrm><a:off x=""371475"" y=""6280675""/><a:ext cx=""7672502"" cy=""365125""/></a:xfrm></p:spPr>
+  <p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang=""en-US""/><a:t>Footer text</a:t></a:r></a:p></p:txBody>
+</p:sp>";
+        var path = CreateDeckWithLayoutShapes("footer-otherstyle-color.pptx", [], [footerShape], txStylesXml);
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = converter.Convert();
+        var element = AssertSingleTextElement(presentation, "Footer text");
+        Assert.Equal("#808080", Assert.Single(element.Text!.Paragraphs[0].Runs).Formatting.Color);
+    }
+
+    [Fact]
+    public void Convert_DiagramShapeTextOverflowingTextBox_ShrinksFontToFitAndKeepsLabelsAboveShapes()
+    {
+        var path = Path.Combine(_tempDir, "diagram-shrink.pptx");
+
+        using (var document = PresentationDocument.Create(path, PresentationDocumentType.Presentation))
+        {
+            var presentationPart = document.AddPresentationPart();
+            presentationPart.Presentation = new Presentation
+            {
+                SlideMasterIdList = new SlideMasterIdList(),
+                SlideIdList = new SlideIdList(),
+                SlideSize = new SlideSize { Cx = (int)Pt(960), Cy = (int)Pt(540), Type = SlideSizeValues.Screen4x3 }
+            };
+
+            var slideMasterPart = presentationPart.AddNewPart<SlideMasterPart>();
+            slideMasterPart.SlideMaster = new SlideMaster(
+                new CommonSlideData(CreateShapeTree()),
+                new ColorMap(),
+                new SlideLayoutIdList());
+
+            var slideLayoutPart = slideMasterPart.AddNewPart<SlideLayoutPart>();
+            slideLayoutPart.SlideLayout = new P.SlideLayout(new CommonSlideData(CreateShapeTree()));
+            slideLayoutPart.AddPart(slideMasterPart);
+            slideMasterPart.SlideMaster.SlideLayoutIdList!.Append(new SlideLayoutId
+            {
+                Id = 2147483649,
+                RelationshipId = slideMasterPart.GetIdOfPart(slideLayoutPart)
+            });
+
+            presentationPart.Presentation.SlideMasterIdList.Append(new SlideMasterId
+            {
+                Id = 2147483648,
+                RelationshipId = presentationPart.GetIdOfPart(slideMasterPart)
+            });
+
+            var slidePart = presentationPart.AddNewPart<SlidePart>();
+
+            var dataPart = slidePart.AddNewPart<DiagramDataPart>();
+            var dataRelId = slidePart.GetIdOfPart(dataPart);
+            using (var stream = dataPart.GetStream(FileMode.Create))
+            using (var writer = new StreamWriter(stream))
+            {
+                writer.Write(@"<dgm:dataModel xmlns:dgm=""http://schemas.openxmlformats.org/drawingml/2006/diagram"" xmlns:a=""http://schemas.openxmlformats.org/drawingml/2006/main""><dgm:ptLst/></dgm:dataModel>");
+            }
+
+            var drawingPart = slidePart.AddNewPart<DiagramPersistLayoutPart>();
+            using (var stream = drawingPart.GetStream(FileMode.Create))
+            using (var writer = new StreamWriter(stream))
+            {
+                writer.Write(@"<dsp:drawing xmlns:dsp=""http://schemas.microsoft.com/office/drawing/2008/diagram"" xmlns:a=""http://schemas.openxmlformats.org/drawingml/2006/main"">
+  <dsp:spTree>
+    <dsp:sp modelId=""{11111111-1111-1111-1111-111111111111}"">
+      <dsp:spPr><a:xfrm><a:off x=""0"" y=""0""/><a:ext cx=""1270000"" cy=""508000""/></a:xfrm><a:prstGeom prst=""roundRect""><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val=""DDDDDD""/></a:solidFill></dsp:spPr>
+      <dsp:txBody>
+        <a:bodyPr lIns=""12700"" tIns=""12700"" rIns=""12700"" bIns=""12700""><a:noAutofit/></a:bodyPr>
+        <a:lstStyle/>
+        <a:p><a:r><a:rPr lang=""en-US"" sz=""1500""/><a:t>Some fairly long text that wraps</a:t></a:r></a:p>
+        <a:p><a:r><a:rPr lang=""en-US"" sz=""1500""/><a:t>Some fairly long text that wraps</a:t></a:r></a:p>
+        <a:p><a:r><a:rPr lang=""en-US"" sz=""1500""/><a:t>Some fairly long text that wraps</a:t></a:r></a:p>
+      </dsp:txBody>
+      <dsp:txXfrm><a:off x=""0"" y=""0""/><a:ext cx=""1270000"" cy=""508000""/></dsp:txXfrm>
+    </dsp:sp>
+    <dsp:sp modelId=""{22222222-2222-2222-2222-222222222222}"">
+      <dsp:spPr><a:xfrm><a:off x=""1524000"" y=""0""/><a:ext cx=""1270000"" cy=""508000""/></a:xfrm><a:prstGeom prst=""roundRect""><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val=""BBBBBB""/></a:solidFill></dsp:spPr>
+      <dsp:txBody>
+        <a:bodyPr lIns=""12700"" tIns=""12700"" rIns=""12700"" bIns=""12700""><a:noAutofit/></a:bodyPr>
+        <a:lstStyle/>
+        <a:p><a:r><a:rPr lang=""en-US"" sz=""1500""/><a:t>Fits</a:t></a:r></a:p>
+      </dsp:txBody>
+      <dsp:txXfrm><a:off x=""1524000"" y=""0""/><a:ext cx=""1270000"" cy=""508000""/></dsp:txXfrm>
+    </dsp:sp>
+  </dsp:spTree>
+</dsp:drawing>");
+            }
+
+            var relIds = new OpenXmlUnknownElement("dgm", "relIds", "http://schemas.openxmlformats.org/drawingml/2006/diagram");
+            relIds.SetAttribute(new OpenXmlAttribute("r", "dm", "http://schemas.openxmlformats.org/officeDocument/2006/relationships", dataRelId));
+            var frame = new P.GraphicFrame(
+                new NonVisualGraphicFrameProperties(
+                    new NonVisualDrawingProperties { Id = 4, Name = "Diagram" },
+                    new NonVisualGraphicFrameDrawingProperties(),
+                    new ApplicationNonVisualDrawingProperties()),
+                new Transform(
+                    new Drawing.Offset { X = Pt(0), Y = Pt(0) },
+                    new Drawing.Extents { Cx = Pt(400), Cy = Pt(100) }),
+                new Drawing.Graphic(new Drawing.GraphicData(relIds)
+                {
+                    Uri = "http://schemas.openxmlformats.org/drawingml/2006/diagram"
+                }));
+
+            slidePart.Slide = new Slide(new CommonSlideData(CreateShapeTree(frame)));
+            slidePart.AddPart(slideLayoutPart);
+
+            presentationPart.Presentation.SlideIdList.Append(new SlideId
+            {
+                Id = 256,
+                RelationshipId = presentationPart.GetIdOfPart(slidePart)
+            });
+        }
+
+        using var openDocument = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(openDocument);
+
+        var presentation = converter.Convert();
+        var elements = presentation.Slides[0].Elements;
+
+        // Overflowing node text (3 long paragraphs in a 40pt box) must shrink.
+        var overflowing = Assert.Single(elements, e => e.Text?.Content.Contains("Some fairly long text") == true);
+        Assert.True(overflowing.Text!.Paragraphs[0].Formatting.FontSize < 15.0,
+            $"expected shrunk font, got {overflowing.Text.Paragraphs[0].Formatting.FontSize}");
+
+        // Comfortably fitting node text keeps its size.
+        var fitting = Assert.Single(elements, e => e.Text?.Content == "Fits");
+        Assert.Equal(15.0, fitting.Text!.Paragraphs[0].Formatting.FontSize, 3);
+
+        // All diagram shapes are emitted before any diagram text so later shapes
+        // (e.g. arc connectors) cannot cover earlier node labels.
+        var lastShapeIndex = elements.FindLastIndex(e => e.Type == "Shape");
+        var firstTextIndex = elements.FindIndex(e => e.Type == "Text");
+        Assert.True(lastShapeIndex >= 0 && firstTextIndex > lastShapeIndex,
+            $"expected all shapes before all texts, last shape at {lastShapeIndex}, first text at {firstTextIndex}");
+    }
+
+    #endregion
 }

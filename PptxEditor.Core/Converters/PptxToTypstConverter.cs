@@ -35,6 +35,13 @@ public sealed partial class PptxToTypstConverter : IDisposable
     /// <summary>Warnings for the slide currently being converted; null outside slide conversion.</summary>
     private List<string>? _activeSlideWarnings;
 
+    /// <summary>
+    /// 1-based index of the slide currently being converted; null outside slide conversion.
+    /// Feeds &lt;a:fld type="slidenum"&gt; fields (e.g. user-drawn layout text boxes whose
+    /// page-number field must render the actual slide index).
+    /// </summary>
+    private int? _activeSlideIndex;
+
     /// <summary>Target PPI for upscale detection. Used to determine if a native image
     /// is smaller than the display size and would be blurred by Typst upscaling.</summary>
     public float Ppi { get; init; } = 150;
@@ -481,6 +488,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
         // graphic frames) are collected here and exposed on TypstSlide.Warnings.
         var warnings = new List<string>();
         _activeSlideWarnings = warnings;
+        _activeSlideIndex = slideIndex;
         try
         {
             // Collect slide shape positions for override detection
@@ -519,6 +527,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
         finally
         {
             _activeSlideWarnings = null;
+            _activeSlideIndex = null;
         }
 
         foreach (var warning in warnings)
@@ -736,6 +745,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
 
         // Check for shape geometry with fill or stroke
         var shapeElement = ExtractShapeGeometry(shape.ShapeProperties, styleResolver, finalW, finalH);
+        shapeElement = ApplyPlaceholderShapeStyleInheritance(shape, shapeElement, styleResolver);
         if (shapeElement != null && (!string.IsNullOrEmpty(shapeElement.FillColor)
             || shapeElement.FillGradient != null
             || (!string.IsNullOrEmpty(shapeElement.StrokeColor) && shapeElement.StrokeWidth > 0)))
@@ -886,6 +896,82 @@ public sealed partial class PptxToTypstConverter : IDisposable
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// ECMA-376 placeholder inheritance for shape formatting: when the slide placeholder's
+    /// &lt;p:spPr&gt; omits fill and/or line, they come from the layout placeholder's spPr,
+    /// then the master's (e.g. an explanation text box whose gray fill only exists on the
+    /// layout placeholder). Explicit fill markers on the slide shape (including
+    /// &lt;a:noFill/&gt;) and an explicit &lt;a:ln&gt; suppress inheritance of that aspect.
+    /// </summary>
+    private TypstShapeElement? ApplyPlaceholderShapeStyleInheritance(P.Shape shape, TypstShapeElement? shapeElement, StyleResolver styleResolver)
+    {
+        var placeholderInfo = GetPlaceholderInfo(shape);
+        if (placeholderInfo == null)
+            return shapeElement;
+
+        var slideSpPr = shape.ShapeProperties;
+        var idx = placeholderInfo.Value.Index;
+        var placeholderType = GetPlaceholderType(shape);
+
+        var needsFill = (shapeElement == null || (string.IsNullOrEmpty(shapeElement.FillColor) && shapeElement.FillGradient == null))
+            && !HasAnyFillMarker(slideSpPr);
+        var needsStroke = (shapeElement == null || string.IsNullOrEmpty(shapeElement.StrokeColor))
+            && slideSpPr?.Elements<Drawing.Outline>().FirstOrDefault() == null;
+
+        if (!needsFill && !needsStroke)
+            return shapeElement;
+
+        var inheritedSpPr = styleResolver.GetLayoutPlaceholderShapeProperties(idx, placeholderType)
+            ?? styleResolver.GetMasterPlaceholderShapeProperties(idx, placeholderType);
+        if (inheritedSpPr == null)
+            return shapeElement;
+
+        string? fillColor = null;
+        if (needsFill)
+        {
+            var solidFill = inheritedSpPr.Elements<Drawing.SolidFill>().FirstOrDefault();
+            fillColor = solidFill != null ? styleResolver.ResolveSolidFillColor(solidFill) : null;
+        }
+
+        string? strokeColor = null;
+        double strokeWidth = 0;
+        if (needsStroke)
+        {
+            var (color, width) = ExtractShapeStroke(inheritedSpPr, styleResolver);
+            strokeColor = string.IsNullOrEmpty(color) ? null : color;
+            strokeWidth = width;
+        }
+
+        if (fillColor == null && strokeColor == null)
+            return shapeElement;
+
+        // TypstShapeElement is init-only — rebuild with the inherited aspects merged in.
+        return new TypstShapeElement
+        {
+            ShapeType = shapeElement?.ShapeType ?? "rect",
+            FillColor = fillColor ?? shapeElement?.FillColor ?? string.Empty,
+            FillGradient = shapeElement?.FillGradient,
+            StrokeColor = strokeColor ?? shapeElement?.StrokeColor ?? string.Empty,
+            StrokeWidth = strokeColor != null ? strokeWidth : shapeElement?.StrokeWidth ?? 0,
+            NoStroke = shapeElement?.NoStroke ?? false,
+            CornerRadius = shapeElement?.CornerRadius ?? 0,
+            Points = shapeElement?.Points ?? new List<(double X, double Y)>()
+        };
+    }
+
+    private static bool HasAnyFillMarker(ShapeProperties? shapeProperties)
+    {
+        if (shapeProperties == null)
+            return false;
+
+        return shapeProperties.Elements<Drawing.SolidFill>().Any()
+            || shapeProperties.Elements<Drawing.NoFill>().Any()
+            || shapeProperties.Elements<Drawing.GradientFill>().Any()
+            || shapeProperties.Elements<Drawing.BlipFill>().Any()
+            || shapeProperties.Elements<Drawing.PatternFill>().Any()
+            || shapeProperties.Elements<Drawing.GroupFill>().Any();
     }
 
     private string ExtractShapeFillColor(ShapeProperties shapeProperties, StyleResolver? styleResolver = null)
@@ -1375,6 +1461,13 @@ public sealed partial class PptxToTypstConverter : IDisposable
         var shapeScaleX = scaleX * drawScaleX;
         var shapeScaleY = scaleY * drawScaleY;
 
+        // Shapes are emitted before texts (regardless of document order): in the cached
+        // dsp:drawing, connector shapes (arcs, arrows) come after the nodes and would
+        // otherwise be painted over earlier node labels. PowerPoint's connectors are
+        // thin and never hide label text, so labels always sit on top.
+        var shapeElements = new List<TypstElement>();
+        var textElements = new List<TypstElement>();
+
         foreach (var shape in diagramShapes)
         {
             // Geometry + dimensions always come from spPr/xfrm; txXfrm is the text
@@ -1393,7 +1486,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
                 modelId);
 
             if (diagramShape != null)
-                yield return diagramShape;
+                shapeElements.Add(diagramShape);
 
             var textBounds = GetDiagramTextBounds(shape);
             if (textBounds == null) continue;
@@ -1403,7 +1496,12 @@ public sealed partial class PptxToTypstConverter : IDisposable
                 continue;
 
             var (tx, ty, tw, th) = textBounds.Value;
-            yield return new TypstElement
+
+            // PowerPoint re-lays diagrams out with shrink-on-overflow text semantics,
+            // independent of the autofit flag cached in dsp:drawing.
+            ShrinkDiagramTextToFit(textElement, tw * shapeScaleX, th * shapeScaleY);
+
+            textElements.Add(new TypstElement
             {
                 Type = "Text",
                 X = offX + (shapeFrameX + tx) * shapeScaleX,
@@ -1412,8 +1510,135 @@ public sealed partial class PptxToTypstConverter : IDisposable
                 Height = th * shapeScaleY,
                 ModelId = modelId,
                 Text = textElement
-            };
+            });
         }
+
+        foreach (var element in shapeElements)
+            yield return element;
+        foreach (var element in textElements)
+            yield return element;
+    }
+
+    /// <summary>
+    /// Emulates PowerPoint's SmartArt shrink-on-overflow: node text is reduced in
+    /// PowerPoint's 1% normAutofit steps (floor 50%) until the measured content fits
+    /// its text box. Widths are measured with real font metrics when available,
+    /// falling back to a 0.5em-per-character estimate — the same wrapping uncertainty
+    /// the renderer itself has without metrics.
+    /// </summary>
+    private void ShrinkDiagramTextToFit(TypstTextElement text, double boxWidthPt, double boxHeightPt)
+    {
+        var contentWidth = boxWidthPt - text.PaddingLeft - text.PaddingRight;
+        var contentHeight = boxHeightPt - text.PaddingTop - text.PaddingBottom;
+        if (contentWidth <= 1 || contentHeight <= 1 || text.Paragraphs.Count == 0)
+            return;
+
+        var scale = 1.0;
+        if (MeasureDiagramContentHeight(text, contentWidth, scale) > contentHeight + 0.75)
+        {
+            scale = 0.5;
+            for (var candidate = 0.99; candidate >= 0.5; candidate -= 0.01)
+            {
+                if (MeasureDiagramContentHeight(text, contentWidth, candidate) <= contentHeight + 0.75)
+                {
+                    scale = candidate;
+                    break;
+                }
+            }
+        }
+
+        if (scale >= 0.999)
+            return;
+
+        foreach (var paragraph in text.Paragraphs)
+        {
+            paragraph.Formatting = paragraph.Formatting with { FontSize = paragraph.Formatting.FontSize * scale };
+            foreach (var run in paragraph.Runs)
+            {
+                run.Formatting = run.Formatting with { FontSize = run.Formatting.FontSize * scale };
+            }
+        }
+    }
+
+    /// <summary>
+    /// Estimated rendered height (points) of the text content at a font scale: per
+    /// paragraph, the natural single-line width is wrapped greedily into the available
+    /// width and multiplied by the line pitch, plus inter-paragraph spacing.
+    /// </summary>
+    private double MeasureDiagramContentHeight(TypstTextElement text, double contentWidth, double scale)
+    {
+        var total = 0.0;
+        foreach (var paragraph in text.Paragraphs)
+        {
+            var fontSize = paragraph.Formatting.FontSize * scale;
+            if (fontSize <= 0)
+                continue;
+
+            var availableWidth = contentWidth - (paragraph.MarginLeft ?? 0);
+            if (availableWidth <= 1)
+                availableWidth = contentWidth;
+
+            var naturalWidth = MeasureDiagramParagraphWidth(paragraph, scale);
+            var lines = Math.Max(1, (int)Math.Ceiling(naturalWidth / availableWidth - 1e-9));
+
+            // Line pitch: percentage spacing multiplies the font's natural line height
+            // (≈1.2 em); absolute spacing (≥10, points) is used directly. Mirrors the
+            // <10 / ≥10 convention used by the Typst emitter.
+            var lineHeightFactor = GetFontLineHeightFactor(paragraph.Formatting.FontFamily);
+            var pitch = paragraph.LineSpacing is { } spacing && spacing < 10
+                ? fontSize * lineHeightFactor * spacing
+                : paragraph.LineSpacing ?? fontSize * lineHeightFactor;
+
+            total += lines * pitch;
+
+            if (paragraph.SpaceBefore is { } before)
+                total += before < 10 ? fontSize * before : before;
+            if (paragraph.SpaceAfter is { } after)
+                total += after < 10 ? fontSize * after : after;
+        }
+
+        return total;
+    }
+
+    private double MeasureDiagramParagraphWidth(TypstParagraph paragraph, double scale)
+    {
+        var total = 0.0;
+        foreach (var run in paragraph.Runs)
+        {
+            if (run.IsLineBreak || string.IsNullOrEmpty(run.Content))
+                continue;
+
+            var runSize = run.Formatting.FontSize * scale;
+            var metrics = GetFontMetrics(run.Formatting.FontFamily);
+            if (metrics != null && metrics.UnitsPerEm > 0 && metrics.AdvanceWidths.Count > 0)
+            {
+                foreach (var rune in run.Content.EnumerateRunes())
+                {
+                    var advance = metrics.AdvanceWidths.TryGetValue(rune.Value, out var a)
+                        ? a
+                        : (ushort)(metrics.UnitsPerEm / 2);
+                    total += advance * runSize / metrics.UnitsPerEm;
+                }
+            }
+            else
+            {
+                total += run.Content.Length * 0.5 * runSize;
+            }
+        }
+
+        return total;
+    }
+
+    private double GetFontLineHeightFactor(string fontFamily)
+    {
+        var metrics = GetFontMetrics(fontFamily);
+        if (metrics == null || metrics.UnitsPerEm <= 0)
+            return 1.2;
+
+        var ascent = metrics.WinAscent != 0 ? metrics.WinAscent : Math.Max(0, (int)metrics.HheaAscender);
+        var descent = metrics.WinDescent != 0 ? metrics.WinDescent : Math.Max(0, (int)-metrics.HheaDescender);
+        var factor = (ascent + descent) / (double)metrics.UnitsPerEm;
+        return factor > 0.5 ? factor : 1.2;
     }
 
     /// <summary>
@@ -1554,18 +1779,41 @@ public sealed partial class PptxToTypstConverter : IDisposable
         // accent-filled boxes). Apply it wherever a paragraph/run still carries the
         // unresolved "#000000" cascade default — explicit run colours win.
         var fontRefColor = ResolveDiagramFontRefColor(diagramShape, schemeColors);
-        if (fontRefColor == null) return text;
-
-        foreach (var paragraph in text.Paragraphs)
+        if (fontRefColor != null)
         {
-            if (paragraph.Formatting.Color == "#000000")
-                paragraph.Formatting = paragraph.Formatting with { Color = fontRefColor };
-
-            foreach (var run in paragraph.Runs)
+            foreach (var paragraph in text.Paragraphs)
             {
-                if (run.Formatting.Color == "#000000")
-                    run.Formatting = run.Formatting with { Color = fontRefColor };
+                if (paragraph.Formatting.Color == "#000000")
+                    paragraph.Formatting = paragraph.Formatting with { Color = fontRefColor };
+
+                foreach (var run in paragraph.Runs)
+                {
+                    if (run.Formatting.Color == "#000000")
+                        run.Formatting = run.Formatting with { Color = fontRefColor };
+                }
             }
+        }
+
+        // A persisted <a:normAutofit fontScale="…" lnSpcReduction="…"/> on the diagram
+        // shape's txBody shrinks the resolved sizes/spacing (same semantics as slide shapes).
+        var diagramBodyPr = GetCascadedBodyPr(txBody, null, null, null);
+        if (ApplyNormalAutoFitAdjustments(diagramBodyPr, text.Paragraphs))
+        {
+            // LineSpacing is init-only — rebuild so the element-level value reflects
+            // the adjusted first-paragraph spacing.
+            text = new TypstTextElement
+            {
+                Paragraphs = text.Paragraphs,
+                AutoFit = text.AutoFit,
+                VerticalAlign = text.VerticalAlign,
+                PaddingLeft = text.PaddingLeft,
+                PaddingTop = text.PaddingTop,
+                PaddingRight = text.PaddingRight,
+                PaddingBottom = text.PaddingBottom,
+                LineSpacing = text.Paragraphs.FirstOrDefault()?.LineSpacing,
+                ParagraphCount = text.ParagraphCount,
+                HasExplicitLineBreaks = text.HasExplicitLineBreaks
+            };
         }
 
         return text;
@@ -1904,6 +2152,11 @@ public sealed partial class PptxToTypstConverter : IDisposable
             });
         }
 
+        // normAutofit fontScale/lnSpcReduction applies to the fully resolved sizes,
+        // so it must run after the master-default merge above.
+        var cascadedBodyPr = GetCascadedBodyPr(textBody, styleResolver, placeholderInfo?.Index, placeholderType);
+        ApplyNormalAutoFitAdjustments(cascadedBodyPr, updatedParagraphs);
+
         return new TypstTextElement
         {
             Paragraphs = updatedParagraphs,
@@ -1913,7 +2166,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
             PaddingTop = result.PaddingTop,
             PaddingRight = result.PaddingRight,
             PaddingBottom = result.PaddingBottom,
-            LineSpacing = result.LineSpacing,
+            LineSpacing = updatedParagraphs.FirstOrDefault()?.LineSpacing,
             ParagraphCount = result.ParagraphCount,
             HasExplicitLineBreaks = result.HasExplicitLineBreaks
         };
@@ -2007,6 +2260,29 @@ public sealed partial class PptxToTypstConverter : IDisposable
                     if (firstRun == null)
                     {
                         firstRun = run;
+                    }
+                }
+
+                if (child is Drawing.Field field)
+                {
+                    // <a:fld> — only slide-number fields are resolved (to the actual
+                    // 1-based slide index); other field types keep the previous
+                    // skip behavior. The field's rPr formats the substituted text,
+                    // so it is wrapped in a surrogate run for the regular pipeline.
+                    var fieldText = ResolveFieldText(field, _activeSlideIndex);
+                    if (!string.IsNullOrEmpty(fieldText))
+                    {
+                        var surrogate = field.RunProperties != null
+                            ? new Drawing.Run((Drawing.RunProperties)field.RunProperties.CloneNode(true), new Drawing.Text(fieldText))
+                            : new Drawing.Run(new Drawing.Text(fieldText));
+                        paragraphText.Append(fieldText);
+                        textRuns.Add((fieldText, surrogate, ExtractTextFormatting(surrogate)));
+                        elements.Add((true, surrogate, fieldText));
+
+                        if (firstRun == null)
+                        {
+                            firstRun = surrogate;
+                        }
                     }
                 }
 
@@ -2119,6 +2395,73 @@ public sealed partial class PptxToTypstConverter : IDisposable
             ParagraphCount = Math.Max(1, paragraphCount),
             HasExplicitLineBreaks = hasExplicitLineBreaks
         };
+    }
+
+    /// <summary>
+    /// Resolves the display text of an &lt;a:fld&gt; field. Slide-number fields render the
+    /// actual 1-based slide index (PowerPoint's ‹#› placeholder text is only a design-time
+    /// stand-in); when no slide context is available the field's cached text is used.
+    /// Other field types return null (skipped, as before).
+    /// </summary>
+    private static string? ResolveFieldText(Drawing.Field field, int? slideIndex)
+    {
+        // Raw XML attribute read per AGENTS.pptx.md rule 1 — SDK attribute access is unreliable.
+        var typeMatch = System.Text.RegularExpressions.Regex.Match(field.OuterXml, @"\btype\s*=\s*""([^""]*)""");
+        var fieldType = typeMatch.Success ? typeMatch.Groups[1].Value : null;
+
+        if (fieldType != "slidenum")
+            return null;
+
+        return slideIndex.HasValue
+            ? slideIndex.Value.ToString(CultureInfo.InvariantCulture)
+            : field.Text?.Text;
+    }
+
+    /// <summary>
+    /// Applies the persisted &lt;a:normAutofit&gt; shrink to resolved text: fontScale (1e5 =
+    /// 100%) scales paragraph/run font sizes, lnSpcReduction reduces line spacing by that
+    /// fraction. PowerPoint stores these after shrinking text to fit; without them the
+    /// render uses the unshrunk sizes and overflows the shape. A plain
+    /// &lt;a:normAutofit/&gt; (no attributes) is a no-op.
+    /// </summary>
+    private static bool ApplyNormalAutoFitAdjustments(Drawing.BodyProperties? bodyPr, List<TypstParagraph> paragraphs)
+    {
+        var normalAutoFit = bodyPr?.Elements<Drawing.NormalAutoFit>().FirstOrDefault();
+        if (normalAutoFit == null)
+            return false;
+
+        // Raw XML attribute reads per AGENTS.pptx.md rule 1.
+        var fontScaleMatch = System.Text.RegularExpressions.Regex.Match(normalAutoFit.OuterXml, @"\bfontScale\s*=\s*""([^""]*)""");
+        var reductionMatch = System.Text.RegularExpressions.Regex.Match(normalAutoFit.OuterXml, @"\blnSpcReduction\s*=\s*""([^""]*)""");
+
+        var fontScale = fontScaleMatch.Success && double.TryParse(fontScaleMatch.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var fs)
+            ? fs / 100000.0
+            : 1.0;
+        var lineSpaceReduction = reductionMatch.Success && double.TryParse(reductionMatch.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var lsr)
+            ? lsr / 100000.0
+            : 0.0;
+
+        if (fontScale >= 0.9999 && lineSpaceReduction <= 0.0)
+            return false;
+
+        foreach (var paragraph in paragraphs)
+        {
+            if (fontScale < 0.9999)
+            {
+                paragraph.Formatting = paragraph.Formatting with { FontSize = paragraph.Formatting.FontSize * fontScale };
+                foreach (var run in paragraph.Runs)
+                {
+                    run.Formatting = run.Formatting with { FontSize = run.Formatting.FontSize * fontScale };
+                }
+            }
+
+            if (lineSpaceReduction > 0.0 && paragraph.LineSpacing.HasValue)
+            {
+                paragraph.LineSpacing = paragraph.LineSpacing.Value * (1.0 - lineSpaceReduction);
+            }
+        }
+
+        return true;
     }
 
     /// <summary>
