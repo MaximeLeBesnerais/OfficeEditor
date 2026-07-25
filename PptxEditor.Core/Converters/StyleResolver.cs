@@ -578,6 +578,55 @@ public sealed class StyleResolver
         return ExtractBulletColorInfo(lvlPpr, this);
     }
 
+    /// <summary>
+    /// Paragraph alignment (raw <c>algn</c> value) inherited from the master txStyles
+    /// (titleStyle/bodyStyle/otherStyle) for placeholder paragraphs — e.g. decks whose
+    /// titles are right-aligned via <c>titleStyle algn="r"</c>. Null when not defined.
+    /// </summary>
+    public string? GetMasterTxStyleAlignment(PlaceholderValues? placeholderType, int level)
+    {
+        if (placeholderType == null)
+            return null;
+
+        OpenXmlElement? styleList;
+        if (placeholderType == PlaceholderValues.Title || placeholderType == PlaceholderValues.CenteredTitle)
+            styleList = _masterPart?.SlideMaster?.TextStyles?.TitleStyle;
+        else if (placeholderType == PlaceholderValues.Body || placeholderType == PlaceholderValues.SubTitle)
+            styleList = _masterPart?.SlideMaster?.TextStyles?.BodyStyle;
+        else if (placeholderType == PlaceholderValues.Object)
+            styleList = _masterPart?.SlideMaster?.TextStyles?.OtherStyle;
+        else
+            return null;
+
+        if (styleList == null)
+            return null;
+
+        var lvlPpr = styleList.ChildElements.FirstOrDefault(e => e.LocalName == $"lvl{level + 1}pPr");
+        return ReadAlgnAttribute(lvlPpr);
+    }
+
+    /// <summary>
+    /// Paragraph alignment inherited from the layout placeholder's own lstStyle.
+    /// Layout wins over master in the placeholder inheritance chain.
+    /// </summary>
+    public string? GetLayoutPlaceholderAlignment(int? idx, PlaceholderValues? type, int level)
+    {
+        var shape = FindLayoutPlaceholder(idx, type);
+        var lstStyle = shape?.TextBody?.ChildElements.FirstOrDefault(e => e.LocalName == "lstStyle");
+        var lvlPpr = lstStyle?.ChildElements.FirstOrDefault(e => e.LocalName == $"lvl{level + 1}pPr");
+        return ReadAlgnAttribute(lvlPpr);
+    }
+
+    private static string? ReadAlgnAttribute(OpenXmlElement? lvlPpr)
+    {
+        // The lvlNpPr elements derive from TextParagraphPropertiesType; read the typed
+        // Alignment property — GetAttribute throws KeyNotFoundException on elements
+        // whose schema doesn't declare algn. Use InnerText: in SDK 3.x
+        // TextAlignmentTypeValues is a struct whose ToString() does not yield the
+        // lexical XML value ("r", "ctr", ...).
+        return (lvlPpr as Drawing.TextParagraphPropertiesType)?.Alignment?.InnerText;
+    }
+
     private (string? Color, bool FollowsText) ExtractBulletColorFromTextBodyLstStyle(OpenXmlElement? textBody, int level)
     {
         if (textBody == null) return (null, false);
