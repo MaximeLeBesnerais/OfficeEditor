@@ -1747,6 +1747,8 @@ public sealed partial class PptxToTypstConverter : IDisposable
                 }
                 newFmt = newFmt with { FontFamily = fontName };
             }
+            if (newFmt.Caps == null && !string.IsNullOrEmpty(defaultStyle.Caps))
+                newFmt = newFmt with { Caps = defaultStyle.Caps };
 
             // Propagate paragraph formatting changes to runs that inherited them
             var updatedRuns = new List<TypstTextRun>();
@@ -1763,6 +1765,8 @@ public sealed partial class PptxToTypstConverter : IDisposable
                     runFmt = runFmt with { Color = newFmt.Color };
                 if (runFmt.FontFamily == oldFmt.FontFamily)
                     runFmt = runFmt with { FontFamily = newFmt.FontFamily };
+                if (runFmt.Caps == oldFmt.Caps)
+                    runFmt = runFmt with { Caps = newFmt.Caps };
 
                 updatedRuns.Add(new TypstTextRun { Content = run.Content, Formatting = runFmt, IsLineBreak = run.IsLineBreak });
             }
@@ -2266,6 +2270,11 @@ public sealed partial class PptxToTypstConverter : IDisposable
             fmt = fmt with { FontFamily = fontName };
         }
 
+        // Caps
+        var caps = ExtractCapAttribute(runProps);
+        if (caps != null)
+            fmt = fmt with { Caps = caps };
+
         return fmt;
     }
 
@@ -2308,6 +2317,10 @@ public sealed partial class PptxToTypstConverter : IDisposable
                     }
                     fmt = fmt with { FontFamily = fontName };
                 }
+
+                var caps = ExtractCapAttribute(runProps);
+                if (caps != null)
+                    fmt = fmt with { Caps = caps };
             }
         }
 
@@ -2336,6 +2349,13 @@ public sealed partial class PptxToTypstConverter : IDisposable
                     fmt = fmt with { Bold = true };
                 }
                 fmt = fmt with { FontFamily = fontName };
+            }
+
+            if (fmt.Caps == null)
+            {
+                var defCaps = ExtractCapAttribute(defRPr);
+                if (defCaps != null)
+                    fmt = fmt with { Caps = defCaps };
             }
         }
 
@@ -2379,6 +2399,10 @@ public sealed partial class PptxToTypstConverter : IDisposable
                 fmt = fmt with { Bold = true };
             }
             fmt = fmt with { FontFamily = fontName };
+        }
+        if (fmt.Caps == null && !string.IsNullOrEmpty(style.Caps))
+        {
+            fmt = fmt with { Caps = style.Caps };
         }
         return fmt;
     }
@@ -2732,7 +2756,8 @@ public sealed partial class PptxToTypstConverter : IDisposable
             Bold = defRPr.Bold?.Value,
             Italic = defRPr.Italic?.Value,
             Underline = defRPr.Underline?.Value != null && defRPr.Underline.Value != Drawing.TextUnderlineValues.None,
-            Color = ExtractDefRPrColorStatic(defRPr)
+            Color = ExtractDefRPrColorStatic(defRPr),
+            Caps = ExtractCapAttribute(defRPr)
         };
 
         var latinFont = defRPr.Elements<Drawing.LatinFont>().FirstOrDefault();
@@ -2746,6 +2771,19 @@ public sealed partial class PptxToTypstConverter : IDisposable
     {
         var solidFill = defRPr.Elements<Drawing.SolidFill>().FirstOrDefault();
         return solidFill != null ? ExtractSolidFillColorStatic(solidFill, null) : null;
+    }
+
+    private static string? ExtractCapAttribute(OpenXmlElement element)
+    {
+        var match = System.Text.RegularExpressions.Regex.Match(element.OuterXml, @"\bcap\s*=\s*""([^""]*)""");
+        if (match.Success)
+        {
+            var value = match.Groups[1].Value;
+            if (value == "none")
+                return null;
+            return value;
+        }
+        return null;
     }
 
     private string? ExtractRunColor(Drawing.RunProperties runProps, StyleResolver? styleResolver = null)
