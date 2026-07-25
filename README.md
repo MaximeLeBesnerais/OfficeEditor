@@ -216,13 +216,13 @@ Key design decisions:
 ## Testing
 
 ```bash
-dotnet test                 # full suite: ~1,250 tests across 4 projects, 0 failures
+dotnet test                 # full suite: ~1,750 tests across 6 projects
 ```
 
 - xUnit; per-primitive parity fixtures with RMSE thresholds for the generation pipeline
-- Merged line coverage across suites: **82.3%** (measured with coverlet; union of all test runs)
+- Coverage: merged-union line coverage across all test projects (`scripts/check-coverage.py`); CI gate floor **83%** — source of truth is `COVERAGE_THRESHOLD` in `.github/workflows/ci.yml`
 - Typst-dependent tests are env-gated: `OE_RUN_TYPST_COMPILE_TESTS=1 dotnet test`
-- CI: `build-test` on PRs and `main` pushes — Release build (warnings = errors) + full suite + coverage gate (41% floor); runs only when C#-relevant paths change
+- CI: `build-test` on PRs and `main` pushes — Release build (warnings = errors) + full suite + coverage gate (83% floor); runs only when C#-relevant paths change
 - Visual regression: `dotnet run --project tools/visual-diff -- --suite pptx|docx|gen` (baselines are per-machine, not committed)
 
 ## Performance

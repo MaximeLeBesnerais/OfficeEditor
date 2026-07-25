@@ -2,13 +2,14 @@
 
 A thin [Model Context Protocol](https://modelcontextprotocol.io) (MCP) stdio host that
 exposes the OfficeEditor PPTX pipeline to MCP clients (Claude Desktop, IDEs, agents)
-as three tools:
+as four tools:
 
 | Tool | Purpose | Backed by |
 |---|---|---|
 | `deck_anatomize` | Slide/element anatomy of a deck (id, type, name, EMU position, text/table data) | `PptxAnatomizer` (via `IPresentationBuilder.Analyze`) |
 | `deck_replace_element` | Batch edit ops: `replaceText`, `replaceImage`, `replaceTable`, `moveSlide`, `duplicateSlide`, `deleteSlide` | `PptxInstructionEngine` (validate-then-execute) |
 | `deck_render_slide` | Render one slide (1-based) to PNG/SVG bytes | `PresentationBuilder.ExportThumbnail` |
+| `deck_generate` | Generate a PPTX deck from a generation document (deck.schema.json v2.0; layout resolved server-side). Returns `pptxBase64` plus per-slide SVG/PNG previews (best-effort: `previewError` is set when no Typst backend is available). Creates a deck session whose `deckHandle` works with every other `deck_*` tool | Generation pipeline (`PptxEditor.Core/Generation`: validate → expand → layout → OOXML; previews via the Typst emitter) |
 
 **Zero third-party dependencies.** The JSON-RPC 2.0 / MCP protocol layer is
 hand-rolled over `System.Text.Json` (in-box); the only references are
@@ -106,6 +107,28 @@ continue from via the returned `deckHandle`).
   `ppi` — 36–600, default 150.
 - Response payload: `{ "contentBase64": "...", "contentType": "image/png",
   "slide": 1, "format": "png", "ppi": 150.0, "deckHandle": "...", "revision": 1 }`
+
+### `deck_generate`
+
+```json
+{
+  "document": { "version": "2.0", "design": { … }, "slides": [ … ] },
+  "previewFormat": "svg",
+  "ppi": 150
+}
+```
+
+- `document` — **required object**, a generation document per deck.schema.json
+  v2.0 (version/design/slides; pt units only). Unknown properties are rejected
+  with path + suggestion.
+- `previewFormat` — `svg` (default) or `png`. Per-slide previews via the
+  Typst emitter (best-effort: `previewError` is set when no Typst backend is
+  available).
+- `ppi` — 36–600, default 150.
+- Response payload: `{ "pptxBase64": "…", "previews": [{ "slide": 1,
+  "format": "svg", "contentBase64": "…", "previewError": null }],
+  "deckHandle": "…", "revision": 0 }`. The returned deck handle works with
+  every other `deck_*` tool.
 
 All tool results use the MCP envelope: `content: [{type: "text", text: <json>}]` plus
 the same payload under `structuredContent`.
