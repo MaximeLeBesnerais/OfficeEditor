@@ -1,5 +1,7 @@
 # SmartArt Investigation Report
 
+> Archived report — describes the investigation state as of its writing; several sections are superseded by the implementation in PptxEditor.Core/Converters/SmartArt/.
+
 > **Date:** 2026-07-24 | **Branch:** `agent/smartart-investigation` | **Status:** Phase 1 readiness assessment
 
 ---
