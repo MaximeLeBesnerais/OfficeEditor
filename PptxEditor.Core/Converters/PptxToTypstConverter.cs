@@ -654,8 +654,14 @@ public sealed partial class PptxToTypstConverter : IDisposable
             };
         }
 
+        // Preset-geometry text rectangle (ECMA-376 prstGeom a:rect): some presets confine
+        // text to a sub-rectangle of the bounding box (chevron: starts at the notch tip).
+        // bodyPr insets apply inside this rectangle, so offset the text box first.
+        var (textRectLeft, textRectTop, textRectRight, textRectBottom) =
+            GetPresetTextRectOffsets(shape.ShapeProperties, finalW, finalH);
+
         // Set original text box height (before padding)
-        text.TextBoxHeight = finalH;
+        text.TextBoxHeight = finalH - textRectTop - textRectBottom;
 
         // Return text if present
         if (!string.IsNullOrWhiteSpace(text.Content))
@@ -665,10 +671,10 @@ public sealed partial class PptxToTypstConverter : IDisposable
                 Type = "Text",
                 Id = id,
                 Name = name,
-                X = finalX,
-                Y = finalY,
-                Width = finalW,
-                Height = finalH,
+                X = finalX + textRectLeft,
+                Y = finalY + textRectTop,
+                Width = Math.Max(0, finalW - textRectLeft - textRectRight),
+                Height = Math.Max(0, finalH - textRectTop - textRectBottom),
                 Rotation = finalRot,
                 Text = text
             };
@@ -903,6 +909,21 @@ public sealed partial class PptxToTypstConverter : IDisposable
     /// </summary>
     private static List<(double X, double Y)> BuildChevronPoints(Drawing.PresetGeometry prstGeom, double shapeWidth, double shapeHeight)
     {
+        var depthX = GetChevronDepthFraction(prstGeom, shapeWidth, shapeHeight);
+
+        return new List<(double X, double Y)>
+        {
+            (0, 0), (1 - depthX, 0), (1, 0.5), (1 - depthX, 1), (0, 1), (depthX, 0.5)
+        };
+    }
+
+    /// <summary>
+    /// Normalised (fraction of shape width) chevron point/notch depth:
+    /// <c>dx1 = ss·adj/100000</c> (ECMA-376 chevron preset, <c>ss</c> = smaller dimension,
+    /// <c>adj</c> defaults to 50000). Shared by the polygon points and the text-rect math.
+    /// </summary>
+    private static double GetChevronDepthFraction(Drawing.PresetGeometry prstGeom, double shapeWidth, double shapeHeight)
+    {
         var adj = 50000.0;
         var match = Regex.Match(prstGeom.OuterXml, @"\bfmla\s*=\s*""val\s+(\d+)""");
         if (match.Success && double.TryParse(match.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var adjValue))
@@ -910,14 +931,35 @@ public sealed partial class PptxToTypstConverter : IDisposable
             adj = adjValue;
         }
 
-        var depthX = shapeWidth > 0 && shapeHeight > 0
+        return shapeWidth > 0 && shapeHeight > 0
             ? Math.Clamp(adj / 100000.0 * Math.Min(shapeWidth, shapeHeight) / shapeWidth, 0.0, 1.0)
             : 0.5;
+    }
 
-        return new List<(double X, double Y)>
+    /// <summary>
+    /// Preset-geometry text-rectangle offsets (ECMA-376 §20.1.9: every prstGeom defines a
+    /// text rectangle via <c>&lt;a:rect l="" t="" r="" b=""/&gt;</c>; the default is the full
+    /// shape bounding box). <c>a:bodyPr</c> insets (lIns/tIns/rIns/bIns) apply INSIDE this
+    /// rectangle, so the text element must be shifted/shrunk by these offsets first.
+    /// Implemented presets: <c>chevron</c> — text rect <c>l = dx1, t = 0, r = x1, b = 0</c>
+    /// with <c>dx1 = ss·adj/100000</c> and <c>x1 = w − dx1</c>, i.e. the text starts at the
+    /// notch tip and ends before the arrow point. Full preset-text-rect evaluation for the
+    /// remaining prstGeom definitions is deferred (other presets currently use the default
+    /// full-bounding-box text rect).
+    /// </summary>
+    private static (double Left, double Top, double Right, double Bottom) GetPresetTextRectOffsets(
+        ShapeProperties? shapeProperties, double shapeWidth, double shapeHeight)
+    {
+        if (shapeWidth <= 0 || shapeHeight <= 0) return (0, 0, 0, 0);
+
+        var prstGeom = shapeProperties?.Elements<Drawing.PresetGeometry>().FirstOrDefault();
+        if (prstGeom?.Preset?.Value == Drawing.ShapeTypeValues.Chevron)
         {
-            (0, 0), (1 - depthX, 0), (1, 0.5), (1 - depthX, 1), (0, 1), (depthX, 0.5)
-        };
+            var depth = GetChevronDepthFraction(prstGeom, shapeWidth, shapeHeight) * shapeWidth;
+            return (depth, 0, depth, 0);
+        }
+
+        return (0, 0, 0, 0);
     }
 
     /// <summary>
