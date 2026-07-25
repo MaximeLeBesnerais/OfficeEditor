@@ -36,7 +36,7 @@ if (!File.Exists(inputPath))
 Console.WriteLine($"Converting {inputPath}...");
 
 using var doc = PresentationDocument.Open(inputPath, false);
-var converter = new PptxToTypstConverter(doc);
+using var converter = new PptxToTypstConverter(doc);
 var presentation = converter.Convert();
 
 // Generate Typst source
