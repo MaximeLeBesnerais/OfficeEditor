@@ -209,6 +209,93 @@ public sealed class PptxToTypstConverterTextListTests : IDisposable
         Assert.Contains("#list(marker: [–], indent: 36.00pt, body-indent: 22.50pt)", source);
     }
 
+    [Fact]
+    public void GenerateTypstSource_MixedBoldRunsInListGroup_GroupWrapperDoesNotLeakBold()
+    {
+        // Sales deck slide 3 regression: every item leads with a bold run followed by
+        // regular runs (b="0"). The list-group #text wrapper (sized from the collapsed
+        // first run) asserted weight: "bold" around the whole #list, and Typst inherits
+        // parameters unset by the inner per-run wrappers — bold leaked onto everything.
+        var shape = TextShape(2,
+            MixedRunBulletParagraph(("Bold lead-in", true), (" regular tail", false)),
+            MixedRunBulletParagraph(("Second bold lead", true), (" second regular tail", false)));
+        var path = CreatePptx("mixed-bold-list.pptx", customizeMaster: null, shape);
+
+        var source = ConvertToTypstSource(path);
+
+        // Bold is asserted per run only…
+        Assert.Contains("#text(size: 13.00pt, weight: \"bold\")[Bold lead-in]", source);
+        Assert.Contains("#text(size: 13.00pt, weight: \"bold\")[Second bold lead]", source);
+        // …never by the group wrapper around the #list…
+        Assert.DoesNotContain("weight: \"bold\")[#list", source);
+        // …and regular runs carry no weight (they must render at regular weight).
+        Assert.Contains("#text(size: 13.00pt)[ regular tail]", source);
+        Assert.Contains("#text(size: 13.00pt)[ second regular tail]", source);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_MixedBoldRunsInParagraph_EmitsWeightPerRun()
+    {
+        var shape = TextShape(2,
+            new Drawing.Paragraph(
+                new Drawing.Run(
+                    new Drawing.RunProperties { FontSize = new Int32Value(1300), Bold = new BooleanValue(true) },
+                    new Drawing.Text { Text = "Bold fragment" }),
+                new Drawing.Run(
+                    new Drawing.RunProperties { FontSize = new Int32Value(1300), Bold = new BooleanValue(false) },
+                    new Drawing.Text { Text = " and regular fragment" })));
+        var path = CreatePptx("mixed-bold-paragraph.pptx", customizeMaster: null, shape);
+
+        var source = ConvertToTypstSource(path);
+
+        Assert.Contains("#text(size: 13.00pt, weight: \"bold\")[Bold fragment]", source);
+        Assert.Contains("#text(size: 13.00pt)[ and regular fragment]", source);
+        Assert.DoesNotContain("#text(size: 13.00pt, weight: \"bold\")[ and regular fragment]", source);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_InheritedBoldWithExplicitRegularRun_RegularRunStaysRegular()
+    {
+        // Bold inherited from the paragraph default (pPr/defRPr b="1"): a run without
+        // b inherits bold, a run with explicit b="0" must stay regular.
+        var shape = TextShape(2,
+            new Drawing.Paragraph(
+                new Drawing.ParagraphProperties(
+                    new Drawing.DefaultRunProperties { Bold = new BooleanValue(true) }),
+                new Drawing.Run(
+                    new Drawing.RunProperties { FontSize = new Int32Value(1300) },
+                    new Drawing.Text { Text = "Inherited bold" }),
+                new Drawing.Run(
+                    new Drawing.RunProperties { FontSize = new Int32Value(1300), Bold = new BooleanValue(false) },
+                    new Drawing.Text { Text = " explicit regular" })));
+        var path = CreatePptx("inherited-bold-regular-run.pptx", customizeMaster: null, shape);
+
+        var source = ConvertToTypstSource(path);
+
+        Assert.Contains("#text(size: 13.00pt, weight: \"bold\")[Inherited bold]", source);
+        Assert.Contains("#text(size: 13.00pt)[ explicit regular]", source);
+        Assert.DoesNotContain("#text(size: 13.00pt, weight: \"bold\")[ explicit regular]", source);
+    }
+
+    private static Drawing.Paragraph MixedRunBulletParagraph(params (string Text, bool Bold)[] runs)
+    {
+        var paragraph = new Drawing.Paragraph(
+            new Drawing.ParagraphProperties(new Drawing.CharacterBullet { Char = "•" })
+            {
+                LeftMargin = new Int32Value(190500),
+                Indent = new Int32Value(-190500)
+            });
+
+        foreach (var (text, bold) in runs)
+        {
+            paragraph.Append(new Drawing.Run(
+                new Drawing.RunProperties { FontSize = new Int32Value(1300), Bold = new BooleanValue(bold) },
+                new Drawing.Text { Text = text }));
+        }
+
+        return paragraph;
+    }
+
     private static Drawing.Paragraph BulletParagraph(string text, int level, int marL, int indent, string bulletChar)
     {
         var pPr = new Drawing.ParagraphProperties(new Drawing.CharacterBullet { Char = bulletChar })
