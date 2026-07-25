@@ -483,6 +483,31 @@ public sealed partial class PptxToTypstConverter : IDisposable
         _activeSlideWarnings = warnings;
         try
         {
+            // Collect slide shape positions for override detection
+            var slidePositions = CollectShapePositions(shapeTree.ChildElements);
+
+            // Extract non-placeholder (user-drawn) shapes from the slide layout.
+            // These shapes live on the layout but are not placeholders — they are
+            // independent decorative/text elements (e.g. section headers like
+            // "List //") that must be rendered beneath the slide's own shapes.
+            var layoutPart = slidePart.SlideLayoutPart;
+            if (layoutPart?.SlideLayout?.CommonSlideData?.ShapeTree != null)
+            {
+                foreach (var layoutElement in layoutPart.SlideLayout.CommonSlideData.ShapeTree.ChildElements)
+                {
+                    if (!IsUserDrawnShape(layoutElement))
+                        continue;
+
+                    if (IsOverriddenBySlide(layoutElement, slidePositions))
+                        continue;
+
+                    foreach (var typstElement in ConvertElement(slidePart, layoutElement, styleResolver, slideIndex))
+                    {
+                        typstSlide.Elements.Add(typstElement);
+                    }
+                }
+            }
+
             foreach (var element in shapeTree.ChildElements)
             {
                 foreach (var typstElement in ConvertElement(slidePart, element, styleResolver, slideIndex))
@@ -502,6 +527,70 @@ public sealed partial class PptxToTypstConverter : IDisposable
         }
 
         return typstSlide;
+    }
+
+    private static bool IsUserDrawnShape(OpenXmlElement element)
+    {
+        if (element is not P.Shape shape)
+            return false;
+
+        var nvSpPr = shape.NonVisualShapeProperties;
+        if (nvSpPr == null)
+            return false;
+
+        var ph = nvSpPr.Elements<PlaceholderShape>().FirstOrDefault();
+        if (ph != null)
+            return false;
+
+        ph = nvSpPr.ApplicationNonVisualDrawingProperties?.Elements<PlaceholderShape>().FirstOrDefault();
+        return ph == null;
+    }
+
+    private static List<(double X, double Y, double W, double H)> CollectShapePositions(OpenXmlElementList elements)
+    {
+        var positions = new List<(double X, double Y, double W, double H)>();
+        foreach (var element in elements)
+        {
+            if (element is P.Shape shape)
+            {
+                var xfrm = shape.ShapeProperties?.Transform2D;
+                if (xfrm != null)
+                {
+                    var x = EmuToPt(xfrm.Offset?.X?.Value ?? 0);
+                    var y = EmuToPt(xfrm.Offset?.Y?.Value ?? 0);
+                    var w = EmuToPt(xfrm.Extents?.Cx?.Value ?? 0);
+                    var h = EmuToPt(xfrm.Extents?.Cy?.Value ?? 0);
+                    positions.Add((x, y, w, h));
+                }
+            }
+        }
+        return positions;
+    }
+
+    private static bool IsOverriddenBySlide(OpenXmlElement layoutElement, List<(double X, double Y, double W, double H)> slidePositions)
+    {
+        if (layoutElement is not P.Shape layoutShape)
+            return false;
+
+        var layoutXfrm = layoutShape.ShapeProperties?.Transform2D;
+        if (layoutXfrm == null)
+            return false;
+
+        var lx = EmuToPt(layoutXfrm.Offset?.X?.Value ?? 0);
+        var ly = EmuToPt(layoutXfrm.Offset?.Y?.Value ?? 0);
+        var lw = EmuToPt(layoutXfrm.Extents?.Cx?.Value ?? 0);
+        var lh = EmuToPt(layoutXfrm.Extents?.Cy?.Value ?? 0);
+
+        foreach (var (sx, sy, sw, sh) in slidePositions)
+        {
+            if (Math.Abs(lx - sx) < 0.5 && Math.Abs(ly - sy) < 0.5
+                && Math.Abs(lw - sw) < 0.5 && Math.Abs(lh - sh) < 0.5)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private void AddSlideWarning(string warning)
