@@ -1722,7 +1722,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
                 if (runFmt.FontFamily == oldFmt.FontFamily)
                     runFmt = runFmt with { FontFamily = newFmt.FontFamily };
 
-                updatedRuns.Add(new TypstTextRun { Content = run.Content, Formatting = runFmt });
+                updatedRuns.Add(new TypstTextRun { Content = run.Content, Formatting = runFmt, IsLineBreak = run.IsLineBreak });
             }
 
             updatedParagraphs.Add(new TypstParagraph
@@ -1878,7 +1878,10 @@ public sealed partial class PptxToTypstConverter : IDisposable
                 if (isRun && run != null)
                 {
                     var runFormatting = MergeRunWithParagraphDefaults(formatting, run, styleResolver);
-                    runs.Add(new TypstTextRun { Content = text, Formatting = runFormatting });
+                    if (AppendRunWithEmbeddedLineBreaks(runs, text, runFormatting))
+                    {
+                        hasExplicitLineBreaks = true;
+                    }
                 }
                 else
                 {
@@ -1938,6 +1941,40 @@ public sealed partial class PptxToTypstConverter : IDisposable
             ParagraphCount = Math.Max(1, paragraphCount),
             HasExplicitLineBreaks = hasExplicitLineBreaks
         };
+    }
+
+    /// <summary>
+    /// PowerPoint encodes soft line breaks as literal newline characters inside
+    /// <c>a:t</c> run text (e.g. sales deck slide 8 chevrons: a single <c>a:p</c>
+    /// holding "WEEKS 1–3\n" + "DIAGNOSE" in two differently-sized runs). A raw
+    /// newline in Typst markup collapses to a space, so split such runs into text
+    /// segments separated by explicit line-break runs, keeping the run's
+    /// formatting on every segment. Returns true when at least one break was split.
+    /// </summary>
+    private static bool AppendRunWithEmbeddedLineBreaks(List<TypstTextRun> runs, string text, TypstTextFormatting formatting)
+    {
+        var normalized = text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
+        if (!normalized.Contains('\n', StringComparison.Ordinal))
+        {
+            runs.Add(new TypstTextRun { Content = text, Formatting = formatting });
+            return false;
+        }
+
+        var segments = normalized.Split('\n');
+        for (var i = 0; i < segments.Length; i++)
+        {
+            if (i > 0)
+            {
+                runs.Add(new TypstTextRun { Content = "\n", Formatting = formatting, IsLineBreak = true });
+            }
+
+            if (segments[i].Length > 0)
+            {
+                runs.Add(new TypstTextRun { Content = segments[i], Formatting = formatting });
+            }
+        }
+
+        return true;
     }
 
     private static PlaceholderValues? GetPlaceholderType(P.Shape shape)
