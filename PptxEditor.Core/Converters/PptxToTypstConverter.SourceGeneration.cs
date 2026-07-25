@@ -279,6 +279,8 @@ public sealed partial class PptxToTypstConverter
                     {
                         var paramStr = BuildTextParameters(paragraph.Formatting, availableFonts);
                         var escapedContent = EscapeTypstText(content);
+                        if (paragraph.Formatting.Caps == "all")
+                            escapedContent = $"#upper[{escapedContent}]";
                         var enumParams = BuildEnumParams(1, paragraph);
                         sb.Append($"#enum{enumParams}[{paramStr}[{escapedContent}]]");
                     }
@@ -289,6 +291,8 @@ public sealed partial class PptxToTypstConverter
                         var indent = paragraph.Level > 0 ? $"#h({paragraph.Level * 1.5}em) " : "";
                         var paramStr = BuildTextParameters(paragraph.Formatting, availableFonts);
                         var escapedContent = EscapeTypstText(content);
+                        if (paragraph.Formatting.Caps == "all")
+                            escapedContent = $"#upper[{escapedContent}]";
                         sb.Append($"{indent}#list(marker: [{markerEscaped}])[{paramStr}[{escapedContent}]]");
                     }
                     else
@@ -604,7 +608,8 @@ public sealed partial class PptxToTypstConverter
             && a.Bold == b.Bold
             && a.Italic == b.Italic
             && a.Color == b.Color
-            && a.FontFamily == b.FontFamily;
+            && a.FontFamily == b.FontFamily
+            && a.Caps == b.Caps;
     }
 
     private static bool AllRunsHaveSameFormatting(List<TypstTextRun> runs)
@@ -709,6 +714,10 @@ public sealed partial class PptxToTypstConverter
             result = result with { FontFamily = fontName };
         }
 
+        var caps = ExtractCapAttribute(runProps);
+        if (caps != null)
+            result = result with { Caps = caps };
+
         return result;
     }
 
@@ -748,17 +757,26 @@ public sealed partial class PptxToTypstConverter
         {
             var paramStr = BuildTextParameters(paragraph.Formatting, availableFonts);
             var content = overrideContent ?? paragraph.Content;
+            var caps = paragraph.Formatting.Caps;
 
             if (!string.IsNullOrEmpty(paramStr))
             {
                 sb.Append(paramStr);
                 sb.Append("[");
+                if (caps == "all")
+                    sb.Append("#upper[");
                 AppendEscapedContentWithBreaks(sb, content);
+                if (caps == "all")
+                    sb.Append("]");
                 sb.Append("]");
             }
             else
             {
+                if (caps == "all")
+                    sb.Append("#upper[");
                 AppendEscapedContentWithBreaks(sb, content);
+                if (caps == "all")
+                    sb.Append("]");
             }
         }
         else
@@ -773,17 +791,26 @@ public sealed partial class PptxToTypstConverter
 
                 var paramStr = BuildTextParameters(run.Formatting, availableFonts);
                 var escapedContent = EscapeTypstText(run.Content);
+                var caps = run.Formatting.Caps;
 
                 if (!string.IsNullOrEmpty(paramStr))
                 {
                     sb.Append(paramStr);
                     sb.Append("[");
+                    if (caps == "all")
+                        sb.Append("#upper[");
                     sb.Append(escapedContent);
+                    if (caps == "all")
+                        sb.Append("]");
                     sb.Append("]");
                 }
                 else
                 {
+                    if (caps == "all")
+                        sb.Append("#upper[");
                     sb.Append(escapedContent);
+                    if (caps == "all")
+                        sb.Append("]");
                 }
             }
         }

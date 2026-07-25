@@ -449,4 +449,93 @@ public sealed class PptxToTypstConverterTextListTests : IDisposable
     }
 
     private static long Pt(double points) => (long)Math.Round(points * EmusPerPoint);
+
+    [Fact]
+    public void GenerateTypstSource_RunPrCapAll_EmitsUppercaseContent()
+    {
+        var runProps = new Drawing.RunProperties
+        {
+            FontSize = new Int32Value(1200)
+        };
+        runProps.SetAttribute(new OpenXmlAttribute("cap", "", "all"));
+
+        var shape = TextShape(2, "Basic Block List",
+            new Drawing.ParagraphProperties(),
+            runProps);
+        var path = CreatePptx("caps-run.pptx", customizeMaster: null, shape);
+
+        var source = ConvertToTypstSource(path);
+
+        Assert.Contains("#upper[Basic Block List]", source);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_MasterDefRPrCapAll_InheritsUppercase()
+    {
+        void CustomizeMaster(SlideMaster master)
+        {
+            var defRPr = new Drawing.DefaultRunProperties(
+                new Drawing.LatinFont { Typeface = "Calibri" }
+            )
+            {
+                FontSize = new Int32Value(2400)
+            };
+            defRPr.SetAttribute(new OpenXmlAttribute("cap", "", "all"));
+
+            master.TextStyles = new TextStyles(
+                new TitleStyle(
+                    new Drawing.Level1ParagraphProperties(defRPr)),
+                new BodyStyle(),
+                new OtherStyle());
+        }
+
+        var shape = TextShape(2,
+            new Drawing.Paragraph[] {
+                new Drawing.Paragraph(
+                    new Drawing.ParagraphProperties(),
+                    new Drawing.Run(
+                        new Drawing.RunProperties { FontSize = new Int32Value(1800) },
+                        new Drawing.Text { Text = "Basic Block List" }))
+            },
+            placeholderType: PlaceholderValues.Title);
+        var path = CreatePptx("caps-master-defrpr.pptx", CustomizeMaster, shape);
+
+        var source = ConvertToTypstSource(path);
+
+        Assert.Contains("#upper[Basic Block List]", source);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_NoCap_EmitsUnchangedText()
+    {
+        var shape = TextShape(2, "Basic Block List",
+            new Drawing.ParagraphProperties(),
+            new Drawing.RunProperties { FontSize = new Int32Value(1200) });
+        var path = CreatePptx("caps-none.pptx", customizeMaster: null, shape);
+
+        var source = ConvertToTypstSource(path);
+
+        Assert.DoesNotContain("#upper", source);
+        Assert.Contains("Basic Block List", source);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_CapNone_EmitsUnchangedText()
+    {
+        var runProps = new Drawing.RunProperties
+        {
+            FontSize = new Int32Value(1200)
+        };
+        runProps.SetAttribute(new OpenXmlAttribute("cap", "", "none"));
+
+        var shape = TextShape(2, "Basic Block List",
+            new Drawing.ParagraphProperties(),
+            runProps);
+        var path = CreatePptx("caps-none-explicit.pptx", customizeMaster: null, shape);
+
+        var source = ConvertToTypstSource(path);
+
+        Assert.DoesNotContain("#upper", source);
+        Assert.Contains("Basic Block List", source);
+    }
 }
