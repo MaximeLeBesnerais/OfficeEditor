@@ -42,6 +42,7 @@ namespace PptxEditor.Core.Converters.SmartArt;
         ["upDownArrow"] = (ShapeType.UpDownArrow, null),
         ["trapezoid"] = (ShapeType.Trapezoid, null),
         ["circularArrow"] = (ShapeType.CircularArrow, null),
+        ["leftCircularArrow"] = (ShapeType.LeftCircularArrow, null),
         ["gear6"] = (ShapeType.Gear6, null),
         ["gear9"] = (ShapeType.Gear9, null),
     };
@@ -106,26 +107,18 @@ namespace PptxEditor.Core.Converters.SmartArt;
         {
             (0.25, 0), (0.75, 0), (1, 1), (0, 1)
         },
-        [ShapeType.CircularArrow] = new()
-        {
-            (0.1, 0.15), (0.3, 0.05), (0.6, 0.2), (0.8, 0.5),
-            (0.7, 0.75), (0.5, 0.65), (0.35, 0.4), (0.2, 0.25)
-        },
-        [ShapeType.Gear6] = new()
-        {
-            (1, 0.5), (0.803, 0.675), (0.75, 0.933), (0.5, 0.85),
-            (0.25, 0.933), (0.197, 0.675), (0, 0.5), (0.197, 0.325),
-            (0.25, 0.067), (0.5, 0.15), (0.75, 0.067), (0.803, 0.325)
-        },
-        [ShapeType.Gear9] = new()
-        {
-            (1, 0.5), (0.829, 0.620), (0.883, 0.821), (0.675, 0.803),
-            (0.587, 0.992), (0.439, 0.845), (0.25, 0.933), (0.232, 0.725),
-            (0.03, 0.671), (0.15, 0.5), (0.03, 0.329), (0.232, 0.275),
-            (0.25, 0.067), (0.439, 0.155), (0.587, 0.008), (0.675, 0.197),
-            (0.883, 0.179), (0.829, 0.380)
-        },
     };
+
+    /// <summary>
+    /// Presets whose faithful outline requires elliptical arcs. Their polygon
+    /// points are computed per shape by <see cref="SmartArtPresetGeometry"/>
+    /// (honoring a:avLst adjustments) instead of the static table above.
+    /// </summary>
+    private static bool IsArcBasedPreset(ShapeType shapeType)
+    {
+        return shapeType is ShapeType.CircularArrow or ShapeType.LeftCircularArrow
+            or ShapeType.Gear6 or ShapeType.Gear9;
+    }
 
     /// <summary>
     /// Computes the bounding box (in points) over the drawing-space geometry
@@ -258,7 +251,7 @@ namespace PptxEditor.Core.Converters.SmartArt;
                 }
             },
 
-            _ => BuildPolygon(x, y, w, h, rotation, fillColor, fillGradient, strokeColor, strokeWidth, noStroke, geometry.ShapeType, modelId)
+            _ => BuildPolygon(x, y, w, h, rotation, fillColor, fillGradient, strokeColor, strokeWidth, noStroke, geometry, modelId)
         };
     }
 
@@ -284,9 +277,19 @@ namespace PptxEditor.Core.Converters.SmartArt;
     }
 
     private static TypstElement BuildPolygon(double x, double y, double w, double h, double rotation,
-        string? fillColor, TypstGradientFill? fillGradient, string? strokeColor, double strokeWidth, bool noStroke, ShapeType shapeType, string? modelId)
+        string? fillColor, TypstGradientFill? fillGradient, string? strokeColor, double strokeWidth, bool noStroke, DiagramGeometry geometry, string? modelId)
     {
-        var points = PolygonPoints.TryGetValue(shapeType, out var pts)
+        // Arc-based presets (gears, circular arrows) evaluate their ECMA-376
+        // preset definition per shape so a:avLst adjustments are honored;
+        // everything else uses the static normalized polygon table.
+        List<(double, double)>? points = null;
+        if (IsArcBasedPreset(geometry.ShapeType))
+        {
+            points = SmartArtPresetGeometry.TryBuildNormalizedPoints(
+                geometry.PrstName, geometry.Width, geometry.Height, geometry.Adjustments);
+        }
+
+        points ??= PolygonPoints.TryGetValue(geometry.ShapeType, out var pts)
             ? pts
             : new List<(double, double)> { (0, 0), (1, 0), (1, 1), (0, 1) };
 
@@ -348,6 +351,8 @@ namespace PptxEditor.Core.Converters.SmartArt;
         return new DiagramGeometry
         {
             ShapeType = mapping.Type,
+            PrstName = prstValue,
+            Adjustments = ReadAdjustments(prstGeom),
             OffsetX = offsetX.Value,
             OffsetY = offsetY.Value,
             Width = width.Value,
@@ -355,6 +360,38 @@ namespace PptxEditor.Core.Converters.SmartArt;
             Rotation = rotationDeg,
             CornerRadius = cornerRadius
         };
+    }
+
+    /// <summary>
+    /// Reads the literal adjustment values (<c>a:gd name="adjN" fmla="val V"/></c>)
+    /// from a preset geometry's avLst. Non-literal formulas are ignored — cached
+    /// diagram drawing parts always carry plain <c>val</c> adjustments.
+    /// </summary>
+    private static IReadOnlyDictionary<string, double> ReadAdjustments(OpenXmlElement prstGeom)
+    {
+        var avLst = GetChild(prstGeom, "avLst", DrawingmlNs);
+        if (avLst == null) return new Dictionary<string, double>(StringComparer.Ordinal);
+
+        var adjustments = new Dictionary<string, double>(StringComparer.Ordinal);
+        foreach (var gd in avLst.Elements()
+                     .Where(e => e.LocalName == "gd" && e.NamespaceUri == DrawingmlNs))
+        {
+            var name = ReadAttribute(gd, "name");
+            var fmla = ReadAttribute(gd, "fmla");
+            if (string.IsNullOrEmpty(name) || string.IsNullOrEmpty(fmla)) continue;
+
+            var valPart = fmla.StartsWith("val ", StringComparison.Ordinal)
+                ? fmla.Substring(4).Trim()
+                : null;
+            if (valPart == null) continue;
+
+            if (double.TryParse(valPart, NumberStyles.Float, CultureInfo.InvariantCulture, out var adjVal))
+            {
+                adjustments[name] = adjVal;
+            }
+        }
+
+        return adjustments;
     }
 
     private static double? ReadRotation(OpenXmlElement xfrm)
@@ -613,6 +650,9 @@ namespace PptxEditor.Core.Converters.SmartArt;
     private sealed class DiagramGeometry
     {
         public ShapeType ShapeType { get; init; }
+        public string PrstName { get; init; } = string.Empty;
+        public IReadOnlyDictionary<string, double> Adjustments { get; init; } =
+            new Dictionary<string, double>(StringComparer.Ordinal);
         public double OffsetX { get; init; }
         public double OffsetY { get; init; }
         public double Width { get; init; }
@@ -638,6 +678,7 @@ namespace PptxEditor.Core.Converters.SmartArt;
         UpDownArrow,
         Trapezoid,
         CircularArrow,
+        LeftCircularArrow,
         Gear6,
         Gear9
     }

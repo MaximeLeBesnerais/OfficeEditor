@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Xml.Linq;
 using DocumentFormat.OpenXml;
 using PptxEditor.Core.Converters.SmartArt;
@@ -850,7 +851,7 @@ public sealed class SmartArtDrawingExtractorTests
   <dsp:spPr>
     <a:xfrm>
       <a:off x=""892"" y=""305395""/>
-      <a:ext cx=""403702"" cy=""472255""/>
+      <a:ext cx=""403702"" cy=""403702""/>
     </a:xfrm>
     <a:prstGeom prst=""circularArrow"">
       <a:avLst/>
@@ -872,7 +873,91 @@ public sealed class SmartArtDrawingExtractorTests
         Assert.NotNull(result.Shape);
         Assert.Equal("polygon", result.Shape.ShapeType);
         Assert.NotEmpty(result.Shape.Points);
-        Assert.Equal(8, result.Shape.Points.Count);
+
+        // ECMA-376 circularArrow (default adjustments): the outline is arc-based,
+        // so the flattened polygon carries well over 100 points and spans the top
+        // half of the shape box (start angle 180°, end angle ~341°).
+        Assert.True(result.Shape.Points.Count > 100);
+        Assert.True(result.Shape.Points.Min(p => p.X) < 0.1);
+        Assert.True(result.Shape.Points.Max(p => p.X) > 0.9);
+        Assert.True(result.Shape.Points.Max(p => p.Y) <= 0.51);
+    }
+
+    [Fact]
+    public void Extract_CircularArrow_HonorsAdjustmentValues()
+    {
+        // adj4 is the start angle: 0 starts the arc at 3 o'clock (right edge,
+        // first point x ≈ 0.94) instead of the default 180° (left edge, x ≈ 0.06).
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""403702"" cy=""403702""/>
+    </a:xfrm>
+    <a:prstGeom prst=""circularArrow"">
+      <a:avLst>
+        <a:gd name=""adj4"" fmla=""val 0""/>
+      </a:avLst>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""70AD47""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 50, shapeH: 50);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal("polygon", result.Shape.ShapeType);
+        Assert.NotEmpty(result.Shape.Points);
+        Assert.True(result.Shape.Points[0].X > 0.9);
+        Assert.True(Math.Abs(result.Shape.Points[0].Y - 0.5) < 0.05);
+    }
+
+    [Fact]
+    public void Extract_LeftCircularArrow_ReturnsPolygonShape()
+    {
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""403702"" cy=""403702""/>
+    </a:xfrm>
+    <a:prstGeom prst=""leftCircularArrow"">
+      <a:avLst/>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""A5A5A5""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 50, shapeH: 50);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal("polygon", result.Shape.ShapeType);
+        Assert.NotEmpty(result.Shape.Points);
+
+        // ECMA-376 leftCircularArrow (default adjustments) mirrors circularArrow:
+        // the arc spans the bottom half of the shape box.
+        Assert.True(result.Shape.Points.Count > 100);
+        Assert.True(result.Shape.Points.Min(p => p.X) < 0.1);
+        Assert.True(result.Shape.Points.Min(p => p.Y) >= 0.49);
+        Assert.True(result.Shape.Points.Max(p => p.Y) > 0.9);
     }
 
     [Fact]
@@ -905,7 +990,59 @@ public sealed class SmartArtDrawingExtractorTests
         Assert.NotNull(result.Shape);
         Assert.Equal("polygon", result.Shape.ShapeType);
         Assert.NotEmpty(result.Shape.Points);
-        Assert.Equal(12, result.Shape.Points.Count);
+
+        // ECMA-376 gear6 (default adjustments): the round body arcs are flattened,
+        // so the outline carries well over 100 points; the top tooth nearly touches
+        // the top edge and the side teeth reach x ≈ 0.05 / 0.95.
+        Assert.True(result.Shape.Points.Count > 100);
+        Assert.True(result.Shape.Points.Min(p => p.X) < 0.07);
+        Assert.True(result.Shape.Points.Max(p => p.X) > 0.93);
+        Assert.True(result.Shape.Points.Min(p => p.Y) < 0.03);
+        Assert.True(result.Shape.Points.Max(p => p.Y) > 0.97);
+    }
+
+    [Fact]
+    public void Extract_Gear6_HonorsAdjustmentValues()
+    {
+        // adj1 is the tooth depth: a smaller adj1 gives shallower teeth, i.e. the
+        // valleys (minimum distance from center) sit further out.
+        var xmlTemplate = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""403702"" cy=""403702""/>
+    </a:xfrm>
+    <a:prstGeom prst=""gear6"">
+      <a:avLst>
+        <a:gd name=""adj1"" fmla=""val {{0}}""/>
+      </a:avLst>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""4472C4""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        double MinRadius(int adj1)
+        {
+            var element = ParseXml(string.Format(CultureInfo.InvariantCulture, xmlTemplate, adj1));
+            var extracted = SmartArtDrawingExtractor.TryExtractShape(
+                element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+                frameX: 0, frameY: 0, shapeW: 40, shapeH: 40);
+            Assert.NotNull(extracted);
+            Assert.NotNull(extracted.Shape);
+            return extracted.Shape.Points.Min(p => Math.Sqrt(
+                (p.X - 0.5) * (p.X - 0.5) + (p.Y - 0.5) * (p.Y - 0.5)));
+        }
+
+        var shallowTeeth = MinRadius(3000);
+        var deepTeeth = MinRadius(20000);
+
+        Assert.True(shallowTeeth > 0.45);
+        Assert.True(deepTeeth < 0.32);
+        Assert.True(shallowTeeth > deepTeeth + 0.1);
     }
 
     [Fact]
@@ -938,7 +1075,13 @@ public sealed class SmartArtDrawingExtractorTests
         Assert.NotNull(result.Shape);
         Assert.Equal("polygon", result.Shape.ShapeType);
         Assert.NotEmpty(result.Shape.Points);
-        Assert.Equal(18, result.Shape.Points.Count);
+
+        // ECMA-376 gear9 (default adjustments): flattened body arcs give well over
+        // 100 points; teeth nearly touch the left/right/top edges of the box.
+        Assert.True(result.Shape.Points.Count > 120);
+        Assert.True(result.Shape.Points.Min(p => p.X) < 0.02);
+        Assert.True(result.Shape.Points.Max(p => p.X) > 0.98);
+        Assert.True(result.Shape.Points.Min(p => p.Y) < 0.02);
     }
 
     private static OpenXmlElement ParseXml(string xml)
