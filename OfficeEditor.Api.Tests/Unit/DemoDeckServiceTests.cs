@@ -274,7 +274,7 @@ public sealed class DemoDeckServiceTests
     }
 
     [Fact]
-    public void RenderUploadedDeck_DeckOverSlideCap_ThrowsArgumentExceptionMentioning60()
+    public void RenderUploadedDeck_DeckOverSlideCap_ThrowsArgumentExceptionMentioningCap()
     {
         var service = new DemoDeckService(new StubDeckSessionStore());
         var deckBytes = BuildDeckBytes(DemoDeckService.MaxUploadSlides + 1);
@@ -282,7 +282,7 @@ public sealed class DemoDeckServiceTests
         var ex = Assert.Throws<ArgumentException>(() =>
             service.RenderUploadedDeck(deckBytes, "big-deck.pptx", "png", 110));
 
-        Assert.Contains("60", ex.Message);
+        Assert.Contains(DemoDeckService.MaxUploadSlides.ToString(), ex.Message);
     }
 
     [Theory]
@@ -356,7 +356,7 @@ public sealed class DemoDeckServiceTests
     }
 
     [Fact]
-    public void RenderTypstLeg_DeckOverSlideCap_ThrowsArgumentExceptionMentioning60()
+    public void RenderTypstLeg_DeckOverSlideCap_ThrowsArgumentExceptionMentioningCap()
     {
         var service = new DemoDeckService(new StubDeckSessionStore());
         var deckBytes = BuildDeckBytes(DemoDeckService.MaxUploadSlides + 1);
@@ -364,7 +364,7 @@ public sealed class DemoDeckServiceTests
         var ex = Assert.Throws<ArgumentException>(() =>
             service.RenderTypstLeg(deckBytes, "big-deck.pptx", 110));
 
-        Assert.Contains("60", ex.Message);
+        Assert.Contains(DemoDeckService.MaxUploadSlides.ToString(), ex.Message);
     }
 
     [Fact]
