@@ -388,6 +388,338 @@ public sealed class SmartArtDrawingExtractorTests
         Assert.Equal(300.0, bottom, precision: 6);
     }
 
+    [Fact]
+    public void Extract_LinePreset_ReturnsRectShape()
+    {
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""1904255"" cy=""114255""/>
+    </a:xfrm>
+    <a:prstGeom prst=""line"">
+      <a:avLst/>
+    </a:prstGeom>
+    <a:ln w=""25400"">
+      <a:solidFill>
+        <a:srgbClr val=""C00000""/>
+      </a:solidFill>
+    </a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 150, shapeH: 9);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal("rect", result.Shape.ShapeType);
+        Assert.Equal("#C00000", result.Shape.StrokeColor);
+        Assert.True(result.Shape.StrokeWidth > 0);
+    }
+
+    [Fact]
+    public void Extract_DownArrow_ReturnsPolygonShape()
+    {
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""403702"" cy=""472255""/>
+    </a:xfrm>
+    <a:prstGeom prst=""downArrow"">
+      <a:avLst/>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""ED7D31""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 50, shapeH: 40);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal("polygon", result.Shape.ShapeType);
+        Assert.NotEmpty(result.Shape.Points);
+        Assert.Equal(7, result.Shape.Points.Count);
+        Assert.Equal("#ED7D31", result.Shape.FillColor);
+    }
+
+    [Fact]
+    public void Extract_UpArrow_ReturnsPolygonShape()
+    {
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""403702"" cy=""472255""/>
+    </a:xfrm>
+    <a:prstGeom prst=""upArrow"">
+      <a:avLst/>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""4472C4""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 50, shapeH: 40);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal("polygon", result.Shape.ShapeType);
+        Assert.NotEmpty(result.Shape.Points);
+        Assert.Equal(7, result.Shape.Points.Count);
+    }
+
+    [Fact]
+    public void Extract_LeftArrow_ReturnsPolygonShape()
+    {
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""403702"" cy=""472255""/>
+    </a:xfrm>
+    <a:prstGeom prst=""leftArrow"">
+      <a:avLst/>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""5B9BD5""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 50, shapeH: 40);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal("polygon", result.Shape.ShapeType);
+        Assert.NotEmpty(result.Shape.Points);
+        Assert.Equal(7, result.Shape.Points.Count);
+    }
+
+    [Fact]
+    public void Extract_LeftRightArrow_ReturnsPolygonShape()
+    {
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""403702"" cy=""472255""/>
+    </a:xfrm>
+    <a:prstGeom prst=""leftRightArrow"">
+      <a:avLst/>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""70AD47""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 60, shapeH: 40);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal("polygon", result.Shape.ShapeType);
+        Assert.NotEmpty(result.Shape.Points);
+        Assert.Equal(10, result.Shape.Points.Count);
+    }
+
+    [Fact]
+    public void Extract_UpDownArrow_ReturnsPolygonShape()
+    {
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""403702"" cy=""472255""/>
+    </a:xfrm>
+    <a:prstGeom prst=""upDownArrow"">
+      <a:avLst/>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""FFC000""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 50, shapeH: 60);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal("polygon", result.Shape.ShapeType);
+        Assert.NotEmpty(result.Shape.Points);
+        Assert.Equal(10, result.Shape.Points.Count);
+    }
+
+    [Fact]
+    public void Extract_Trapezoid_ReturnsPolygonShape()
+    {
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""403702"" cy=""472255""/>
+    </a:xfrm>
+    <a:prstGeom prst=""trapezoid"">
+      <a:avLst/>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""A5A5A5""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 50, shapeH: 40);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal("polygon", result.Shape.ShapeType);
+        Assert.NotEmpty(result.Shape.Points);
+        Assert.Equal(4, result.Shape.Points.Count);
+    }
+
+    [Fact]
+    public void Extract_CircularArrow_ReturnsPolygonShape()
+    {
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""403702"" cy=""472255""/>
+    </a:xfrm>
+    <a:prstGeom prst=""circularArrow"">
+      <a:avLst/>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""70AD47""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 50, shapeH: 50);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal("polygon", result.Shape.ShapeType);
+        Assert.NotEmpty(result.Shape.Points);
+        Assert.Equal(8, result.Shape.Points.Count);
+    }
+
+    [Fact]
+    public void Extract_Gear6_ReturnsPolygonShape()
+    {
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""403702"" cy=""403702""/>
+    </a:xfrm>
+    <a:prstGeom prst=""gear6"">
+      <a:avLst/>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""4472C4""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 40, shapeH: 40);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal("polygon", result.Shape.ShapeType);
+        Assert.NotEmpty(result.Shape.Points);
+        Assert.Equal(12, result.Shape.Points.Count);
+    }
+
+    [Fact]
+    public void Extract_Gear9_ReturnsPolygonShape()
+    {
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""403702"" cy=""403702""/>
+    </a:xfrm>
+    <a:prstGeom prst=""gear9"">
+      <a:avLst/>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""ED7D31""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 40, shapeH: 40);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal("polygon", result.Shape.ShapeType);
+        Assert.NotEmpty(result.Shape.Points);
+        Assert.Equal(18, result.Shape.Points.Count);
+    }
+
     private static OpenXmlElement ParseXml(string xml)
     {
         var xElement = XElement.Parse(xml);
