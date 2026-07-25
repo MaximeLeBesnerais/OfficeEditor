@@ -25,9 +25,9 @@ public sealed partial class PptxToTypstConverter : IDisposable
 
     /// <summary>
     /// The <c>def</c> attribute of <c>a:tblStyleLst</c>: style applied when a table's
-    /// <c>a:tblPr</c> omits <c>a:tableStyleId</c>. Note the GUID often refers to a
-    /// PowerPoint built-in style whose definition is not stored in the file; the
-    /// fallback only has an effect when the style list actually contains the entry.
+    /// <c>a:tblPr</c> omits <c>a:tableStyleId</c>. The GUID often refers to a PowerPoint
+    /// built-in style whose definition is not stored in the file; those are supplied by
+    /// <see cref="BuiltInTableStyles"/> during <see cref="LoadTableStyles"/>.
     /// </summary>
     private string? _defaultTableStyleId;
     private int _imageCounter;
@@ -3215,26 +3215,42 @@ public sealed partial class PptxToTypstConverter : IDisposable
     private void LoadTableStyles(StyleResolver? styleResolver)
     {
         var part = _document.PresentationPart!.TableStylesPart;
-        if (part?.TableStyleList == null) return;
-
-        _defaultTableStyleId = part.TableStyleList.Default?.Value;
-
-        foreach (var style in part.TableStyleList.ChildElements.OfType<Drawing.TableStyleEntry>())
+        if (part?.TableStyleList != null)
         {
-            var styleId = style.StyleId?.Value;
-            if (string.IsNullOrEmpty(styleId)) continue;
+            _defaultTableStyleId = part.TableStyleList.Default?.Value;
 
-            var definition = new TableStyleDefinition { StyleId = styleId };
-            ExtractTableStylePart(style.WholeTable, "wholeTbl", definition, styleResolver);
-            ExtractTableStylePart(style.Band1Horizontal, "band1H", definition, styleResolver);
-            ExtractTableStylePart(style.Band2Horizontal, "band2H", definition, styleResolver);
-            ExtractTableStylePart(style.FirstRow, "firstRow", definition, styleResolver);
-            ExtractTableStylePart(style.LastRow, "lastRow", definition, styleResolver);
-            ExtractTableStylePart(style.FirstColumn, "firstCol", definition, styleResolver);
-            ExtractTableStylePart(style.LastColumn, "lastCol", definition, styleResolver);
+            foreach (var style in part.TableStyleList.ChildElements.OfType<Drawing.TableStyleEntry>())
+            {
+                var styleId = style.StyleId?.Value;
+                if (string.IsNullOrEmpty(styleId)) continue;
 
-            _tableStyles[styleId] = definition;
+                _tableStyles[styleId] = ExtractTableStyleDefinition(styleId, style, styleResolver);
+            }
         }
+
+        // PowerPoint built-in table styles are defined by the application, not stored in
+        // tableStyles.xml (which usually only carries the def= GUID). Register the known
+        // built-ins so tables referencing them resolve; file-defined entries always win.
+        foreach (var (builtInId, outerXml) in BuiltInTableStyles.OuterXmlById)
+        {
+            if (_tableStyles.ContainsKey(builtInId)) continue;
+
+            var entry = new Drawing.TableStyleEntry(outerXml);
+            _tableStyles[builtInId] = ExtractTableStyleDefinition(builtInId, entry, styleResolver);
+        }
+    }
+
+    private TableStyleDefinition ExtractTableStyleDefinition(string styleId, Drawing.TableStyleEntry style, StyleResolver? styleResolver)
+    {
+        var definition = new TableStyleDefinition { StyleId = styleId };
+        ExtractTableStylePart(style.WholeTable, "wholeTbl", definition, styleResolver);
+        ExtractTableStylePart(style.Band1Horizontal, "band1H", definition, styleResolver);
+        ExtractTableStylePart(style.Band2Horizontal, "band2H", definition, styleResolver);
+        ExtractTableStylePart(style.FirstRow, "firstRow", definition, styleResolver);
+        ExtractTableStylePart(style.LastRow, "lastRow", definition, styleResolver);
+        ExtractTableStylePart(style.FirstColumn, "firstCol", definition, styleResolver);
+        ExtractTableStylePart(style.LastColumn, "lastCol", definition, styleResolver);
+        return definition;
     }
 
     private void ExtractTableStylePart(Drawing.TablePartStyleType? part, string key, TableStyleDefinition definition, StyleResolver? styleResolver)
