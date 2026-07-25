@@ -168,7 +168,19 @@ internal static class SmartArtDrawingExtractor
         if (geometry == null) return null;
 
         var fillColor = ReadFillColor(spPr, schemeColors);
+        // Many SmartArt drawing parts carry their colors as a:gradFill on the shape
+        // (showeet corpus) rather than a:solidFill — read gradients through the same
+        // shared reader the main slide-shape path uses.
+        var fillGradient = fillColor == null
+            ? GradientFillReader.TryReadLinearGradient(
+                spPr, name => ResolveSchemeColor(name, schemeColors))
+            : null;
         var (strokeColor, strokeWidth) = ReadStroke(spPr, schemeColors);
+        // Cached drawing shapes carry their styling inline; a missing or fill-less
+        // a:ln means "no border" in PowerPoint. Flag it so the Typst emitter writes
+        // an explicit stroke: none instead of inheriting Typst's 1pt black default
+        // (which drew a visible black box around text-container shapes).
+        var noStroke = string.IsNullOrEmpty(strokeColor) || strokeWidth <= 0;
 
         var x = offX + (frameX + geometry.OffsetX) * scaleX;
         var y = offY + (frameY + geometry.OffsetY) * scaleY;
@@ -178,7 +190,7 @@ internal static class SmartArtDrawingExtractor
 
         return geometry.ShapeType switch
         {
-            ShapeType.Rect => BuildRect(x, y, w, h, rotation, fillColor, strokeColor, strokeWidth, geometry.CornerRadius, modelId),
+            ShapeType.Rect => BuildRect(x, y, w, h, rotation, fillColor, fillGradient, strokeColor, strokeWidth, noStroke, geometry.CornerRadius, modelId),
 
             ShapeType.Ellipse => new TypstElement
             {
@@ -189,17 +201,19 @@ internal static class SmartArtDrawingExtractor
                 {
                     ShapeType = "ellipse",
                     FillColor = fillColor ?? string.Empty,
+                    FillGradient = fillGradient,
                     StrokeColor = strokeColor ?? string.Empty,
-                    StrokeWidth = strokeWidth
+                    StrokeWidth = strokeWidth,
+                    NoStroke = noStroke
                 }
             },
 
-            _ => BuildPolygon(x, y, w, h, rotation, fillColor, strokeColor, strokeWidth, geometry.ShapeType, modelId)
+            _ => BuildPolygon(x, y, w, h, rotation, fillColor, fillGradient, strokeColor, strokeWidth, noStroke, geometry.ShapeType, modelId)
         };
     }
 
     private static TypstElement BuildRect(double x, double y, double w, double h, double rotation,
-        string? fillColor, string? strokeColor, double strokeWidth, double cornerRadius, string? modelId)
+        string? fillColor, TypstGradientFill? fillGradient, string? strokeColor, double strokeWidth, bool noStroke, double cornerRadius, string? modelId)
     {
         return new TypstElement
         {
@@ -210,15 +224,17 @@ internal static class SmartArtDrawingExtractor
             {
                 ShapeType = "rect",
                 FillColor = fillColor ?? string.Empty,
+                FillGradient = fillGradient,
                 StrokeColor = strokeColor ?? string.Empty,
                 StrokeWidth = strokeWidth,
+                NoStroke = noStroke,
                 CornerRadius = cornerRadius
             }
         };
     }
 
     private static TypstElement BuildPolygon(double x, double y, double w, double h, double rotation,
-        string? fillColor, string? strokeColor, double strokeWidth, ShapeType shapeType, string? modelId)
+        string? fillColor, TypstGradientFill? fillGradient, string? strokeColor, double strokeWidth, bool noStroke, ShapeType shapeType, string? modelId)
     {
         var points = PolygonPoints.TryGetValue(shapeType, out var pts)
             ? pts
@@ -233,8 +249,10 @@ internal static class SmartArtDrawingExtractor
             {
                 ShapeType = "polygon",
                 FillColor = fillColor ?? string.Empty,
+                FillGradient = fillGradient,
                 StrokeColor = strokeColor ?? string.Empty,
                 StrokeWidth = strokeWidth,
+                NoStroke = noStroke,
                 Points = points
             }
         };

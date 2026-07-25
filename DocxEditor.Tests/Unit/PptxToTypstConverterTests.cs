@@ -3814,6 +3814,79 @@ public class PptxToTypstConverterTests : IDisposable
         Assert.Contains("""(rgb("#0B102600"), 100%)""", source);
     }
 
+    [Fact]
+    public void GenerateTypstSource_NoStrokeShape_EmitsExplicitStrokeNone()
+    {
+        // SmartArt-extracted shapes with no resolved stroke must not inherit Typst's
+        // default 1pt black stroke (a visible black box around text containers).
+        var path = CreateGroupShapePptx("nostroke-emission.pptx");
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = new TypstPresentation
+        {
+            Slides =
+            {
+                new TypstSlide
+                {
+                    Elements =
+                    {
+                        new TypstElement
+                        {
+                            Type = "Shape", X = 0, Y = 0, Width = 100, Height = 50,
+                            Shape = new TypstShapeElement
+                            {
+                                ShapeType = "rect",
+                                FillColor = "#4472C4",
+                                NoStroke = true
+                            }
+                        }
+                    }
+                }
+            }
+        };
+
+        var source = converter.GenerateTypstSource(presentation);
+        Assert.Contains("""fill: rgb("#4472C4")""", source);
+        Assert.Contains("stroke: none", source);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_ShapeWithoutNoStrokeFlag_KeepsLegacyEmission()
+    {
+        // The regular slide-shape path does not set NoStroke (a missing a:ln there may
+        // still inherit a themed outline) — no stroke argument is emitted, as before.
+        var path = CreateGroupShapePptx("nostroke-legacy.pptx");
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = new TypstPresentation
+        {
+            Slides =
+            {
+                new TypstSlide
+                {
+                    Elements =
+                    {
+                        new TypstElement
+                        {
+                            Type = "Shape", X = 0, Y = 0, Width = 100, Height = 50,
+                            Shape = new TypstShapeElement
+                            {
+                                ShapeType = "rect",
+                                FillColor = "#4472C4"
+                            }
+                        }
+                    }
+                }
+            }
+        };
+
+        var source = converter.GenerateTypstSource(presentation);
+        Assert.Contains("""fill: rgb("#4472C4")""", source);
+        Assert.DoesNotContain("stroke: none", source);
+    }
+
     private string CreateBackgroundPptx(string fileName, string? slideBgXml, string? layoutBgXml, string? masterBgXml, string? themeLt1Hex = null)
     {
         var path = Path.Combine(_tempDir, fileName);

@@ -192,6 +192,16 @@ public sealed class TypstShapeElement
     public TypstGradientFill? FillGradient { get; init; }
     public string StrokeColor { get; init; } = string.Empty;
     public double StrokeWidth { get; init; }
+    /// <summary>
+    /// When true and no stroke color/width was resolved, emit an explicit
+    /// <c>stroke: none</c> so the shape does not pick up Typst's default 1pt black
+    /// stroke. Set by the SmartArt drawing extractor, where cached drawing shapes
+    /// carry their full styling inline and a missing/empty <c>a:ln</c> means
+    /// PowerPoint "no border" semantics. Not set on the regular slide-shape path:
+    /// there a missing <c>a:ln</c> may still inherit a themed outline that the
+    /// converter does not resolve, so the previous emission is preserved.
+    /// </summary>
+    public bool NoStroke { get; init; }
     public double CornerRadius { get; init; }
     public List<(double X, double Y)> Points { get; init; } = new();
 }

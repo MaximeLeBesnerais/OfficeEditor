@@ -299,6 +299,51 @@ slide-15 XML of `sales_acceleration_deck.pptx`:
 **Known limitation:** `a:xfrm flipH/flipV` on diagram shapes is not applied —
 mirrored shapes render unflipped.
 
+#### 4.4.2 Round-3 fidelity fixes (2026-07-25, branch `fix/smartart-fidelity`)
+
+Verified against the 164-slide showeet corpus (`local-ref/smartarts/smartarts.pptx`):
+
+- **Gradient fills** — corpus SmartArt colors live predominantly in `a:gradFill`
+  on `dsp:sp`, which the extractor previously ignored (solidFill only) so
+  gradient-filled diagrams rendered colorless. The main converter's gradient
+  parsing was extracted into a shared internal `GradientFillReader`
+  (`PptxEditor.Core/Converters/GradientFillReader.cs`) operating on
+  `OpenXmlElement`, so typed `p:spPr` and untyped `dsp:spPr` now produce
+  identical `TypstGradientFill` values (per-stop `srgbClr`/`schemeClr` via the
+  theme-aware scheme-color map, per-stop `alpha`). Solid fill still takes
+  precedence over gradient, matching the main slide-shape path.
+- **No-border emission** — SmartArt-extracted shapes with no resolved stroke
+  (missing `a:ln`, or `a:ln` with `a:noFill`/no color) now emit an explicit
+  `stroke: none` via a new `TypstShapeElement.NoStroke` flag. Previously the
+  stroke argument was omitted and Typst's default 1pt black stroke drew a
+  visible black box around text-container shapes; a missing/fill-less `a:ln` in
+  a cached diagram drawing means PowerPoint "no border" semantics. The flag is
+  deliberately **not** set on the regular slide-shape path: there a missing
+  `a:ln` may still inherit a themed outline the converter does not resolve, so
+  that path keeps its previous emission.
+
+**Deferred: `dsp:style` → quickStyle → colors style chain.** When a `dsp:sp`
+carries no explicit fill/stroke, PowerPoint resolves `dsp:style/a:fillRef` and
+`a:lnRef` against the diagram style part (`quickStyle1.xml`, referenced by
+`dgm:relIds r:qs`) and the diagram colors part (`colors1.xml`, `r:cs`):
+
+1. `a:fillRef idx="N"` (1-based) indexes into the quickStyle part's
+   `dgm:styleDef/a:style/a:fillStyleLst`; `a:lnRef idx="N"` into `a:lnStyleLst`.
+2. The `fillRef`/`linRef` child color (usually `a:schemeClr val="accent1"` with
+   an `idx` attribute into the colors part's transform list) is recolored via
+   the colors part (`dgm:colorsDef`): `csrgbClr`/`hueLst` entries or scheme
+   references, keyed by the data point's category/color index.
+
+Not implemented in this round because it is a new resolution pipeline (two
+extra parts to resolve and parse, plus the colors-part transform model), not a
+bug fix. Concrete impact observed: corpus slide 8 ("Lined List") separator
+lines take their stroke color from `linRef` and still render uncolored. The
+common case to implement first: `fillRef idx 1..N` into `fillStyleLst`,
+resolving the entry's `a:solidFill`/`a:gradFill` with the `fillRef`'s own
+`schemeClr` substituted for `phClr`, and the same for `linRef`/`lnStyleLst`.
+Limits to document when implementing: `effectRef`/`effectStyleLst` (shadows)
+and full `colors1.xml` hue transforms are unlikely to be worth the cost.
+
 ### 4.5 How Tiers Fit the Dual-Emit Discipline
 
 The repo's **layout once, emit twice** discipline applies differently to conversion vs. generation:
