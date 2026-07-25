@@ -331,7 +331,7 @@ namespace PptxEditor.Core.Converters.SmartArt;
         var rotationDeg = ReadRotation(xfrm);
 
         // NOTE: xfrm flipH/flipV are not applied — mirrored diagram shapes render
-        // unflipped (documented in SMARTART-REPORT.md §4.4 known limitations).
+        // unflipped (documented in docs/SMARTART-REPORT.md §4.4 known limitations).
 
         var prstGeom = GetChild(spPr, "prstGeom", DrawingmlNs);
         if (prstGeom == null) return null;
