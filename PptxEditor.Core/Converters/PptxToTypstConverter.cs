@@ -202,6 +202,18 @@ public sealed partial class PptxToTypstConverter : IDisposable
         return null;
     }
 
+    /// <summary>True when real font metrics are available for the family (embedded
+    /// font cache or a resolvable system font file) — i.e. the emitter will use
+    /// per-font single-spacing rather than a generic fallback.</summary>
+    private bool HasKnownFontMetrics(string fontFamily)
+    {
+        if (string.IsNullOrEmpty(fontFamily))
+            return false;
+        if (_fontMetrics.ContainsKey(fontFamily))
+            return true;
+        return FindSystemFontPath(fontFamily) != null;
+    }
+
     private bool TryGetFontMetrics(TypstTextElement text, out TypstFontMetrics metrics)
     {
         if (text.Formatting.Bold)
@@ -2592,6 +2604,17 @@ public sealed partial class PptxToTypstConverter : IDisposable
 
             // Resolve line spacing through full cascade
             var paragraphLineSpacing = ResolveLineSpacing(pPr, bodyLstStyle, level, styleResolver, placeholderIdx, placeholderType);
+
+            // No explicit a:lnSpc anywhere in the cascade AND the effective font's
+            // metrics are unknown (font not installed — e.g. "Calibri Light" on
+            //  19): Typst's ~1.3em default pitch would drift multi-line
+            // text apart. Pin PowerPoint's single-spacing target (1.2em) as an
+            // explicit ratio instead. Scoped to conversion: presentations built
+            // directly keep the emitter's Typst-default fallback for unknown fonts.
+            if (paragraphLineSpacing == null && !HasKnownFontMetrics(formatting.FontFamily))
+            {
+                paragraphLineSpacing = 1.2;
+            }
 
             // Resolve paragraph spacing (spcBef / spcAft) through full cascade
             var (spaceBefore, spaceAfter) = ResolveParagraphSpacing(pPr, bodyLstStyle, level, styleResolver, placeholderIdx, placeholderType);
