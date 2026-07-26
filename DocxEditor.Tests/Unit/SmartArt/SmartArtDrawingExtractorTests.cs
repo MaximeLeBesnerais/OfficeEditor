@@ -700,6 +700,86 @@ public sealed class SmartArtDrawingExtractorTests
     }
 
     [Fact]
+    public void ComputeBoundingBox_RotatedShape_UnionsRotatedCorners()
+    {
+        // INV-slide-130: quadrants stored as tall rects rotated ±90° must contribute
+        // their ROTATED footprint. rot=90° about center (120,50) turns the 40×100pt
+        // rect at (100,0) into a 100×40pt footprint at (70,30).
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm rot=""5400000"">
+      <a:off x=""1270000"" y=""0""/>
+      <a:ext cx=""508000"" cy=""1270000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""rect"">
+      <a:avLst/>
+    </a:prstGeom>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var bounds = SmartArtDrawingExtractor.ComputeBoundingBox(new[] { ParseXml(xml) });
+
+        Assert.NotNull(bounds);
+        Assert.Equal(70.0, bounds.Value.MinX, precision: 6);
+        Assert.Equal(30.0, bounds.Value.MinY, precision: 6);
+        Assert.Equal(100.0, bounds.Value.Width, precision: 6);
+        Assert.Equal(40.0, bounds.Value.Height, precision: 6);
+    }
+
+    [Fact]
+    public void ComputeBoundingBox_RotatedShape270_UnionsRotatedCorners()
+    {
+        // Slide-30 pattern: rot=270°, wide-short rect becomes tall-wide footprint.
+        // rect (0,100) 100×40pt, center (50,120) → footprint 40×100 at (30,70).
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm rot=""16200000"">
+      <a:off x=""0"" y=""1270000""/>
+      <a:ext cx=""1270000"" cy=""508000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""rect"">
+      <a:avLst/>
+    </a:prstGeom>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var bounds = SmartArtDrawingExtractor.ComputeBoundingBox(new[] { ParseXml(xml) });
+
+        Assert.NotNull(bounds);
+        Assert.Equal(30.0, bounds.Value.MinX, precision: 6);
+        Assert.Equal(70.0, bounds.Value.MinY, precision: 6);
+        Assert.Equal(40.0, bounds.Value.Width, precision: 6);
+        Assert.Equal(100.0, bounds.Value.Height, precision: 6);
+    }
+
+    [Fact]
+    public void ComputeBoundingBox_UnrotatedShapes_UnchangedUnion()
+    {
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""127000"" y=""254000""/>
+      <a:ext cx=""2540000"" cy=""1270000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""rect"">
+      <a:avLst/>
+    </a:prstGeom>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var bounds = SmartArtDrawingExtractor.ComputeBoundingBox(new[] { ParseXml(xml) });
+
+        Assert.NotNull(bounds);
+        Assert.Equal(10.0, bounds.Value.MinX, precision: 6);
+        Assert.Equal(20.0, bounds.Value.MinY, precision: 6);
+        Assert.Equal(200.0, bounds.Value.Width, precision: 6);
+        Assert.Equal(100.0, bounds.Value.Height, precision: 6);
+    }
+
+    [Fact]
     public void ComputeFrameFit_SalesDeckCalibration_UniformScaleCentersContent()
     {
         // Slide 15 calibration numbers: drawing bbox 359.86x239.91pt inside a
