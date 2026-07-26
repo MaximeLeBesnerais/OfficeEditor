@@ -1984,6 +1984,52 @@ public sealed class SmartArtDrawingExtractorTests
             Math.Abs(p.X - 0.7939) < 0.01 && Math.Abs(p.Y - 0.9045) < 0.01);
     }
 
+    [Fact]
+    public void Extract_PieWedge_ReturnsQuarterSector()
+    {
+        // ECMA pieWedge has no avLst: a fixed quarter-ellipse sector with the
+        // arc centered on the bottom-right corner (180° → 270° sweep).
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""1270000"" cy=""1270000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""pieWedge"">
+      <a:avLst/>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""16A085""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 100, shapeH: 100);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal("polygon", result.Shape.ShapeType);
+        // 90° arc flattened at ~2° steps → ~46 arc points + moveTo + lnTo.
+        Assert.True(result.Shape.Points.Count > 40);
+        // Starts at bottom-left, arcs to top-right, closes at bottom-right.
+        Assert.Equal(0.0, result.Shape.Points[0].X, precision: 9);
+        Assert.Equal(1.0, result.Shape.Points[0].Y, precision: 9);
+        Assert.Equal(1.0, result.Shape.Points[^2].X, precision: 3);
+        Assert.Equal(0.0, result.Shape.Points[^2].Y, precision: 3);
+        Assert.Equal(1.0, result.Shape.Points[^1].X, precision: 9);
+        Assert.Equal(1.0, result.Shape.Points[^1].Y, precision: 9);
+        // The arc bows toward the top-left: near 225° the point approaches
+        // (1 - √2/2, 1 - √2/2) ≈ (0.293, 0.293).
+        Assert.Contains(result.Shape.Points, p =>
+            Math.Abs(p.X - 0.2929) < 0.02 && Math.Abs(p.Y - 0.2929) < 0.02);
+    }
+
     private static OpenXmlElement ParseXml(string xml)
     {
         var xElement = XElement.Parse(xml);
