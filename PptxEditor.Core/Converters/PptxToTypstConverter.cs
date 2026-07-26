@@ -751,6 +751,32 @@ public sealed partial class PptxToTypstConverter : IDisposable
             || shapeElement.FillGradient != null
             || (!string.IsNullOrEmpty(shapeElement.StrokeColor) && shapeElement.StrokeWidth > 0)))
         {
+            // a:effectLst/a:outerShdw — Typst has no native shadow; approximate with an
+            // offset copy of the shape geometry in the shadow color, behind the shape.
+            var shadow = ExtractOuterShadow(shape.ShapeProperties, styleResolver);
+            if (shadow != null)
+            {
+                yield return new TypstElement
+                {
+                    Type = "Shape",
+                    Id = id,
+                    Name = name + " (shadow)",
+                    X = finalX + shadow.Value.OffsetX,
+                    Y = finalY + shadow.Value.OffsetY,
+                    Width = finalW,
+                    Height = finalH,
+                    Rotation = finalRot,
+                    Shape = new TypstShapeElement
+                    {
+                        ShapeType = shapeElement.ShapeType,
+                        FillColor = shadow.Value.Color,
+                        NoStroke = true,
+                        CornerRadius = shapeElement.CornerRadius,
+                        Points = shapeElement.Points
+                    }
+                };
+            }
+
             // Return shape element
             yield return new TypstElement
             {
@@ -4644,6 +4670,83 @@ public sealed partial class PptxToTypstConverter : IDisposable
             return resolvedFont;
         
         return fontRef;
+    }
+
+    /// <summary>
+    /// Reads <c>a:effectLst/a:outerShdw</c> from shape properties and returns the shadow
+    /// offset (pt, slide space) and color (<c>#RRGGBB</c>/<c>#RRGGBBAA</c> with the
+    /// <c>a:alpha</c> opacity applied), or null when no shadow is present. Blur radius is
+    /// intentionally ignored — Typst has no native blur; the offset copy is the cheap
+    /// approximation. <c>rotWithShape</c> is honored implicitly: the shadow element carries
+    /// the shape rotation, while the offset always stays in slide space.
+    /// </summary>
+    private (double OffsetX, double OffsetY, string Color)? ExtractOuterShadow(ShapeProperties? shapeProperties, StyleResolver styleResolver)
+    {
+        var outerShadow = shapeProperties?.Elements<Drawing.EffectList>().FirstOrDefault()
+            ?.Elements<Drawing.OuterShadow>().FirstOrDefault();
+        if (outerShadow == null) return null;
+
+        var distancePt = (outerShadow.Distance?.Value ?? 0) / 12700.0;
+        var directionRad = (outerShadow.Direction?.Value ?? 0) / 60000.0 * Math.PI / 180.0;
+        var offsetX = distancePt * Math.Cos(directionRad);
+        var offsetY = distancePt * Math.Sin(directionRad);
+
+        var color = ExtractShadowColor(outerShadow, styleResolver);
+        if (color == null) return null;
+
+        return (offsetX, offsetY, color);
+    }
+
+    private string? ExtractShadowColor(Drawing.OuterShadow outerShadow, StyleResolver styleResolver)
+    {
+        string? rgb = null;
+        OpenXmlElement? colorElement = null;
+
+        var srgb = outerShadow.Elements<Drawing.RgbColorModelHex>().FirstOrDefault();
+        if (srgb?.Val?.Value != null)
+        {
+            rgb = srgb.Val.Value;
+            colorElement = srgb;
+        }
+        else
+        {
+            var scheme = outerShadow.Elements<Drawing.SchemeColor>().FirstOrDefault();
+            if (scheme != null)
+            {
+                var schemeName = GetAttributeValue(scheme, "val");
+                var resolved = string.IsNullOrEmpty(schemeName) ? null : styleResolver.ResolveSchemeColor(schemeName);
+                if (resolved != null)
+                {
+                    rgb = resolved.TrimStart('#');
+                    colorElement = scheme;
+                }
+            }
+            else
+            {
+                var preset = outerShadow.Elements<Drawing.PresetColor>().FirstOrDefault();
+                if (preset != null)
+                {
+                    rgb = GetAttributeValue(preset, "val") switch
+                    {
+                        "black" => "000000",
+                        "white" => "FFFFFF",
+                        _ => null
+                    };
+                    colorElement = preset;
+                }
+            }
+        }
+
+        if (rgb == null) return null;
+
+        var alphaVal = colorElement?.Elements<Drawing.Alpha>().FirstOrDefault()?.Val?.Value;
+        if (alphaVal is not int alpha)
+        {
+            return $"#{rgb}";
+        }
+
+        var alphaByte = Math.Clamp((int)Math.Round(alpha / 100000.0 * 255), 0, 255);
+        return alphaByte >= 255 ? $"#{rgb}" : $"#{rgb}{alphaByte:X2}";
     }
 
     private static string SubstituteUnavailableFont(string fontFamily, HashSet<string> availableFonts)
