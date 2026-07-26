@@ -368,16 +368,21 @@ namespace PptxEditor.Core.Converters.SmartArt;
         {
             // Cached-vs-relayout conflict (INV-regressions-b1 §5-6): when the
             // node's colorsDef styleLbl maps to a plain solid fill and the
-            // quickStyle carries no gradient, PowerPoint displays the colorsDef
-            // result, not the cached gradFill. The resolver returns null in every
-            // other case, leaving the cached gradient in charge.
+            // quickStyle carries no gradient, PowerPoint's relayout shows the
+            // colorsDef colour with only the TOP SLICE of the cached lin
+            // gradient — measured on the official renders across 5 independent
+            // slide families (31/61/63/68/88): shape top edge = cached pos
+            // 100%, shape bottom edge = cached pos ~44% (the dark tail of the
+            // scaled="0" gradient vector falls below the shape). Emit that
+            // visible window instead of the full cached span. The resolver
+            // returns null in every non-conflict case, leaving the cached
+            // gradient untouched.
             modelId ??= ReadAttribute(dspShape, "modelId");
             var colorsDefFill = SmartArtColorsDefResolver.TryResolveFlatFill(
                 dspShape, modelId, schemeColors, colorsDefContext);
             if (colorsDefFill != null)
             {
-                fillColor = colorsDefFill;
-                fillGradient = null;
+                fillGradient = TruncateToVisibleWindow(fillGradient);
             }
         }
         var (strokeColor, strokeWidth) = ReadStroke(spPr, schemeColors);
@@ -471,6 +476,77 @@ namespace PptxEditor.Core.Converters.SmartArt;
                 Points = points
             }
         };
+    }
+
+    /// <summary>
+    /// Cached-pos percentage shown at the dark end of a relayouted SmartArt
+    /// gradient: the official renders show cached pos 100% at the shape's
+    /// gradient-start edge and cached pos ~44% at the far edge, i.e. the
+    /// scaled="0" gradient vector extends ~1.79× past the shape and its dark
+    /// tail (pos 0..44, shade ≤74%) is never visible. Empirical constant,
+    /// measured on slides 31/61/63/68/88 of the SmartArt corpus.
+    /// </summary>
+    private const double GradientWindowStartPercent = 44.0;
+
+    /// <summary>
+    /// Remaps a cached lin gradient onto its visible window: the emitted
+    /// gradient covers cached pos [44%, 100%] across the shape. Stop colours
+    /// are resampled by piecewise-linear RGB interpolation so the dark
+    /// sub-window stops (pos &lt; 44%) collapse to the window-edge colour.
+    /// </summary>
+    private static TypstGradientFill TruncateToVisibleWindow(TypstGradientFill gradient)
+    {
+        var stops = gradient.Stops;
+        if (stops.Count < 2) return gradient;
+
+        var remapped = new List<TypstGradientStop>(stops.Count + 1)
+        {
+            new(ColorAtPosition(stops, GradientWindowStartPercent), 0.0)
+        };
+        foreach (var stop in stops)
+        {
+            var posPercent = stop.Offset * 100.0;
+            if (posPercent > GradientWindowStartPercent && posPercent < 100.0)
+            {
+                remapped.Add(new TypstGradientStop(
+                    stop.Color,
+                    (posPercent - GradientWindowStartPercent) / (100.0 - GradientWindowStartPercent)));
+            }
+        }
+        remapped.Add(new TypstGradientStop(ColorAtPosition(stops, 100.0), 1.0));
+
+        return new TypstGradientFill(gradient.Angle, remapped);
+    }
+
+    /// <summary>
+    /// Samples a gradient's colour at a cached pos percentage by piecewise-linear
+    /// interpolation between its stops (per-channel, alpha included).
+    /// </summary>
+    private static string ColorAtPosition(IReadOnlyList<TypstGradientStop> stops, double posPercent)
+    {
+        var pos = posPercent / 100.0;
+        var lower = stops[0];
+        var upper = stops[stops.Count - 1];
+        foreach (var stop in stops)
+        {
+            if (stop.Offset <= pos) lower = stop;
+            if (stop.Offset >= pos) { upper = stop; break; }
+        }
+
+        if (lower.Offset >= upper.Offset) return lower.Color;
+
+        var t = (pos - lower.Offset) / (upper.Offset - lower.Offset);
+        var a = GradientFillReader.ParseHexColor(lower.Color);
+        var b = GradientFillReader.ParseHexColor(upper.Color);
+        var alphaA = lower.Color.Length >= 9 ? (byte)Convert.ToInt32(lower.Color.Substring(7, 2), 16) : (byte)255;
+        var alphaB = upper.Color.Length >= 9 ? (byte)Convert.ToInt32(upper.Color.Substring(7, 2), 16) : (byte)255;
+
+        var mixed = (
+            (byte)Math.Clamp((int)Math.Round(a.R + (b.R - a.R) * t), 0, 255),
+            (byte)Math.Clamp((int)Math.Round(a.G + (b.G - a.G) * t), 0, 255),
+            (byte)Math.Clamp((int)Math.Round(a.B + (b.B - a.B) * t), 0, 255));
+        var alpha = (byte)Math.Clamp((int)Math.Round(alphaA + (alphaB - alphaA) * t), 0, 255);
+        return GradientFillReader.FormatHexColor(mixed, alpha);
     }
 
     private static DiagramGeometry? ReadGeometry(OpenXmlElement spPr, double shapeW, double shapeH)
