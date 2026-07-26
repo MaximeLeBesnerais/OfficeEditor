@@ -472,6 +472,42 @@ internal static class SmartArtPresetGeometry
                 "Z",
             }),
 
+        // ECMA-376 wedgeRectCallout: rect outline with a triangular tip at
+        // (hc + w·adj1/100000, vc + h·adj2/100000) — defaults adj1 = -20833,
+        // adj2 = 62500. adj1 = adj2 = 0 lands the tip on the shape centre,
+        // which would make the outline a self-intersecting bowtie, so the
+        // degenerate tip collapses onto the last rect vertex (l,b) and the
+        // shape renders as the plain rect (-b1 §3: slide 49's
+        // first column body caches exactly adj1 = adj2 = 0).
+        ["wedgeRectCallout"] = new SmartArtPresetGeometry.PresetDef(
+            new Dictionary<string, double>
+            {
+                ["adj1"] = -20833,
+                ["adj2"] = 62500,
+            },
+            new[]
+            {
+                "dx1 */ w adj1 100000",
+                "dy1 */ h adj2 100000",
+                "x1 +- hc dx1 0",
+                "y1 +- vc dy1 0",
+                "a1 abs adj1",
+                "a2 abs adj2",
+                "adjSum +- a1 a2 0",
+                "deg ?: adjSum 0 1",
+                "tx ?: deg l x1",
+                "ty ?: deg b y1",
+            },
+            new[]
+            {
+                "M l t",
+                "L r t",
+                "L r b",
+                "L l b",
+                "L tx ty",
+                "Z",
+            }),
+
         // ECMA-376 pie: ellipse sector from adj1 (start angle) to adj2 (end
         // angle, wrapping through +360° when the raw delta is negative),
         // closed back to the center.
