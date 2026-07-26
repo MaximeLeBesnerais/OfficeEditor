@@ -1502,7 +1502,8 @@ public sealed partial class PptxToTypstConverter : IDisposable
             var (tx, ty, tw, th) = textBounds.Value;
 
             // PowerPoint re-lays diagrams out with shrink-on-overflow text semantics,
-            // independent of the autofit flag cached in dsp:drawing.
+            // independent of the autofit flag cached in dsp:drawing. Measurement uses
+            // the unrotated box: text is laid out before the rotation is applied.
             ShrinkDiagramTextToFit(textElement, tw * shapeScaleX, th * shapeScaleY);
 
             textElements.Add(new TypstElement
@@ -1512,6 +1513,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
                 Y = offY + (shapeFrameY + ty) * shapeScaleY,
                 Width = tw * shapeScaleX,
                 Height = th * shapeScaleY,
+                Rotation = GetDiagramTextRotation(shape),
                 ModelId = modelId,
                 Text = textElement
             });
@@ -1957,6 +1959,45 @@ public sealed partial class PptxToTypstConverter : IDisposable
             .FirstOrDefault(e => e.LocalName == "txXfrm" && _diagramNamespaces.Contains(e.NamespaceUri));
 
         return ReadDiagramXfrm(txXfrm) ?? GetDiagramShapeGeometry(diagramShape);
+    }
+
+    /// <summary>
+    /// Rotation (degrees, clockwise) applied to diagram text. A
+    /// <c>dsp:txXfrm@rot</c> is a text-only rotation about the txXfrm box centre —
+    /// its off/ext are already in post-rotation drawing space (-030), so
+    /// the shape rotation must not be re-applied to the text. Without a txXfrm the
+    /// text box is the shape rect and rides the shape's own <c>a:xfrm@rot</c>.
+    /// </summary>
+    private static double GetDiagramTextRotation(OpenXmlElement diagramShape)
+    {
+        var txXfrm = diagramShape.Elements()
+            .FirstOrDefault(e => e.LocalName == "txXfrm" && _diagramNamespaces.Contains(e.NamespaceUri));
+        if (txXfrm != null)
+            return ReadDiagramRot(txXfrm) ?? 0.0;
+
+        var spPr = diagramShape.Elements()
+            .FirstOrDefault(e => e.LocalName == "spPr" && _diagramNamespaces.Contains(e.NamespaceUri));
+        var xfrm = spPr?.Elements()
+            .FirstOrDefault(e => e.LocalName == "xfrm" &&
+                e.NamespaceUri == "http://schemas.openxmlformats.org/drawingml/2006/main");
+
+        return xfrm == null ? 0.0 : ReadDiagramRot(xfrm) ?? 0.0;
+    }
+
+    private static double? ReadDiagramRot(OpenXmlElement xfrm)
+    {
+        // GetAttribute() throws on unknown (dsp-namespace) elements when the
+        // attribute is absent — scan GetAttributes() instead.
+        var rotValue = xfrm.GetAttributes()
+            .FirstOrDefault(a => a.LocalName == "rot" && string.IsNullOrEmpty(a.NamespaceUri))
+            .Value;
+        if (string.IsNullOrEmpty(rotValue))
+            return null;
+
+        if (!long.TryParse(rotValue, NumberStyles.Integer, CultureInfo.InvariantCulture, out var rot60000))
+            return null;
+
+        return rot60000 / 60000.0;
     }
 
     private static (double X, double Y, double Width, double Height)? ReadDiagramXfrm(OpenXmlElement? xfrm)
