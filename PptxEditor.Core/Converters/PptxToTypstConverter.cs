@@ -1854,7 +1854,11 @@ public sealed partial class PptxToTypstConverter : IDisposable
                 return "#" + match.Groups[1].Value;
         }
 
-        return null;
+        // A fontRef without an explicit colour follows the theme's text colour
+        // (tx1 → dk1) — NOT black. The corpus theme maps dk1 to a grey
+        // (#95A5A6): every diagram label without an explicit run colour renders
+        // grey in PowerPoint (slides 15/152 label text) but came out black.
+        return SmartArtDrawingExtractor.ResolveSchemeColor("tx1", schemeColors);
     }
 
     private static Drawing.BodyProperties? GetCascadedBodyPr(
@@ -1965,15 +1969,17 @@ public sealed partial class PptxToTypstConverter : IDisposable
     /// Rotation (degrees, clockwise) applied to diagram text. A
     /// <c>dsp:txXfrm@rot</c> is a text-only rotation about the txXfrm box centre —
     /// its off/ext are already in post-rotation drawing space (-030), so
-    /// the shape rotation must not be re-applied to the text. Without a txXfrm the
-    /// text box is the shape rect and rides the shape's own <c>a:xfrm@rot</c>.
+    /// the shape rotation must not be re-applied to the text. A txXfrm WITHOUT rot
+    /// is cached in pre-rotation space (identical to the shape rect, e.g. the
+    /// slide-152 labels): the text box then rides the shape's own
+    /// <c>a:xfrm@rot</c> about the text-box centre.
     /// </summary>
     private static double GetDiagramTextRotation(OpenXmlElement diagramShape)
     {
         var txXfrm = diagramShape.Elements()
             .FirstOrDefault(e => e.LocalName == "txXfrm" && _diagramNamespaces.Contains(e.NamespaceUri));
-        if (txXfrm != null)
-            return ReadDiagramRot(txXfrm) ?? 0.0;
+        if (txXfrm != null && ReadDiagramRot(txXfrm) is { } txXfrmRot)
+            return txXfrmRot;
 
         var spPr = diagramShape.Elements()
             .FirstOrDefault(e => e.LocalName == "spPr" && _diagramNamespaces.Contains(e.NamespaceUri));
