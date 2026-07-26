@@ -1809,6 +1809,93 @@ public sealed class SmartArtDrawingExtractorTests
         Assert.Equal(0.0, result.Shape.Points[1].Y, precision: 6);
     }
 
+    [Fact]
+    public void Extract_UpArrowCallout_ReturnsArrowPolygon()
+    {
+        // ECMA upArrowCallout (default adjustments) on a 200x100pt box:
+        // ss = 100; dx1 = ss·a2/100000 = 25, dx2 = ss·a1/200000 = 12.5,
+        // y1 = ss·a3/100000 = 25, y2 = h·(1 - a4/100000) = 35.023.
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""2540000"" cy=""1270000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""upArrowCallout"">
+      <a:avLst/>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""16A085""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 200, shapeH: 100);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal("polygon", result.Shape.ShapeType);
+        Assert.Equal(11, result.Shape.Points.Count);
+        // Callout body bottom edge, then the arrow shaft/head on top.
+        Assert.Equal(0.0, result.Shape.Points[0].X, precision: 9);
+        Assert.Equal(0.35023, result.Shape.Points[0].Y, precision: 5);
+        Assert.Equal(0.4375, result.Shape.Points[1].X, precision: 6);
+        Assert.Equal(0.375, result.Shape.Points[3].X, precision: 6);
+        Assert.Equal(0.25, result.Shape.Points[3].Y, precision: 6);
+        Assert.Equal(0.5, result.Shape.Points[4].X, precision: 9);
+        Assert.Equal(0.0, result.Shape.Points[4].Y, precision: 9);
+        Assert.Equal(0.625, result.Shape.Points[5].X, precision: 6);
+        Assert.Equal(1.0, result.Shape.Points[8].X, precision: 9);
+        Assert.Equal(0.35023, result.Shape.Points[8].Y, precision: 5);
+        Assert.Equal(1.0, result.Shape.Points[9].X, precision: 9);
+        Assert.Equal(1.0, result.Shape.Points[9].Y, precision: 9);
+    }
+
+    [Fact]
+    public void Extract_UpArrowCallout_HonorsAdjustmentValues()
+    {
+        // adj3 = 50000 → the arrow head is twice as tall (y1 = 0.5·ss).
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""2540000"" cy=""1270000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""upArrowCallout"">
+      <a:avLst>
+        <a:gd name=""adj1"" fmla=""val 25000""/>
+        <a:gd name=""adj2"" fmla=""val 25000""/>
+        <a:gd name=""adj3"" fmla=""val 50000""/>
+        <a:gd name=""adj4"" fmla=""val 64977""/>
+      </a:avLst>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""16A085""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 200, shapeH: 100);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        // y1 = 100·0.5 = 50pt → 0.5
+        Assert.Equal(0.5, result.Shape.Points[2].Y, precision: 6);
+        Assert.Equal(0.5, result.Shape.Points[3].Y, precision: 6);
+    }
+
     private static OpenXmlElement ParseXml(string xml)
     {
         var xElement = XElement.Parse(xml);

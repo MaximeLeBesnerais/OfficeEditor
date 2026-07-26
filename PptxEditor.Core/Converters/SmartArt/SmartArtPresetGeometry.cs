@@ -370,6 +370,55 @@ internal static class SmartArtPresetGeometry
                 "Z",
             }),
 
+        // ECMA-376 upArrowCallout: rectangular callout body with an up-arrow
+        // shaft+head rising from its top edge. adj1 = shaft half-thickness,
+        // adj2 = head half-width (both fractions of ss), adj3 = head height
+        // (fraction of ss), adj4 = callout-body height (fraction of h).
+        ["upArrowCallout"] = new SmartArtPresetGeometry.PresetDef(
+            new Dictionary<string, double>
+            {
+                ["adj1"] = 25000,
+                ["adj2"] = 25000,
+                ["adj3"] = 25000,
+                ["adj4"] = 64977,
+            },
+            new[]
+            {
+                "maxAdj2 */ 50000 w ss",
+                "a2 pin 0 adj2 maxAdj2",
+                "maxAdj1 */ a2 2 1",
+                "a1 pin 0 adj1 maxAdj1",
+                "maxAdj3 */ 100000 h ss",
+                "a3 pin 0 adj3 maxAdj3",
+                "q2 */ a3 ss h",
+                "maxAdj4 +- 100000 0 q2",
+                "a4 pin 0 adj4 maxAdj4",
+                "dx1 */ ss a2 100000",
+                "dx2 */ ss a1 200000",
+                "x1 +- hc 0 dx1",
+                "x2 +- hc 0 dx2",
+                "x3 +- hc dx2 0",
+                "x4 +- hc dx1 0",
+                "y1 */ ss a3 100000",
+                "dy2 */ h a4 100000",
+                "y2 +- b 0 dy2",
+            },
+            new[]
+            {
+                "M l y2",
+                "L x2 y2",
+                "L x2 y1",
+                "L x1 y1",
+                "L hc t",
+                "L x4 y1",
+                "L x3 y1",
+                "L x3 y2",
+                "L r y2",
+                "L r b",
+                "L l b",
+                "Z",
+            }),
+
         ["gear6"] = new SmartArtPresetGeometry.PresetDef(
             new Dictionary<string, double>
             {
