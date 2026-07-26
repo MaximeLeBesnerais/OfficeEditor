@@ -419,6 +419,37 @@ internal static class SmartArtPresetGeometry
                 "Z",
             }),
 
+        // ECMA-376 pie: ellipse sector from adj1 (start angle) to adj2 (end
+        // angle, wrapping through +360° when the raw delta is negative),
+        // closed back to the center.
+        ["pie"] = new SmartArtPresetGeometry.PresetDef(
+            new Dictionary<string, double>
+            {
+                ["adj1"] = 0,
+                ["adj2"] = 16200000,
+            },
+            new[]
+            {
+                "stAng pin 0 adj1 21599999",
+                "enAng pin 0 adj2 21599999",
+                "sw1 +- enAng 0 stAng",
+                "sw2 +- sw1 21600000 0",
+                "swAng ?: sw1 sw1 sw2",
+                "wt1 sin wd2 stAng",
+                "ht1 cos hd2 stAng",
+                "dx1 cat2 wd2 ht1 wt1",
+                "dy1 sat2 hd2 ht1 wt1",
+                "x1 +- hc dx1 0",
+                "y1 +- vc dy1 0",
+            },
+            new[]
+            {
+                "M x1 y1",
+                "A wd2 hd2 stAng swAng",
+                "L hc vc",
+                "Z",
+            }),
+
         ["gear6"] = new SmartArtPresetGeometry.PresetDef(
             new Dictionary<string, double>
             {
