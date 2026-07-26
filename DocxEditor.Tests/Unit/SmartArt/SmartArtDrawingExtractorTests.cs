@@ -2540,6 +2540,128 @@ public sealed class SmartArtDrawingExtractorTests
     }
 
     [Fact]
+    public void Extract_Chevron_WideShape_NotchDepthIsFractionOfMinSide()
+    {
+        // Slide 56 (drawing59.xml): 141.6x56.6pt chevrons with an empty avLst.
+        // ECMA-376 chevron: notch depth dx1 = ss*adj/100000 (default adj 50000)
+        // = 0.5*56.6 = 28.31pt => f = 0.20 of the WIDTH — the static polygon's
+        // hardcoded 0.5-of-width notch is 2.5x too deep (-025 §4).
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""1797843"" cy=""719137""/>
+    </a:xfrm>
+    <a:prstGeom prst=""chevron"">
+      <a:avLst/>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""16A085""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 141.6, shapeH: 56.6);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal("polygon", result.Shape.ShapeType);
+        Assert.Equal(6, result.Shape.Points.Count);
+        Assert.Equal((0, 0), result.Shape.Points[0]);
+        Assert.Equal(0.8, result.Shape.Points[1].X, precision: 3);
+        Assert.Equal(0.0, result.Shape.Points[1].Y, precision: 6);
+        Assert.Equal((1, 0.5), result.Shape.Points[2]);
+        Assert.Equal(0.8, result.Shape.Points[3].X, precision: 3);
+        Assert.Equal(1.0, result.Shape.Points[3].Y, precision: 6);
+        Assert.Equal((0, 1), result.Shape.Points[4]);
+        Assert.Equal(0.2, result.Shape.Points[5].X, precision: 3);
+        Assert.Equal(0.5, result.Shape.Points[5].Y, precision: 6);
+    }
+
+    [Fact]
+    public void Extract_Chevron_HonorsAdjustmentValue()
+    {
+        // Square 100x100pt chevron with adj = 25000 (slide 58's cached value):
+        // notch depth = 0.25*100 = 25pt => f = 0.25.
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""1270000"" cy=""1270000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""chevron"">
+      <a:avLst>
+        <a:gd name=""adj"" fmla=""val 25000""/>
+      </a:avLst>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""16A085""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 100, shapeH: 100);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal(6, result.Shape.Points.Count);
+        Assert.Equal(0.75, result.Shape.Points[1].X, precision: 6);
+        Assert.Equal(0.25, result.Shape.Points[5].X, precision: 6);
+    }
+
+    [Fact]
+    public void Extract_Chevron_SquareShapeDefaultAdj_MatchesLegacyStaticOutline()
+    {
+        // On a square shape the ECMA default (adj = 50000 => dx1 = 0.5*ss)
+        // reproduces the legacy static 0.5-of-width table exactly — the
+        // per-shape computation is a strict generalisation.
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""1270000"" cy=""1270000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""chevron"">
+      <a:avLst/>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""16A085""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 100, shapeH: 100);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal(6, result.Shape.Points.Count);
+        Assert.Equal((0, 0), result.Shape.Points[0]);
+        Assert.Equal((0.5, 0), result.Shape.Points[1]);
+        Assert.Equal((1, 0.5), result.Shape.Points[2]);
+        Assert.Equal((0.5, 1), result.Shape.Points[3]);
+        Assert.Equal((0, 1), result.Shape.Points[4]);
+        Assert.Equal((0.5, 0.5), result.Shape.Points[5]);
+    }
+
+    [Fact]
     public void Extract_Round2DiagRect_Slide113Adjustments_RoundsTopRightAndBottomLeftOnly()
     {
         // Slide 113 (drawing113.xml): round2DiagRect with adj1=0, adj2=16670 on a
