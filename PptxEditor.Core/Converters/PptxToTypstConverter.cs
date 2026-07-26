@@ -2232,8 +2232,13 @@ public sealed partial class PptxToTypstConverter : IDisposable
         
         var result = ExtractTextFromTextBody(textBody, styleResolver, placeholderInfo?.Index, placeholderType);
 
-        // Get default text style from master based on placeholder type
-        var defaultStyle = styleResolver.GetDefaultTextStyle(placeholderType);
+        // Get default text style from master based on placeholder type.
+        // Non-placeholder shapes (plain text boxes) take their defaults from the
+        // master's "other" text style — ECMA-376 defines p:txStyles/p:otherStyle as
+        // the default formatting for text in non-placeholder shapes.
+        var defaultStyle = placeholderType == null
+            ? styleResolver.GetTextStyle("Other", 0) ?? new StyleResolver.DefaultTextStyle()
+            : styleResolver.GetDefaultTextStyle(placeholderType);
 
         // Apply defaults for missing values per-paragraph
         var updatedParagraphs = new List<TypstParagraph>();
