@@ -3317,6 +3317,203 @@ public class PptxToTypstConverterTests : IDisposable
 
         Assert.Contains("font: (\"Open Sans\", ", source);
     }
+
+    [Fact]
+    public void GenerateTypstSource_SingleSpacedText_EmitsPowerPointPitchLeading()
+    {
+        // Typst's natural line pitch is capHeight + par.leading (default 0.65em), while
+        // PowerPoint single spacing is the font's hhea line height — capped for fonts
+        // with inflated hhea metrics (Open Sans: 1.362, enlarged for tall Vietnamese
+        // glyphs; PowerPoint-compatible renderers keep ~1.2em). The converter must
+        // reconcile via par.leading so single-spaced text matches the PowerPoint pitch.
+        var path = CreateSimplePptx();
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        // Open-Sans-shaped metrics: upm 2048, hhea 2189/-600/0 (1.362 → capped 1.2),
+        // cap height 1462 (0.7139em). leading = (1.2 - 1462/2048) * 60 = 29.17pt.
+        InjectFontMetrics(converter, "TestOpenSans", new TypstFontMetrics
+        {
+            UnitsPerEm = 2048,
+            HheaAscender = 2189,
+            HheaDescender = -600,
+            HheaLineGap = 0,
+            CapHeight = 1462
+        });
+
+        var presentation = CreateTextPresentation(new TypstTextElement
+        {
+            Paragraphs =
+            [
+                new TypstParagraph
+                {
+                    Content = "POWERPOINT SMARTART GRAPHICS",
+                    Formatting = new TypstTextFormatting { FontFamily = "TestOpenSans", FontSize = 60 }
+                }
+            ]
+        });
+
+        var source = converter.GenerateTypstSource(presentation);
+
+        Assert.Contains("#set par(leading: 29.17pt)", source);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_SingleSpacedText_UsesHheaPitchWhenNotInflated()
+    {
+        // Calibri-shaped metrics: hhea 1950/-550/0 → factor 1.2207 (kept), cap 1294.
+        // leading = (2500/2048 - 1294/2048) * 16 = 9.42pt.
+        var path = CreateSimplePptx();
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        InjectFontMetrics(converter, "TestCalibri", new TypstFontMetrics
+        {
+            UnitsPerEm = 2048,
+            HheaAscender = 1950,
+            HheaDescender = -550,
+            HheaLineGap = 0,
+            CapHeight = 1294
+        });
+
+        var presentation = CreateTextPresentation(new TypstTextElement
+        {
+            Paragraphs =
+            [
+                new TypstParagraph
+                {
+                    Content = "Body text body text",
+                    Formatting = new TypstTextFormatting { FontFamily = "TestCalibri", FontSize = 16 }
+                }
+            ]
+        });
+
+        var source = converter.GenerateTypstSource(presentation);
+
+        Assert.Contains("#set par(leading: 9.42pt)", source);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_SingleSpacedTextWithoutMetrics_KeepsTypstDefault()
+    {
+        var path = CreateSimplePptx();
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = CreateTextPresentation(new TypstTextElement
+        {
+            Paragraphs =
+            [
+                new TypstParagraph
+                {
+                    Content = "Body text body text",
+                    Formatting = new TypstTextFormatting { FontFamily = "DefinitelyMissingFont", FontSize = 16 }
+                }
+            ]
+        });
+
+        var source = converter.GenerateTypstSource(presentation);
+
+        Assert.DoesNotContain("#set par(leading:", source);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_ExplicitLineSpacing_UsesCapHeightAdvance()
+    {
+        // Explicit a:lnSpc pitch must subtract Typst's natural advance (cap height),
+        // not the old 0.65em estimate: 16pt spcPct=100% → 16 - 1294/2048*16 = 5.89pt.
+        var path = CreateSimplePptx();
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        InjectFontMetrics(converter, "TestCalibri", new TypstFontMetrics
+        {
+            UnitsPerEm = 2048,
+            HheaAscender = 1950,
+            HheaDescender = -550,
+            HheaLineGap = 0,
+            CapHeight = 1294
+        });
+
+        var presentation = CreateTextPresentation(new TypstTextElement
+        {
+            Paragraphs =
+            [
+                new TypstParagraph
+                {
+                    Content = "Body text body text",
+                    Formatting = new TypstTextFormatting { FontFamily = "TestCalibri", FontSize = 16 },
+                    LineSpacing = 1.0
+                }
+            ]
+        });
+
+        var source = converter.GenerateTypstSource(presentation);
+
+        Assert.Contains("#set par(leading: 5.89pt)", source);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_BottomAnchoredText_ReservesDescentBelowBaseline()
+    {
+        // PowerPoint bottom-anchors a text block by the last line's DESCENT; Typst's
+        // bottom-edge is the baseline, so an unadjusted block sits ~descent too low.
+        // Reserve the descent with a bottom pad, and clamp the block bottom to the
+        // element's bottom inset (top trims must not push the bottom edge down).
+        var path = CreateSimplePptx();
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        InjectFontMetrics(converter, "TestOpenSans", new TypstFontMetrics
+        {
+            UnitsPerEm = 2048,
+            TypoAscender = 1567,
+            TypoDescender = -492,
+            HheaAscender = 2189,
+            HheaDescender = -600,
+            HheaLineGap = 0,
+            WinAscent = 2189,
+            WinDescent = 600,
+            CapHeight = 1462
+        });
+
+        var presentation = CreateTextPresentation(new TypstTextElement
+        {
+            Paragraphs =
+            [
+                new TypstParagraph
+                {
+                    Content = "POWERPOINT SMARTART GRAPHICS",
+                    Formatting = new TypstTextFormatting { FontFamily = "TestOpenSans", FontSize = 60 }
+                }
+            ],
+            VerticalAlign = "bottom",
+            PaddingTop = 3.6,
+            PaddingBottom = 3.6
+        }, height: 180.8, width: 705.6);
+
+        var source = converter.GenerateTypstSource(presentation);
+
+        // Descent: 492/2048 * 60 = 14.41pt. Block height: 180.8 - 3.6 bottom inset
+        // - (3.6 top inset + 18.22 metric offset) = 155.38pt.
+        Assert.Contains("#pad(bottom: 14.41pt)", source);
+        Assert.Contains("height: 155.38pt", source);
+    }
+
+    private static void InjectFontMetrics(PptxToTypstConverter converter, string family, TypstFontMetrics metrics)
+    {
+        var fontMetricsField = typeof(PptxToTypstConverter).GetField(
+            "_fontMetrics",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        var fontMetrics = (Dictionary<string, TypstFontMetrics>)fontMetricsField!.GetValue(converter)!;
+        fontMetrics[family] = metrics;
+    }
+
     [Fact]
     public void GetFontMetrics_EmbeddedFont_ReturnsCachedValue()
     {

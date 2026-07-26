@@ -1663,15 +1663,24 @@ public sealed partial class PptxToTypstConverter : IDisposable
     }
 
     private double GetFontLineHeightFactor(string fontFamily)
+        => GetSingleSpacingFactor(fontFamily);
+
+    /// <summary>
+    /// PowerPoint single-spacing line-height factor: the font's hhea line height
+    /// (ascender + |descender| + lineGap, in em). Fonts with inflated hhea metrics
+    /// (e.g. Open Sans at 1.362, enlarged for tall Vietnamese glyph coverage) are
+    /// capped at 1.2 — PowerPoint-compatible renderers keep ordinary single spacing
+    /// for them instead of honoring the inflated values.
+    /// </summary>
+    private double GetSingleSpacingFactor(string fontFamily)
     {
         var metrics = GetFontMetrics(fontFamily);
         if (metrics == null || metrics.UnitsPerEm <= 0)
             return 1.2;
 
-        var ascent = metrics.WinAscent != 0 ? metrics.WinAscent : Math.Max(0, (int)metrics.HheaAscender);
-        var descent = metrics.WinDescent != 0 ? metrics.WinDescent : Math.Max(0, (int)-metrics.HheaDescender);
-        var factor = (ascent + descent) / (double)metrics.UnitsPerEm;
-        return factor > 0.5 ? factor : 1.2;
+        var factor = (metrics.HheaAscender - metrics.HheaDescender + metrics.HheaLineGap)
+            / (double)metrics.UnitsPerEm;
+        return factor > 1.3 ? 1.2 : factor > 0.5 ? factor : 1.2;
     }
 
     /// <summary>
