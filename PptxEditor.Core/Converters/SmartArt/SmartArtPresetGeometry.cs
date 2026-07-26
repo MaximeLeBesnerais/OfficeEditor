@@ -179,6 +179,35 @@ internal static class SmartArtPresetGeometry
                 "Z",
             }),
 
+        // ECMA-376 chevron: notch/point depth dx1 = ss·a/100000 with
+        // a = pin(0, adj, 100000·w/ss) — a fraction of min(w,h), NOT of the
+        // width. The static 0.5-of-width table carved a 2.5× too-deep notch
+        // into the wide (~2.5:1) process chevrons on slides 56/58
+        // (INV-slide-025 §4); on square shapes the default adj=50000
+        // reproduces that legacy table exactly.
+        ["chevron"] = new SmartArtPresetGeometry.PresetDef(
+            new Dictionary<string, double>
+            {
+                ["adj"] = 50000,
+            },
+            new[]
+            {
+                "maxAdj */ 100000 w ss",
+                "a pin 0 adj maxAdj",
+                "x1 */ ss a 100000",
+                "x2 +- r 0 x1",
+            },
+            new[]
+            {
+                "M l t",
+                "L x2 t",
+                "L r vc",
+                "L x2 b",
+                "L l b",
+                "L x1 vc",
+                "Z",
+            }),
+
         // ECMA-376 flowChartManualOperation has no avLst: a fixed path in 5x5
         // space — full-width top edge, bottom edge inset by w/5 on both sides.
         ["flowChartManualOperation"] = new SmartArtPresetGeometry.PresetDef(
