@@ -192,6 +192,12 @@ public sealed partial class PptxToTypstConverter : IDisposable
             catch { /* skip unreadable font metrics */ }
         }
 
+        // 3. Try a substitute font (e.g. Calibri → Carlito) so metric-compatible
+        //    installed fonts feed the genuine single-spacing factor and advance.
+        var substitute = ResolveSubstituteFont(fontFamily);
+        if (substitute != null && substitute != fontFamily)
+            return GetFontMetrics(substitute);
+
         return null;
     }
 
@@ -211,7 +217,28 @@ public sealed partial class PptxToTypstConverter : IDisposable
             return false;
         if (_fontMetrics.ContainsKey(fontFamily))
             return true;
-        return FindSystemFontPath(fontFamily) != null;
+        if (FindSystemFontPath(fontFamily) != null)
+            return true;
+
+        var substitute = ResolveSubstituteFont(fontFamily);
+        if (substitute != null && substitute != fontFamily && FindSystemFontPath(substitute) != null)
+            return true;
+
+        return false;
+    }
+
+    private string? ResolveSubstituteFont(string fontFamily)
+    {
+        if (fontFamily.StartsWith("Aptos", StringComparison.OrdinalIgnoreCase))
+        {
+            if (_systemFontPaths.ContainsKey("Aptos")) return "Aptos";
+            if (_systemFontPaths.ContainsKey("Carlito")) return "Carlito";
+        }
+        if (fontFamily.Equals("Calibri", StringComparison.OrdinalIgnoreCase))
+        {
+            if (_systemFontPaths.ContainsKey("Carlito")) return "Carlito";
+        }
+        return null;
     }
 
     private bool TryGetFontMetrics(TypstTextElement text, out TypstFontMetrics metrics)
