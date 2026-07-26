@@ -1152,9 +1152,25 @@ public sealed partial class PptxToTypstConverter
     {
         // Same emission shape as the generation pipeline's TypstEmitter:
         // gradient.linear((rgb("…"), 0%), (rgb("…"), 100%), angle: 115deg)
-        var stops = string.Join(", ", gradient.Stops.Select(s =>
+        //
+        // Typst requires the stops to span 0%..100%, but OOXML stops may sit
+        // strictly inside that range — PowerPoint flat-extends the edge colors
+        // to the shape bounds. Pad the edges with the boundary colors so the
+        // emission both compiles and matches PowerPoint semantics.
+        var stops = new List<TypstGradientStop>(gradient.Stops);
+        if (stops.Count > 0 && stops[0].Offset > 0)
+        {
+            stops.Insert(0, stops[0] with { Offset = 0 });
+        }
+
+        if (stops.Count > 0 && stops[^1].Offset < 1)
+        {
+            stops.Add(stops[^1] with { Offset = 1 });
+        }
+
+        var stopArgs = string.Join(", ", stops.Select(s =>
             $"(rgb(\"{s.Color}\"), {FormatNumber(s.Offset * 100)}%)"));
-        return $"gradient.linear({stops}, angle: {FormatNumber(gradient.Angle)}deg)";
+        return $"gradient.linear({stopArgs}, angle: {FormatNumber(gradient.Angle)}deg)";
     }
 
     private static string FormatNumber(double value)
