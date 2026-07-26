@@ -4375,6 +4375,46 @@ public class PptxToTypstConverterTests : IDisposable
     }
 
     [Fact]
+    public void Convert_RotatedPolygon_RotatesAboutShapeBoxCenter()
+    {
+        // A Typst #polygon's bounding box is its INK bbox, which can be smaller
+        // than the shape box (e.g. blockArc bands, stripes). #rotate(origin:
+        // center) would then rotate about the ink center instead of the shape-box
+        // center (PowerPoint xfrm@rot semantics), displacing the rotated shape.
+        // The polygon must be wrapped in an explicit-size block.
+        var stripe = new P.Shape(
+            new NonVisualShapeProperties(
+                new NonVisualDrawingProperties { Id = 2, Name = "Stripe" },
+                new NonVisualShapeDrawingProperties(),
+                new ApplicationNonVisualDrawingProperties()),
+            new ShapeProperties(
+                new Drawing.Transform2D(
+                    new Drawing.Offset { X = Pt(500), Y = Pt(0) },
+                    new Drawing.Extents { Cx = Pt(200), Cy = Pt(200) })
+                {
+                    Rotation = new Int32Value(5400000)
+                },
+                new Drawing.PresetGeometry(
+                    new Drawing.AdjustValueList(
+                        new Drawing.ShapeGuide { Name = "adj", Formula = "val 30578" }))
+                {
+                    Preset = Drawing.ShapeTypeValues.DiagonalStripe
+                },
+                new Drawing.SolidFill(new Drawing.RgbColorModelHex { Val = "ED7D31" })));
+        var path = CreateGroupShapePptx("diag-stripe-rotate-center.pptx", stripe);
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = converter.Convert();
+        var source = converter.GenerateTypstSource(presentation);
+
+        Assert.Contains(
+            "#rotate(90.0deg, origin: center)[#block(width: 200.00pt, height: 200.00pt)[#polygon(",
+            source);
+    }
+
+    [Fact]
     public void Convert_LayoutUserDrawnGroupShape_RendersChildren()
     {
         // Footer-byline pattern: a grpSp on the slide layout (no placeholders inside)
