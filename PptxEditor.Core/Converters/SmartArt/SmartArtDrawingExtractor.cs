@@ -136,11 +136,23 @@ namespace PptxEditor.Core.Converters.SmartArt;
         foreach (var shape in dspShapes)
         {
             var spPr = GetChild(shape, "spPr", DiagramNamespaces);
-            var xfrm = spPr == null ? null : GetChild(spPr, "xfrm", DrawingmlNs);
+            if (spPr == null) continue;
+            var xfrm = GetChild(spPr, "xfrm", DrawingmlNs);
             if (xfrm == null) continue;
             var off = GetChild(xfrm, "off", DrawingmlNs);
             var ext = GetChild(xfrm, "ext", DrawingmlNs);
             if (off == null || ext == null) continue;
+
+            // Only bound shapes we can actually render (the same predicate
+            // ReadGeometry applies): an unsupported preset is silently dropped at
+            // extraction, and its cached xfrm — which legitimately extends outside
+            // the node layout, e.g. connector arcs — must not set the fit bbox
+            // (-033: a dropped blockArc inflated the bbox width 1.61× and
+            // fit-scaled the whole diagram to 0.63).
+            var prstGeom = GetChild(spPr, "prstGeom", DrawingmlNs);
+            var prstValue = prstGeom == null ? null : ReadAttribute(prstGeom, "prst");
+            if (string.IsNullOrEmpty(prstValue) || !PresetGeometryMap.ContainsKey(prstValue))
+                continue;
 
             var x = ReadEmuAsPt(off, "x");
             var y = ReadEmuAsPt(off, "y");
