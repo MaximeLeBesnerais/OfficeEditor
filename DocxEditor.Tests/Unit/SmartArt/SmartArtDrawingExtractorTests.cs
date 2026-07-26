@@ -700,6 +700,83 @@ public sealed class SmartArtDrawingExtractorTests
     }
 
     [Fact]
+    public void ComputeBoundingBox_UnsupportedPreset_DoesNotPolluteBounds()
+    {
+        // INV-slide-033: an unrenderable connector shape (preset not in the map,
+        // silently dropped at extraction) must not set the fit bbox — its cached
+        // xfrm legitimately extends outside the node layout and would otherwise
+        // shrink the whole diagram (slide 33: scale 0.63 instead of ~1.0).
+        var rect = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""127000"" y=""254000""/>
+      <a:ext cx=""2540000"" cy=""1270000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""rect"">
+      <a:avLst/>
+    </a:prstGeom>
+  </dsp:spPr>
+</dsp:sp>";
+        var star = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""-6350000"" y=""-1270000""/>
+      <a:ext cx=""8890000"" cy=""7620000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""star8"">
+      <a:avLst/>
+    </a:prstGeom>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var bounds = SmartArtDrawingExtractor.ComputeBoundingBox(
+            new[] { ParseXml(rect), ParseXml(star) });
+
+        Assert.NotNull(bounds);
+        Assert.Equal(10.0, bounds.Value.MinX, precision: 6);
+        Assert.Equal(20.0, bounds.Value.MinY, precision: 6);
+        Assert.Equal(200.0, bounds.Value.Width, precision: 6);
+        Assert.Equal(100.0, bounds.Value.Height, precision: 6);
+    }
+
+    [Fact]
+    public void ComputeBoundingBox_MissingPrstGeom_DoesNotPolluteBounds()
+    {
+        var noGeom = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""-6350000"" y=""-1270000""/>
+      <a:ext cx=""8890000"" cy=""7620000""/>
+    </a:xfrm>
+  </dsp:spPr>
+</dsp:sp>";
+        var rect = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""127000"" y=""254000""/>
+      <a:ext cx=""2540000"" cy=""1270000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""rect"">
+      <a:avLst/>
+    </a:prstGeom>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var bounds = SmartArtDrawingExtractor.ComputeBoundingBox(
+            new[] { ParseXml(noGeom), ParseXml(rect) });
+
+        Assert.NotNull(bounds);
+        Assert.Equal(10.0, bounds.Value.MinX, precision: 6);
+        Assert.Equal(20.0, bounds.Value.MinY, precision: 6);
+        Assert.Equal(200.0, bounds.Value.Width, precision: 6);
+        Assert.Equal(100.0, bounds.Value.Height, precision: 6);
+    }
+
+    [Fact]
     public void ComputeBoundingBox_RotatedShape_UnionsRotatedCorners()
     {
         // INV-slide-130: quadrants stored as tall rects rotated ±90° must contribute
