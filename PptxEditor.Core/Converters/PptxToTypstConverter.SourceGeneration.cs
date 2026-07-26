@@ -139,6 +139,26 @@ public sealed partial class PptxToTypstConverter
             {
                 width = Math.Max(width, slideWidth - xPos - 2);
             }
+
+            // wrap="none": the line must never wrap — PowerPoint overflows the
+            // box instead. Font-metric measurement underestimates when the
+            // original font is unavailable, so widen generously (the block is
+            // transparent; only wrapping changes the render). The alignment
+            // anchor is preserved: left boxes grow rightward, centred boxes
+            // grow about their centre, right boxes grow leftward.
+            if (text.NoWrap)
+            {
+                var measured = MeasureTextWidth(text);
+                var target = Math.Max(width * 1.2, (measured ?? 0) * 1.05 + 2);
+                if (target > width)
+                {
+                    if (text.Formatting.Align == "center")
+                        xPos -= (target - width) / 2;
+                    else if (text.Formatting.Align == "right")
+                        xPos -= target - width;
+                    width = target;
+                }
+            }
         }
 
         var x = FormatPt(xPos);
@@ -238,8 +258,16 @@ public sealed partial class PptxToTypstConverter
             sb.Append($"#set par(leading: {FormatPt(leading)})\n");
         }
 
+        // Justified paragraphs (algn="just") use Typst's par justify; the
+        // horizontal alignment wrapper stays left.
+        var justify = text.Paragraphs.Any(p => p.Formatting.Align == "justify");
+        if (justify)
+        {
+            sb.Append("#set par(justify: true)\n");
+        }
+
         // Apply horizontal alignment if not left
-        if (fmt.Align != "left" && !string.IsNullOrEmpty(fmt.Align))
+        if (fmt.Align != "left" && fmt.Align != "justify" && !string.IsNullOrEmpty(fmt.Align))
         {
             sb.Append($"#align({fmt.Align})[");
         }
@@ -247,7 +275,7 @@ public sealed partial class PptxToTypstConverter
         AppendParagraphs(sb, text, availableFonts);
 
         // Close horizontal alignment wrapper if opened
-        if (fmt.Align != "left" && !string.IsNullOrEmpty(fmt.Align))
+        if (fmt.Align != "left" && fmt.Align != "justify" && !string.IsNullOrEmpty(fmt.Align))
         {
             sb.Append("]");
         }
@@ -798,6 +826,17 @@ public sealed partial class PptxToTypstConverter
         var color = ExtractRunColor(runProps, styleResolver);
         if (!string.IsNullOrEmpty(color))
             result = result with { Color = color };
+
+        // Hyperlink runs render in the theme hlink color with an underline —
+        // the reference renderer (and LibreOffice) applies this even over an
+        // explicit solidFill on the run.
+        if (runProps.Elements<Drawing.HyperlinkOnClick>().Any())
+        {
+            var hlinkColor = styleResolver?.ResolveSchemeColor("hlink");
+            if (!string.IsNullOrEmpty(hlinkColor))
+                result = result with { Color = hlinkColor };
+            result = result with { Underline = true };
+        }
 
         var latinFont = runProps.Elements<Drawing.LatinFont>().FirstOrDefault();
         if (latinFont?.Typeface != null)
