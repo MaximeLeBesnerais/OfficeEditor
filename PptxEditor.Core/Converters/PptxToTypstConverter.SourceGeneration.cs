@@ -10,6 +10,15 @@ namespace PptxEditor.Core.Converters;
 
 public sealed partial class PptxToTypstConverter
 {
+    /// <summary>
+    /// The global font fallback chain emitted in the <c>#set text(font: …)</c> header.
+    /// Per-run <c>font:</c> parameters must repeat this chain (resolved family first):
+    /// in Typst a per-element font parameter REPLACES the whole chain, so a single-family
+    /// override collapses to the embedded serif fallback when the family is unavailable
+    /// in the compiler's font set.
+    /// </summary>
+    private IReadOnlyList<string> _globalFontFamilies = [];
+
     public string GenerateTypstSource(TypstPresentation presentation)
     {
         var sb = new StringBuilder();
@@ -38,6 +47,7 @@ public sealed partial class PptxToTypstConverter
         // Font setup with fallback chain
         // Extracted fonts will be loaded from the font-path directory
         var fontFamilies = BuildGlobalFontFamilies(presentation.ThemeFonts, availableFonts);
+        _globalFontFamilies = fontFamilies;
         var fontList = string.Join(", ", fontFamilies.Select(f => $"\"{f}\""));
         sb.AppendLine($"#set text(font: ({fontList}))");
         sb.AppendLine();
@@ -117,6 +127,14 @@ public sealed partial class PptxToTypstConverter
             width = Math.Max(0, width - text.PaddingLeft - text.PaddingRight);
             height = Math.Max(0, height - text.PaddingTop - text.PaddingBottom);
 
+            if (text.VerticalAlign == "bottom")
+            {
+                // Bottom-anchored text is pinned at the bottom inset: the top trims
+                // (leading/metric offsets) must not push the block's bottom edge
+                // below the element bottom minus the bottom inset.
+                height = Math.Max(0, element.Height - text.PaddingBottom - (yPos - element.Y));
+            }
+
             if (!isRotatedText && IsSingleLineAutoFit(text, height) && text.Formatting.Align == "left")
             {
                 width = Math.Max(width, slideWidth - xPos - 2);
@@ -184,10 +202,22 @@ public sealed partial class PptxToTypstConverter
         var fmt = text.Formatting;
 
         // Constrain text to original text box width, with height for vertical alignment
+        var descentPadded = false;
         if (!string.IsNullOrEmpty(height) && text.VerticalAlign != "top")
         {
             var alignVal = text.VerticalAlign == "center" ? "horizon" : "bottom";
             sb.Append($"#block(width: {width}, height: {height})[#align({alignVal})[");
+            if (text.VerticalAlign == "bottom")
+            {
+                // PowerPoint bottom-anchors the last line's descent; Typst's bottom-edge
+                // is the baseline — reserve the descent below the baseline.
+                var descent = GetFontDescender(text.Formatting);
+                if (descent > 0.01)
+                {
+                    sb.Append($"#pad(bottom: {FormatPt(descent)})[");
+                    descentPadded = true;
+                }
+            }
         }
         else
         {
@@ -225,12 +255,29 @@ public sealed partial class PptxToTypstConverter
         // Close vertical alignment wrapper if opened
         if (!string.IsNullOrEmpty(height) && text.VerticalAlign != "top")
         {
-            sb.Append("]]");
+            sb.Append(descentPadded ? "]]]" : "]]");
         }
         else
         {
             sb.Append("]");
         }
+    }
+
+    /// <summary>
+    /// The font's descender depth in points (typographic descender, falling back to the
+    /// hhea descender), used to reserve descent space below bottom-anchored baselines.
+    /// Returns 0 when metrics are unavailable.
+    /// </summary>
+    private double GetFontDescender(TypstTextFormatting fmt)
+    {
+        var metrics = GetFontMetrics(ResolveThemeFont(fmt.FontFamily));
+        if (metrics == null || metrics.UnitsPerEm <= 0)
+        {
+            return 0;
+        }
+
+        var descender = metrics.TypoDescender != 0 ? metrics.TypoDescender : metrics.HheaDescender;
+        return Math.Max(0, -descender) / (double)metrics.UnitsPerEm * fmt.FontSize;
     }
 
     private void AppendParagraphs(StringBuilder sb, TypstTextElement text, HashSet<string> availableFonts)
@@ -624,10 +671,32 @@ public sealed partial class PptxToTypstConverter
         var fontFamily = SubstituteUnavailableFont(ResolveThemeFont(fmt.FontFamily), availableFonts);
         if (!string.IsNullOrEmpty(fontFamily) && fontFamily != "Arial" && availableFonts.Contains(fontFamily))
         {
-            parameters.Add($"font: \"{fontFamily}\"");
+            parameters.Add($"font: {BuildFontChainValue(fontFamily)}");
         }
 
         return parameters.Count > 0 ? $"#text({string.Join(", ", parameters)})" : "";
+    }
+
+    /// <summary>
+    /// Builds the per-run <c>font:</c> value as the resolved family followed by the
+    /// global fallback chain (duplicates removed). A bare single-family value would
+    /// replace Typst's whole font chain and fall through to the embedded serif
+    /// fallback when the family is missing from the compiler's font set.
+    /// </summary>
+    private string BuildFontChainValue(string fontFamily)
+    {
+        var chain = new List<string> { fontFamily };
+        foreach (var fallback in _globalFontFamilies)
+        {
+            if (!chain.Contains(fallback, StringComparer.OrdinalIgnoreCase))
+            {
+                chain.Add(fallback);
+            }
+        }
+
+        return chain.Count == 1
+            ? $"\"{chain[0]}\""
+            : $"({string.Join(", ", chain.Select(f => $"\"{f}\""))})";
     }
 
     private static bool AreFormattingEqual(TypstTextFormatting a, TypstTextFormatting b)
@@ -859,7 +928,7 @@ public sealed partial class PptxToTypstConverter
         }
     }
 
-    private static void AppendParagraphLeading(StringBuilder sb, TypstParagraph paragraph)
+    private void AppendParagraphLeading(StringBuilder sb, TypstParagraph paragraph)
     {
         var leading = GetParagraphLeading(paragraph);
         if (leading > 0.01)
@@ -868,51 +937,79 @@ public sealed partial class PptxToTypstConverter
         }
     }
 
-    private static double GetParagraphLeading(TypstParagraph paragraph)
+    private double GetParagraphLeading(TypstParagraph paragraph)
     {
-        if (paragraph.LineSpacing == null)
-            return 0;
+        var fmt = GetCollapsedRunFormatting(paragraph);
+        var advance = GetTypstNaturalAdvance(fmt.FontFamily, fmt.FontSize);
 
-        // Percentage values (spcPct) multiply the paragraph's own effective font size —
-        // the element-level default size is wrong for mixed-formatting paragraphs.
-        var fontSize = GetCollapsedRunFormatting(paragraph).FontSize;
-        double lineSpacingPts;
-        if (paragraph.LineSpacing.Value < 10)
+        if (paragraph.LineSpacing is { } spacing)
         {
-            // Percentage value (e.g., 1.2 = 120%)
-            lineSpacingPts = fontSize * paragraph.LineSpacing.Value;
-        }
-        else
-        {
-            // Absolute points value (spcPts)
-            lineSpacingPts = paragraph.LineSpacing.Value;
+            // Percentage values (spcPct) multiply the paragraph's own effective font size —
+            // the element-level default size is wrong for mixed-formatting paragraphs.
+            var lineSpacingPts = spacing < 10 ? fmt.FontSize * spacing : spacing;
+
+            // Typst's par.leading is added to its natural advance (the cap height),
+            // while the a:lnSpc value is the target line pitch.
+            return Math.Max(0, lineSpacingPts - advance);
         }
 
-        // Typst's par.leading is added to its own default line advance, while PPTX spcPts is the target line pitch.
-        var estimatedTypstLineAdvance = fontSize * 0.65;
-        return Math.Max(0, lineSpacingPts - estimatedTypstLineAdvance);
+        // No explicit a:lnSpc: reconcile Typst's default pitch (cap height + 0.65em)
+        // with PowerPoint single spacing (hhea line height, capped for inflated metrics).
+        var defaultLeading = GetSingleSpacingLeading(fmt.FontFamily, fmt.FontSize, advance);
+        return defaultLeading;
     }
 
-    private static double GetTypstParagraphLeading(TypstTextElement text)
+    private double GetTypstParagraphLeading(TypstTextElement text)
     {
-        if (text.LineSpacing == null)
+        var fmt = text.Formatting;
+        var advance = GetTypstNaturalAdvance(fmt.FontFamily, fmt.FontSize);
+
+        if (text.LineSpacing is { } spacing)
+        {
+            var lineSpacingPts = spacing < 10 ? fmt.FontSize * spacing : spacing;
+
+            // Typst's par.leading is added to its natural advance (the cap height),
+            // while the a:lnSpc value is the target line pitch.
+            return Math.Max(0, lineSpacingPts - advance);
+        }
+
+        return GetSingleSpacingLeading(fmt.FontFamily, fmt.FontSize, advance);
+    }
+
+    /// <summary>
+    /// Leading that makes Typst render PowerPoint-style single spacing for text without
+    /// an explicit a:lnSpc: target pitch = the font's hhea line height (see
+    /// <see cref="GetSingleSpacingFactor"/>), Typst pitch = cap height + leading.
+    /// Returns 0 (keep Typst's 0.65em default) when the font's metrics are unknown or
+    /// the computed leading is within 0.5pt of the default — no visible change then.
+    /// </summary>
+    private double GetSingleSpacingLeading(string fontFamily, double fontSize, double advance)
+    {
+        var family = ResolveThemeFont(fontFamily);
+        var metrics = GetFontMetrics(family);
+        if (metrics == null || metrics.UnitsPerEm <= 0 || metrics.CapHeight <= 0)
+        {
             return 0;
-
-        double lineSpacingPts;
-        if (text.LineSpacing.Value < 10)
-        {
-            // Percentage value (e.g., 1.2 = 120%)
-            lineSpacingPts = text.Formatting.FontSize * text.LineSpacing.Value;
-        }
-        else
-        {
-            // Absolute points value
-            lineSpacingPts = text.LineSpacing.Value;
         }
 
-        // Typst's par.leading is added to its own default line advance, while PPTX spcPts is the target line pitch.
-        var estimatedTypstLineAdvance = text.Formatting.FontSize * 0.65;
-        return Math.Max(0, lineSpacingPts - estimatedTypstLineAdvance);
+        var leading = fontSize * GetSingleSpacingFactor(family) - advance;
+        return Math.Abs(leading - fontSize * 0.65) > 0.5 ? Math.Max(0, leading) : 0;
+    }
+
+    /// <summary>
+    /// Typst's natural line advance for a font: the cap height (Typst's default
+    /// top-edge is cap-height, bottom-edge is baseline). Falls back to the previous
+    /// 0.65em estimate when metrics or the cap height are unavailable.
+    /// </summary>
+    private double GetTypstNaturalAdvance(string fontFamily, double fontSize)
+    {
+        var metrics = GetFontMetrics(ResolveThemeFont(fontFamily));
+        if (metrics != null && metrics.UnitsPerEm > 0 && metrics.CapHeight > 0)
+        {
+            return metrics.CapHeight / (double)metrics.UnitsPerEm * fontSize;
+        }
+
+        return fontSize * 0.65;
     }
 
     private double GetTextMetricOffset(TypstTextElement text)

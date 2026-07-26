@@ -337,6 +337,9 @@ namespace PptxEditor.Core.Converters.SmartArt;
     /// May be empty; a static Office fallback is used when the map is missing an entry.</param>
     /// <param name="modelId">Optional <c>dsp:sp modelId</c> carried onto the emitted
     /// element so shapes can be joined back to data-model nodes.</param>
+    /// <param name="colorsDefContext">Optional per-diagram colorsDef context (tests
+    /// inject a synthetic one). When null, the context is located from the shape's
+    /// drawing part; shapes not loaded from a package simply have no context.</param>
     public static TypstElement? TryExtractShape(
         OpenXmlElement dspShape,
         double offX, double offY,
@@ -344,7 +347,8 @@ namespace PptxEditor.Core.Converters.SmartArt;
         double frameX, double frameY,
         double shapeW, double shapeH,
         IReadOnlyDictionary<string, string>? schemeColors = null,
-        string? modelId = null)
+        string? modelId = null,
+        SmartArtColorsDefResolver.ColorsDefContext? colorsDefContext = null)
     {
         var spPr = GetChild(dspShape, "spPr", DiagramNamespaces);
         if (spPr == null) return null;
@@ -360,6 +364,22 @@ namespace PptxEditor.Core.Converters.SmartArt;
             ? GradientFillReader.TryReadLinearGradient(
                 spPr, name => ResolveSchemeColor(name, schemeColors))
             : null;
+        if (fillGradient != null)
+        {
+            // Cached-vs-relayout conflict (-b1 §5-6): when the
+            // node's colorsDef styleLbl maps to a plain solid fill and the
+            // quickStyle carries no gradient, PowerPoint displays the colorsDef
+            // result, not the cached gradFill. The resolver returns null in every
+            // other case, leaving the cached gradient in charge.
+            modelId ??= ReadAttribute(dspShape, "modelId");
+            var colorsDefFill = SmartArtColorsDefResolver.TryResolveFlatFill(
+                dspShape, modelId, schemeColors, colorsDefContext);
+            if (colorsDefFill != null)
+            {
+                fillColor = colorsDefFill;
+                fillGradient = null;
+            }
+        }
         var (strokeColor, strokeWidth) = ReadStroke(spPr, schemeColors);
         // Cached drawing shapes carry their styling inline; a missing or fill-less
         // a:ln means "no border" in PowerPoint. Flag it so the Typst emitter writes
