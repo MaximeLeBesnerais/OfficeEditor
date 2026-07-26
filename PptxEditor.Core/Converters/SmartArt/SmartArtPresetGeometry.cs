@@ -446,6 +446,41 @@ internal static class SmartArtPresetGeometry
                 "Z",
             }),
 
+        // ECMA-376 round2DiagRect: rectangle with two diagonally-opposite
+        // rounded corners — adj1 rounds top-left + bottom-right, adj2 rounds
+        // top-right + bottom-left (radii are fractions of ss, defaults
+        // 16667/0; slide 113's OpposingIdeas body caches adj1=0, adj2=16670).
+        // Corner arcs are quarter-ellipses flattened by the shared arcTo.
+        // (The dx/dy/ir/ib text-rect guides are omitted — they feed no path.)
+        ["round2DiagRect"] = new SmartArtPresetGeometry.PresetDef(
+            new Dictionary<string, double>
+            {
+                ["adj1"] = 16667,
+                ["adj2"] = 0,
+            },
+            new[]
+            {
+                "a1 pin 0 adj1 50000",
+                "a2 pin 0 adj2 50000",
+                "x1 */ ss a1 100000",
+                "y1 +- b 0 x1",
+                "a */ ss a2 100000",
+                "x2 +- r 0 a",
+            },
+            new[]
+            {
+                "M x1 t",
+                "L x2 t",
+                "A a a 3cd4 cd4",
+                "L r y1",
+                "A x1 x1 0 cd4",
+                "L a b",
+                "A a a cd4 cd4",
+                "L l x1",
+                "A x1 x1 cd2 cd4",
+                "Z",
+            }),
+
         // ECMA-376 nonIsoscelesTrapezoid: independent left/right top insets
         // x1 = ss·a1/100000, x2 = ss·a2/100000, defaults adj1 = adj2 = 20000.
         ["nonIsoscelesTrapezoid"] = new SmartArtPresetGeometry.PresetDef(
