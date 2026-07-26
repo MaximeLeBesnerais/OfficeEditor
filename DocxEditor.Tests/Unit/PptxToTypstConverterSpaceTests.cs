@@ -687,6 +687,61 @@ public sealed class PptxToTypstConverterSpaceTests : IDisposable
         Assert.Contains("#set par(leading: 11.00pt)", source);
     }
 
+    // ------------------------------------------------------------------
+    // Justified paragraphs (Space slides 5/9/15 body text is algn="just" —
+    // rendered left-aligned though Typst has par(justify: true))
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public void Convert_JustifiedParagraph_EmitsParJustify()
+    {
+        var deckPath = Path.Combine(_tempDir, $"{Guid.NewGuid():N}.pptx");
+        using (var document = PresentationDocument.Create(deckPath, PresentationDocumentType.Presentation))
+        {
+            var (presentationPart, slideLayoutPart) = CreateShell(document);
+            slideLayoutPart.SlideLayout = new P.SlideLayout(new CommonSlideData(CreateShapeTree()));
+
+            var slidePart = presentationPart.AddNewPart<SlidePart>();
+            var textBox = new P.Shape(
+                new NonVisualShapeProperties(
+                    new NonVisualDrawingProperties { Id = 5, Name = "TextBox" },
+                    new NonVisualShapeDrawingProperties(),
+                    new ApplicationNonVisualDrawingProperties()),
+                new ShapeProperties(
+                    new Drawing.Transform2D(
+                        new Drawing.Offset { X = 319756, Y = 4765116 },
+                        new Drawing.Extents { Cx = 2088993, Cy = 954107 }),
+                    new Drawing.PresetGeometry(new Drawing.AdjustValueList())
+                    { Preset = Drawing.ShapeTypeValues.Rectangle }),
+                new P.TextBody(
+                    new Drawing.BodyProperties(),
+                    new Drawing.ListStyle(),
+                    new Drawing.Paragraph(
+                        new Drawing.ParagraphProperties { Alignment = Drawing.TextAlignmentTypeValues.Justified },
+                        new Drawing.Run(
+                            new Drawing.RunProperties { Language = "en-US", FontSize = 1400 },
+                            new Drawing.Text("Lorem ipsum dolor sit amet, consectetur adipiscing elit.")))));
+            slidePart.Slide = new Slide(new CommonSlideData(CreateShapeTree(textBox)));
+            slidePart.AddPart(slideLayoutPart);
+
+            presentationPart.Presentation!.SlideIdList!.Append(new SlideId
+            {
+                Id = 256,
+                RelationshipId = presentationPart.GetIdOfPart(slidePart)
+            });
+        }
+
+        using var doc = PresentationDocument.Open(deckPath, false);
+        using var converter = new PptxToTypstConverter(doc);
+
+        var presentation = converter.Convert();
+        var source = converter.GenerateTypstSource(presentation);
+
+        Assert.Contains("justify: true", source);
+        Assert.Contains("hyphenate: false", source);
+        Assert.DoesNotContain("#align(justify)", source);
+    }
+
     /// <summary>
     /// Deck whose slide has a pic placeholder (ph type="pic" idx="10") with an
     /// EMPTY spPr (no xfrm). The layout carries the matching pic placeholder
