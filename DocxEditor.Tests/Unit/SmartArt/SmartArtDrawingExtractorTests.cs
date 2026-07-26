@@ -87,7 +87,7 @@ public sealed class SmartArtDrawingExtractorTests
     }
 
     [Theory]
-    [InlineData("C00000", "tint", 60000, "#D96666")]   // SmartArt connector pattern: pale accent
+    [InlineData("C00000", "tint", 60000, "#DCA8A8")]   // SmartArt connector pattern: pale accent (gamma-linear blend)
     [InlineData("C00000", "shade", 50000, "#600000")]
     [InlineData("4472C4", "lumMod", 50000, "#223962")]
     [InlineData("000000", "lumOff", 20000, "#333333")]
@@ -390,6 +390,92 @@ public sealed class SmartArtDrawingExtractorTests
         Assert.Equal("rect", result.Shape.ShapeType);
         Assert.True(string.IsNullOrEmpty(result.Shape.FillColor));
         Assert.True(string.IsNullOrEmpty(result.Shape.StrokeColor));
+    }
+
+    [Fact]
+    public void Extract_GradientFill_ShadeAndSatModStops_AppliedInDocumentOrder()
+    {
+        // showeet corpus pattern (slides 25/58/131): gradient stops differ ONLY by
+        // shade/satMod transforms. Without them all stops collapse to the raw scheme
+        // color and the gradient renders flat.
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""1904255"" cy=""1142553""/>
+    </a:xfrm>
+    <a:prstGeom prst=""rect"">
+      <a:avLst/>
+    </a:prstGeom>
+    <a:gradFill>
+      <a:gsLst>
+        <a:gs pos=""0""><a:schemeClr val=""accent2""><a:shade val=""51000""/><a:satMod val=""130000""/></a:schemeClr></a:gs>
+        <a:gs pos=""80000""><a:schemeClr val=""accent2""><a:shade val=""93000""/><a:satMod val=""130000""/></a:schemeClr></a:gs>
+        <a:gs pos=""100000""><a:schemeClr val=""accent2""><a:shade val=""94000""/><a:satMod val=""135000""/></a:schemeClr></a:gs>
+      </a:gsLst>
+      <a:lin ang=""16200000"" scaled=""0""/>
+    </a:gradFill>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+        var schemeColors = new Dictionary<string, string> { ["accent2"] = "16A085" };
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 150, shapeH: 90,
+            schemeColors: schemeColors);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        var gradient = Assert.IsType<TypstGradientFill>(result.Shape.FillGradient);
+        Assert.Equal(3, gradient.Stops.Count);
+        // shade (per-channel scale, exact in HSL for L<0.5) then satMod (HSL
+        // saturation multiply) — all three stops must be DISTINCT dark teal tones.
+        Assert.Equal(new TypstGradientStop("#005D4A", 0.0), gradient.Stops[0]);
+        Assert.Equal(new TypstGradientStop("#01A888", 0.8), gradient.Stops[1]);
+        Assert.Equal(new TypstGradientStop("#00AB8A", 1.0), gradient.Stops[2]);
+    }
+
+    [Theory]
+    [InlineData("shade", 51000, "#0B5244")]  // per-channel ×0.51 (exact for shade when L<0.5)
+    [InlineData("satMod", 130000, "#01B592")] // HSL saturation ×1.3, hue/lightness preserved
+    public void Extract_GradientStop_SingleColorTransform_AppliesTransform(string op, int opVal, string expected)
+    {
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""1904255"" cy=""1142553""/>
+    </a:xfrm>
+    <a:prstGeom prst=""rect"">
+      <a:avLst/>
+    </a:prstGeom>
+    <a:gradFill>
+      <a:gsLst>
+        <a:gs pos=""0""><a:schemeClr val=""accent2""><a:{op} val=""{opVal}""/></a:schemeClr></a:gs>
+        <a:gs pos=""100000""><a:schemeClr val=""accent2""/></a:gs>
+      </a:gsLst>
+      <a:lin ang=""0"" scaled=""0""/>
+    </a:gradFill>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+        var schemeColors = new Dictionary<string, string> { ["accent2"] = "16A085" };
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 150, shapeH: 90,
+            schemeColors: schemeColors);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        var gradient = Assert.IsType<TypstGradientFill>(result.Shape.FillGradient);
+        Assert.Equal(new TypstGradientStop(expected, 0.0), gradient.Stops[0]);
+        Assert.Equal(new TypstGradientStop("#16A085", 1.0), gradient.Stops[1]);
     }
 
     [Fact]
