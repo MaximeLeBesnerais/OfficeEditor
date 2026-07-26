@@ -350,6 +350,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Fonts)),
             "/System/Library/Fonts",
             "/Library/Fonts",
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Library", "Fonts"),
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".fonts"),
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local", "share", "fonts"),
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Fonts"),

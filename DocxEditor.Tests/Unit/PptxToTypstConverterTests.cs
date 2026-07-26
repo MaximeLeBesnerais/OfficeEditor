@@ -2351,6 +2351,161 @@ public class PptxToTypstConverterTests : IDisposable
         return path;
     }
 
+    private static Drawing.DefaultRunProperties CreateOpenSansTitleDefRPr()
+    {
+        var defRPr = new Drawing.DefaultRunProperties { FontSize = 4000, Bold = true };
+        defRPr.Append(new Drawing.LatinFont { Typeface = "Open Sans" });
+        return defRPr;
+    }
+
+    private string CreateMasterOpenSansTitlePptx()
+    {
+        var path = Path.Combine(_tempDir, "master-open-sans-title.pptx");
+
+        using (var document = PresentationDocument.Create(path, PresentationDocumentType.Presentation))
+        {
+            var presentationPart = document.AddPresentationPart();
+            presentationPart.Presentation = new Presentation();
+            presentationPart.Presentation.SlideMasterIdList = new SlideMasterIdList();
+
+            var slideMasterPart = presentationPart.AddNewPart<SlideMasterPart>();
+            var slideMaster = new SlideMaster(
+                new CommonSlideData(
+                    new ShapeTree(
+                        new NonVisualGroupShapeProperties(
+                            new NonVisualDrawingProperties { Id = 0, Name = "" },
+                            new NonVisualGroupShapeDrawingProperties(),
+                            new ApplicationNonVisualDrawingProperties()
+                        ),
+                        new GroupShapeProperties(
+                            new Drawing.TransformGroup(
+                                new Drawing.Offset { X = 0, Y = 0 },
+                                new Drawing.Extents { Cx = 0, Cy = 0 },
+                                new Drawing.ChildOffset { X = 0, Y = 0 },
+                                new Drawing.ChildExtents { Cx = 0, Cy = 0 }
+                            )
+                        )
+                    )
+                ),
+                new ColorMap(),
+                new SlideLayoutIdList(),
+                // Master declares Open Sans titles:
+                // <p:titleStyle><a:lvl1pPr><a:defRPr sz="4000" b="1"><a:latin typeface="Open Sans"/>
+                new TextStyles(
+                    new TitleStyle(
+                        new Drawing.Level1ParagraphProperties(CreateOpenSansTitleDefRPr())
+                    )
+                )
+            );
+            slideMasterPart.SlideMaster = slideMaster;
+
+            var slideLayoutPart = slideMasterPart.AddNewPart<SlideLayoutPart>();
+            slideLayoutPart.SlideLayout = new P.SlideLayout(new CommonSlideData(new ShapeTree(
+                new NonVisualGroupShapeProperties(
+                    new NonVisualDrawingProperties { Id = 0, Name = "" },
+                    new NonVisualGroupShapeDrawingProperties(),
+                    new ApplicationNonVisualDrawingProperties()
+                ),
+                new GroupShapeProperties(
+                    new Drawing.TransformGroup(
+                        new Drawing.Offset { X = 0, Y = 0 },
+                        new Drawing.Extents { Cx = 0, Cy = 0 },
+                        new Drawing.ChildOffset { X = 0, Y = 0 },
+                        new Drawing.ChildExtents { Cx = 0, Cy = 0 }
+                    )
+                ),
+                new P.Shape(
+                    new NonVisualShapeProperties(
+                        new NonVisualDrawingProperties { Id = 1, Name = "Title" },
+                        new NonVisualShapeDrawingProperties(new Drawing.ShapeLocks { NoGrouping = true }),
+                        new ApplicationNonVisualDrawingProperties(
+                            new PlaceholderShape { Type = PlaceholderValues.Title }
+                        )
+                    ),
+                    new ShapeProperties(),
+                    new TextBody(
+                        new Drawing.BodyProperties(),
+                        new Drawing.ListStyle()
+                    )
+                )
+            )));
+            slideLayoutPart.AddPart(slideMasterPart);
+
+            var layoutId = new SlideLayoutId
+            {
+                Id = 2147483649,
+                RelationshipId = slideMasterPart.GetIdOfPart(slideLayoutPart)
+            };
+            slideMaster.SlideLayoutIdList!.Append(layoutId);
+
+            presentationPart.Presentation.SlideIdList = new SlideIdList();
+            presentationPart.Presentation.SlideMasterIdList.Append(new SlideMasterId
+            {
+                Id = 2147483648,
+                RelationshipId = presentationPart.GetIdOfPart(slideMasterPart)
+            });
+
+            var slidePart = presentationPart.AddNewPart<SlidePart>();
+            var slide = new Slide(
+                new CommonSlideData(
+                    new ShapeTree(
+                        new NonVisualGroupShapeProperties(
+                            new NonVisualDrawingProperties { Id = 0, Name = "" },
+                            new NonVisualGroupShapeDrawingProperties(),
+                            new ApplicationNonVisualDrawingProperties()
+                        ),
+                        new GroupShapeProperties(
+                            new Drawing.TransformGroup(
+                                new Drawing.Offset { X = 0, Y = 0 },
+                                new Drawing.Extents { Cx = 0, Cy = 0 },
+                                new Drawing.ChildOffset { X = 0, Y = 0 },
+                                new Drawing.ChildExtents { Cx = 0, Cy = 0 }
+                            )
+                        ),
+                        new P.Shape(
+                            new NonVisualShapeProperties(
+                                new NonVisualDrawingProperties { Id = 2, Name = "Title" },
+                                new NonVisualShapeDrawingProperties(new Drawing.ShapeLocks { NoGrouping = true }),
+                                new ApplicationNonVisualDrawingProperties(
+                                    new PlaceholderShape { Type = PlaceholderValues.Title }
+                                )
+                            ),
+                            new ShapeProperties(
+                                new Drawing.Transform2D(
+                                    new Drawing.Offset { X = Pt(40), Y = Pt(20) },
+                                    new Drawing.Extents { Cx = Pt(400), Cy = Pt(60) })),
+                            new TextBody(
+                                new Drawing.BodyProperties(),
+                                new Drawing.ListStyle(),
+                                // No rPr on the slide run — font must inherit from master txStyles
+                                new Drawing.Paragraph(
+                                    new Drawing.Run(new Drawing.Text { Text = "BASIC BLOCK LIST" })
+                                )
+                            )
+                        )
+                    )
+                )
+            );
+            slidePart.Slide = slide;
+            slidePart.AddPart(slideLayoutPart);
+
+            var slideId = new SlideId
+            {
+                Id = 256,
+                RelationshipId = presentationPart.GetIdOfPart(slidePart)
+            };
+            presentationPart.Presentation.SlideIdList.Append(slideId);
+
+            presentationPart.Presentation.SlideSize = new SlideSize
+            {
+                Cx = 9144000,
+                Cy = 6858000,
+                Type = SlideSizeValues.Screen4x3
+            };
+        }
+
+        return path;
+    }
     private string CreateMismatchedMasterPlaceholderPptx()
     {
         var path = Path.Combine(_tempDir, "mismatched-master.pptx");
@@ -2935,6 +3090,61 @@ public class PptxToTypstConverterTests : IDisposable
         Assert.Contains("font: (\"Calibri\", \"Carlito\", \"Arial\", \"Helvetica\", \"Liberation Sans\")", source);
     }
 
+    [Fact]
+    public void Convert_TitlePlaceholderInheritsMasterTitleStyleFontFamily()
+    {
+        // The corpus master declares titleStyle latin="Open Sans"; placeholder title
+        // runs carry no font of their own and must inherit that family (not the
+        // theme minor font), so the emitted Typst can resolve the real font.
+        var path = CreateMasterOpenSansTitlePptx();
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+        var presentation = converter.Convert();
+
+        var textElement = presentation.Slides[0].Elements
+            .Where(e => e.Text != null)
+            .Select(e => e.Text!)
+            .First(t => t.Paragraphs.Any(p => p.Runs.Any(r => r.Content.Contains("BASIC BLOCK LIST"))));
+        var run = textElement.Paragraphs
+            .SelectMany(p => p.Runs)
+            .First(r => r.Content.Contains("BASIC BLOCK LIST"));
+
+        Assert.Equal("Open Sans", run.Formatting.FontFamily);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_PerRunFontEmitsDiscoveredNonThemeFamilyWithChain()
+    {
+        // A non-theme family resolved from the master (e.g. "Open Sans") must be
+        // emitted (with the fallback chain) when it is discovered on the system —
+        // otherwise the run silently falls back to the theme font chain.
+        var path = CreateSimplePptx();
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var availableSystemFontsField = typeof(PptxToTypstConverter).GetField(
+            "_availableSystemFonts",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        availableSystemFontsField!.SetValue(converter, new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Open Sans" });
+
+        var presentation = CreateTextPresentation(new TypstTextElement
+        {
+            Paragraphs =
+            [
+                new TypstParagraph
+                {
+                    Content = "BASIC BLOCK LIST",
+                    Formatting = new TypstTextFormatting { FontFamily = "Open Sans", FontSize = 40, Bold = true }
+                }
+            ]
+        });
+
+        var source = converter.GenerateTypstSource(presentation);
+
+        Assert.Contains("font: (\"Open Sans\", ", source);
+    }
     [Fact]
     public void GetFontMetrics_EmbeddedFont_ReturnsCachedValue()
     {
