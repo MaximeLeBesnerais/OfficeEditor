@@ -1,0 +1,162 @@
+@* CompareGallery.razor — Synchronized side-by-side viewer with ElapsedTicker (matches React CompareGallery.tsx) *@
+@implements IDisposable
+
+@if (_pairCount == 0) return;
+
+<section class="space-y-4">
+    <div class="flex items-center justify-between gap-3">
+        <h3 class="text-sm font-semibold uppercase tracking-wider text-slate-400">Slide by slide</h3>
+        <div class="flex items-center gap-3">
+            <button type="button" @onclick="() => GoTo(_index - 1)"
+                    disabled="@(_index == 0)" aria-label="Previous slide"
+                    class="flex h-9 w-9 items-center justify-center rounded-full bg-slate-900 text-slate-200 ring-1 ring-slate-700 transition-colors hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-slate-900">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
+                </svg>
+            </button>
+            <span class="rounded-full bg-slate-900 px-2.5 py-1 font-mono text-xs text-slate-300 ring-1 ring-slate-700">
+                @(_index + 1) / @_pairCount
+            </span>
+            <button type="button" @onclick="() => GoTo(_index + 1)"
+                    disabled="@(_index == _pairCount - 1)" aria-label="Next slide"
+                    class="flex h-9 w-9 items-center justify-center rounded-full bg-slate-900 text-slate-200 ring-1 ring-slate-700 transition-colors hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-slate-900">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <div class="grid gap-4 md:grid-cols-2" tabindex="0" @onkeydown="HandleKeyDown" @onkeydown:preventDefault>
+        @* Left panel *@
+        <div class="space-y-2">
+            <span class="inline-block rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-300 ring-1 ring-emerald-500/40">
+                @LeftLabel
+            </span>
+            <div class="aspect-video overflow-hidden rounded-2xl bg-slate-900 shadow-2xl shadow-black/40 ring-1 ring-emerald-500/30">
+                <img src="@_typst.DataUrl"
+                     alt="Slide @_typst.Slide rendered by @LeftLabel"
+                     class="h-full w-full object-contain" />
+            </div>
+        </div>
+
+        @* Right panel *@
+        <div class="space-y-2">
+            <span class="inline-block rounded-full bg-slate-800 px-2.5 py-1 text-xs font-semibold text-slate-300">
+                @RightLabel
+            </span>
+            <div class="aspect-video overflow-hidden rounded-2xl bg-slate-900 shadow-2xl shadow-black/40 ring-1 ring-slate-700/60">
+                @if (_lo is not null)
+                {
+                    <img src="@_lo.DataUrl"
+                         alt="Slide @_lo.Slide rendered by @RightLabel"
+                         class="h-full w-full object-contain" />
+                }
+                else if (LoState == "pending" && LoPendingSince is not null)
+                {
+                    <div class="flex h-full w-full flex-col items-center justify-center gap-3 p-6">
+                        <svg class="h-5 w-5 animate-spin text-slate-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+                            <path class="opacity-90" fill="currentColor" d="M4 12a8 8 0 0 1 8-8V0C5.373 0 0 5.373 0 12h4Z" />
+                        </svg>
+                        <span class="font-mono text-lg font-semibold text-slate-300">@_elapsedStr s</span>
+                        <p class="text-center text-sm text-slate-500">@RightLabel rendering…</p>
+                    </div>
+                }
+                else
+                {
+                    <div class="flex h-full w-full items-center justify-center p-6">
+                        <p class="text-center text-sm text-slate-500">
+                            @(LoPlaceholder ?? "Per-slide images unavailable")
+                        </p>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+
+    @* Thumbnail filmstrip *@
+    <div class="scrollbar-hide flex gap-2 overflow-x-auto py-1">
+        @for (int i = 0; i < _pairCount; i++)
+        {
+            var idx = i;
+            var ts = TypstSlides[i];
+            <button type="button"
+                    @onclick="() => GoTo(idx)"
+                    class="relative aspect-video w-28 shrink-0 overflow-hidden rounded-lg bg-slate-900 transition-all duration-200 @(idx == _index ? "ring-2 ring-emerald-500" : "ring-1 ring-slate-800 hover:ring-slate-600")">
+                <img src="@ts.DataUrl"
+                     alt="Slide @ts.Slide thumbnail"
+                     class="h-full w-full object-cover"
+                     loading="lazy" />
+            </button>
+        }
+    </div>
+</section>
+
+@code {
+    [Parameter] public required IReadOnlyList<GallerySlide> TypstSlides { get; set; }
+    [Parameter] public IReadOnlyList<GallerySlide>? LoSlides { get; set; }
+    [Parameter] public string LoState { get; set; } = "empty"; // pending | empty | ready
+    [Parameter] public string? LoPlaceholder { get; set; }
+    [Parameter] public long? LoPendingSince { get; set; }
+    [Parameter] public string LeftLabel { get; set; } = "OfficeEditor Engine";
+    [Parameter] public string RightLabel { get; set; } = "LibreOffice";
+
+    private int _index;
+    private int _pairCount;
+    private GallerySlide _typst = null!;
+    private GallerySlide? _lo;
+    private Timer? _elapsedTimer;
+    private string _elapsedStr = "0.0";
+
+    protected override void OnParametersSet()
+    {
+        var loReady = LoState == "ready" && LoSlides is { Count: > 0 };
+        _pairCount = loReady ? Math.Min(TypstSlides.Count, LoSlides!.Count) : TypstSlides.Count;
+        if (_index >= _pairCount) _index = 0;
+        _typst = TypstSlides[_index];
+        _lo = loReady ? LoSlides![_index] : null;
+
+        if (LoState == "pending" && LoPendingSince is not null)
+        {
+            var startedAt = LoPendingSince.Value;
+            _elapsedStr = ((DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - startedAt) / 1000.0).ToString("F1");
+            if (_elapsedTimer is null)
+            {
+                _elapsedTimer = new Timer(_ =>
+                {
+                    var e = (DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - startedAt) / 1000.0;
+                    InvokeAsync(() =>
+                    {
+                        _elapsedStr = e.ToString("F1");
+                        StateHasChanged();
+                    });
+                }, null, 100, 100);
+            }
+        }
+        else
+        {
+            _elapsedTimer?.Dispose();
+            _elapsedTimer = null;
+        }
+    }
+
+    private void GoTo(int i)
+    {
+        _index = Math.Clamp(i, 0, _pairCount - 1);
+        _typst = TypstSlides[_index];
+        var loReady = LoState == "ready" && LoSlides is { Count: > 0 };
+        _lo = loReady && _index < LoSlides!.Count ? LoSlides[_index] : null;
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "ArrowLeft") GoTo(_index - 1);
+        else if (e.Key == "ArrowRight") GoTo(_index + 1);
+    }
+
+    public void Dispose()
+    {
+        _elapsedTimer?.Dispose();
+    }
+}

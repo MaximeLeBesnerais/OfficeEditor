@@ -1,0 +1,78 @@
+@page "/"
+@* Demo.razor — 4-tab demo shell (matches React DemoPage.tsx) *@
+
+@inject NavigationManager Nav
+
+@if (_loaded)
+{
+    <div class="min-h-screen bg-slate-950 text-slate-100">
+        <header class="sticky top-0 z-50 border-b border-slate-800/80 bg-slate-950/80 backdrop-blur-xl">
+            <div class="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
+                <div class="flex items-center gap-3">
+                    <div class="relative flex h-9 w-9 items-center justify-center overflow-hidden rounded-xl bg-gradient-to-br from-indigo-500 via-violet-600 to-fuchsia-600 text-sm font-bold text-white shadow-lg shadow-indigo-500/20">
+                        <span class="relative z-10">OE</span>
+                        <div class="absolute inset-0 bg-gradient-to-tr from-white/20 to-transparent"></div>
+                    </div>
+                    <span class="text-lg font-bold tracking-tight">
+                        OfficeEditor
+                        <span class="ml-2 font-semibold text-slate-500">— Live Demo</span>
+                    </span>
+                </div>
+
+                <nav class="flex items-center gap-3">
+                    <div class="flex items-center rounded-full border border-slate-800 bg-slate-900 p-1">
+                        @foreach (var tab in _tabs)
+                        {
+                            <button type="button"
+                                    @onclick="() => _activeTab = tab.Id"
+                                    class="rounded-full px-4 py-1.5 text-sm font-semibold transition-all duration-200 @(_activeTab == tab.Id ? "bg-slate-700 text-white shadow-sm" : "text-slate-400 hover:bg-slate-800 hover:text-slate-200")">
+                                @tab.Label
+                            </button>
+                        }
+                    </div>
+                </nav>
+            </div>
+        </header>
+
+        <main class="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+            @switch (_activeTab)
+            {
+                case "render":
+                    <RenderScreen />
+                    break;
+                case "generate":
+                    <GenerateScreen />
+                    break;
+                case "any":
+                    <AnyRenderScreen />
+                    break;
+                case "compare":
+                    <CompareScreen />
+                    break;
+            }
+        </main>
+    </div>
+}
+
+@code {
+    private string _activeTab = "render";
+    private bool _loaded;
+
+    private static readonly (string Id, string Label)[] _tabs =
+    [
+        ("render", "1 · Render"),
+        ("generate", "2 · Generate"),
+        ("any", "3 · Any render"),
+        ("compare", "4 · Compare"),
+    ];
+
+    protected override void OnInitialized()
+    {
+        var uri = Nav.ToAbsoluteUri(Nav.Uri);
+        var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
+        var screen = query["screen"];
+        if (screen is "generate" or "any" or "compare")
+            _activeTab = screen;
+        _loaded = true;
+    }
+}
