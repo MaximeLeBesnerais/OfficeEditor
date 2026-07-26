@@ -1,0 +1,36 @@
+@* FormatToggle.razor — SVG/PNG pill toggle (matches React FormatToggle.tsx) *@
+
+<div class="inline-flex items-center rounded-full border border-slate-800 bg-slate-900 p-1">
+    <button type="button"
+            class="@ToggleClass("svg")"
+            disabled="@Disabled"
+            @onclick='() => SelectFormat("svg")'>
+        SVG
+    </button>
+    <button type="button"
+            class="@ToggleClass("png")"
+            disabled="@Disabled"
+            @onclick='() => SelectFormat("png")'>
+        PNG
+    </button>
+</div>
+
+@code {
+    [Parameter] public string Value { get; set; } = "png";
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter] public EventCallback<string> OnChange { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+
+    private string ToggleClass(string id) =>
+        (Value == id
+            ? "rounded-full px-4 py-1.5 text-sm font-semibold transition-all duration-200 bg-slate-700 text-white shadow-sm"
+            : "rounded-full px-4 py-1.5 text-sm font-semibold transition-all duration-200 text-slate-400 hover:bg-slate-800 hover:text-slate-200")
+        + " disabled:cursor-not-allowed disabled:opacity-50";
+
+    private async Task SelectFormat(string fmt)
+    {
+        Value = fmt;
+        await ValueChanged.InvokeAsync(fmt);
+        await OnChange.InvokeAsync(fmt);
+    }
+}

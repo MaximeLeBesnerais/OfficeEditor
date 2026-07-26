@@ -1,0 +1,242 @@
+@* RenderScreen.razor — Pick a REF deck and render slides (matches React RenderScreen.tsx) *@
+
+@inject IDemoDeckService DemoDeckService
+@inject IOfficialRenderService OfficialRenderService
+@inject NavigationManager Nav
+
+<div class="space-y-8">
+    <section class="space-y-2">
+        <h1 class="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-50">
+            Render an existing deck
+        </h1>
+        <p class="text-slate-400">
+            Pick a deck — the OfficeEditor Engine compiles every slide to a PNG preview.
+        </p>
+    </section>
+
+    @if (_decksError is not null)
+    {
+        <StatusMessage Type="error" Title="Could not load demo decks" Message="_decksError" />
+    }
+
+    @if (_decks is null && _decksError is null)
+    {
+        <div class="flex items-center gap-3 text-slate-400">
+            <Spinner />
+            <span>Loading decks…</span>
+        </div>
+    }
+
+    @if (_decks is { Count: 0 } && _decksError is null)
+    {
+        <StatusMessage Type="info" Title="No decks" Message="The demo deck list is empty." />
+    }
+
+    @if (_decks is { Count: > 0 })
+    {
+        <div class="space-y-3">
+            <div class="flex items-center gap-3">
+                <span class="text-sm font-semibold text-slate-300">Preview format</span>
+                <FormatToggle Value="@_format" ValueChanged="OnFormatChanged" Disabled="@(_renderingDeck is not null)" />
+            </div>
+            <div class="grid gap-4 sm:grid-cols-2">
+                @foreach (var deck in _decks)
+                {
+                    var isRendering = _renderingDeck?.Name == deck.Name;
+                    <button type="button"
+                            @onclick="() => HandleRender(deck)"
+                            disabled="@(_renderingDeck is not null)"
+                            class="group rounded-2xl border p-5 text-left transition-all duration-200 border-slate-800 bg-slate-900/60 hover:border-indigo-500/60 hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-indigo-500/60">
+                        <div class="flex items-start justify-between gap-3">
+                            <div class="min-w-0 space-y-1">
+                                <p class="truncate text-lg font-bold text-slate-100 group-hover:text-white">@deck.Name</p>
+                                <p class="text-sm text-slate-400 leading-relaxed">@deck.Description</p>
+                            </div>
+                            @if (isRendering)
+                            {
+                                <Spinner />
+                            }
+                            else
+                            {
+                                <span class="shrink-0 rounded-full bg-slate-800 px-2.5 py-1 font-mono text-xs text-slate-300">
+                                    @(deck.SlideCount > 0 ? $"{deck.SlideCount} slides" : "deck")
+                                </span>
+                            }
+                        </div>
+                        <p class="mt-3 font-mono text-xs text-slate-500">@deck.FileName</p>
+                    </button>
+                }
+            </div>
+        </div>
+    }
+
+    @if (_renderingDeck is not null)
+    {
+        <div class="fade-in-up flex items-center gap-4 rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+            <Spinner />
+            <div>
+                <p class="font-semibold text-slate-100">Rendering @_renderingDeck.Name…</p>
+                <p class="text-sm text-slate-400">
+                    OfficeEditor Engine compiling @(_renderingDeck.SlideCount > 0 ? $"{_renderingDeck.SlideCount} slides" : "slides")
+                </p>
+            </div>
+        </div>
+    }
+
+    @if (_renderError is not null)
+    {
+        <StatusMessage Type="error" Title="Render failed" Message="_renderError" />
+    }
+
+    @if (_result is not null)
+    {
+        <div class="fade-in-up space-y-5">
+            <TimingReceipt Stats="_result.Stats" />
+            @if (_result.OfficialSlides is not null)
+            {
+                <div class="space-y-4">
+                    <div class="flex items-center gap-3">
+                        <span class="text-sm font-semibold text-slate-300">View</span>
+                        <div class="inline-flex items-center rounded-full border border-slate-800 bg-slate-900 p-1">
+                            @foreach (var opt in _viewOptions)
+                            {
+                                <button type="button"
+                                        @onclick="() => _view = opt.Id"
+                                        class="rounded-full px-4 py-1.5 text-sm font-semibold transition-all duration-200 @(_view == opt.Id ? "bg-slate-700 text-white shadow-sm" : "text-slate-400 hover:bg-slate-800 hover:text-slate-200")">
+                                    @opt.Label
+                                </button>
+                            }
+                        </div>
+                    </div>
+                    @if (_view == "engine")
+                    {
+                        <SlideGallery Slides="_result.Slides" Title="@($"{_result.DeckName} — OfficeEditor Engine")" />
+                    }
+                    else if (_view == "official")
+                    {
+                        <SlideGallery Slides="_result.OfficialSlides" Title="@($"{_result.DeckName} — PowerPoint (official)")" />
+                    }
+                    else
+                    {
+                        <CompareGallery TypstSlides="_result.Slides"
+                                        LoSlides="_result.OfficialSlides"
+                                        LoState="ready"
+                                        RightLabel="PowerPoint (official)"
+                                        LeftLabel="OfficeEditor Engine" />
+                    }
+                </div>
+            }
+            else
+            {
+                <div class="space-y-3">
+                    <SlideGallery Slides="_result.Slides" Title="_result.DeckName" />
+                    <p class="text-sm text-slate-500">No official render available for this deck.</p>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private IReadOnlyList<DemoDeckInfo>? _decks;
+    private string? _decksError;
+    private DemoDeckInfo? _renderingDeck;
+    private RenderResult? _result;
+    private string? _renderError;
+    private string _view = "compare";
+    private string _format = "png";
+    private bool _autoRenderFired;
+
+    private static readonly (string Id, string Label)[] _viewOptions =
+    [
+        ("engine", "Engine"),
+        ("official", "Official"),
+        ("compare", "Side-by-side"),
+    ];
+
+    private sealed class RenderResult
+    {
+        public required string DeckName { get; init; }
+        public required IReadOnlyList<GallerySlide> Slides { get; init; }
+        public IReadOnlyList<GallerySlide>? OfficialSlides { get; init; }
+        public required TimingStats Stats { get; init; }
+    }
+
+    protected override void OnInitialized()
+    {
+        try
+        {
+            _decks = DemoDeckService.ListDecks();
+        }
+        catch (Exception ex)
+        {
+            _decksError = ex.Message;
+        }
+    }
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender && _decks is { Count: > 0 } && !_autoRenderFired)
+        {
+            var uri = new Uri(Nav.BaseUri + Nav.Uri.TrimStart('/'));
+            var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
+            var deckParam = query["deck"];
+            if (deckParam is not null)
+            {
+                var match = _decks.FirstOrDefault(d => d.Name == deckParam);
+                if (match is not null)
+                {
+                    _autoRenderFired = true;
+                    _ = HandleRender(match);
+                }
+            }
+        }
+    }
+
+    private async Task HandleRender(DemoDeckInfo deck)
+    {
+        _renderingDeck = deck;
+        _renderError = null;
+        _result = null;
+        var currentFormat = _format;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            var format = currentFormat;
+            var renderTask = Task.Run(() => DemoDeckService.RenderDeck(deck.Name, DeckPreviewValidators.DefaultPpi, format));
+
+            OfficialRenderService.TryGetOfficialSlides(deck.Name, out var official);
+
+            var response = await renderTask;
+
+            _view = "compare";
+            _result = new RenderResult
+            {
+                DeckName = deck.Name,
+                Slides = response.Pages.Select((b, i) => new GallerySlide(i + 1, $"data:{DeckPreviewValidators.ContentTypeForFormat(response.Format)};base64,{Convert.ToBase64String(b)}")).ToList(),
+                OfficialSlides = official?.Pages.Select((b, i) => new GallerySlide(i + 1, $"data:image/png;base64,{Convert.ToBase64String(b)}")).ToList(),
+                Stats = new TimingStats
+                {
+                    Slides = response.SlideCount,
+                    TotalMs = response.TotalMilliseconds,
+                    Label = "rendered",
+                },
+            };
+        }
+        catch (Exception ex)
+        {
+            _renderError = ex.Message;
+        }
+        finally
+        {
+            _renderingDeck = null;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task OnFormatChanged(string fmt)
+    {
+        _format = fmt;
+    }
+}
