@@ -56,6 +56,7 @@ public static class OpenTypeFontMetricsReader
         short typoLineGap = hheaLineGap;
         ushort winAscent = (ushort)Math.Max(0, (int)hheaAscender);
         ushort winDescent = (ushort)Math.Max(0, -(int)hheaDescender);
+        short capHeight = 0;
 
         if (tables.TryGetValue("OS/2", out var os2) && os2.Length >= 78)
         {
@@ -64,6 +65,12 @@ public static class OpenTypeFontMetricsReader
             typoLineGap = ReadInt16(data, os2.Offset + 72);
             winAscent = ReadUInt16(data, os2.Offset + 74);
             winDescent = ReadUInt16(data, os2.Offset + 76);
+
+            // sCapHeight exists in OS/2 version 2+ (table length ≥ 90).
+            if (os2.Length >= 90)
+            {
+                capHeight = ReadInt16(data, os2.Offset + 88);
+            }
         }
 
         return new TypstFontMetrics
@@ -77,6 +84,7 @@ public static class OpenTypeFontMetricsReader
             HheaLineGap = hheaLineGap,
             WinAscent = winAscent,
             WinDescent = winDescent,
+            CapHeight = capHeight,
             AdvanceWidths = ReadAdvanceWidths(data, tables)
         };
     }
