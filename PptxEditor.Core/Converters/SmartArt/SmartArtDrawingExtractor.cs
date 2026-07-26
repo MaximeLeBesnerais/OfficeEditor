@@ -55,6 +55,7 @@ namespace PptxEditor.Core.Converters.SmartArt;
         ["upArrowCallout"] = (ShapeType.UpArrowCallout, null),
         ["pie"] = (ShapeType.Pie, null),
         ["pieWedge"] = (ShapeType.PieWedge, null),
+        ["round2DiagRect"] = (ShapeType.Round2DiagRect, null),
     };
 
     /// <summary>
@@ -130,7 +131,8 @@ namespace PptxEditor.Core.Converters.SmartArt;
             or ShapeType.HomePlate or ShapeType.FlowChartManualOperation
             or ShapeType.QuadArrow or ShapeType.BlockArc
             or ShapeType.LeftRightRibbon or ShapeType.UpArrowCallout
-            or ShapeType.Pie or ShapeType.PieWedge;
+            or ShapeType.Pie or ShapeType.PieWedge
+            or ShapeType.Round2DiagRect;
     }
 
     /// <summary>
@@ -860,6 +862,7 @@ namespace PptxEditor.Core.Converters.SmartArt;
         LeftRightRibbon,
         UpArrowCallout,
         Pie,
-        PieWedge
+        PieWedge,
+        Round2DiagRect
     }
 }
