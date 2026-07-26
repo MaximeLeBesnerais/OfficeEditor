@@ -313,6 +313,156 @@ internal static class SmartArtPresetGeometry
                 "Z",
             }),
 
+        // ECMA-376 leftRightRibbon: horizontal ribbon with arrow tips on both
+        // ends and a fold-under center band. adj1 = fold depth, adj2 = tip
+        // inset (both fractions of ss·2/h), adj3 = fold curvature (arc height).
+        // Only the main fill path is emitted — the darkenLess fold detail path
+        // and the stroke-only path add no silhouette.
+        ["leftRightRibbon"] = new SmartArtPresetGeometry.PresetDef(
+            new Dictionary<string, double>
+            {
+                ["adj1"] = 50000,
+                ["adj2"] = 50000,
+                ["adj3"] = 16667,
+            },
+            new[]
+            {
+                "a3 pin 0 adj3 33333",
+                "maxAdj1 +- 100000 0 a3",
+                "a1 pin 0 adj1 maxAdj1",
+                "wd32 */ w 1 32",
+                "w1 +- wd2 0 wd32",
+                "maxAdj2 */ 100000 w1 ss",
+                "a2 pin 0 adj2 maxAdj2",
+                "x1 */ ss a2 100000",
+                "x4 +- r 0 x1",
+                "dy1 */ h a1 200000",
+                "dy2 */ h a3 -200000",
+                "ly1 +- vc dy2 dy1",
+                "ry4 +- vc dy1 dy2",
+                "ly2 +- ly1 dy1 0",
+                "ry3 +- b 0 ly2",
+                "ly4 */ ly2 2 1",
+                "ry1 +- b 0 ly4",
+                "ly3 +- ly4 0 ly1",
+                "ry2 +- b 0 ly3",
+                "hR */ a3 ss 400000",
+                "x2 +- hc 0 wd32",
+            },
+            new[]
+            {
+                "M l ly2",
+                "L x1 t",
+                "L x1 ly1",
+                "L hc ly1",
+                "A wd32 hR 3cd4 cd2",
+                "A wd32 hR 3cd4 -10800000",
+                "L x4 ry2",
+                "L x4 ry1",
+                "L r ry3",
+                "L x4 b",
+                "L x4 ry4",
+                "L hc ry4",
+                "A wd32 hR cd4 cd4",
+                "L x2 ly3",
+                "L x1 ly3",
+                "L x1 ly4",
+                "Z",
+            }),
+
+        // ECMA-376 upArrowCallout: rectangular callout body with an up-arrow
+        // shaft+head rising from its top edge. adj1 = shaft half-thickness,
+        // adj2 = head half-width (both fractions of ss), adj3 = head height
+        // (fraction of ss), adj4 = callout-body height (fraction of h).
+        ["upArrowCallout"] = new SmartArtPresetGeometry.PresetDef(
+            new Dictionary<string, double>
+            {
+                ["adj1"] = 25000,
+                ["adj2"] = 25000,
+                ["adj3"] = 25000,
+                ["adj4"] = 64977,
+            },
+            new[]
+            {
+                "maxAdj2 */ 50000 w ss",
+                "a2 pin 0 adj2 maxAdj2",
+                "maxAdj1 */ a2 2 1",
+                "a1 pin 0 adj1 maxAdj1",
+                "maxAdj3 */ 100000 h ss",
+                "a3 pin 0 adj3 maxAdj3",
+                "q2 */ a3 ss h",
+                "maxAdj4 +- 100000 0 q2",
+                "a4 pin 0 adj4 maxAdj4",
+                "dx1 */ ss a2 100000",
+                "dx2 */ ss a1 200000",
+                "x1 +- hc 0 dx1",
+                "x2 +- hc 0 dx2",
+                "x3 +- hc dx2 0",
+                "x4 +- hc dx1 0",
+                "y1 */ ss a3 100000",
+                "dy2 */ h a4 100000",
+                "y2 +- b 0 dy2",
+            },
+            new[]
+            {
+                "M l y2",
+                "L x2 y2",
+                "L x2 y1",
+                "L x1 y1",
+                "L hc t",
+                "L x4 y1",
+                "L x3 y1",
+                "L x3 y2",
+                "L r y2",
+                "L r b",
+                "L l b",
+                "Z",
+            }),
+
+        // ECMA-376 pie: ellipse sector from adj1 (start angle) to adj2 (end
+        // angle, wrapping through +360° when the raw delta is negative),
+        // closed back to the center.
+        ["pie"] = new SmartArtPresetGeometry.PresetDef(
+            new Dictionary<string, double>
+            {
+                ["adj1"] = 0,
+                ["adj2"] = 16200000,
+            },
+            new[]
+            {
+                "stAng pin 0 adj1 21599999",
+                "enAng pin 0 adj2 21599999",
+                "sw1 +- enAng 0 stAng",
+                "sw2 +- sw1 21600000 0",
+                "swAng ?: sw1 sw1 sw2",
+                "wt1 sin wd2 stAng",
+                "ht1 cos hd2 stAng",
+                "dx1 cat2 wd2 ht1 wt1",
+                "dy1 sat2 hd2 ht1 wt1",
+                "x1 +- hc dx1 0",
+                "y1 +- vc dy1 0",
+            },
+            new[]
+            {
+                "M x1 y1",
+                "A wd2 hd2 stAng swAng",
+                "L hc vc",
+                "Z",
+            }),
+
+        // ECMA-376 pieWedge: fixed quarter-ellipse sector (no avLst) — the
+        // arc is centered on the bottom-right corner and sweeps 180° → 270°.
+        ["pieWedge"] = new SmartArtPresetGeometry.PresetDef(
+            new Dictionary<string, double>(),
+            new string[0],
+            new[]
+            {
+                "M l b",
+                "A w h cd2 cd4",
+                "L r b",
+                "Z",
+            }),
+
         ["gear6"] = new SmartArtPresetGeometry.PresetDef(
             new Dictionary<string, double>
             {
