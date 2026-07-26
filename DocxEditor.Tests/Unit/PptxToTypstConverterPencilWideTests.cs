@@ -282,6 +282,124 @@ public sealed class PptxToTypstConverterPencilWideTests : IDisposable
         }
     }
 
+    /// <summary>
+    /// User-drawn (non-placeholder) shapes on the slide MASTER — logos,
+    /// taglines, watermark art — are part of every slide using that master
+    /// (unless the layout sets showMasterSp="0"). The converter imported only
+    /// layout shapes, so master content silently vanished (Pencil-Wide slide
+    /// 22 lost its "Free creative templates…" tagline and logo).
+    /// </summary>
+    [Fact]
+    public void Convert_MasterUserDrawnShape_RendersOnSlide()
+    {
+        var deckPath = Path.Combine(_tempDir, $"{Guid.NewGuid():N}.pptx");
+        CreateDeckWithMasterContent(deckPath, showMasterShapes: true, out var blueBytes);
+
+        using var document = PresentationDocument.Open(deckPath, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = converter.Convert();
+        var elements = presentation.Slides[0].Elements;
+
+        var text = Assert.Single(elements, e => e.Type == "Text");
+        Assert.Contains("Master tagline", text.Text!.Content);
+
+        // The master picture resolves through the MASTER part's rels even
+        // though the same rId exists on the slide part (F1 scoping).
+        var image = Assert.Single(elements, e => e.Type == "Image");
+        Assert.Equal(blueBytes, File.ReadAllBytes(image.Image!.FullPath));
+    }
+
+    [Fact]
+    public void Convert_LayoutHidesMasterShapes_MasterContentSkipped()
+    {
+        var deckPath = Path.Combine(_tempDir, $"{Guid.NewGuid():N}.pptx");
+        CreateDeckWithMasterContent(deckPath, showMasterShapes: false, out _);
+
+        using var document = PresentationDocument.Open(deckPath, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = converter.Convert();
+        Assert.Empty(presentation.Slides[0].Elements);
+    }
+
+    private void CreateDeckWithMasterContent(string deckPath, bool showMasterShapes, out byte[] blueBytes)
+    {
+        var redBytes = Convert.FromBase64String(RedPngBase64);
+        blueBytes = Convert.FromBase64String(BluePngBase64);
+
+        using var document = PresentationDocument.Create(deckPath, PresentationDocumentType.Presentation);
+        var presentationPart = document.AddPresentationPart();
+        presentationPart.Presentation = new Presentation
+        {
+            SlideMasterIdList = new SlideMasterIdList(),
+            SlideIdList = new SlideIdList(),
+            SlideSize = new SlideSize { Cx = 12192000, Cy = 6858000 }
+        };
+
+        var slideMasterPart = presentationPart.AddNewPart<SlideMasterPart>();
+        var slideLayoutPart = slideMasterPart.AddNewPart<SlideLayoutPart>();
+        slideLayoutPart.SlideLayout = new P.SlideLayout(new CommonSlideData(CreateShapeTree()))
+        {
+            ShowMasterShapes = showMasterShapes
+        };
+        slideLayoutPart.AddPart(slideMasterPart);
+
+        // Colliding rIds again: slide rId9 → red, master rId9 → blue.
+        var slidePart = presentationPart.AddNewPart<SlidePart>();
+        slidePart.AddPart(slideLayoutPart);
+        var slideImagePart = slidePart.AddImagePart(ImagePartType.Png, "rId9");
+        using (var stream = new MemoryStream(redBytes)) slideImagePart.FeedData(stream);
+        var masterImagePart = slideMasterPart.AddImagePart(ImagePartType.Png, "rId9");
+        using (var stream = new MemoryStream(blueBytes)) masterImagePart.FeedData(stream);
+
+        slideMasterPart.SlideMaster = new SlideMaster(
+            new CommonSlideData(CreateShapeTree(
+                MasterTaglineShape(),
+                LayoutPicture("rId9"))),
+            CreateColorMap(),
+            new SlideLayoutIdList());
+
+        slideMasterPart.SlideMaster.SlideLayoutIdList!.Append(new SlideLayoutId
+        {
+            Id = 2147483649,
+            RelationshipId = slideMasterPart.GetIdOfPart(slideLayoutPart)
+        });
+        presentationPart.Presentation.SlideMasterIdList.Append(new SlideMasterId
+        {
+            Id = 2147483648,
+            RelationshipId = presentationPart.GetIdOfPart(slideMasterPart)
+        });
+        slidePart.Slide = new Slide(new CommonSlideData(CreateShapeTree()));
+        presentationPart.Presentation.SlideIdList.Append(new SlideId
+        {
+            Id = 256,
+            RelationshipId = presentationPart.GetIdOfPart(slidePart)
+        });
+    }
+
+    private static P.Shape MasterTaglineShape()
+    {
+        return new P.Shape(
+            new P.NonVisualShapeProperties(
+                new NonVisualDrawingProperties { Id = 30, Name = "Master Tagline" },
+                new P.NonVisualShapeDrawingProperties(),
+                new ApplicationNonVisualDrawingProperties()),
+            new ShapeProperties(
+                new Drawing.Transform2D(
+                    new Drawing.Offset { X = 3000000, Y = 3000000 },
+                    new Drawing.Extents { Cx = 6000000, Cy = 1000000 }),
+                new Drawing.PresetGeometry(new Drawing.AdjustValueList())
+                { Preset = Drawing.ShapeTypeValues.Rectangle }),
+            new P.TextBody(
+                new Drawing.BodyProperties(),
+                new Drawing.ListStyle(),
+                new Drawing.Paragraph(
+                    new Drawing.Run(
+                        new Drawing.RunProperties { Language = "en-US", FontSize = 3200 },
+                        new Drawing.Text("Master tagline")))));
+    }
+
     private static void AssertInRange(double actual, double expected, double tolerance = 0.05)
     {
         Assert.True(Math.Abs(actual - expected) <= tolerance,
