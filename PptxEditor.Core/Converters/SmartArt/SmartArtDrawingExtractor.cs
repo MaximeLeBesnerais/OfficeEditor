@@ -137,8 +137,9 @@ namespace PptxEditor.Core.Converters.SmartArt;
         {
             var spPr = GetChild(shape, "spPr", DiagramNamespaces);
             var xfrm = spPr == null ? null : GetChild(spPr, "xfrm", DrawingmlNs);
-            var off = xfrm == null ? null : GetChild(xfrm, "off", DrawingmlNs);
-            var ext = xfrm == null ? null : GetChild(xfrm, "ext", DrawingmlNs);
+            if (xfrm == null) continue;
+            var off = GetChild(xfrm, "off", DrawingmlNs);
+            var ext = GetChild(xfrm, "ext", DrawingmlNs);
             if (off == null || ext == null) continue;
 
             var x = ReadEmuAsPt(off, "x");
@@ -148,10 +149,39 @@ namespace PptxEditor.Core.Converters.SmartArt;
             if (x == null || y == null || cx == null || cy == null) continue;
 
             found = true;
-            minX = Math.Min(minX, x.Value);
-            minY = Math.Min(minY, y.Value);
-            maxX = Math.Max(maxX, x.Value + cx.Value);
-            maxY = Math.Max(maxY, y.Value + cy.Value);
+            var rotationDeg = ReadRotation(xfrm) ?? 0.0;
+            if (rotationDeg == 0.0)
+            {
+                minX = Math.Min(minX, x.Value);
+                minY = Math.Min(minY, y.Value);
+                maxX = Math.Max(maxX, x.Value + cx.Value);
+                maxY = Math.Max(maxY, y.Value + cy.Value);
+                continue;
+            }
+
+            // Union the four corners rotated about the rect centre — xfrm@rot is
+            // applied per shape downstream, so the fit box must bound the rotated
+            // footprint, not the raw off/ext rect (-130: a rotation-blind
+            // bbox inflated the content height by 45% and fit-scaled the whole
+            // diagram to 0.69).
+            var centerX = x.Value + cx.Value / 2;
+            var centerY = y.Value + cy.Value / 2;
+            var radians = rotationDeg * Math.PI / 180.0;
+            var cos = Math.Cos(radians);
+            var sin = Math.Sin(radians);
+            foreach (var (px, py) in new[]
+            {
+                (x.Value, y.Value), (x.Value + cx.Value, y.Value),
+                (x.Value, y.Value + cy.Value), (x.Value + cx.Value, y.Value + cy.Value)
+            })
+            {
+                var dx = px - centerX;
+                var dy = py - centerY;
+                minX = Math.Min(minX, centerX + dx * cos - dy * sin);
+                maxX = Math.Max(maxX, centerX + dx * cos - dy * sin);
+                minY = Math.Min(minY, centerY + dx * sin + dy * cos);
+                maxY = Math.Max(maxY, centerY + dx * sin + dy * cos);
+            }
         }
 
         return found ? (minX, minY, maxX - minX, maxY - minY) : null;
