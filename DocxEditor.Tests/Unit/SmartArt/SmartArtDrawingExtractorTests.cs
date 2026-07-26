@@ -2539,6 +2539,232 @@ public sealed class SmartArtDrawingExtractorTests
         Assert.Equal(single.FrameY, dual.FrameY, precision: 9);
     }
 
+    [Fact]
+    public void Extract_Chevron_WideShape_NotchDepthIsFractionOfMinSide()
+    {
+        // Slide 56 (drawing59.xml): 141.6x56.6pt chevrons with an empty avLst.
+        // ECMA-376 chevron: notch depth dx1 = ss*adj/100000 (default adj 50000)
+        // = 0.5*56.6 = 28.31pt => f = 0.20 of the WIDTH — the static polygon's
+        // hardcoded 0.5-of-width notch is 2.5x too deep (INV-slide-025 §4).
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""1797843"" cy=""719137""/>
+    </a:xfrm>
+    <a:prstGeom prst=""chevron"">
+      <a:avLst/>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""16A085""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 141.6, shapeH: 56.6);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal("polygon", result.Shape.ShapeType);
+        Assert.Equal(6, result.Shape.Points.Count);
+        Assert.Equal((0, 0), result.Shape.Points[0]);
+        Assert.Equal(0.8, result.Shape.Points[1].X, precision: 3);
+        Assert.Equal(0.0, result.Shape.Points[1].Y, precision: 6);
+        Assert.Equal((1, 0.5), result.Shape.Points[2]);
+        Assert.Equal(0.8, result.Shape.Points[3].X, precision: 3);
+        Assert.Equal(1.0, result.Shape.Points[3].Y, precision: 6);
+        Assert.Equal((0, 1), result.Shape.Points[4]);
+        Assert.Equal(0.2, result.Shape.Points[5].X, precision: 3);
+        Assert.Equal(0.5, result.Shape.Points[5].Y, precision: 6);
+    }
+
+    [Fact]
+    public void Extract_Chevron_HonorsAdjustmentValue()
+    {
+        // Square 100x100pt chevron with adj = 25000 (slide 58's cached value):
+        // notch depth = 0.25*100 = 25pt => f = 0.25.
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""1270000"" cy=""1270000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""chevron"">
+      <a:avLst>
+        <a:gd name=""adj"" fmla=""val 25000""/>
+      </a:avLst>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""16A085""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 100, shapeH: 100);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal(6, result.Shape.Points.Count);
+        Assert.Equal(0.75, result.Shape.Points[1].X, precision: 6);
+        Assert.Equal(0.25, result.Shape.Points[5].X, precision: 6);
+    }
+
+    [Fact]
+    public void Extract_Chevron_SquareShapeDefaultAdj_MatchesLegacyStaticOutline()
+    {
+        // On a square shape the ECMA default (adj = 50000 => dx1 = 0.5*ss)
+        // reproduces the legacy static 0.5-of-width table exactly — the
+        // per-shape computation is a strict generalisation.
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""1270000"" cy=""1270000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""chevron"">
+      <a:avLst/>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""16A085""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 100, shapeH: 100);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal(6, result.Shape.Points.Count);
+        Assert.Equal((0, 0), result.Shape.Points[0]);
+        Assert.Equal((0.5, 0), result.Shape.Points[1]);
+        Assert.Equal((1, 0.5), result.Shape.Points[2]);
+        Assert.Equal((0.5, 1), result.Shape.Points[3]);
+        Assert.Equal((0, 1), result.Shape.Points[4]);
+        Assert.Equal((0.5, 0.5), result.Shape.Points[5]);
+    }
+
+    [Fact]
+    public void Extract_Round2DiagRect_Slide113Adjustments_RoundsTopRightAndBottomLeftOnly()
+    {
+        // Slide 113 (drawing113.xml): round2DiagRect with adj1=0, adj2=16670 on a
+        // 412.3x221.7pt shape. adj1 rounds top-left + bottom-right (radius 0 here
+        // => sharp), adj2 rounds top-right + bottom-left with radius
+        // a = ss*16670/100000 = 36.957pt (a/w = 0.0896, a/h = 0.1667).
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""5235649"" cy=""2815553""/>
+    </a:xfrm>
+    <a:prstGeom prst=""round2DiagRect"">
+      <a:avLst>
+        <a:gd name=""adj1"" fmla=""val 0""/>
+        <a:gd name=""adj2"" fmla=""val 16670""/>
+      </a:avLst>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""16A085""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 412.3, shapeH: 221.7);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal("polygon", result.Shape.ShapeType);
+        var points = result.Shape.Points;
+        Assert.True(points.Count > 50); // two 90-degree corner arcs flattened in 2-degree steps
+
+        // Sharp diagonal pair (adj1 = 0): the outline starts at the top-left
+        // corner and reaches the bottom-right corner exactly.
+        Assert.Equal((0, 0), points[0]);
+        Assert.Contains(points, p => Math.Abs(p.X - 1) < 1e-6 && Math.Abs(p.Y - 1) < 1e-6);
+
+        // Rounded top-right (adj2): the top edge ends at x2/w = 1 - a/w and the
+        // corner arc lands on the right edge at y = a/h.
+        Assert.Equal(0.9104, points[1].X, precision: 3);
+        Assert.Equal(0.0, points[1].Y, precision: 6);
+        Assert.Contains(points, p => Math.Abs(p.X - 1) < 1e-6 && Math.Abs(p.Y - 0.1667) < 1e-3);
+
+        // Rounded bottom-left (adj2): the bottom edge starts at x = a/w and the
+        // corner arc lands on the left edge at y = 1 - a/h.
+        Assert.Contains(points, p => Math.Abs(p.X - 0.0896) < 1e-3 && Math.Abs(p.Y - 1) < 1e-6);
+        Assert.Contains(points, p => Math.Abs(p.X) < 1e-6 && Math.Abs(p.Y - 0.8333) < 1e-3);
+    }
+
+    [Fact]
+    public void Extract_Round2DiagRect_DefaultAdjustments_RoundsTopLeftAndBottomRightOnly()
+    {
+        // ECMA-376 defaults (adj1 = 16667, adj2 = 0): on a square 100x100pt shape
+        // the top-left and bottom-right corners are rounded with radius ss/6;
+        // the top-right and bottom-left corners stay sharp.
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""1270000"" cy=""1270000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""round2DiagRect"">
+      <a:avLst/>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""16A085""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 100, shapeH: 100);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        var points = result.Shape.Points;
+
+        // moveTo (x1, t) with x1 = 100*16667/100000 = 16.667pt.
+        Assert.Equal(0.16667, points[0].X, precision: 4);
+        Assert.Equal(0.0, points[0].Y, precision: 4);
+
+        // Sharp diagonal pair (adj2 = 0): top-right and bottom-left corners.
+        Assert.Contains(points, p => Math.Abs(p.X - 1) < 1e-6 && Math.Abs(p.Y) < 1e-6);
+        Assert.Contains(points, p => Math.Abs(p.X) < 1e-6 && Math.Abs(p.Y - 1) < 1e-6);
+
+        // Rounded top-left / bottom-right (adj1): the right edge runs from the
+        // sharp top-right corner down to y1 = 1 - 0.16667, then curves onto the
+        // bottom edge at x = 1 - 0.16667.
+        Assert.Contains(points, p => Math.Abs(p.X - 1) < 1e-6 && Math.Abs(p.Y - 0.83333) < 1e-4);
+        Assert.Contains(points, p => Math.Abs(p.X - 0.83333) < 1e-4 && Math.Abs(p.Y - 1) < 1e-6);
+    }
+
     private static OpenXmlElement ParseXml(string xml)
     {
         var xElement = XElement.Parse(xml);
