@@ -38,6 +38,18 @@
         <div class="grid gap-6 lg:grid-cols-10">
             @* LEFT (~30%): deck list — stays visible during the render *@
             <div class="space-y-3 lg:col-span-3">
+                <div class="flex items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-900/60 px-4 py-3">
+                    <div class="min-w-0">
+                        <p class="text-sm font-semibold text-slate-300">Skip PNG <span class="font-normal text-slate-500">(faster)</span></p>
+                        <p class="text-xs text-slate-500">SVG + PDF only — no PNG rasterization</p>
+                    </div>
+                    <button type="button" role="switch" aria-checked="@_skipPng"
+                            disabled="@(_renderingDeck is not null)"
+                            @onclick="() => _skipPng = !_skipPng"
+                            class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/60 disabled:cursor-not-allowed disabled:opacity-50 @(_skipPng ? "bg-indigo-500" : "bg-slate-700")">
+                        <span class="inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-200 @(_skipPng ? "translate-x-6" : "translate-x-1")"></span>
+                    </button>
+                </div>
                 @foreach (var deck in _decks)
                 {
                     var isRendering = _renderingDeck?.Name == deck.Name;
@@ -149,7 +161,7 @@
                         <div class="flex flex-wrap items-center gap-x-6 gap-y-3">
                             <div class="flex items-center gap-3">
                                 <span class="text-sm font-semibold text-slate-300">Format</span>
-                                <FormatToggle Value="@_galleryFormat" ValueChanged="fmt => _galleryFormat = fmt" />
+                                <FormatToggle Value="@_galleryFormat" ValueChanged="fmt => _galleryFormat = fmt" PngDisabled="_result.PngSkipped" />
                             </div>
                             @if (_result.OfficialSlides is not null)
                             {
@@ -210,6 +222,7 @@
     private string? _renderError;
     private string _view = "compare";
     private string _galleryFormat = "png";
+    private bool _skipPng;
     private bool _autoRenderFired;
 
     private static readonly (string Id, string Label)[] _viewOptions =
@@ -227,6 +240,7 @@
         public required IReadOnlyList<StageTiming> Stages { get; init; }
         public required IReadOnlyList<GallerySlide> PngSlides { get; init; }
         public required IReadOnlyList<GallerySlide> SvgSlides { get; init; }
+        public required bool PngSkipped { get; init; }
         public IReadOnlyList<GallerySlide>? OfficialSlides { get; init; }
         public string? PdfUrl { get; init; }
         public string? PdfError { get; init; }
@@ -281,6 +295,10 @@
         _renderStartedAt = DateTimeOffset.UtcNow;
         await InvokeAsync(StateHasChanged);
 
+        // Capture the toggle NOW — the background task must not read component state
+        // that the user cannot change while the render is in flight anyway.
+        var includePng = !_skipPng;
+
         _ = Task.Run(async () =>
         {
             try
@@ -291,8 +309,9 @@
                         "The all-formats demo render requires the concrete DemoDeckService.");
                 }
 
-                // One conversion, then PNG + SVG + PDF compiled in parallel (timed per stage).
-                var result = concrete.RenderDeckAllFormats(deck.Name, DeckPreviewValidators.DefaultPpi);
+                // One conversion, then PNG + SVG + PDF compiled in parallel (timed per
+                // stage; the PNG leg is skipped entirely when the toggle is on).
+                var result = concrete.RenderDeckAllFormats(deck.Name, DeckPreviewValidators.DefaultPpi, includePng);
 
                 OfficialRenderService.TryGetOfficialSlides(deck.Name, out var official);
 
@@ -307,13 +326,17 @@
                 var stages = new List<StageTiming>
                 {
                     new("Conversion", result.ConversionMilliseconds),
-                    new("PNG raster", result.PngMilliseconds),
+                    result.PngMilliseconds is { } pngMs
+                        ? new StageTiming("PNG raster", pngMs)
+                        : new StageTiming("PNG raster", 0, Skipped: true),
                     new("SVG emit", result.SvgMilliseconds),
                 };
                 if (result.PdfMilliseconds is { } pdfMs)
                 {
                     stages.Add(new StageTiming("PDF export", pdfMs));
                 }
+
+                var pngSkipped = result.PngMilliseconds is null;
 
                 var run = new RenderResult
                 {
@@ -323,6 +346,7 @@
                     Stages = stages,
                     PngSlides = ToGallerySlides(result.PngPages, "image/png"),
                     SvgSlides = ToGallerySlides(result.SvgPages, "image/svg+xml"),
+                    PngSkipped = pngSkipped,
                     OfficialSlides = official?.Pages.Select((b, i) => new GallerySlide(i + 1, $"data:image/png;base64,{Convert.ToBase64String(b)}")).ToList(),
                     PdfUrl = pdfUrl,
                     PdfError = result.PdfError,
@@ -332,6 +356,11 @@
                 {
                     _result = run;
                     _view = "compare";
+                    if (run.PngSkipped)
+                    {
+                        // No PNG output this run — SVG is the only engine view.
+                        _galleryFormat = "svg";
+                    }
                     _renderingDeck = null;
                     StateHasChanged();
                 });

@@ -9,7 +9,7 @@
     </button>
     <button type="button"
             class="@ToggleClass("png")"
-            disabled="@Disabled"
+            disabled="@(Disabled || PngDisabled)"
             @onclick='() => SelectFormat("png")'>
         PNG
     </button>
@@ -20,6 +20,9 @@
     [Parameter] public EventCallback<string> ValueChanged { get; set; }
     [Parameter] public EventCallback<string> OnChange { get; set; }
     [Parameter] public bool Disabled { get; set; }
+
+    /// <summary>Disables only the PNG half (e.g. a render that skipped the PNG leg).</summary>
+    [Parameter] public bool PngDisabled { get; set; }
 
     private string ToggleClass(string id) =>
         (Value == id
