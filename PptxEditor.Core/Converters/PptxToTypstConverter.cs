@@ -3663,7 +3663,9 @@ public sealed partial class PptxToTypstConverter : IDisposable
             Width = 0, // Will be set from shape position
             Height = 0,
             PixelWidth = dimensions?.Width,
-            PixelHeight = dimensions?.Height
+            PixelHeight = dimensions?.Height,
+            SrcRect = ExtractSrcRect(blipFill),
+            FillRotatesWithShape = ExtractFillRotatesWithShape(blipFill)
         };
     }
 
@@ -3711,6 +3713,8 @@ public sealed partial class PptxToTypstConverter : IDisposable
         File.WriteAllBytes(fullPath, imageData);
 
         var dimensions = GetNativeImageDimensions(imageData);
+        var srcRect = ExtractSrcRect(blipFill);
+        var fillRotates = ExtractFillRotatesWithShape(blipFill);
 
         return new TypstImageElement
         {
@@ -3719,8 +3723,39 @@ public sealed partial class PptxToTypstConverter : IDisposable
             Width = 0,
             Height = 0,
             PixelWidth = dimensions?.Width,
-            PixelHeight = dimensions?.Height
+            PixelHeight = dimensions?.Height,
+            SrcRect = srcRect,
+            FillRotatesWithShape = fillRotates
         };
+    }
+
+    private static SrcRect? ExtractSrcRect(OpenXmlElement blipFill)
+    {
+        var srcRect = blipFill.Descendants<Drawing.SourceRectangle>().FirstOrDefault();
+        if (srcRect == null) return null;
+
+        var l = srcRect.Left?.Value;
+        var t = srcRect.Top?.Value;
+        var r = srcRect.Right?.Value;
+        var b = srcRect.Bottom?.Value;
+
+        if (l == null && t == null && r == null && b == null) return null;
+
+        return new SrcRect
+        {
+            Left = l ?? 0,
+            Top = t ?? 0,
+            Right = r ?? 0,
+            Bottom = b ?? 0
+        };
+    }
+
+    private static bool ExtractFillRotatesWithShape(OpenXmlElement blipFill)
+    {
+        var attrs = blipFill.GetAttributes();
+        var rws = attrs.FirstOrDefault(a => a.LocalName == "rotWithShape");
+        if (string.IsNullOrEmpty(rws.Value)) return true;
+        return rws.Value == "1" || rws.Value.Equals("true", StringComparison.OrdinalIgnoreCase);
     }
 
     private static ImagePart? TryGetImagePart(OpenXmlPartContainer? container, string relationshipId)
