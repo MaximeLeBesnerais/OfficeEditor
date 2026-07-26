@@ -722,7 +722,8 @@ public sealed partial class PptxToTypstConverter : IDisposable
                 PaddingBottom = text.PaddingBottom,
                 LineSpacing = text.LineSpacing,
                 ParagraphCount = text.ParagraphCount,
-                HasExplicitLineBreaks = text.HasExplicitLineBreaks
+                HasExplicitLineBreaks = text.HasExplicitLineBreaks,
+                NoWrap = text.NoWrap
             };
         }
 
@@ -1916,7 +1917,8 @@ public sealed partial class PptxToTypstConverter : IDisposable
                 PaddingBottom = text.PaddingBottom,
                 LineSpacing = text.Paragraphs.FirstOrDefault()?.LineSpacing,
                 ParagraphCount = text.ParagraphCount,
-                HasExplicitLineBreaks = text.HasExplicitLineBreaks
+                HasExplicitLineBreaks = text.HasExplicitLineBreaks,
+                NoWrap = text.NoWrap
             };
         }
 
@@ -2385,7 +2387,8 @@ public sealed partial class PptxToTypstConverter : IDisposable
             PaddingBottom = result.PaddingBottom,
             LineSpacing = updatedParagraphs.FirstOrDefault()?.LineSpacing,
             ParagraphCount = result.ParagraphCount,
-            HasExplicitLineBreaks = result.HasExplicitLineBreaks
+            HasExplicitLineBreaks = result.HasExplicitLineBreaks,
+            NoWrap = result.NoWrap
         };
     }
 
@@ -2610,7 +2613,9 @@ public sealed partial class PptxToTypstConverter : IDisposable
             PaddingBottom = padBottom,
             LineSpacing = paragraphs.FirstOrDefault()?.LineSpacing,
             ParagraphCount = Math.Max(1, paragraphCount),
-            HasExplicitLineBreaks = hasExplicitLineBreaks
+            HasExplicitLineBreaks = hasExplicitLineBreaks,
+            NoWrap = System.Text.RegularExpressions.Regex.IsMatch(
+                bodyPr?.OuterXml ?? "", @"\bwrap\s*=\s*""none""")
         };
     }
 
