@@ -51,6 +51,7 @@ namespace PptxEditor.Core.Converters.SmartArt;
         ["blockArc"] = (ShapeType.BlockArc, null),
         ["leftRightRibbon"] = (ShapeType.LeftRightRibbon, null),
         ["upArrowCallout"] = (ShapeType.UpArrowCallout, null),
+        ["pie"] = (ShapeType.Pie, null),
     };
 
     /// <summary>
@@ -127,7 +128,8 @@ namespace PptxEditor.Core.Converters.SmartArt;
             or ShapeType.Gear6 or ShapeType.Gear9
             or ShapeType.HomePlate or ShapeType.FlowChartManualOperation
             or ShapeType.QuadArrow or ShapeType.BlockArc
-            or ShapeType.LeftRightRibbon or ShapeType.UpArrowCallout;
+            or ShapeType.LeftRightRibbon or ShapeType.UpArrowCallout
+            or ShapeType.Pie;
     }
 
     /// <summary>
@@ -772,6 +774,7 @@ namespace PptxEditor.Core.Converters.SmartArt;
         QuadArrow,
         BlockArc,
         LeftRightRibbon,
-        UpArrowCallout
+        UpArrowCallout,
+        Pie
     }
 }
