@@ -49,6 +49,10 @@ namespace PptxEditor.Core.Converters.SmartArt;
         ["flowChartManualOperation"] = (ShapeType.FlowChartManualOperation, null),
         ["quadArrow"] = (ShapeType.QuadArrow, null),
         ["blockArc"] = (ShapeType.BlockArc, null),
+        ["leftRightRibbon"] = (ShapeType.LeftRightRibbon, null),
+        ["upArrowCallout"] = (ShapeType.UpArrowCallout, null),
+        ["pie"] = (ShapeType.Pie, null),
+        ["pieWedge"] = (ShapeType.PieWedge, null),
     };
 
     /// <summary>
@@ -124,7 +128,9 @@ namespace PptxEditor.Core.Converters.SmartArt;
         return shapeType is ShapeType.CircularArrow or ShapeType.LeftCircularArrow
             or ShapeType.Gear6 or ShapeType.Gear9
             or ShapeType.HomePlate or ShapeType.FlowChartManualOperation
-            or ShapeType.QuadArrow or ShapeType.BlockArc;
+            or ShapeType.QuadArrow or ShapeType.BlockArc
+            or ShapeType.LeftRightRibbon or ShapeType.UpArrowCallout
+            or ShapeType.Pie or ShapeType.PieWedge;
     }
 
     /// <summary>
@@ -767,6 +773,10 @@ namespace PptxEditor.Core.Converters.SmartArt;
         HomePlate,
         FlowChartManualOperation,
         QuadArrow,
-        BlockArc
+        BlockArc,
+        LeftRightRibbon,
+        UpArrowCallout,
+        Pie,
+        PieWedge
     }
 }

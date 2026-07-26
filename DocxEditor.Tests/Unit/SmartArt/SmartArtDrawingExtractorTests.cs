@@ -1722,6 +1722,314 @@ public sealed class SmartArtDrawingExtractorTests
         Assert.Equal(700.0, bounds.Value.Width, precision: 6);
     }
 
+    [Fact]
+    public void Extract_LeftRightRibbon_ReturnsRibbonOutline()
+    {
+        // ECMA leftRightRibbon (default adjustments, slide-79 aspect 2.5:1):
+        // dy1 = h·a1/200000 = 0.25h, dy2 = -h·a3/200000 = -h/12 — the ribbon's
+        // top fold starts at ly1 = vc+dy2-dy1 ≈ 0.1667h and the left tip at
+        // ly2 ≈ 0.4167h.
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""2540000"" cy=""1016000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""leftRightRibbon"">
+      <a:avLst/>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""16A085""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 200, shapeH: 80);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal("polygon", result.Shape.ShapeType);
+        // Two 180° fold arcs + one 90° arc flattened at ~2° steps → >100 points.
+        Assert.True(result.Shape.Points.Count > 100);
+        // Left tip and top-edge start (adj2 = 50000 → x1 = ss/2 = 40/200 = 0.2).
+        Assert.Equal(0.0, result.Shape.Points[0].X, precision: 9);
+        Assert.Equal(0.416665, result.Shape.Points[0].Y, precision: 6);
+        Assert.Equal(0.2, result.Shape.Points[1].X, precision: 6);
+        Assert.Equal(0.0, result.Shape.Points[1].Y, precision: 6);
+        Assert.Equal(0.2, result.Shape.Points[2].X, precision: 6);
+        Assert.Equal(0.166665, result.Shape.Points[2].Y, precision: 6);
+        Assert.Equal(0.5, result.Shape.Points[3].X, precision: 6);
+        Assert.Equal(0.166665, result.Shape.Points[3].Y, precision: 6);
+        // Right tip mirrored at x = 1: ry3 = 1 - ly2.
+        Assert.Contains(result.Shape.Points, p =>
+            Math.Abs(p.X - 1) < 1e-9 && Math.Abs(p.Y - (1 - 0.416665)) < 1e-6);
+    }
+
+    [Fact]
+    public void Extract_LeftRightRibbon_HonorsAdjustmentValues()
+    {
+        // adj2 = 25000 → the ribbon's top edge starts at x1 = ss·0.25 instead of ss·0.5.
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""2540000"" cy=""1016000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""leftRightRibbon"">
+      <a:avLst>
+        <a:gd name=""adj1"" fmla=""val 50000""/>
+        <a:gd name=""adj2"" fmla=""val 25000""/>
+        <a:gd name=""adj3"" fmla=""val 16667""/>
+      </a:avLst>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""16A085""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 200, shapeH: 80);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        // x1 = 80·0.25 = 20pt → 20/200 = 0.1
+        Assert.Equal(0.1, result.Shape.Points[1].X, precision: 6);
+        Assert.Equal(0.0, result.Shape.Points[1].Y, precision: 6);
+    }
+
+    [Fact]
+    public void Extract_UpArrowCallout_ReturnsArrowPolygon()
+    {
+        // ECMA upArrowCallout (default adjustments) on a 200x100pt box:
+        // ss = 100; dx1 = ss·a2/100000 = 25, dx2 = ss·a1/200000 = 12.5,
+        // y1 = ss·a3/100000 = 25, y2 = h·(1 - a4/100000) = 35.023.
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""2540000"" cy=""1270000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""upArrowCallout"">
+      <a:avLst/>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""16A085""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 200, shapeH: 100);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal("polygon", result.Shape.ShapeType);
+        Assert.Equal(11, result.Shape.Points.Count);
+        // Callout body bottom edge, then the arrow shaft/head on top.
+        Assert.Equal(0.0, result.Shape.Points[0].X, precision: 9);
+        Assert.Equal(0.35023, result.Shape.Points[0].Y, precision: 5);
+        Assert.Equal(0.4375, result.Shape.Points[1].X, precision: 6);
+        Assert.Equal(0.375, result.Shape.Points[3].X, precision: 6);
+        Assert.Equal(0.25, result.Shape.Points[3].Y, precision: 6);
+        Assert.Equal(0.5, result.Shape.Points[4].X, precision: 9);
+        Assert.Equal(0.0, result.Shape.Points[4].Y, precision: 9);
+        Assert.Equal(0.625, result.Shape.Points[5].X, precision: 6);
+        Assert.Equal(1.0, result.Shape.Points[8].X, precision: 9);
+        Assert.Equal(0.35023, result.Shape.Points[8].Y, precision: 5);
+        Assert.Equal(1.0, result.Shape.Points[9].X, precision: 9);
+        Assert.Equal(1.0, result.Shape.Points[9].Y, precision: 9);
+    }
+
+    [Fact]
+    public void Extract_UpArrowCallout_HonorsAdjustmentValues()
+    {
+        // adj3 = 50000 → the arrow head is twice as tall (y1 = 0.5·ss).
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""2540000"" cy=""1270000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""upArrowCallout"">
+      <a:avLst>
+        <a:gd name=""adj1"" fmla=""val 25000""/>
+        <a:gd name=""adj2"" fmla=""val 25000""/>
+        <a:gd name=""adj3"" fmla=""val 50000""/>
+        <a:gd name=""adj4"" fmla=""val 64977""/>
+      </a:avLst>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""16A085""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 200, shapeH: 100);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        // y1 = 100·0.5 = 50pt → 0.5
+        Assert.Equal(0.5, result.Shape.Points[2].Y, precision: 6);
+        Assert.Equal(0.5, result.Shape.Points[3].Y, precision: 6);
+    }
+
+    [Fact]
+    public void Extract_Pie_ReturnsSectorPolygon()
+    {
+        // ECMA pie defaults: adj1 = 0 (start angle), adj2 = 16200000 (270°) →
+        // a three-quarter sector from 3 o'clock sweeping clockwise to 12 o'clock.
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""1270000"" cy=""1270000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""pie"">
+      <a:avLst/>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""16A085""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 100, shapeH: 100);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal("polygon", result.Shape.ShapeType);
+        // 270° arc flattened at ~2° steps → well over 100 points.
+        Assert.True(result.Shape.Points.Count > 100);
+        // Arc starts at angle 0 → right midpoint; closes back to the center.
+        Assert.Equal(1.0, result.Shape.Points[0].X, precision: 3);
+        Assert.Equal(0.5, result.Shape.Points[0].Y, precision: 3);
+        Assert.Equal(0.5, result.Shape.Points[^1].X, precision: 6);
+        Assert.Equal(0.5, result.Shape.Points[^1].Y, precision: 6);
+        // The sweep covers the bottom and left quadrants: max Y at 90°.
+        Assert.True(result.Shape.Points.Max(p => p.Y) > 0.98);
+        Assert.True(result.Shape.Points.Min(p => p.X) < 0.02);
+        Assert.True(result.Shape.Points.Min(p => p.Y) < 0.02);
+    }
+
+    [Fact]
+    public void Extract_Pie_HonorsAdjustmentValues()
+    {
+        // Slide-87/88 wedge: adj1 = 16200000 (270°), adj2 = 3240000 (54°) —
+        // end < start, so the sweep wraps through +360° (144° wedge).
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""1270000"" cy=""1270000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""pie"">
+      <a:avLst>
+        <a:gd name=""adj1"" fmla=""val 16200000""/>
+        <a:gd name=""adj2"" fmla=""val 3240000""/>
+      </a:avLst>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""16A085""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 100, shapeH: 100);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal("polygon", result.Shape.ShapeType);
+        // Arc starts at 270° → top midpoint (0.5, 0).
+        Assert.Equal(0.5, result.Shape.Points[0].X, precision: 3);
+        Assert.Equal(0.0, result.Shape.Points[0].Y, precision: 3);
+        // 144° sweep → the wedge never reaches the left half of the box.
+        Assert.True(result.Shape.Points.Min(p => p.X) > 0.4);
+        // Ends at 54° → (0.5 + 0.5·cos54°, 0.5 + 0.5·sin54°) ≈ (0.794, 0.905).
+        Assert.Contains(result.Shape.Points, p =>
+            Math.Abs(p.X - 0.7939) < 0.01 && Math.Abs(p.Y - 0.9045) < 0.01);
+    }
+
+    [Fact]
+    public void Extract_PieWedge_ReturnsQuarterSector()
+    {
+        // ECMA pieWedge has no avLst: a fixed quarter-ellipse sector with the
+        // arc centered on the bottom-right corner (180° → 270° sweep).
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""1270000"" cy=""1270000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""pieWedge"">
+      <a:avLst/>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""16A085""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 100, shapeH: 100);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal("polygon", result.Shape.ShapeType);
+        // 90° arc flattened at ~2° steps → ~46 arc points + moveTo + lnTo.
+        Assert.True(result.Shape.Points.Count > 40);
+        // Starts at bottom-left, arcs to top-right, closes at bottom-right.
+        Assert.Equal(0.0, result.Shape.Points[0].X, precision: 9);
+        Assert.Equal(1.0, result.Shape.Points[0].Y, precision: 9);
+        Assert.Equal(1.0, result.Shape.Points[^2].X, precision: 3);
+        Assert.Equal(0.0, result.Shape.Points[^2].Y, precision: 3);
+        Assert.Equal(1.0, result.Shape.Points[^1].X, precision: 9);
+        Assert.Equal(1.0, result.Shape.Points[^1].Y, precision: 9);
+        // The arc bows toward the top-left: near 225° the point approaches
+        // (1 - √2/2, 1 - √2/2) ≈ (0.293, 0.293).
+        Assert.Contains(result.Shape.Points, p =>
+            Math.Abs(p.X - 0.2929) < 0.02 && Math.Abs(p.Y - 0.2929) < 0.02);
+    }
+
     private static OpenXmlElement ParseXml(string xml)
     {
         var xElement = XElement.Parse(xml);
