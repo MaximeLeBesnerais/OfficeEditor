@@ -109,6 +109,28 @@ public class PptxToTypstConverterRotatedDiagramTextTests : IDisposable
     }
 
     [Fact]
+    public void Convert_DiagramShapeRotWithUnrotatedTxXfrm_TextRidesShapeRotation()
+    {
+        // Slide-152 pattern: shape rot=16200000 (270°) with a txXfrm that has NO rot
+        // (cached in pre-rotation space) — the text rides the shape rotation.
+        var path = CreateDiagramPptx("shape-rot-plain-txxfrm.pptx", @"<dsp:sp modelId=""{11111111-1111-1111-1111-111111111111}"">
+      <dsp:spPr><a:xfrm rot=""16200000""><a:off x=""0"" y=""0""/><a:ext cx=""1270000"" cy=""508000""/></a:xfrm><a:prstGeom prst=""rect""><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val=""DDDDDD""/></a:solidFill></dsp:spPr>
+      <dsp:txBody>
+        <a:bodyPr lIns=""12700"" tIns=""12700"" rIns=""12700"" bIns=""12700""><a:noAutofit/></a:bodyPr>
+        <a:lstStyle/>
+        <a:p><a:r><a:rPr lang=""en-US"" sz=""1500""/><a:t>Label</a:t></a:r></a:p>
+      </dsp:txBody>
+      <dsp:txXfrm><a:off x=""0"" y=""0""/><a:ext cx=""1270000"" cy=""508000""/></dsp:txXfrm>
+    </dsp:sp>");
+
+        var (presentation, source) = Convert(path);
+
+        var text = Assert.Single(presentation.Slides[0].Elements, e => e.Type == "Text");
+        Assert.Equal(270.0, text.Rotation, 3);
+        Assert.Contains("#rotate(270.0deg, origin: center)[#block(", source);
+    }
+
+    [Fact]
     public void Convert_DiagramUnrotatedText_NoRotationEmitted()
     {
         var path = CreateDiagramPptx("no-rot.pptx", @"<dsp:sp modelId=""{11111111-1111-1111-1111-111111111111}"">
