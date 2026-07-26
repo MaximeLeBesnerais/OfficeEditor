@@ -1,0 +1,138 @@
+@* SlideGallery.razor — Wall/focus slide viewer with keyboard nav (matches React SlideGallery.tsx) *@
+
+@if (Slides.Count == 0) return;
+
+<section class="space-y-4">
+    <div class="flex items-center justify-between gap-3">
+        <h3 class="text-sm font-semibold uppercase tracking-wider text-slate-400">
+            @(Title ?? "Slides")
+        </h3>
+        <div class="flex items-center p-0.5 rounded-full bg-slate-900 border border-slate-800">
+            <button type="button"
+                    class="@ModeBtnClass("wall")"
+                    @onclick='() => SetMode("wall")'>
+                Wall
+            </button>
+            <button type="button"
+                    class="@ModeBtnClass("focus")"
+                    @onclick='() => SetMode("focus")'>
+                Focus
+            </button>
+        </div>
+    </div>
+
+    @if (_mode == "wall")
+    {
+        <div class="fade-in-up grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+            @for (int i = 0; i < Slides.Count; i++)
+            {
+                var idx = i;
+                var slide = Slides[i];
+                <button type="button"
+                        @onclick='() => { GoTo(idx); SetMode("focus"); }'
+                        class="group relative aspect-video overflow-hidden rounded-xl ring-1 ring-slate-800 hover:ring-indigo-500/70 transition-all duration-200 bg-slate-900">
+                    <img src="@slide.DataUrl"
+                         alt="Slide @slide.Slide"
+                         class="h-full w-full object-cover"
+                         loading="lazy" />
+                    <span class="absolute bottom-1.5 right-1.5 rounded-md bg-slate-950/80 px-1.5 py-0.5 font-mono text-[10px] text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity">
+                        @slide.Slide
+                    </span>
+                </button>
+            }
+        </div>
+    }
+    else
+    {
+        var clamped = Math.Min(_focusedIndex, Slides.Count - 1);
+        var focused = Slides[clamped];
+        <div class="fade-in-up space-y-3" @onkeydown="HandleKeyDown" @onkeydown:preventDefault tabindex="0">
+            <div class="relative mx-auto max-w-4xl">
+                <div class="aspect-video overflow-hidden rounded-2xl bg-slate-900 shadow-2xl shadow-black/40 ring-1 ring-slate-700/60">
+                    <img src="@focused.DataUrl"
+                         alt="Slide @focused.Slide"
+                         class="h-full w-full object-contain" />
+                </div>
+                <button type="button"
+                        @onclick="() => GoTo(clamped - 1)"
+                        disabled="@(clamped == 0)"
+                        aria-label="Previous slide"
+                        class="absolute left-3 top-1/2 -translate-y-1/2 flex h-10 w-10 items-center justify-center rounded-full bg-slate-950/70 text-slate-200 ring-1 ring-slate-700 hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-slate-950/70 transition-colors">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-5 w-5" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
+                    </svg>
+                </button>
+                <button type="button"
+                        @onclick="() => GoTo(clamped + 1)"
+                        disabled="@(clamped == Slides.Count - 1)"
+                        aria-label="Next slide"
+                        class="absolute right-3 top-1/2 -translate-y-1/2 flex h-10 w-10 items-center justify-center rounded-full bg-slate-950/70 text-slate-200 ring-1 ring-slate-700 hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-slate-950/70 transition-colors">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-5 w-5" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+                    </svg>
+                </button>
+                <span class="absolute bottom-3 right-3 rounded-full bg-slate-950/80 px-2.5 py-1 font-mono text-xs text-slate-300 ring-1 ring-slate-700">
+                    @(clamped + 1) / @Slides.Count
+                </span>
+            </div>
+
+            <div class="scrollbar-hide flex gap-2 overflow-x-auto py-1">
+                @for (int i = 0; i < Slides.Count; i++)
+                {
+                    var idx = i;
+                    var slide = Slides[i];
+                    <button type="button"
+                            @onclick="() => GoTo(idx)"
+                            class="@ThumbClass(idx, clamped)">
+                        <img src="@slide.DataUrl"
+                             alt="Slide @slide.Slide thumbnail"
+                             class="h-full w-full object-cover"
+                             loading="lazy" />
+                    </button>
+                }
+            </div>
+        </div>
+    }
+</section>
+
+@code {
+    [Parameter] public required IReadOnlyList<GallerySlide> Slides { get; set; }
+    [Parameter] public string? Title { get; set; }
+
+    private string _mode = "wall";
+    private int _focusedIndex;
+
+    protected override void OnParametersSet()
+    {
+        if (Slides.Count > 0 && _focusedIndex >= Slides.Count)
+            _focusedIndex = 0;
+    }
+
+    private string ModeBtnClass(string m) =>
+        (_mode == m
+            ? "px-3 py-1 rounded-full text-xs font-semibold transition-all duration-200 capitalize bg-slate-700 text-white shadow-sm"
+            : "px-3 py-1 rounded-full text-xs font-semibold transition-all duration-200 capitalize text-slate-400 hover:text-slate-200");
+
+    private void SetMode(string m) => _mode = m;
+
+    private void GoTo(int index) => _focusedIndex = Math.Clamp(index, 0, Slides.Count - 1);
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (Slides.Count == 0) return;
+        if (e.Key == "ArrowLeft")
+        {
+            _mode = "focus";
+            _focusedIndex = Math.Max(0, _focusedIndex - 1);
+        }
+        else if (e.Key == "ArrowRight")
+        {
+            _mode = "focus";
+            _focusedIndex = Math.Min(Slides.Count - 1, _focusedIndex + 1);
+        }
+    }
+
+    private string ThumbClass(int i, int clamped) =>
+        "relative aspect-video w-28 shrink-0 overflow-hidden rounded-lg transition-all duration-200 bg-slate-900 "
+        + (i == clamped ? "ring-2 ring-indigo-500" : "ring-1 ring-slate-800 hover:ring-slate-600");
+}

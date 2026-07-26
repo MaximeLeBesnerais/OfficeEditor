@@ -1,0 +1,563 @@
+@* CompareScreen.razor — OfficeEditor Engine vs LibreOffice duel (matches React CompareScreen.tsx) *@
+
+@inject IDemoDeckService DemoDeckService
+@inject ILibreOfficeCompareService LibreOfficeCompareService
+@inject IConversionResultStore ResultStore
+@inject NavigationManager Nav
+
+<div class="space-y-8">
+    <section class="space-y-2">
+        <h1 class="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-50">
+            The duel: OfficeEditor Engine vs LibreOffice
+        </h1>
+        <p class="text-slate-400">
+            Same deck, two renderers — compare their speed and output side by side.
+        </p>
+    </section>
+
+    @if (_capabilities is { Available: false })
+    {
+        <StatusMessage Type="info" Message="LibreOffice not detected on this machine — the comparison will show the OfficeEditor Engine side only" />
+    }
+
+    @if (_decksError is not null)
+    {
+        <StatusMessage Type="error" Title="Could not load demo decks" Message="_decksError" />
+    }
+
+    @if (_decks is null && _decksError is null)
+    {
+        <div class="flex items-center gap-3 text-slate-400">
+            <Spinner />
+            <span>Loading decks…</span>
+        </div>
+    }
+
+    @if (_decks is { Count: 0 } && _decksError is null)
+    {
+        <StatusMessage Type="info" Title="No decks" Message="The demo deck list is empty." />
+    }
+
+    @if (_decks is { Count: > 0 })
+    {
+        <div class="grid gap-4 sm:grid-cols-2">
+            @foreach (var deck in _decks)
+            {
+                var isSelected = _selectedFile is null && _selectedDeck?.Name == deck.Name;
+                <button type="button"
+                        @onclick="() => HandleSelectDeck(deck)"
+                        disabled="@_running"
+                        class="group rounded-2xl border p-5 text-left transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/60 disabled:cursor-not-allowed disabled:opacity-60 @(isSelected ? "border-indigo-500 bg-indigo-500/10 ring-1 ring-indigo-500/50" : "border-slate-800 bg-slate-900/60 hover:border-indigo-500/60 hover:bg-slate-900")">
+                    <div class="flex items-start justify-between gap-3">
+                        <div class="min-w-0 space-y-1">
+                            <p class="truncate text-lg font-bold text-slate-100 group-hover:text-white">@deck.Name</p>
+                            <p class="text-sm text-slate-400 leading-relaxed">@deck.Description</p>
+                        </div>
+                        @if (isSelected)
+                        {
+                            <span class="shrink-0 rounded-full bg-indigo-500/20 px-2.5 py-1 font-mono text-xs font-semibold text-indigo-300 ring-1 ring-indigo-500/50">Selected</span>
+                        }
+                        else
+                        {
+                            <span class="shrink-0 rounded-full bg-slate-800 px-2.5 py-1 font-mono text-xs text-slate-300">
+                                @(deck.SlideCount > 0 ? $"{deck.SlideCount} slides" : "deck")
+                            </span>
+                        }
+                    </div>
+                    <p class="mt-3 font-mono text-xs text-slate-500">@deck.FileName</p>
+                </button>
+            }
+        </div>
+    }
+
+    <div class="space-y-3">
+        <label class="@UploadClasses()">
+            <InputFile accept=".pptx" disabled="@_running"
+                       OnChange="HandleFilePicked"
+                       class="sr-only" />
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"
+                 class="h-8 w-8 shrink-0 text-slate-500" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round"
+                      d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
+            </svg>
+            @if (_selectedFile is not null)
+            {
+                <div class="min-w-0 space-y-0.5 text-left">
+                    <p class="truncate text-lg font-bold text-slate-100">@_selectedFile.Name</p>
+                    <p class="font-mono text-xs text-slate-500">@FormatBytes(_selectedFile.Size)</p>
+                </div>
+            }
+            else
+            {
+                <div class="space-y-0.5 text-left">
+                    <p class="text-lg font-bold text-slate-200">Or compare your own deck</p>
+                    <p class="text-sm text-slate-500">Click to browse for a .pptx file</p>
+                </div>
+            }
+        </label>
+
+        @if (_pickError is not null)
+        {
+            <StatusMessage Type="error" Title="Invalid file" Message="_pickError" />
+        }
+    </div>
+
+    <div>
+        <button type="button"
+                @onclick="HandleRun"
+                disabled="@(_selectedDeck is null && _selectedFile is null || _running)"
+                class="rounded-full bg-indigo-500 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 transition-all duration-200 hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-indigo-500">
+            @(_running ? "Comparing…" : "Run comparison")
+        </button>
+    </div>
+
+    @if (_runActive)
+    {
+        <div class="fade-in-up space-y-6">
+            <div class="grid gap-4 md:grid-cols-2">
+                @* Typst card *@
+                <div class="space-y-3 rounded-2xl border border-emerald-500/40 bg-emerald-500/5 p-5">
+                    <h3 class="text-sm font-semibold uppercase tracking-wider text-emerald-300">OfficeEditor Engine</h3>
+                    @if (_typstStatus == "pending")
+                    {
+                        <div class="flex items-center gap-4">
+                            <Spinner />
+                            <div class="space-y-0.5">
+                                <p class="font-semibold text-slate-100">OfficeEditor Engine rendering…</p>
+                                <span class="font-mono text-sm text-slate-400">@_elapsedStr s</span>
+                            </div>
+                        </div>
+                    }
+                    else if (_typstStatus == "error")
+                    {
+                        <div class="rounded-xl border border-red-500/40 bg-red-500/10 p-4 text-sm leading-relaxed text-red-200">
+                            @(_typstError ?? "OfficeEditor Engine render failed.")
+                        </div>
+                    }
+                    else if (_typstStatus == "done" && _typstResult is not null)
+                    {
+                        <dl class="space-y-1 font-mono text-sm text-slate-400">
+                            <div class="flex justify-between">
+                                <dt>Slide PNGs</dt>
+                                <dd>@FormatDuration(_typstResult.PngMilliseconds)</dd>
+                            </div>
+                            <div class="flex justify-between">
+                                <dt>PDF</dt>
+                                <dd>@(_typstResult.PdfMilliseconds is { } pdfMs ? FormatDuration(pdfMs) : "—")</dd>
+                            </div>
+                        </dl>
+                        @if (_typstResult.PdfError is not null)
+                        {
+                            <p class="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs leading-relaxed text-amber-200">
+                                PDF step failed: @_typstResult.PdfError
+                            </p>
+                        }
+                        <div>
+                            <p class="font-mono text-4xl font-bold text-emerald-300">@FormatDuration(_typstResult.TotalMilliseconds)</p>
+                            @if (_typstResult.TotalMilliseconds >= 4000)
+                            {
+                                <p class="mt-1 font-mono text-xs text-emerald-500/70">(@Math.Round(_typstResult.TotalMilliseconds).ToString("N0") ms)</p>
+                            }
+                        </div>
+                        <p class="text-xs text-slate-500">PNG + PDF rendered in parallel</p>
+                        <p class="font-mono text-sm text-slate-400">
+                            @(_typstSlideCount > 0
+                                ? $"{(double)_typstResult.TotalMilliseconds / _typstSlideCount:F1} ms/slide"
+                                : "—")
+                            · @_typstSlideCount slides
+                        </p>
+                        @if (_typstPdfUrl is not null)
+                        {
+                            <div>
+                                <a href="@_typstPdfUrl" target="_blank" rel="noreferrer"
+                                   class="inline-flex items-center gap-2 rounded-full border border-emerald-500/50 bg-emerald-500/10 px-5 py-2 text-sm font-semibold text-emerald-200 transition-colors hover:border-emerald-400 hover:bg-emerald-500/20">
+                                    Open the OfficeEditor PDF
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4" aria-hidden="true">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+                                    </svg>
+                                </a>
+                            </div>
+                        }
+                    }
+                </div>
+
+                @* LibreOffice card *@
+                <div class="space-y-3 rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+                    <div class="flex items-center justify-between gap-3">
+                        <h3 class="text-sm font-semibold uppercase tracking-wider text-slate-400">LibreOffice</h3>
+                        @if (_loResult is { Version: not null })
+                        {
+                            <span class="truncate font-mono text-xs text-slate-500">@_loResult.Version</span>
+                        }
+                    </div>
+                    @if (_loStatus == "pending")
+                    {
+                        <div class="space-y-2">
+                            <div class="flex items-center gap-4">
+                                <Spinner />
+                                <div class="space-y-0.5">
+                                    <p class="font-semibold text-slate-100">LibreOffice is thinking…</p>
+                                    <span class="font-mono text-sm text-slate-400">@_elapsedStr s</span>
+                                </div>
+                            </div>
+                            <p class="text-sm text-slate-500">This usually takes 5–20 seconds — that's the point.</p>
+                        </div>
+                    }
+                    else if (_loStatus == "error")
+                    {
+                        <div class="rounded-xl border border-red-500/40 bg-red-500/10 p-4 text-sm leading-relaxed text-red-200">
+                            @(_loError ?? "LibreOffice render failed.")
+                        </div>
+                    }
+                    else if (_loStatus == "done" && _loResult is not null)
+                    {
+                        var loFailed = !_loResult.Available || _loResult.Error is not null;
+                        if (loFailed)
+                        {
+                            <div class="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm leading-relaxed text-amber-200">
+                                @(_loResult.Error ?? "LibreOffice is not available on this machine.")
+                            </div>
+                        }
+                        else
+                        {
+                            <dl class="space-y-1 font-mono text-sm text-slate-400">
+                                <div class="flex justify-between">
+                                    <dt>PDF conversion</dt>
+                                    <dd>@FormatDuration(_loResult.ConversionMilliseconds)</dd>
+                                </div>
+                                <div class="flex justify-between">
+                                    <dt>Slide PNGs</dt>
+                                    <dd>@(_loResult.RasterizationMilliseconds is { } rastMs ? FormatDuration(rastMs) : "—")</dd>
+                                </div>
+                            </dl>
+                            <div>
+                                <p class="font-mono text-4xl font-bold text-slate-200">@FormatDuration(_loResult.TotalMilliseconds)</p>
+                                @if (_loResult.TotalMilliseconds >= 4000)
+                                {
+                                    <p class="mt-1 font-mono text-xs text-slate-500">(@Math.Round(_loResult.TotalMilliseconds).ToString("N0") ms)</p>
+                                }
+                            </div>
+                            @if (_loSlideCount > 0 && _loResult.TotalMilliseconds > 0)
+                            {
+                                <p class="font-mono text-sm text-slate-400">
+                                    @($"{(double)_loResult.TotalMilliseconds / _loSlideCount:F1} ms/slide")
+                                    · @_loSlideCount slides
+                                </p>
+                            }
+                            @if (_loPdfUrl is not null)
+                            {
+                                <div>
+                                    <a href="@_loPdfUrl" target="_blank" rel="noreferrer"
+                                       class="inline-flex items-center gap-2 rounded-full border border-slate-700 bg-slate-900 px-5 py-2 text-sm font-semibold text-slate-200 transition-colors hover:border-slate-500 hover:bg-slate-800">
+                                        Open the LibreOffice PDF
+                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4" aria-hidden="true">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+                                        </svg>
+                                    </a>
+                                </div>
+                            }
+                        }
+                    }
+                </div>
+            </div>
+
+            @if (_speedup is not null)
+            {
+                <div class="flex justify-center">
+                    <span class="rounded-full border border-emerald-500/50 bg-emerald-500/10 px-5 py-2 font-mono text-sm font-semibold text-emerald-300 shadow-lg shadow-emerald-500/10">
+                        OfficeEditor Engine is @_speedup.Value.ToString("F1")× faster
+                    </span>
+                </div>
+            }
+
+            <div class="mx-auto max-w-3xl space-y-1.5 text-center">
+                <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Why the methods differ</p>
+                <p class="text-xs leading-relaxed text-slate-500">
+                    Both sides receive the same .pptx and must produce the same two artifacts: per-slide PNGs
+                    and a PDF. The OfficeEditor Engine translates the deck once — OOXML → model → layout — then
+                    emits PNG and PDF natively, in parallel: neither output depends on the other. LibreOffice
+                    boots a full office suite to convert the deck to PDF, then rasterizes that PDF into PNGs as
+                    a second, dependent step. All timings are server-measured wall-clock; the engine's total is
+                    the parallel pair, not a sum.
+                </p>
+            </div>
+
+            @if (_typstResult is { PngPages.Count: > 0 })
+            {
+                var loGalleryState = _loStatus == "pending" ? "pending"
+                    : (_loStatus == "done" && _loResult?.PngPages is { Count: > 0 } ? "ready" : "empty");
+                var loPlaceholder = _loStatus == "error" ? (_loError ?? "LibreOffice render failed")
+                    : _loResult is not null
+                        ? (_loResult.Error ?? (!_loResult.PdfToPpmAvailable ? "Per-slide images unavailable — pdftoppm not found" : "Per-slide images unavailable"))
+                        : null;
+
+                <CompareGallery TypstSlides="@ToGallerySlides(_typstResult.PngPages)"
+                                LoSlides="@(loGalleryState == "ready" && _loResult is not null ? ToGallerySlides(_loResult.PngPages) : null)"
+                                LoState="@loGalleryState"
+                                LoPlaceholder="@loPlaceholder"
+                                LoPendingSince="@_runStartedAt"
+                                LeftLabel="OfficeEditor Engine"
+                                RightLabel="LibreOffice" />
+            }
+
+            @if (!_running)
+            {
+                <div>
+                    <button type="button"
+                            @onclick="ClearRun"
+                            class="text-sm font-semibold text-indigo-400 underline underline-offset-4 hover:text-indigo-300">
+                        Run another comparison
+                    </button>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private IReadOnlyList<DemoDeckInfo>? _decks;
+    private string? _decksError;
+    private CompareCapabilitiesDto? _capabilities;
+    private DemoDeckInfo? _selectedDeck;
+    private int _selectedDeckSlideCount;
+    private IBrowserFile? _selectedFile;
+    private byte[]? _selectedFileBytes;
+    private string? _pickError;
+    private string _typstStatus = "idle";
+    private TypstLegResult? _typstResult;
+    private string? _typstError;
+    private string? _typstPdfUrl;
+    private int _typstSlideCount;
+    private string _loStatus = "idle";
+    private LibreOfficeRenderResult? _loResult;
+    private string? _loError;
+    private string? _loPdfUrl;
+    private int _loSlideCount;
+    private long? _runStartedAt;
+    private string _elapsedStr = "0.0";
+    private Timer? _elapsedTimer;
+
+    private bool _running => _typstStatus == "pending" || _loStatus == "pending";
+    private bool _runActive => _typstStatus != "idle";
+    private double? _speedup => _typstResult is not null && _loResult is not null
+        && _loResult.TotalMilliseconds > 0 && _typstResult.TotalMilliseconds > 0
+        ? _loResult.TotalMilliseconds / _typstResult.TotalMilliseconds : null;
+
+    protected override void OnInitialized()
+    {
+        try { _decks = DemoDeckService.ListDecks(); }
+        catch (Exception ex) { _decksError = ex.Message; }
+
+        try { _capabilities = ToCapabilitiesDto(LibreOfficeCompareService.Probe()); }
+        catch { /* advisory only */ }
+    }
+
+    private void HandleSelectDeck(DemoDeckInfo deck)
+    {
+        _selectedDeck = deck;
+        _selectedDeckSlideCount = deck.SlideCount;
+        _selectedFile = null;
+        _selectedFileBytes = null;
+        _pickError = null;
+        ClearRun();
+    }
+
+    private async Task HandleFilePicked(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file is null) return;
+        if (!file.Name.EndsWith(".pptx", StringComparison.OrdinalIgnoreCase))
+        {
+            _selectedFile = null;
+            _selectedFileBytes = null;
+            _pickError = $"\"{file.Name}\" is not a .pptx file. Pick a PowerPoint deck.";
+            return;
+        }
+        _pickError = null;
+        _selectedFile = file;
+        _selectedDeck = null;
+        await using var stream = file.OpenReadStream(maxAllowedSize: 50 * 1024 * 1024);
+        using var ms = new MemoryStream();
+        await stream.CopyToAsync(ms);
+        _selectedFileBytes = ms.ToArray();
+        ClearRun();
+    }
+
+    private void ClearRun()
+    {
+        _typstStatus = "idle";
+        _typstResult = null;
+        _typstError = null;
+        _typstPdfUrl = null;
+        _typstSlideCount = 0;
+        _loStatus = "idle";
+        _loResult = null;
+        _loError = null;
+        _loPdfUrl = null;
+        _loSlideCount = 0;
+        _runStartedAt = null;
+        _elapsedTimer?.Dispose();
+        _elapsedTimer = null;
+    }
+
+    private async Task HandleRun()
+    {
+        if (_selectedDeck is null && _selectedFileBytes is null) return;
+
+        var startedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        _runStartedAt = startedAt;
+        _typstStatus = "pending";
+        _typstError = null;
+        _typstResult = null;
+        _loStatus = "pending";
+        _loError = null;
+        _loResult = null;
+        _elapsedStr = "0.0";
+        _elapsedTimer = new Timer(_ =>
+        {
+            if (_runStartedAt is not null)
+            {
+                var elapsed = (DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - _runStartedAt.Value) / 1000.0;
+                InvokeAsync(() => { _elapsedStr = elapsed.ToString("F1"); StateHasChanged(); });
+            }
+        }, null, 100, 100);
+        await InvokeAsync(StateHasChanged);
+
+        // Typst leg
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                byte[] bytes;
+                string fileName;
+                if (_selectedFileBytes is not null)
+                {
+                    bytes = _selectedFileBytes;
+                    fileName = _selectedFile!.Name;
+                }
+                else if (DemoDeckService is DemoDeckService concrete && concrete.TryGetDeckFile(_selectedDeck!.Name, out var deckFile))
+                {
+                    bytes = await File.ReadAllBytesAsync(deckFile);
+                    fileName = Path.GetFileName(deckFile);
+                }
+                else
+                {
+                    throw new ArgumentException($"Unknown demo deck '{_selectedDeck!.Name}'.");
+                }
+
+                var result = DemoDeckService.RenderTypstLeg(bytes, fileName, DeckPreviewValidators.DefaultPpi);
+                string? pdfUrl = null;
+                if (result.PdfBytes is not null)
+                {
+                    var id = ResultStore.Store(result.PdfBytes, "application/pdf", $"{_selectedDeck?.Name ?? fileName}-typst.pdf");
+                    pdfUrl = $"{Nav.BaseUri}api/download/{id}";
+                }
+                await InvokeAsync(() =>
+                {
+                    _typstResult = result;
+                    _typstPdfUrl = pdfUrl;
+                    _typstSlideCount = result.SlideCount;
+                    _typstStatus = "done";
+                    CheckStopTimer();
+                    StateHasChanged();
+                });
+            }
+            catch (Exception ex)
+            {
+                await InvokeAsync(() =>
+                {
+                    _typstError = ex.Message;
+                    _typstStatus = "error";
+                    CheckStopTimer();
+                    StateHasChanged();
+                });
+            }
+        });
+
+        // LibreOffice leg
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                byte[] bytes;
+                string fileName;
+                if (_selectedFileBytes is not null)
+                {
+                    bytes = _selectedFileBytes;
+                    fileName = _selectedFile!.Name;
+                }
+                else
+                {
+                    if (DemoDeckService is DemoDeckService concrete && concrete.TryGetDeckFile(_selectedDeck!.Name, out var f))
+                    {
+                        bytes = File.ReadAllBytes(f);
+                        fileName = Path.GetFileName(f);
+                    }
+                    else
+                    {
+                        throw new ArgumentException($"Unknown demo deck '{_selectedDeck!.Name}'.");
+                    }
+                }
+
+                var result = LibreOfficeCompareService.RenderDeck(bytes, fileName, DeckPreviewValidators.DefaultPpi);
+                string? pdfUrl = null;
+                if (result.PdfBytes is not null)
+                {
+                    var id = ResultStore.Store(result.PdfBytes, "application/pdf", $"{_selectedDeck?.Name ?? fileName}-libreoffice.pdf");
+                    pdfUrl = $"{Nav.BaseUri}api/download/{id}";
+                }
+                InvokeAsync(() =>
+                {
+                    _loResult = result;
+                    _loPdfUrl = pdfUrl;
+                    _loSlideCount = _selectedDeck?.SlideCount ?? result.PngPages.Count;
+                    _loStatus = "done";
+                    CheckStopTimer();
+                    StateHasChanged();
+                });
+            }
+            catch (Exception ex)
+            {
+                InvokeAsync(() =>
+                {
+                    _loError = ex.Message;
+                    _loStatus = "error";
+                    CheckStopTimer();
+                    StateHasChanged();
+                });
+            }
+        });
+    }
+
+    private void CheckStopTimer()
+    {
+        if (_typstStatus != "pending" && _loStatus != "pending")
+        {
+            _elapsedTimer?.Dispose();
+            _elapsedTimer = null;
+        }
+    }
+
+    private static string FormatBytes(long bytes) => bytes switch
+    {
+        < 1024 => $"{bytes} B",
+        < 1024 * 1024 => $"{bytes / 1024.0:F1} KB",
+        _ => $"{bytes / (1024.0 * 1024.0):F1} MB",
+    };
+
+    private static string FormatDuration(double ms) =>
+        ms >= 4000 ? $"{(ms / 1000):F1} s" : $"{Math.Round(ms)} ms";
+
+    private static IReadOnlyList<GallerySlide> ToGallerySlides(IEnumerable<byte[]> pages) =>
+        pages.Select((b, i) => new GallerySlide(i + 1, $"data:image/png;base64,{Convert.ToBase64String(b)}")).ToList();
+
+    private static CompareCapabilitiesDto ToCapabilitiesDto(LibreOfficeProbe probe) =>
+        new(probe.Available, probe.Version, probe.PdfToPpmAvailable, probe.SkipReason);
+
+    private string UploadClasses() =>
+        "flex cursor-pointer items-center justify-center gap-4 rounded-2xl border-2 border-dashed p-5 text-center transition-all duration-200 "
+        + (_selectedFile is not null
+            ? "border-indigo-500 bg-indigo-500/10 ring-1 ring-indigo-500/50"
+            : "border-slate-700 bg-slate-900/60 hover:border-indigo-500/60 hover:bg-slate-900")
+        + (_running ? " pointer-events-none opacity-60" : "");
+}
