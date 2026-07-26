@@ -1,7 +1,10 @@
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using DocumentFormat.OpenXml.Packaging;
+using OfficeEditor.Core.Services;
 using PptxEditor.Core.Builders;
+using PptxEditor.Core.Converters;
 
 namespace OfficeEditor.Api.Services;
 
@@ -31,6 +34,28 @@ public sealed record TypstLegResult(
     double? PdfMilliseconds,
     double TotalMilliseconds,
     IReadOnlyList<byte[]> PngPages,
+    byte[]? PdfBytes,
+    string? PdfError);
+
+/// <summary>
+/// Outcome of the one-click ALL-formats demo render (in-proc Blazor screens only — the
+/// HTTP surface keeps the per-format <see cref="DemoRenderResult"/> flow): a SINGLE
+/// PPTX→Typst conversion (<see cref="ConversionMilliseconds"/>) whose source is compiled
+/// to PNG, SVG and PDF in PARALLEL. Per-phase times are honest per-leg numbers;
+/// <see cref="TotalMilliseconds"/> is the wall-clock time of the whole run (conversion +
+/// the parallel compile trio), NOT the sum of the phases. The PDF leg is best-effort —
+/// on failure <see cref="PdfError"/> carries the message and <see cref="PdfBytes"/>/
+/// <see cref="PdfMilliseconds"/> are null (PNG/SVG failures throw instead).
+/// </summary>
+internal sealed record DemoDeckAllFormatsResult(
+    int SlideCount,
+    double ConversionMilliseconds,
+    double PngMilliseconds,
+    double SvgMilliseconds,
+    double? PdfMilliseconds,
+    double TotalMilliseconds,
+    IReadOnlyList<byte[]> PngPages,
+    IReadOnlyList<byte[]> SvgPages,
     byte[]? PdfBytes,
     string? PdfError);
 
@@ -162,16 +187,8 @@ public sealed class DemoDeckService : IDemoDeckService
                 nameof(format));
         }
 
-        var entry = Catalog.FirstOrDefault(e => string.Equals(e.Name, name, StringComparison.OrdinalIgnoreCase))
-            ?? throw new ArgumentException(
-                $"Unknown demo deck '{name}'. Valid names: {string.Join(", ", Catalog.Select(e => e.Name))}.",
-                nameof(name));
-
-        var fullPath = ResolvePath(entry.RelativePath);
-        if (!File.Exists(fullPath))
-        {
-            throw new FileNotFoundException($"Demo deck file not found on disk: {fullPath}");
-        }
+        var entry = ResolveCatalogEntry(name);
+        var fullPath = ResolveDeckFilePath(entry);
 
         var clampedPpi = DeckPreviewValidators.ClampPpi(ppi);
         var bytes = File.ReadAllBytes(fullPath);
@@ -343,6 +360,171 @@ public sealed class DemoDeckService : IDemoDeckService
             png.Pages,
             pdf.Bytes,
             pdf.Error);
+    }
+
+    /// <summary>
+    /// One-click ALL-formats render of a whitelisted demo deck for the in-proc Blazor
+    /// screens: a SINGLE PPTX→Typst conversion (timed as
+    /// <see cref="DemoDeckAllFormatsResult.ConversionMilliseconds"/>) whose source is then
+    /// compiled to PNG, SVG and PDF CONCURRENTLY (each leg timed separately). The converter
+    /// must stay open until every compile finished — its temp directory holds the slide
+    /// assets and embedded fonts the Typst source references, and is deleted on Dispose.
+    /// Same name/file validation contract as <see cref="RenderDeck"/>. PNG/SVG compile
+    /// failures throw; the PDF leg is best-effort and reports via
+    /// <see cref="DemoDeckAllFormatsResult.PdfError"/>. Internal: not part of the HTTP
+    /// surface, so the public per-format DTOs are untouched.
+    /// </summary>
+    internal DemoDeckAllFormatsResult RenderDeckAllFormats(string name, int ppi)
+    {
+        var entry = ResolveCatalogEntry(name);
+        var fullPath = ResolveDeckFilePath(entry);
+
+        var clampedPpi = DeckPreviewValidators.ClampPpi(ppi);
+        var bytes = File.ReadAllBytes(fullPath);
+
+        var totalTimer = Stopwatch.StartNew();
+
+        // ONE conversion shared by all three output formats (the conversion — parse,
+        // layout, source emission — is the expensive core stage; the compiles are the
+        // rasterization/emission stage).
+        string typstSource;
+        double conversionMs;
+        string? fontDirectory;
+        string workingDirectory;
+        int slideCount;
+        using (var stream = new MemoryStream(bytes, writable: false))
+        using (var document = PresentationDocument.Open(stream, false))
+        using (var converter = new PptxToTypstConverter(document))
+        {
+            var conversionTimer = Stopwatch.StartNew();
+            var presentation = converter.Convert();
+            typstSource = converter.GenerateTypstSource(presentation);
+            conversionTimer.Stop();
+            conversionMs = conversionTimer.Elapsed.TotalMilliseconds;
+
+            slideCount = presentation.Slides.Count;
+            workingDirectory = presentation.TempDirectory;
+
+            // Same font rule as PresentationBuilder.ExportThumbnails: embedded deck fonts
+            // come first, the configured system font directory EXTENDS the search path
+            // (never overrides).
+            var embeddedFonts = presentation.FontFiles.Count > 0
+                ? Path.Combine(presentation.TempDirectory, "fonts")
+                : null;
+            fontDirectory = string.IsNullOrWhiteSpace(embeddedFonts) ? _fontDirectory
+                : string.IsNullOrWhiteSpace(_fontDirectory) ? embeddedFonts
+                : embeddedFonts + Path.PathSeparator + _fontDirectory;
+
+            // The three format legs compile the SAME source in parallel (TypstBridge
+            // compiles run in parallel per its docs; the CLI fallback writes uniquely
+            // named files per compile into the shared working directory, so the legs
+            // cannot collide). The converter — and therefore the temp directory — stays
+            // alive until the WhenAll below completes.
+            var pngTask = Task.Run(() =>
+            {
+                var pngTimer = Stopwatch.StartNew();
+                var pngPages = CompileChecked(typstSource, OutputFormat.Png, clampedPpi, fontDirectory, workingDirectory);
+                pngTimer.Stop();
+                return (Pages: pngPages, Milliseconds: pngTimer.Elapsed.TotalMilliseconds);
+            });
+
+            var svgTask = Task.Run(() =>
+            {
+                var svgTimer = Stopwatch.StartNew();
+                var svgPages = CompileChecked(typstSource, OutputFormat.Svg, clampedPpi, fontDirectory, workingDirectory);
+                svgTimer.Stop();
+                return (Pages: svgPages, Milliseconds: svgTimer.Elapsed.TotalMilliseconds);
+            });
+
+            // PDF leg: best-effort — a failure here must not kill the run (same contract
+            // as RenderTypstLeg). The task is wrapped so it NEVER faults.
+            var pdfTask = Task.Run(() =>
+            {
+                try
+                {
+                    var pdfTimer = Stopwatch.StartNew();
+                    var pdfPages = CompileChecked(typstSource, OutputFormat.Pdf, clampedPpi, fontDirectory, workingDirectory);
+                    pdfTimer.Stop();
+                    return (Bytes: (byte[]?)pdfPages[0], Milliseconds: (double?)pdfTimer.Elapsed.TotalMilliseconds, Error: (string?)null);
+                }
+                catch (Exception ex)
+                {
+                    return (Bytes: null, Milliseconds: null, Error: ex.Message);
+                }
+            });
+
+            // WhenAll completes only once ALL legs finished (even when one faulted), so a
+            // PNG/SVG failure still lets the best-effort PDF leg run to completion before
+            // propagating.
+            Task.WhenAll(pngTask, svgTask, pdfTask).GetAwaiter().GetResult();
+            totalTimer.Stop();
+
+            var png = pngTask.Result; // completed successfully if we got past the WhenAll
+            var svg = svgTask.Result;
+            var pdf = pdfTask.Result; // never throws (wrapped above)
+
+            return new DemoDeckAllFormatsResult(
+                slideCount,
+                conversionMs,
+                png.Milliseconds,
+                svg.Milliseconds,
+                pdf.Milliseconds,
+                totalTimer.Elapsed.TotalMilliseconds,
+                png.Pages,
+                svg.Pages,
+                pdf.Bytes,
+                pdf.Error);
+        }
+    }
+
+    /// <summary>
+    /// Compiles <paramref name="typstSource"/> to <paramref name="format"/> and throws
+    /// when the compile produced nothing (a silent empty page list would surface as a
+    /// broken gallery — render failures must propagate, never be swallowed).
+    /// </summary>
+    private static byte[][] CompileChecked(
+        string typstSource,
+        OutputFormat format,
+        int ppi,
+        string? fontDirectory,
+        string workingDirectory)
+    {
+        using var compiler = new TypstCompilerService();
+        var result = compiler.Compile(typstSource, new CompileOptions
+        {
+            Format = format,
+            Ppi = ppi,
+            FontDirectory = fontDirectory,
+            WorkingDirectory = workingDirectory,
+        });
+
+        if (!result.Success || result.Pages.Length == 0)
+        {
+            throw new InvalidOperationException(
+                $"Typst {format} compilation failed: {result.ErrorMessage ?? "no output produced."}");
+        }
+
+        return result.Pages;
+    }
+
+    private static DemoDeckEntry ResolveCatalogEntry(string name)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        return Catalog.FirstOrDefault(e => string.Equals(e.Name, name, StringComparison.OrdinalIgnoreCase))
+            ?? throw new ArgumentException(
+                $"Unknown demo deck '{name}'. Valid names: {string.Join(", ", Catalog.Select(e => e.Name))}.",
+                nameof(name));
+    }
+
+    private static string ResolveDeckFilePath(DemoDeckEntry entry)
+    {
+        var fullPath = ResolvePath(entry.RelativePath);
+        if (!File.Exists(fullPath))
+        {
+            throw new FileNotFoundException($"Demo deck file not found on disk: {fullPath}");
+        }
+
+        return fullPath;
     }
 
     /// <summary>

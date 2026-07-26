@@ -14,3 +14,6 @@ public sealed class TimingExtra
     public required string Label { get; init; }
     public double Ms { get; init; }
 }
+
+/// <summary>One named stage of a multi-phase render (e.g. "Conversion", "PNG raster").</summary>
+public sealed record StageTiming(string Label, double Milliseconds);
