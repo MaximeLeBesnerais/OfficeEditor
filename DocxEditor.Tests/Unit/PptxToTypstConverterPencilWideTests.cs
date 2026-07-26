@@ -283,6 +283,125 @@ public sealed class PptxToTypstConverterPencilWideTests : IDisposable
     }
 
     /// <summary>
+    /// A picture-filled shape with blipFill rotWithShape="0" (the OOXML
+    /// default) keeps its fill slide-aligned: PowerPoint does not rotate the
+    /// image with the shape. For quarter-turn rotations the displayed bounds
+    /// are the swapped box (Pencil-Wide cover: the iPad screen is a portrait
+    /// rect rotated 270° whose screenshot must stay upright/landscape).
+    /// </summary>
+    [Fact]
+    public void Convert_BlipFillNotRotatingWithShape_KeepsImageSlideAligned()
+    {
+        var deckPath = Path.Combine(_tempDir, $"{Guid.NewGuid():N}.pptx");
+        CreateDeckWithRotatedBlipFill(deckPath, rotateWithShape: false);
+
+        using var document = PresentationDocument.Open(deckPath, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = converter.Convert();
+        var image = Assert.Single(presentation.Slides[0].Elements, e => e.Type == "Image");
+
+        // Shape: off (1000000, 2000000), ext (1000000 x 2000000) portrait,
+        // rot 270° → image fills the landscape box, unrotated.
+        AssertInRange(image.Rotation, 0.0);
+        AssertInRange(image.Width, 2000000 / 12700.0);
+        AssertInRange(image.Height, 1000000 / 12700.0);
+        // Same centre as the shape: (1500000, 3000000) EMU.
+        AssertInRange(image.X + image.Width / 2, 1500000 / 12700.0);
+        AssertInRange(image.Y + image.Height / 2, 3000000 / 12700.0);
+    }
+
+    [Fact]
+    public void Convert_BlipFillRotatingWithShape_KeepsShapeRotation()
+    {
+        var deckPath = Path.Combine(_tempDir, $"{Guid.NewGuid():N}.pptx");
+        CreateDeckWithRotatedBlipFill(deckPath, rotateWithShape: true);
+
+        using var document = PresentationDocument.Open(deckPath, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = converter.Convert();
+        var image = Assert.Single(presentation.Slides[0].Elements, e => e.Type == "Image");
+
+        AssertInRange(image.Rotation, 270.0);
+        AssertInRange(image.Width, 1000000 / 12700.0);
+        AssertInRange(image.Height, 2000000 / 12700.0);
+    }
+
+    private void CreateDeckWithRotatedBlipFill(string deckPath, bool rotateWithShape)
+    {
+        var redBytes = Convert.FromBase64String(RedPngBase64);
+
+        using var document = PresentationDocument.Create(deckPath, PresentationDocumentType.Presentation);
+        var presentationPart = document.AddPresentationPart();
+        presentationPart.Presentation = new Presentation
+        {
+            SlideMasterIdList = new SlideMasterIdList(),
+            SlideIdList = new SlideIdList(),
+            SlideSize = new SlideSize { Cx = 12192000, Cy = 6858000 }
+        };
+
+        var slideMasterPart = presentationPart.AddNewPart<SlideMasterPart>();
+        slideMasterPart.SlideMaster = new SlideMaster(
+            new CommonSlideData(CreateShapeTree()),
+            CreateColorMap(),
+            new SlideLayoutIdList());
+
+        var slideLayoutPart = slideMasterPart.AddNewPart<SlideLayoutPart>();
+        slideLayoutPart.SlideLayout = new P.SlideLayout(new CommonSlideData(CreateShapeTree()));
+        slideLayoutPart.AddPart(slideMasterPart);
+        slideMasterPart.SlideMaster.SlideLayoutIdList!.Append(new SlideLayoutId
+        {
+            Id = 2147483649,
+            RelationshipId = slideMasterPart.GetIdOfPart(slideLayoutPart)
+        });
+        presentationPart.Presentation.SlideMasterIdList.Append(new SlideMasterId
+        {
+            Id = 2147483648,
+            RelationshipId = presentationPart.GetIdOfPart(slideMasterPart)
+        });
+
+        var slidePart = presentationPart.AddNewPart<SlidePart>();
+        slidePart.AddPart(slideLayoutPart);
+        presentationPart.Presentation.SlideIdList.Append(new SlideId
+        {
+            Id = 256,
+            RelationshipId = presentationPart.GetIdOfPart(slidePart)
+        });
+
+        var imagePart = slidePart.AddImagePart(ImagePartType.Png);
+        using (var stream = new MemoryStream(redBytes)) imagePart.FeedData(stream);
+        var embedId = slidePart.GetIdOfPart(imagePart);
+
+        var blipFill = new Drawing.BlipFill(
+            new Drawing.Blip { Embed = embedId },
+            new Drawing.Stretch(new Drawing.FillRectangle()))
+        {
+            RotateWithShape = rotateWithShape
+        };
+
+        var shape = new P.Shape(
+            new P.NonVisualShapeProperties(
+                new NonVisualDrawingProperties { Id = 40, Name = "Rotated Picture Fill" },
+                new P.NonVisualShapeDrawingProperties(),
+                new ApplicationNonVisualDrawingProperties()),
+            new ShapeProperties(
+                new Drawing.Transform2D(
+                    new Drawing.Offset { X = 1000000, Y = 2000000 },
+                    new Drawing.Extents { Cx = 1000000, Cy = 2000000 })
+                { Rotation = 16200000 },
+                new Drawing.PresetGeometry(new Drawing.AdjustValueList())
+                { Preset = Drawing.ShapeTypeValues.Rectangle },
+                blipFill),
+            new P.TextBody(
+                new Drawing.BodyProperties(),
+                new Drawing.ListStyle(),
+                new Drawing.Paragraph()));
+
+        slidePart.Slide = new Slide(new CommonSlideData(CreateShapeTree(shape)));
+    }
+
+    /// <summary>
     /// User-drawn (non-placeholder) shapes on the slide MASTER — logos,
     /// taglines, watermark art — are part of every slide using that master
     /// (unless the layout sets showMasterSp="0"). The converter imported only

@@ -750,16 +750,43 @@ public sealed partial class PptxToTypstConverter : IDisposable
                 // For now, return image if no text, or prioritize text if present
                 if (string.IsNullOrWhiteSpace(text.Content))
                 {
+                    var imgX = finalX;
+                    var imgY = finalY;
+                    var imgW = finalW;
+                    var imgH = finalH;
+                    var imgRot = finalRot;
+
+                    // blipFill rotWithShape="0" (the OOXML default): the fill
+                    // stays slide-aligned — PowerPoint does not rotate the
+                    // image with the shape. For quarter-turn rotations the
+                    // displayed bounds are the swapped box about the same
+                    // centre; other angles keep the legacy rotated rendering.
+                    if (blipFill.RotateWithShape?.Value != true && Math.Abs(finalRot) > 0.01)
+                    {
+                        var quarterTurns = (int)Math.Round(finalRot / 90.0);
+                        if (Math.Abs(finalRot - quarterTurns * 90.0) < 0.01)
+                        {
+                            if (quarterTurns % 2 != 0)
+                            {
+                                imgX = finalX + (finalW - finalH) / 2;
+                                imgY = finalY + (finalH - finalW) / 2;
+                                imgW = finalH;
+                                imgH = finalW;
+                            }
+                            imgRot = 0;
+                        }
+                    }
+
                 yield return new TypstElement
                 {
                     Type = "Image",
                     Id = id,
                     Name = name,
-                    X = finalX,
-                    Y = finalY,
-                    Width = finalW,
-                    Height = finalH,
-                    Rotation = finalRot,
+                    X = imgX,
+                    Y = imgY,
+                    Width = imgW,
+                    Height = imgH,
+                    Rotation = imgRot,
                     Image = imageElement
                 };
                     yield break;
