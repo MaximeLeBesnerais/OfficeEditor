@@ -4,13 +4,15 @@ namespace PptxEditor.Core.Converters.SmartArt;
 
 /// <summary>
 /// Evaluates ECMA-376 preset-geometry definitions (guide formulas + path commands)
-/// for the SmartArt presets whose faithful outline requires elliptical arcs:
-/// <c>gear6</c>, <c>gear9</c>, <c>circularArrow</c>, <c>leftCircularArrow</c>.
-/// Definitions are transcribed from the ECMA-376 preset geometry definitions (the
-/// same source as LibreOffice's presetShapeDefinitions.xml) and honor each shape's
-/// <c>a:avLst</c> adjustment values. Arcs are flattened to polylines in ~2° steps
-/// so the Typst polygon emitter can render them; returned points are normalized to
-/// 0..1 of the shape extent.
+/// for the SmartArt presets whose faithful outline requires per-shape math:
+/// <c>gear6</c>, <c>gear9</c>, <c>circularArrow</c>, <c>leftCircularArrow</c>,
+/// <c>blockArc</c> (elliptical arcs, flattened to polylines in ~2° steps) and
+/// <c>homePlate</c>, <c>flowChartManualOperation</c>, <c>quadArrow</c> (pure
+/// polygons whose vertices depend on the shape aspect ratio and a:avLst
+/// adjustments). Definitions are transcribed from the ECMA-376 preset geometry
+/// definitions (the same source as LibreOffice's presetShapeDefinitions.xml) and
+/// honor each shape's <c>a:avLst</c> adjustment values; returned points are
+/// normalized to 0..1 of the shape extent.
 /// </summary>
 internal static class SmartArtPresetGeometry
 {
@@ -153,6 +155,164 @@ internal static class SmartArtPresetGeometry
     private static readonly IReadOnlyDictionary<string, PresetDef> Presets =
         new Dictionary<string, PresetDef>(StringComparer.Ordinal)
     {
+        // ECMA-376: point depth dx1 = ss·a/100000 with a = pin(0, adj, 100000·w/ss)
+        // — the depth is a fraction of min(w,h), so it MUST be computed per shape.
+        ["homePlate"] = new SmartArtPresetGeometry.PresetDef(
+            new Dictionary<string, double>
+            {
+                ["adj"] = 50000,
+            },
+            new[]
+            {
+                "maxAdj */ 100000 w ss",
+                "a pin 0 adj maxAdj",
+                "dx1 */ ss a 100000",
+                "x1 +- r 0 dx1",
+            },
+            new[]
+            {
+                "M l t",
+                "L x1 t",
+                "L r vc",
+                "L x1 b",
+                "L l b",
+                "Z",
+            }),
+
+        // ECMA-376 flowChartManualOperation has no avLst: a fixed path in 5x5
+        // space — full-width top edge, bottom edge inset by w/5 on both sides.
+        ["flowChartManualOperation"] = new SmartArtPresetGeometry.PresetDef(
+            new Dictionary<string, double>(),
+            new[]
+            {
+                "x1 */ w 1 5",
+                "x2 */ w 4 5",
+            },
+            new[]
+            {
+                "M l t",
+                "L r t",
+                "L x2 b",
+                "L x1 b",
+                "Z",
+            }),
+
+        // ECMA-376 quadArrow: adj1 = shaft thickness, adj2 = head half-width,
+        // adj3 = head length (all fractions of ss). 24-vertex cross of 4 arrows.
+        ["quadArrow"] = new SmartArtPresetGeometry.PresetDef(
+            new Dictionary<string, double>
+            {
+                ["adj1"] = 22500,
+                ["adj2"] = 22500,
+                ["adj3"] = 22500,
+            },
+            new[]
+            {
+                "a2 pin 0 adj2 50000",
+                "maxAdj1 */ a2 2 1",
+                "a1 pin 0 adj1 maxAdj1",
+                "q1 +- 100000 0 maxAdj1",
+                "maxAdj3 */ q1 1 2",
+                "a3 pin 0 adj3 maxAdj3",
+                "x1 */ ss a3 100000",
+                "dx2 */ ss a2 100000",
+                "x2 +- hc 0 dx2",
+                "x5 +- hc dx2 0",
+                "dx3 */ ss a1 200000",
+                "x3 +- hc 0 dx3",
+                "x4 +- hc dx3 0",
+                "x6 +- r 0 x1",
+                "y2 +- vc 0 dx2",
+                "y5 +- vc dx2 0",
+                "y3 +- vc 0 dx3",
+                "y4 +- vc dx3 0",
+                "y6 +- b 0 x1",
+            },
+            new[]
+            {
+                "M l vc",
+                "L x1 y2",
+                "L x1 y3",
+                "L x3 y3",
+                "L x3 x1",
+                "L x2 x1",
+                "L hc t",
+                "L x5 x1",
+                "L x4 x1",
+                "L x4 y3",
+                "L x6 y3",
+                "L x6 y2",
+                "L r vc",
+                "L x6 y5",
+                "L x6 y4",
+                "L x4 y4",
+                "L x4 y6",
+                "L x5 y6",
+                "L hc b",
+                "L x2 y6",
+                "L x3 y6",
+                "L x3 y4",
+                "L x1 y4",
+                "L x1 y5",
+                "Z",
+            }),
+
+        // ECMA-376 blockArc: annulus band from adj1 (start angle) sweeping to adj2
+        // (end angle, wrapping through +360° when the raw delta is negative) with
+        // band thickness adj3 as a fraction of ss.
+        ["blockArc"] = new SmartArtPresetGeometry.PresetDef(
+            new Dictionary<string, double>
+            {
+                ["adj1"] = 10800000,
+                ["adj2"] = 0,
+                ["adj3"] = 25000,
+            },
+            new[]
+            {
+                "stAng pin 0 adj1 21599999",
+                "istAng pin 0 adj2 21599999",
+                "a3 pin 0 adj3 50000",
+                "sw11 +- istAng 0 stAng",
+                "sw12 +- sw11 21600000 0",
+                "swAng ?: sw11 sw11 sw12",
+                "iswAng +- 0 0 swAng",
+                "wt1 sin wd2 stAng",
+                "ht1 cos hd2 stAng",
+                "wt3 sin wd2 istAng",
+                "ht3 cos hd2 istAng",
+                "dx1 cat2 wd2 ht1 wt1",
+                "dy1 sat2 hd2 ht1 wt1",
+                "dx3 cat2 wd2 ht3 wt3",
+                "dy3 sat2 hd2 ht3 wt3",
+                "x1 +- hc dx1 0",
+                "y1 +- vc dy1 0",
+                "x3 +- hc dx3 0",
+                "y3 +- vc dy3 0",
+                "dr */ ss a3 100000",
+                "iwd2 +- wd2 0 dr",
+                "ihd2 +- hd2 0 dr",
+                "wt2 sin iwd2 istAng",
+                "ht2 cos ihd2 istAng",
+                "wt4 sin iwd2 stAng",
+                "ht4 cos ihd2 stAng",
+                "dx2 cat2 iwd2 ht2 wt2",
+                "dy2 sat2 ihd2 ht2 wt2",
+                "dx4 cat2 iwd2 ht4 wt4",
+                "dy4 sat2 ihd2 ht4 wt4",
+                "x2 +- hc dx2 0",
+                "y2 +- vc dy2 0",
+                "x4 +- hc dx4 0",
+                "y4 +- vc dy4 0",
+            },
+            new[]
+            {
+                "M x1 y1",
+                "A wd2 hd2 stAng swAng",
+                "L x2 y2",
+                "A iwd2 ihd2 istAng iswAng",
+                "Z",
+            }),
+
         ["gear6"] = new SmartArtPresetGeometry.PresetDef(
             new Dictionary<string, double>
             {

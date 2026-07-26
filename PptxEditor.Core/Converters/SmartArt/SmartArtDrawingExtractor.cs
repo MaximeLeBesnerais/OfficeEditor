@@ -45,6 +45,10 @@ namespace PptxEditor.Core.Converters.SmartArt;
         ["leftCircularArrow"] = (ShapeType.LeftCircularArrow, null),
         ["gear6"] = (ShapeType.Gear6, null),
         ["gear9"] = (ShapeType.Gear9, null),
+        ["homePlate"] = (ShapeType.HomePlate, null),
+        ["flowChartManualOperation"] = (ShapeType.FlowChartManualOperation, null),
+        ["quadArrow"] = (ShapeType.QuadArrow, null),
+        ["blockArc"] = (ShapeType.BlockArc, null),
     };
 
     /// <summary>
@@ -110,14 +114,17 @@ namespace PptxEditor.Core.Converters.SmartArt;
     };
 
     /// <summary>
-    /// Presets whose faithful outline requires elliptical arcs. Their polygon
-    /// points are computed per shape by <see cref="SmartArtPresetGeometry"/>
-    /// (honoring a:avLst adjustments) instead of the static table above.
+    /// Presets whose faithful outline must be computed per shape (arc-based
+    /// outlines and polygons whose vertices depend on the aspect ratio / a:avLst
+    /// adjustments). Their points are built by <see cref="SmartArtPresetGeometry"/>
+    /// instead of the static table above.
     /// </summary>
-    private static bool IsArcBasedPreset(ShapeType shapeType)
+    private static bool UsesPerShapeGeometry(ShapeType shapeType)
     {
         return shapeType is ShapeType.CircularArrow or ShapeType.LeftCircularArrow
-            or ShapeType.Gear6 or ShapeType.Gear9;
+            or ShapeType.Gear6 or ShapeType.Gear9
+            or ShapeType.HomePlate or ShapeType.FlowChartManualOperation
+            or ShapeType.QuadArrow or ShapeType.BlockArc;
     }
 
     /// <summary>
@@ -152,6 +159,14 @@ namespace PptxEditor.Core.Converters.SmartArt;
             var prstGeom = GetChild(spPr, "prstGeom", DrawingmlNs);
             var prstValue = prstGeom == null ? null : ReadAttribute(prstGeom, "prst");
             if (string.IsNullOrEmpty(prstValue) || !PresetGeometryMap.ContainsKey(prstValue))
+                continue;
+
+            // A stroke-only connector arc (noFill blockArc) is clipped to the frame
+            // by PowerPoint, never fitted — its cached xfrm legitimately extends
+            // outside the node layout, so it must not set the fit bbox either
+            // (INV-slide-033 §4: rendering the connector must not re-introduce the
+            // 0.63 fit-scale the unrenderable-preset skip above just removed).
+            if (prstValue == "blockArc" && GetChild(spPr, "noFill", DrawingmlNs) != null)
                 continue;
 
             var x = ReadEmuAsPt(off, "x");
@@ -321,11 +336,11 @@ namespace PptxEditor.Core.Converters.SmartArt;
     private static TypstElement BuildPolygon(double x, double y, double w, double h, double rotation,
         string? fillColor, TypstGradientFill? fillGradient, string? strokeColor, double strokeWidth, bool noStroke, DiagramGeometry geometry, string? modelId)
     {
-        // Arc-based presets (gears, circular arrows) evaluate their ECMA-376
-        // preset definition per shape so a:avLst adjustments are honored;
-        // everything else uses the static normalized polygon table.
+        // Arc-based and aspect-dependent presets evaluate their ECMA-376 preset
+        // definition per shape so a:avLst adjustments (and the shape aspect ratio)
+        // are honored; everything else uses the static normalized polygon table.
         List<(double, double)>? points = null;
-        if (IsArcBasedPreset(geometry.ShapeType))
+        if (UsesPerShapeGeometry(geometry.ShapeType))
         {
             points = SmartArtPresetGeometry.TryBuildNormalizedPoints(
                 geometry.PrstName, geometry.Width, geometry.Height, geometry.Adjustments);
@@ -382,7 +397,13 @@ namespace PptxEditor.Core.Converters.SmartArt;
         if (string.IsNullOrEmpty(prstValue)) return null;
 
         if (!PresetGeometryMap.TryGetValue(prstValue, out var mapping))
+        {
+            // Diagnostic aid: unsupported presets are dropped silently by design;
+            // surface them in debug builds so corpus/tooling runs can list them.
+            System.Diagnostics.Debug.WriteLine(
+                $"SmartArtDrawingExtractor: unsupported preset geometry '{prstValue}' — shape skipped.");
             return null;
+        }
 
         var cornerRadius = 0.0;
         if (mapping.Type == ShapeType.Rect)
@@ -742,6 +763,10 @@ namespace PptxEditor.Core.Converters.SmartArt;
         CircularArrow,
         LeftCircularArrow,
         Gear6,
-        Gear9
+        Gear9,
+        HomePlate,
+        FlowChartManualOperation,
+        QuadArrow,
+        BlockArc
     }
 }
