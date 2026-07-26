@@ -42,6 +42,15 @@ public sealed partial class PptxToTypstConverter : IDisposable
     /// </summary>
     private int? _activeSlideIndex;
 
+    /// <summary>
+    /// The part that owns the element currently being converted, when that element
+    /// does NOT live on the slide (i.e. a user-drawn slide-layout shape). Image
+    /// relationship IDs are part-scoped: a layout picture's blip embed must resolve
+    /// against the layout part first, otherwise a slide image part reusing the same
+    /// relationship ID shadows it and the wrong image renders.
+    /// </summary>
+    private OpenXmlPartContainer? _activeImageRelOwner;
+
     /// <summary>Target PPI for upscale detection. Used to determine if a native image
     /// is smaller than the display size and would be blurred by Typst upscaling.</summary>
     public float Ppi { get; init; } = 150;
@@ -502,18 +511,26 @@ public sealed partial class PptxToTypstConverter : IDisposable
             var layoutPart = slidePart.SlideLayoutPart;
             if (layoutPart?.SlideLayout?.CommonSlideData?.ShapeTree != null)
             {
-                foreach (var layoutElement in layoutPart.SlideLayout.CommonSlideData.ShapeTree.ChildElements)
+                _activeImageRelOwner = layoutPart;
+                try
                 {
-                    if (!IsUserDrawnShape(layoutElement))
-                        continue;
-
-                    if (IsOverriddenBySlide(layoutElement, slidePositions))
-                        continue;
-
-                    foreach (var typstElement in ConvertElement(slidePart, layoutElement, styleResolver, slideIndex))
+                    foreach (var layoutElement in layoutPart.SlideLayout.CommonSlideData.ShapeTree.ChildElements)
                     {
-                        typstSlide.Elements.Add(typstElement);
+                        if (!IsUserDrawnShape(layoutElement))
+                            continue;
+
+                        if (IsOverriddenBySlide(layoutElement, slidePositions))
+                            continue;
+
+                        foreach (var typstElement in ConvertElement(slidePart, layoutElement, styleResolver, slideIndex))
+                        {
+                            typstSlide.Elements.Add(typstElement);
+                        }
                     }
+                }
+                finally
+                {
+                    _activeImageRelOwner = null;
                 }
             }
 
@@ -1256,6 +1273,17 @@ public sealed partial class PptxToTypstConverter : IDisposable
     {
         var (id, name) = GetElementIdAndName(picture.NonVisualPictureProperties);
         var position = GetElementPosition(picture.ShapeProperties);
+
+        // A picture placeholder without an explicit transform inherits its frame
+        // from the matching layout placeholder (same rule as shape placeholders).
+        if (picture.ShapeProperties?.Transform2D == null)
+        {
+            var layoutPosition = GetLayoutPlaceholderPosition(slidePart, GetPlaceholderInfo(picture));
+            if (layoutPosition != null)
+            {
+                position = layoutPosition.Value;
+            }
+        }
 
         var imageElement = ExtractImage(slidePart, picture);
         if (imageElement == null) yield break;
@@ -3438,7 +3466,8 @@ public sealed partial class PptxToTypstConverter : IDisposable
         if (string.IsNullOrEmpty(embed)) return null;
 
         // See ExtractImage: layout shapes resolve image rels via the layout part.
-        var imagePart = TryGetImagePart(slidePart, embed)
+        var imagePart = TryGetImagePart(_activeImageRelOwner, embed)
+            ?? TryGetImagePart(slidePart, embed)
             ?? TryGetImagePart(slidePart.SlideLayoutPart, embed);
         if (imagePart == null) return null;
 
@@ -3491,8 +3520,10 @@ public sealed partial class PptxToTypstConverter : IDisposable
         if (string.IsNullOrEmpty(embed)) return null;
 
         // Layout pictures reference image parts through the LAYOUT part's
-        // relationships, not the slide part's — try both.
-        var imagePart = TryGetImagePart(slidePart, embed)
+        // relationships, not the slide part's — the owning part (when converting
+        // layout elements) must win, then both parts are tried as a fallback.
+        var imagePart = TryGetImagePart(_activeImageRelOwner, embed)
+            ?? TryGetImagePart(slidePart, embed)
             ?? TryGetImagePart(slidePart.SlideLayoutPart, embed);
         if (imagePart == null) return null;
 
@@ -4389,19 +4420,27 @@ public sealed partial class PptxToTypstConverter : IDisposable
 
     private (double X, double Y, double Width, double Height, double Rotation)? GetLayoutPlaceholderPosition(SlidePart slidePart, P.Shape shape)
     {
+        return GetLayoutPlaceholderPosition(slidePart, GetPlaceholderInfo(shape));
+    }
+
+    private (double X, double Y, double Width, double Height, double Rotation)? GetLayoutPlaceholderPosition(SlidePart slidePart, (string? Type, int? Index)? slidePh)
+    {
         var layoutPart = slidePart.SlideLayoutPart;
         if (layoutPart?.SlideLayout?.CommonSlideData?.ShapeTree == null)
             return null;
 
-        // Get placeholder info from the slide shape
-        var slidePh = GetPlaceholderInfo(shape);
         if (slidePh == null)
             return null;
 
-        // Find matching placeholder in layout
-        foreach (var layoutShape in layoutPart.SlideLayout.CommonSlideData.ShapeTree.ChildElements.OfType<P.Shape>())
+        // Find matching placeholder in layout (shape or picture placeholders)
+        foreach (var layoutElement in layoutPart.SlideLayout.CommonSlideData.ShapeTree.ChildElements)
         {
-            var layoutPh = GetPlaceholderInfo(layoutShape);
+            (string? Type, int? Index)? layoutPh = layoutElement switch
+            {
+                P.Shape layoutShape => GetPlaceholderInfo(layoutShape),
+                P.Picture layoutPicture => GetPlaceholderInfo(layoutPicture),
+                _ => null
+            };
             if (layoutPh == null)
                 continue;
 
@@ -4417,7 +4456,12 @@ public sealed partial class PptxToTypstConverter : IDisposable
 
             if (matches)
             {
-                var layoutXfrm = layoutShape.ShapeProperties?.Transform2D;
+                var layoutXfrm = layoutElement switch
+                {
+                    P.Shape layoutShape => layoutShape.ShapeProperties?.Transform2D,
+                    P.Picture layoutPicture => layoutPicture.ShapeProperties?.Transform2D,
+                    _ => null
+                };
                 if (layoutXfrm != null)
                 {
                     var x = layoutXfrm.Offset?.X?.Value ?? 0;
@@ -4445,6 +4489,26 @@ public sealed partial class PptxToTypstConverter : IDisposable
             ph = appProps?.Elements<PlaceholderShape>().FirstOrDefault();
         }
 
+        return ParsePlaceholderInfo(ph);
+    }
+
+    private (string? Type, int? Index)? GetPlaceholderInfo(P.Picture picture)
+    {
+        var nvPicPr = picture.NonVisualPictureProperties;
+        if (nvPicPr == null) return null;
+
+        PlaceholderShape? ph = nvPicPr.Elements<PlaceholderShape>().FirstOrDefault();
+        if (ph == null)
+        {
+            var appProps = nvPicPr.ApplicationNonVisualDrawingProperties;
+            ph = appProps?.Elements<PlaceholderShape>().FirstOrDefault();
+        }
+
+        return ParsePlaceholderInfo(ph);
+    }
+
+    private static (string? Type, int? Index)? ParsePlaceholderInfo(PlaceholderShape? ph)
+    {
         if (ph == null) return null;
 
         string? type = null;
