@@ -799,6 +799,17 @@ public sealed partial class PptxToTypstConverter
         if (!string.IsNullOrEmpty(color))
             result = result with { Color = color };
 
+        // Hyperlink runs render in the theme hlink color with an underline —
+        // the reference renderer (and LibreOffice) applies this even over an
+        // explicit solidFill on the run.
+        if (runProps.Elements<Drawing.HyperlinkOnClick>().Any())
+        {
+            var hlinkColor = styleResolver?.ResolveSchemeColor("hlink");
+            if (!string.IsNullOrEmpty(hlinkColor))
+                result = result with { Color = hlinkColor };
+            result = result with { Underline = true };
+        }
+
         var latinFont = runProps.Elements<Drawing.LatinFont>().FirstOrDefault();
         if (latinFont?.Typeface != null)
         {
