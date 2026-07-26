@@ -415,6 +415,63 @@ public sealed class DemoDeckServiceTests
             $"Total {result.TotalMilliseconds:F1}ms > sequential sum {sequentialSum:F1}ms (legs did not overlap)");
     }
 
+    [Fact]
+    public void RenderDeckAllFormats_UnknownName_ThrowsArgumentExceptionListingValidNames()
+    {
+        var service = new DemoDeckService(new StubDeckSessionStore());
+
+        var ex = Assert.Throws<ArgumentException>(() => service.RenderDeckAllFormats("no-such-deck", 110));
+
+        Assert.Contains("northwind", ex.Message);
+    }
+
+    [Fact]
+    public void RenderDeckAllFormats_Northwind_RendersAllFormatsWithStageTimings()
+    {
+        if (Environment.GetEnvironmentVariable(EnableRenderEnvVar) != "1")
+        {
+            return; // no Typst backend in this environment (see class summary)
+        }
+
+        var service = new DemoDeckService(new StubDeckSessionStore(), "/System/Library/Fonts:/Library/Fonts");
+
+        var result = service.RenderDeckAllFormats("northwind", 110);
+
+        Assert.Equal(15, result.SlideCount);
+        Assert.Equal(result.SlideCount, result.PngPages.Count);
+        Assert.Equal(result.SlideCount, result.SvgPages.Count);
+        Assert.All(result.PngPages, page => Assert.Equal(0x89, page[0]));
+        Assert.All(result.SvgPages, page =>
+            Assert.Contains("<svg", System.Text.Encoding.UTF8.GetString(page)));
+
+        // The PDF leg is best-effort: exactly one of PdfBytes / PdfError must be set.
+        Assert.True(result.PdfBytes is not null || result.PdfError is not null,
+            "PDF leg produced neither bytes nor an error");
+        Assert.False(result.PdfBytes is not null && result.PdfError is not null,
+            "PDF leg produced both bytes and an error");
+        if (result.PdfBytes is not null)
+        {
+            Assert.Equal("%PDF-", System.Text.Encoding.ASCII.GetString(result.PdfBytes, 0, 5));
+        }
+
+        // Stage timings: one shared conversion + parallel compiles, so the wall-clock
+        // total covers the conversion plus the slowest compile leg (epsilon for
+        // scheduling slop) and stays under the sequential sum.
+        Assert.True(result.ConversionMilliseconds > 0);
+        Assert.True(result.PngMilliseconds > 0);
+        Assert.True(result.SvgMilliseconds > 0);
+        const double epsilonMs = 100;
+        var slowestLeg = Math.Max(
+            Math.Max(result.PngMilliseconds, result.SvgMilliseconds),
+            result.PdfMilliseconds ?? 0);
+        Assert.True(result.TotalMilliseconds >= result.ConversionMilliseconds + slowestLeg - epsilonMs,
+            $"Total {result.TotalMilliseconds:F1}ms < conversion {result.ConversionMilliseconds:F1}ms + slowest leg {slowestLeg:F1}ms");
+        var sequentialSum = result.ConversionMilliseconds
+            + result.PngMilliseconds + result.SvgMilliseconds + (result.PdfMilliseconds ?? 0);
+        Assert.True(result.TotalMilliseconds <= sequentialSum + epsilonMs,
+            $"Total {result.TotalMilliseconds:F1}ms > sequential sum {sequentialSum:F1}ms (legs did not overlap)");
+    }
+
     private static byte[] BuildDeckBytes(int slideCount)
     {
         using var builder = PresentationBuilder.Create();
