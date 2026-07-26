@@ -345,7 +345,7 @@ namespace PptxEditor.Core.Converters.SmartArt;
         var cornerRadius = 0.0;
         if (mapping.Type == ShapeType.Rect)
         {
-            cornerRadius = ReadCornerRadius(prstGeom, shapeW, shapeH);
+            cornerRadius = ReadCornerRadius(prstGeom, prstValue, shapeW, shapeH);
         }
 
         return new DiagramGeometry
@@ -406,14 +406,22 @@ namespace PptxEditor.Core.Converters.SmartArt;
         return rot60000 / 60000.0;
     }
 
-    private static double ReadCornerRadius(OpenXmlElement prstGeom, double shapeW, double shapeH)
+    /// <summary>
+    /// ECMA-376 default corner-radius adjustment for the rounded-rectangle family
+    /// (<c>roundRect</c>, <c>round1Rect</c>, <c>round2SameRect</c>): 1/6 of
+    /// min(w,h). Cached SmartArt drawings almost always carry an empty avLst, which
+    /// must still render rounded — not collapse to a sharp rectangle.
+    /// </summary>
+    private const long DefaultRoundedRectAdj = 16667;
+
+    private static double ReadCornerRadius(OpenXmlElement prstGeom, string prstName, double shapeW, double shapeH)
     {
         var avLst = GetChild(prstGeom, "avLst", DrawingmlNs);
-        if (avLst == null) return 0;
-
-        var gdList = avLst.Elements()
-            .Where(e => e.LocalName == "gd" && e.NamespaceUri == DrawingmlNs)
-            .ToList();
+        var gdList = avLst == null
+            ? new List<OpenXmlElement>()
+            : avLst.Elements()
+                .Where(e => e.LocalName == "gd" && e.NamespaceUri == DrawingmlNs)
+                .ToList();
 
         foreach (var gd in gdList)
         {
@@ -430,15 +438,23 @@ namespace PptxEditor.Core.Converters.SmartArt;
             if (!long.TryParse(valPart, NumberStyles.Integer, CultureInfo.InvariantCulture, out var adjVal))
                 continue;
 
-            // adj is a fraction of the smaller shape dimension in 100000ths
-            // (e.g. val 10000 = 10% of min(w,h)) — NOT an EMU value. Mirrors
-            // PptxToTypstConverter.ExtractShapeCornerRadius.
-            var minSide = Math.Min(shapeW, shapeH);
-            var radiusPt = adjVal / 100000.0 * minSide;
-            return Math.Min(radiusPt, minSide * 0.5);
+            return AdjToCornerRadius(adjVal, shapeW, shapeH);
         }
 
-        return 0;
+        // No explicit adj: the rounded-rectangle family falls back to the ECMA
+        // default; every other rect-mapped preset (rect, line) stays sharp.
+        var isRoundedRect = prstName is "roundRect" or "round1Rect" or "round2SameRect";
+        return isRoundedRect ? AdjToCornerRadius(DefaultRoundedRectAdj, shapeW, shapeH) : 0;
+    }
+
+    private static double AdjToCornerRadius(long adjVal, double shapeW, double shapeH)
+    {
+        // adj is a fraction of the smaller shape dimension in 100000ths
+        // (e.g. val 10000 = 10% of min(w,h)) — NOT an EMU value. Mirrors
+        // PptxToTypstConverter.ExtractShapeCornerRadius.
+        var minSide = Math.Min(shapeW, shapeH);
+        var radiusPt = adjVal / 100000.0 * minSide;
+        return Math.Min(radiusPt, minSide * 0.5);
     }
 
     private static string? ReadFillColor(OpenXmlElement spPr, IReadOnlyDictionary<string, string>? schemeColors)
