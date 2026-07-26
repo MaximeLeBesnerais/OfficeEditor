@@ -1062,11 +1062,13 @@ public sealed partial class PptxToTypstConverter
         // retained on TypstImageElement for diagnostics but must not change layout.
         var imageTag = $"#image(\"{relativePath}\", width: {widthStr}, height: {heightStr})";
 
-        // Wrap in clipping rect if corner radius is set
+        // Wrap in a clipping block if corner radius is set. #rect has no clip
+        // argument (compilation fails with "unexpected argument: clip"); #block
+        // supports clip + radius and gives the same rounded-corner clip semantics.
         if (image.CornerRadius > 0)
         {
             var radius = FormatPt(image.CornerRadius);
-            sb.Append($"#rect(clip: true, width: {widthStr}, height: {heightStr}, radius: {radius}, [{imageTag}])");
+            sb.Append($"#block(clip: true, width: {widthStr}, height: {heightStr}, radius: {radius})[{imageTag}]");
         }
         else
         {
