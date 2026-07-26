@@ -95,6 +95,43 @@ public sealed class ExportThumbnailTests
         Assert.Equal(allPages[1], thumbnail);
     }
 
+    [Fact]
+    public void ExportThumbnails_CompileFailure_ThrowsInvalidOperationWithCompilerError()
+    {
+        // Regression: a failed Typst compile used to come back as an EMPTY page array,
+        // which the demo upload render serialized as {"success": true, "previews": []}
+        // — the UI showed nothing with no error. Compile failures must throw.
+        using var builder = CreateDeckWithUndecodableImage();
+
+        var ex = Assert.Throws<InvalidOperationException>(() => builder.ExportThumbnails());
+
+        Assert.Contains("Typst", ex.Message);
+    }
+
+    /// <summary>
+    /// A deck whose only content is an image Typst cannot decode (garbage bytes saved
+    /// as .jpg), so the whole-deck compile fails deterministically.
+    /// </summary>
+    private static IPresentationBuilder CreateDeckWithUndecodableImage()
+    {
+        var imagePath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.jpg");
+        File.WriteAllBytes(imagePath, [0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x01, 0x02, 0x03]);
+        try
+        {
+            var builder = PresentationBuilder.Create();
+            builder.AddSlide();
+            builder.CurrentSlide.AddImage(imagePath);
+            return builder;
+        }
+        finally
+        {
+            if (File.Exists(imagePath))
+            {
+                File.Delete(imagePath);
+            }
+        }
+    }
+
     private static void AssertPngSignature(byte[] bytes)
     {
         Assert.True(bytes.Length > 8, "PNG page is suspiciously small.");
