@@ -10,6 +10,15 @@ namespace PptxEditor.Core.Converters;
 
 public sealed partial class PptxToTypstConverter
 {
+    /// <summary>
+    /// The global font fallback chain emitted in the <c>#set text(font: …)</c> header.
+    /// Per-run <c>font:</c> parameters must repeat this chain (resolved family first):
+    /// in Typst a per-element font parameter REPLACES the whole chain, so a single-family
+    /// override collapses to the embedded serif fallback when the family is unavailable
+    /// in the compiler's font set.
+    /// </summary>
+    private IReadOnlyList<string> _globalFontFamilies = [];
+
     public string GenerateTypstSource(TypstPresentation presentation)
     {
         var sb = new StringBuilder();
@@ -38,6 +47,7 @@ public sealed partial class PptxToTypstConverter
         // Font setup with fallback chain
         // Extracted fonts will be loaded from the font-path directory
         var fontFamilies = BuildGlobalFontFamilies(presentation.ThemeFonts, availableFonts);
+        _globalFontFamilies = fontFamilies;
         var fontList = string.Join(", ", fontFamilies.Select(f => $"\"{f}\""));
         sb.AppendLine($"#set text(font: ({fontList}))");
         sb.AppendLine();
@@ -624,10 +634,32 @@ public sealed partial class PptxToTypstConverter
         var fontFamily = SubstituteUnavailableFont(ResolveThemeFont(fmt.FontFamily), availableFonts);
         if (!string.IsNullOrEmpty(fontFamily) && fontFamily != "Arial" && availableFonts.Contains(fontFamily))
         {
-            parameters.Add($"font: \"{fontFamily}\"");
+            parameters.Add($"font: {BuildFontChainValue(fontFamily)}");
         }
 
         return parameters.Count > 0 ? $"#text({string.Join(", ", parameters)})" : "";
+    }
+
+    /// <summary>
+    /// Builds the per-run <c>font:</c> value as the resolved family followed by the
+    /// global fallback chain (duplicates removed). A bare single-family value would
+    /// replace Typst's whole font chain and fall through to the embedded serif
+    /// fallback when the family is missing from the compiler's font set.
+    /// </summary>
+    private string BuildFontChainValue(string fontFamily)
+    {
+        var chain = new List<string> { fontFamily };
+        foreach (var fallback in _globalFontFamilies)
+        {
+            if (!chain.Contains(fallback, StringComparer.OrdinalIgnoreCase))
+            {
+                chain.Add(fallback);
+            }
+        }
+
+        return chain.Count == 1
+            ? $"\"{chain[0]}\""
+            : $"({string.Join(", ", chain.Select(f => $"\"{f}\""))})";
     }
 
     private static bool AreFormattingEqual(TypstTextFormatting a, TypstTextFormatting b)

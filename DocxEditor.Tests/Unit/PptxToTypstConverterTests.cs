@@ -2895,8 +2895,44 @@ public class PptxToTypstConverterTests : IDisposable
 
         var source = converter.GenerateTypstSource(presentation);
 
-        Assert.Contains("font: \"Aptos Light\"", source);
+        Assert.Contains("font: (\"Aptos Light\"", source);
         Assert.DoesNotContain("font: \"Carlito\"", source);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_PerRunFontEmitsFallbackChainNotSingleFamily()
+    {
+        // In Typst, a per-element `font:` parameter REPLACES the whole font chain.
+        // Emitting a bare `font: "Calibri"` therefore collapses the chain to Typst's
+        // (serif) embedded fallback whenever Calibri is absent from the compiler's
+        // font set — the per-run emission must carry the global fallback chain.
+        var path = CreateSimplePptx();
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = CreateTextPresentation(new TypstTextElement
+        {
+            Paragraphs =
+            [
+                new TypstParagraph
+                {
+                    Content = "Body text",
+                    Formatting = new TypstTextFormatting { FontFamily = "+mn-lt", FontSize = 14 }
+                }
+            ]
+        });
+        presentation.ThemeFonts["+mn-lt"] = "Calibri";
+
+        var themeFontsField = typeof(PptxToTypstConverter).GetField(
+            "_themeFonts",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        themeFontsField!.SetValue(converter, presentation.ThemeFonts);
+
+        var source = converter.GenerateTypstSource(presentation);
+
+        Assert.DoesNotContain("font: \"Calibri\"", source);
+        Assert.Contains("font: (\"Calibri\", \"Carlito\", \"Arial\", \"Helvetica\", \"Liberation Sans\")", source);
     }
 
     [Fact]
