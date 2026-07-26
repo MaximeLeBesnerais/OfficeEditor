@@ -142,8 +142,27 @@ namespace PptxEditor.Core.Converters.SmartArt;
     internal static (double MinX, double MinY, double Width, double Height)? ComputeBoundingBox(
         IEnumerable<OpenXmlElement> dspShapes)
     {
+        return ComputeBoundingBoxes(dspShapes).Aware;
+    }
+
+    /// <summary>
+    /// Computes BOTH candidate fit bboxes over the drawing-space geometry:
+    /// <c>Blind</c> unions the raw <c>off/ext</c> rects (rotation ignored);
+    /// <c>Aware</c> unions the rotated footprints for shapes with xfrm@rot
+    /// (identical to <see cref="ComputeBoundingBox"/>). Neither union is a
+    /// universally better approximation of PowerPoint's frame-coordinate
+    /// cache (-b1 §4), so the caller picks between them with
+    /// the dual-fit rule in
+    /// <see cref="ComputeFrameFit(ValueTuple, ValueTuple, ValueTuple)"/>.
+    /// </summary>
+    internal static ((double MinX, double MinY, double Width, double Height)? Blind,
+                     (double MinX, double MinY, double Width, double Height)? Aware)
+        ComputeBoundingBoxes(IEnumerable<OpenXmlElement> dspShapes)
+    {
         double minX = double.MaxValue, minY = double.MaxValue;
         double maxX = double.MinValue, maxY = double.MinValue;
+        double blindMinX = double.MaxValue, blindMinY = double.MaxValue;
+        double blindMaxX = double.MinValue, blindMaxY = double.MinValue;
         var found = false;
 
         foreach (var shape in dspShapes)
@@ -182,6 +201,13 @@ namespace PptxEditor.Core.Converters.SmartArt;
             if (x == null || y == null || cx == null || cy == null) continue;
 
             found = true;
+
+            // Rotation-blind union: the raw off/ext rect regardless of xfrm@rot.
+            blindMinX = Math.Min(blindMinX, x.Value);
+            blindMinY = Math.Min(blindMinY, y.Value);
+            blindMaxX = Math.Max(blindMaxX, x.Value + cx.Value);
+            blindMaxY = Math.Max(blindMaxY, y.Value + cy.Value);
+
             var rotationDeg = ReadRotation(xfrm) ?? 0.0;
             if (rotationDeg == 0.0)
             {
@@ -217,7 +243,10 @@ namespace PptxEditor.Core.Converters.SmartArt;
             }
         }
 
-        return found ? (minX, minY, maxX - minX, maxY - minY) : null;
+        return found
+            ? ((blindMinX, blindMinY, blindMaxX - blindMinX, blindMaxY - blindMinY),
+               (minX, minY, maxX - minX, maxY - minY))
+            : (null, null);
     }
 
     /// <summary>
@@ -239,15 +268,67 @@ namespace PptxEditor.Core.Converters.SmartArt;
         (double MinX, double MinY, double Width, double Height) bounds,
         (double X, double Y, double Width, double Height) frame)
     {
+        var candidate = FitCandidate(bounds, frame);
+        return (candidate.Scale, candidate.Scale, candidate.FrameX, candidate.FrameY);
+    }
+
+    /// <summary>
+    /// Dual-fit selection (-b1 §4): computes the frame fit from
+    /// BOTH the rotation-blind and the rotation-aware bbox and picks whichever
+    /// has scale closer to 1.0 (a cached <c>dsp:drawing</c> is authored in frame
+    /// coordinates, so the correct transform is the one closest to identity).
+    /// Ties are broken by the smaller identity-translation error
+    /// |centerOffset − min·scale| (how far the mapped drawing origin lands from
+    /// the frame origin — the raw centering offset alone is misleading on
+    /// scale ties: slide 71's blind bbox adds phantom width the rotated ink
+    /// never occupies, so centering it shifts the real ink off identity),
+    /// and a remaining tie keeps the rotation-aware fit (the batch-1 default).
+    /// No cap is applied — legitimate upscale factors &gt;1 occur across the
+    /// corpus. Drawings without rotated shapes have identical candidates, so
+    /// this is a no-op for them.
+    /// </summary>
+    internal static (double ScaleX, double ScaleY, double FrameX, double FrameY) ComputeFrameFit(
+        (double MinX, double MinY, double Width, double Height) blindBounds,
+        (double MinX, double MinY, double Width, double Height) awareBounds,
+        (double X, double Y, double Width, double Height) frame)
+    {
+        var blind = FitCandidate(blindBounds, frame);
+        var aware = FitCandidate(awareBounds, frame);
+
+        const double epsilon = 1e-9;
+        var blindDistance = Math.Abs(blind.Scale - 1.0);
+        var awareDistance = Math.Abs(aware.Scale - 1.0);
+
+        var pickBlind = blindDistance < awareDistance - epsilon
+            || (Math.Abs(blindDistance - awareDistance) <= epsilon
+                && blind.IdentityOffset < aware.IdentityOffset);
+
+        var chosen = pickBlind ? blind : aware;
+        return (chosen.Scale, chosen.Scale, chosen.FrameX, chosen.FrameY);
+    }
+
+    private static (double Scale, double FrameX, double FrameY, double IdentityOffset) FitCandidate(
+        (double MinX, double MinY, double Width, double Height) bounds,
+        (double X, double Y, double Width, double Height) frame)
+    {
         var scale = Math.Min(frame.Width / bounds.Width, frame.Height / bounds.Height);
         var centerOffsetX = (frame.Width - bounds.Width * scale) / 2;
         var centerOffsetY = (frame.Height - bounds.Height * scale) / 2;
 
+        // Identity-translation error: with the fit applied, drawing-space
+        // point p maps to frame.X + centerOffsetX + (p − minX)·scale; the
+        // identity transform (how PowerPoint renders the cache) maps it to
+        // frame.X + p. At the drawing origin the gap is centerOffset −
+        // min·scale — 0 for a perfect identity fit.
+        var identityOffset =
+            Math.Abs(centerOffsetX - bounds.MinX * scale) +
+            Math.Abs(centerOffsetY - bounds.MinY * scale);
+
         return (
             scale,
-            scale,
             (frame.X + centerOffsetX) / scale - bounds.MinX,
-            (frame.Y + centerOffsetY) / scale - bounds.MinY);
+            (frame.Y + centerOffsetY) / scale - bounds.MinY,
+            identityOffset);
     }
 
     /// <summary>
