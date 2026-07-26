@@ -458,16 +458,61 @@ public sealed class DemoDeckServiceTests
         // total covers the conversion plus the slowest compile leg (epsilon for
         // scheduling slop) and stays under the sequential sum.
         Assert.True(result.ConversionMilliseconds > 0);
-        Assert.True(result.PngMilliseconds > 0);
+        Assert.True(result.PngMilliseconds is > 0);
         Assert.True(result.SvgMilliseconds > 0);
         const double epsilonMs = 100;
         var slowestLeg = Math.Max(
-            Math.Max(result.PngMilliseconds, result.SvgMilliseconds),
+            Math.Max(result.PngMilliseconds ?? 0, result.SvgMilliseconds),
             result.PdfMilliseconds ?? 0);
         Assert.True(result.TotalMilliseconds >= result.ConversionMilliseconds + slowestLeg - epsilonMs,
             $"Total {result.TotalMilliseconds:F1}ms < conversion {result.ConversionMilliseconds:F1}ms + slowest leg {slowestLeg:F1}ms");
         var sequentialSum = result.ConversionMilliseconds
-            + result.PngMilliseconds + result.SvgMilliseconds + (result.PdfMilliseconds ?? 0);
+            + (result.PngMilliseconds ?? 0) + result.SvgMilliseconds + (result.PdfMilliseconds ?? 0);
+        Assert.True(result.TotalMilliseconds <= sequentialSum + epsilonMs,
+            $"Total {result.TotalMilliseconds:F1}ms > sequential sum {sequentialSum:F1}ms (legs did not overlap)");
+    }
+
+    [Fact]
+    public void RenderDeckAllFormats_SkipPng_OmitsPngLegAndKeepsOtherFormats()
+    {
+        if (Environment.GetEnvironmentVariable(EnableRenderEnvVar) != "1")
+        {
+            return; // no Typst backend in this environment (see class summary)
+        }
+
+        var service = new DemoDeckService(new StubDeckSessionStore(), "/System/Library/Fonts:/Library/Fonts");
+
+        var result = service.RenderDeckAllFormats("northwind", 110, includePng: false);
+
+        // The PNG leg never ran: no pages, and a null timing — never a fake 0 ms.
+        Assert.Null(result.PngMilliseconds);
+        Assert.Empty(result.PngPages);
+
+        Assert.Equal(15, result.SlideCount);
+        Assert.Equal(result.SlideCount, result.SvgPages.Count);
+        Assert.All(result.SvgPages, page =>
+            Assert.Contains("<svg", System.Text.Encoding.UTF8.GetString(page)));
+
+        // The PDF leg is best-effort: exactly one of PdfBytes / PdfError must be set.
+        Assert.True(result.PdfBytes is not null || result.PdfError is not null,
+            "PDF leg produced neither bytes nor an error");
+        Assert.False(result.PdfBytes is not null && result.PdfError is not null,
+            "PDF leg produced both bytes and an error");
+        if (result.PdfBytes is not null)
+        {
+            Assert.Equal("%PDF-", System.Text.Encoding.ASCII.GetString(result.PdfBytes, 0, 5));
+        }
+
+        // Stage timings stay honest without the PNG leg: conversion + parallel
+        // SVG/PDF compiles bound the wall-clock total (epsilon for scheduling slop).
+        Assert.True(result.ConversionMilliseconds > 0);
+        Assert.True(result.SvgMilliseconds > 0);
+        const double epsilonMs = 100;
+        var slowestLeg = Math.Max(result.SvgMilliseconds, result.PdfMilliseconds ?? 0);
+        Assert.True(result.TotalMilliseconds >= result.ConversionMilliseconds + slowestLeg - epsilonMs,
+            $"Total {result.TotalMilliseconds:F1}ms < conversion {result.ConversionMilliseconds:F1}ms + slowest leg {slowestLeg:F1}ms");
+        var sequentialSum = result.ConversionMilliseconds
+            + result.SvgMilliseconds + (result.PdfMilliseconds ?? 0);
         Assert.True(result.TotalMilliseconds <= sequentialSum + epsilonMs,
             $"Total {result.TotalMilliseconds:F1}ms > sequential sum {sequentialSum:F1}ms (legs did not overlap)");
     }
