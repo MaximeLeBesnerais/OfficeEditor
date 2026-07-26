@@ -1447,11 +1447,15 @@ public sealed partial class PptxToTypstConverter : IDisposable
         // i.e. the drawing bbox is mapped onto the frame before the slide transform.
         double drawScaleX = 1.0, drawScaleY = 1.0;
         double shapeFrameX = framePosition.X, shapeFrameY = framePosition.Y;
-        var bounds = SmartArtDrawingExtractor.ComputeBoundingBox(diagramShapes);
-        if (bounds is { } b && b.Width > 0 && b.Height > 0 &&
+        var bounds = SmartArtDrawingExtractor.ComputeBoundingBoxes(diagramShapes);
+        if (bounds.Blind is { } blind && bounds.Aware is { } aware &&
+            blind.Width > 0 && blind.Height > 0 && aware.Width > 0 && aware.Height > 0 &&
             framePosition.Width > 0 && framePosition.Height > 0)
         {
-            var fit = SmartArtDrawingExtractor.ComputeFrameFit(b, framePosition);
+            // Dual-fit: the blind and rotated-footprint bboxes are rival
+            // approximations of the frame-coordinate cache — the extractor
+            // picks whichever fit lands closer to identity (INV-regressions-b1 §4).
+            var fit = SmartArtDrawingExtractor.ComputeFrameFit(blind, aware, framePosition);
             drawScaleX = fit.ScaleX;
             drawScaleY = fit.ScaleY;
             shapeFrameX = fit.FrameX;
