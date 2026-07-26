@@ -419,6 +419,95 @@ internal static class SmartArtPresetGeometry
                 "Z",
             }),
 
+        // ECMA-376 trapezoid: top edge inset by x1 = ss·a/100000 on both
+        // sides, a = pin(0, adj, 50000·w/ss), default adj = 25000. The inset
+        // is a fraction of min(w,h), so it must be computed per shape — a
+        // static 25%-of-width table both mis-renders non-square shapes and
+        // ignores the cached a:avLst adj (-b1 §1: adj=64780
+        // on slides 134/135 is the taper that makes the pyramid silhouette).
+        ["trapezoid"] = new SmartArtPresetGeometry.PresetDef(
+            new Dictionary<string, double>
+            {
+                ["adj"] = 25000,
+            },
+            new[]
+            {
+                "maxAdj */ 50000 w ss",
+                "a pin 0 adj maxAdj",
+                "x1 */ ss a 100000",
+                "x2 +- r 0 x1",
+            },
+            new[]
+            {
+                "M x1 t",
+                "L x2 t",
+                "L r b",
+                "L l b",
+                "Z",
+            }),
+
+        // ECMA-376 nonIsoscelesTrapezoid: independent left/right top insets
+        // x1 = ss·a1/100000, x2 = ss·a2/100000, defaults adj1 = adj2 = 20000.
+        ["nonIsoscelesTrapezoid"] = new SmartArtPresetGeometry.PresetDef(
+            new Dictionary<string, double>
+            {
+                ["adj1"] = 20000,
+                ["adj2"] = 20000,
+            },
+            new[]
+            {
+                "maxAdj */ 100000 w ss",
+                "a1 pin 0 adj1 maxAdj",
+                "a2 pin 0 adj2 maxAdj",
+                "x1 */ ss a1 100000",
+                "x2 */ ss a2 100000",
+                "x3 +- r 0 x2",
+            },
+            new[]
+            {
+                "M x1 t",
+                "L x3 t",
+                "L r b",
+                "L l b",
+                "Z",
+            }),
+
+        // ECMA-376 wedgeRectCallout: rect outline with a triangular tip at
+        // (hc + w·adj1/100000, vc + h·adj2/100000) — defaults adj1 = -20833,
+        // adj2 = 62500. adj1 = adj2 = 0 lands the tip on the shape centre,
+        // which would make the outline a self-intersecting bowtie, so the
+        // degenerate tip collapses onto the last rect vertex (l,b) and the
+        // shape renders as the plain rect (-b1 §3: slide 49's
+        // first column body caches exactly adj1 = adj2 = 0).
+        ["wedgeRectCallout"] = new SmartArtPresetGeometry.PresetDef(
+            new Dictionary<string, double>
+            {
+                ["adj1"] = -20833,
+                ["adj2"] = 62500,
+            },
+            new[]
+            {
+                "dx1 */ w adj1 100000",
+                "dy1 */ h adj2 100000",
+                "x1 +- hc dx1 0",
+                "y1 +- vc dy1 0",
+                "a1 abs adj1",
+                "a2 abs adj2",
+                "adjSum +- a1 a2 0",
+                "deg ?: adjSum 0 1",
+                "tx ?: deg l x1",
+                "ty ?: deg b y1",
+            },
+            new[]
+            {
+                "M l t",
+                "L r t",
+                "L r b",
+                "L l b",
+                "L tx ty",
+                "Z",
+            }),
+
         // ECMA-376 pie: ellipse sector from adj1 (start angle) to adj2 (end
         // angle, wrapping through +360° when the raw delta is negative),
         // closed back to the center.
