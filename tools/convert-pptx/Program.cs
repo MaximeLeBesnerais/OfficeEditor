@@ -5,6 +5,8 @@ using OfficeEditor.Core.Services;
 if (args.Length < 2)
 {
     Console.WriteLine("Usage: convert-pptx <input.pptx> <output-path> [--format pdf|png] [--font-path <path>]");
+    Console.WriteLine("  --font-path: extra font file/directory (path-separator-joined list allowed).");
+    Console.WriteLine("               Defaults to the system font directories; embedded PPTX fonts always win.");
     return 1;
 }
 
@@ -58,9 +60,16 @@ Console.WriteLine($"Typst source saved to: {typstPath}");
 Console.WriteLine("Compiling with Typst...");
 using var compiler = new TypstCompilerService();
 var embeddedFontPath = presentation.FontFiles.Count > 0 ? Path.GetDirectoryName(presentation.FontFiles[0]) : null;
-var compilerFontPath = fontPath != null && embeddedFontPath != null
-    ? string.Join(Path.PathSeparator, embeddedFontPath, fontPath)
-    : fontPath ?? embeddedFontPath;
+
+// Default to the system font directories (same pattern as the API's
+// Demo:FontDirectory) so theme fonts missing from the deck can resolve against
+// installed fonts instead of Typst's embedded serif fallback. TypstBridge keeps
+// system fonts disabled natively, so without this the fallback chain emitted by
+// the converter (… "Arial", "Helvetica", …) finds nothing.
+var requestedFontPath = fontPath ?? DefaultSystemFontPath();
+var compilerFontPath = requestedFontPath != null && embeddedFontPath != null
+    ? string.Join(Path.PathSeparator, embeddedFontPath, requestedFontPath)
+    : requestedFontPath ?? embeddedFontPath;
 
 var options = new CompileOptions
 {
@@ -97,3 +106,21 @@ else
 }
 
 return 0;
+
+static string? DefaultSystemFontPath()
+{
+    string[] candidates =
+    [
+        "/System/Library/Fonts",
+        "/Library/Fonts",
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Library", "Fonts"),
+        "/usr/share/fonts",
+        "/usr/local/share/fonts",
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".fonts"),
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local", "share", "fonts"),
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Fonts"),
+    ];
+
+    var existing = candidates.Where(Directory.Exists).ToList();
+    return existing.Count > 0 ? string.Join(Path.PathSeparator, existing) : null;
+}
