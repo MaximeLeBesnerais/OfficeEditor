@@ -368,6 +368,65 @@ public sealed class PptxToTypstConverterSpaceTests : IDisposable
         return deckPath;
     }
 
+    // ------------------------------------------------------------------
+    // otherStyle default color for non-placeholder text (Space body text
+    // rendered black on the dark background instead of light gray)
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public void Convert_PlainTextBox_InheritsMasterOtherStyleColor()
+    {
+        var deckPath = Path.Combine(_tempDir, $"{Guid.NewGuid():N}.pptx");
+        using (var document = PresentationDocument.Create(deckPath, PresentationDocumentType.Presentation))
+        {
+            var (presentationPart, slideLayoutPart) = CreateShell(document, txStylesXml: """
+                <p:bodyStyle xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:lvl1pPr><a:defRPr sz="3200"/></a:lvl1pPr></p:bodyStyle>
+                <p:otherStyle xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+                  <a:lvl1pPr>
+                    <a:defRPr sz="1800"><a:solidFill><a:srgbClr val="95A5A6"/></a:solidFill></a:defRPr>
+                  </a:lvl1pPr>
+                </p:otherStyle>
+                """);
+            slideLayoutPart.SlideLayout = new P.SlideLayout(new CommonSlideData(CreateShapeTree()));
+
+            var slidePart = presentationPart.AddNewPart<SlidePart>();
+            var textBox = new P.Shape(
+                new NonVisualShapeProperties(
+                    new NonVisualDrawingProperties { Id = 5, Name = "TextBox" },
+                    new NonVisualShapeDrawingProperties(),
+                    new ApplicationNonVisualDrawingProperties()),
+                new ShapeProperties(
+                    new Drawing.Transform2D(
+                        new Drawing.Offset { X = 319756, Y = 4765116 },
+                        new Drawing.Extents { Cx = 2088993, Cy = 954107 }),
+                    new Drawing.PresetGeometry(new Drawing.AdjustValueList())
+                    { Preset = Drawing.ShapeTypeValues.Rectangle }),
+                new P.TextBody(
+                    new Drawing.BodyProperties(),
+                    new Drawing.ListStyle(),
+                    new Drawing.Paragraph(
+                        new Drawing.Run(
+                            new Drawing.RunProperties { Language = "en-US", FontSize = 1400 },
+                            new Drawing.Text("Lorem ipsum dolor sit amet")))));
+            slidePart.Slide = new Slide(new CommonSlideData(CreateShapeTree(textBox)));
+            slidePart.AddPart(slideLayoutPart);
+
+            presentationPart.Presentation!.SlideIdList!.Append(new SlideId
+            {
+                Id = 256,
+                RelationshipId = presentationPart.GetIdOfPart(slidePart)
+            });
+        }
+
+        using var doc = PresentationDocument.Open(deckPath, false);
+        using var converter = new PptxToTypstConverter(doc);
+
+        var presentation = converter.Convert();
+        var element = Assert.Single(presentation.Slides[0].Elements, e => e.Type == "Text");
+        var run = Assert.Single(element.Text!.Paragraphs[0].Runs);
+        Assert.Equal("#95A5A6", run.Formatting.Color);
+    }
+
     /// <summary>
     /// Deck whose slide has a pic placeholder (ph type="pic" idx="10") with an
     /// EMPTY spPr (no xfrm). The layout carries the matching pic placeholder
@@ -431,7 +490,7 @@ public sealed class PptxToTypstConverterSpaceTests : IDisposable
     }
 
     private static (PresentationPart PresentationPart, SlideLayoutPart SlideLayoutPart) CreateShell(
-        PresentationDocument document)
+        PresentationDocument document, string? txStylesXml = null)
     {
         var presentationPart = document.AddPresentationPart();
         presentationPart.Presentation = new Presentation
@@ -460,6 +519,11 @@ public sealed class PptxToTypstConverterSpaceTests : IDisposable
                 FollowedHyperlink = Drawing.ColorSchemeIndexValues.FollowedHyperlink
             },
             new SlideLayoutIdList());
+
+        if (txStylesXml != null)
+        {
+            slideMasterPart.SlideMaster.TextStyles = new TextStyles { InnerXml = txStylesXml };
+        }
 
         var slideLayoutPart = slideMasterPart.AddNewPart<SlideLayoutPart>();
         slideLayoutPart.AddPart(slideMasterPart);
