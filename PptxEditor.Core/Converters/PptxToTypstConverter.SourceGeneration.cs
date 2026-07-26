@@ -1116,6 +1116,37 @@ public sealed partial class PptxToTypstConverter
                 var wrapForRotation = Math.Abs(rotation) > 0.01;
                 if (wrapForRotation)
                     sb.Append($"#block(width: {widthStr}, height: {heightStr})[");
+
+                if (shape.Subpaths.Count > 1)
+                {
+                    // Multi-contour custGeom (ring, letter counters): a flat #polygon
+                    // would fill the holes — emit an even-odd #curve with one
+                    // move/line/close component chain per subpath.
+                    sb.Append("#curve(fill-rule: \"even-odd\"");
+                    if (!string.IsNullOrEmpty(fill)) sb.Append($", {fill}");
+                    if (!string.IsNullOrEmpty(stroke)) sb.Append($", {stroke}");
+                    if (string.IsNullOrEmpty(fill) && string.IsNullOrEmpty(stroke))
+                        sb.Append(", fill: none");
+                    foreach (var subpath in shape.Subpaths)
+                    {
+                        var firstPoint = true;
+                        foreach (var (x, y) in subpath)
+                        {
+                            var px = FormatPt(x * width);  // Scale to element width
+                            var py = FormatPt(y * height); // Scale to element height
+                            sb.Append(firstPoint
+                                ? $", curve.move(({px}, {py}))"
+                                : $", curve.line(({px}, {py}))");
+                            firstPoint = false;
+                        }
+                        sb.Append(", curve.close(mode: \"straight\")");
+                    }
+                    sb.Append(")");
+                    if (wrapForRotation)
+                        sb.Append("]");
+                    break;
+                }
+
                 sb.Append("#polygon(");
                 var hasPolygonArg = false;
                 if (!string.IsNullOrEmpty(fill))
