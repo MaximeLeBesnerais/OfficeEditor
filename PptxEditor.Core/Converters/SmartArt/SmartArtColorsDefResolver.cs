@@ -107,7 +107,7 @@ internal static class SmartArtColorsDefResolver
         var prefix = slash >= 0 ? uri[..(slash + 1)] : string.Empty;
 
         var partsByUri = new Dictionary<string, OpenXmlPart>(StringComparer.Ordinal);
-        CollectParts(drawingPart.OpenXmlPackage, partsByUri);
+        CollectParts(drawingPart.OpenXmlPackage, partsByUri, new HashSet<OpenXmlPartContainer>());
 
         partsByUri.TryGetValue(prefix + "colors" + suffix, out var colorsPart);
         partsByUri.TryGetValue(prefix + "data" + suffix, out var dataPart);
@@ -119,12 +119,17 @@ internal static class SmartArtColorsDefResolver
             SafeRoot(stylePart, "styleDef")));
     }
 
-    private static void CollectParts(OpenXmlPartContainer container, Dictionary<string, OpenXmlPart> partsByUri)
+    private static void CollectParts(OpenXmlPartContainer container, Dictionary<string, OpenXmlPart> partsByUri,
+        HashSet<OpenXmlPartContainer> visited)
     {
+        // Part relationships are not a tree (e.g. slideMaster ↔ slideLayout) —
+        // guard the walk against cycles.
+        if (!visited.Add(container)) return;
+
         foreach (var pair in container.Parts)
         {
             partsByUri.TryAdd(pair.OpenXmlPart.Uri.OriginalString, pair.OpenXmlPart);
-            CollectParts(pair.OpenXmlPart, partsByUri);
+            CollectParts(pair.OpenXmlPart, partsByUri, visited);
         }
     }
 
