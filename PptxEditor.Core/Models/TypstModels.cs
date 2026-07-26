@@ -125,6 +125,11 @@ public sealed class TypstTextElement
     public string VerticalAlign { get; init; } = "top";
     public int ParagraphCount { get; init; } = 1;
     public bool HasExplicitLineBreaks { get; init; }
+    /// <summary>
+    /// bodyPr wrap="none": PowerPoint never wraps the text — the box overflows
+    /// instead. Emitters must give the block enough width for the full line.
+    /// </summary>
+    public bool NoWrap { get; init; }
     public double TextBoxHeight { get; set; }
 }
 

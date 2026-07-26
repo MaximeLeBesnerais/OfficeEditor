@@ -500,6 +500,29 @@ public sealed partial class PptxToTypstConverter : IDisposable
             // independent decorative/text elements (e.g. section headers like
             // "List //") that must be rendered beneath the slide's own shapes.
             var layoutPart = slidePart.SlideLayoutPart;
+
+            // Master user-drawn shapes (logos, taglines, watermark art) render
+            // beneath layout shapes on every slide using the master, unless the
+            // layout opts out via showMasterSp="0".
+            var masterPart = layoutPart?.SlideMasterPart;
+            if (layoutPart?.SlideLayout?.ShowMasterShapes?.Value != false
+                && masterPart?.SlideMaster?.CommonSlideData?.ShapeTree != null)
+            {
+                foreach (var masterElement in masterPart.SlideMaster.CommonSlideData.ShapeTree.ChildElements)
+                {
+                    if (!IsUserDrawnShape(masterElement))
+                        continue;
+
+                    if (IsOverriddenBySlide(masterElement, slidePositions))
+                        continue;
+
+                    foreach (var typstElement in ConvertElement(slidePart, masterElement, styleResolver, slideIndex, imageRelScope: masterPart))
+                    {
+                        typstSlide.Elements.Add(typstElement);
+                    }
+                }
+            }
+
             if (layoutPart?.SlideLayout?.CommonSlideData?.ShapeTree != null)
             {
                 foreach (var layoutElement in layoutPart.SlideLayout.CommonSlideData.ShapeTree.ChildElements)
@@ -510,7 +533,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
                     if (IsOverriddenBySlide(layoutElement, slidePositions))
                         continue;
 
-                    foreach (var typstElement in ConvertElement(slidePart, layoutElement, styleResolver, slideIndex))
+                    foreach (var typstElement in ConvertElement(slidePart, layoutElement, styleResolver, slideIndex, imageRelScope: layoutPart))
                     {
                         typstSlide.Elements.Add(typstElement);
                     }
@@ -646,20 +669,20 @@ public sealed partial class PptxToTypstConverter : IDisposable
         };
     }
 
-    private IEnumerable<TypstElement> ConvertElement(SlidePart slidePart, OpenXmlElement element, StyleResolver styleResolver, int slideIndex, double offX = 0, double offY = 0, double scaleX = 1, double scaleY = 1)
+    private IEnumerable<TypstElement> ConvertElement(SlidePart slidePart, OpenXmlElement element, StyleResolver styleResolver, int slideIndex, double offX = 0, double offY = 0, double scaleX = 1, double scaleY = 1, OpenXmlPartContainer? imageRelScope = null)
     {
         return element switch
         {
-            P.Shape shape => ConvertShape(slidePart, shape, styleResolver, slideIndex, offX, offY, scaleX, scaleY),
-            P.Picture picture => ConvertPicture(slidePart, picture, offX, offY, scaleX, scaleY),
+            P.Shape shape => ConvertShape(slidePart, shape, styleResolver, slideIndex, offX, offY, scaleX, scaleY, imageRelScope),
+            P.Picture picture => ConvertPicture(slidePart, picture, offX, offY, scaleX, scaleY, imageRelScope),
             P.GraphicFrame graphicFrame => ConvertGraphicFrame(slidePart, graphicFrame, styleResolver, offX, offY, scaleX, scaleY),
-            P.GroupShape groupShape => ConvertGroupShape(slidePart, groupShape, styleResolver, slideIndex, offX, offY, scaleX, scaleY),
+            P.GroupShape groupShape => ConvertGroupShape(slidePart, groupShape, styleResolver, slideIndex, offX, offY, scaleX, scaleY, imageRelScope),
             P.ConnectionShape connectionShape => ConvertConnectionShape(connectionShape, styleResolver, offX, offY, scaleX, scaleY),
             _ => Array.Empty<TypstElement>()
         };
     }
 
-    private IEnumerable<TypstElement> ConvertShape(SlidePart slidePart, P.Shape shape, StyleResolver styleResolver, int slideIndex, double offX, double offY, double scaleX, double scaleY)
+    private IEnumerable<TypstElement> ConvertShape(SlidePart slidePart, P.Shape shape, StyleResolver styleResolver, int slideIndex, double offX, double offY, double scaleX, double scaleY, OpenXmlPartContainer? imageRelScope = null)
     {
         var (id, name) = GetElementIdAndName(shape.NonVisualShapeProperties);
         var position = GetElementPosition(shape.ShapeProperties);
@@ -699,7 +722,8 @@ public sealed partial class PptxToTypstConverter : IDisposable
                 PaddingBottom = text.PaddingBottom,
                 LineSpacing = text.LineSpacing,
                 ParagraphCount = text.ParagraphCount,
-                HasExplicitLineBreaks = text.HasExplicitLineBreaks
+                HasExplicitLineBreaks = text.HasExplicitLineBreaks,
+                NoWrap = text.NoWrap
             };
         }
 
@@ -714,7 +738,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
         var blipFill = shape.ShapeProperties?.Elements<Drawing.BlipFill>().FirstOrDefault();
         if (blipFill != null)
         {
-            var imageElement = ExtractImageFromBlipFill(slidePart, blipFill);
+            var imageElement = ExtractImageFromBlipFill(slidePart, blipFill, imageRelScope);
             if (imageElement != null)
             {
                 // Extract corner radius from shape geometry for rounded image clipping
@@ -727,16 +751,43 @@ public sealed partial class PptxToTypstConverter : IDisposable
                 // For now, return image if no text, or prioritize text if present
                 if (string.IsNullOrWhiteSpace(text.Content))
                 {
+                    var imgX = finalX;
+                    var imgY = finalY;
+                    var imgW = finalW;
+                    var imgH = finalH;
+                    var imgRot = finalRot;
+
+                    // blipFill rotWithShape="0" (the OOXML default): the fill
+                    // stays slide-aligned — PowerPoint does not rotate the
+                    // image with the shape. For quarter-turn rotations the
+                    // displayed bounds are the swapped box about the same
+                    // centre; other angles keep the legacy rotated rendering.
+                    if (blipFill.RotateWithShape?.Value != true && Math.Abs(finalRot) > 0.01)
+                    {
+                        var quarterTurns = (int)Math.Round(finalRot / 90.0);
+                        if (Math.Abs(finalRot - quarterTurns * 90.0) < 0.01)
+                        {
+                            if (quarterTurns % 2 != 0)
+                            {
+                                imgX = finalX + (finalW - finalH) / 2;
+                                imgY = finalY + (finalH - finalW) / 2;
+                                imgW = finalH;
+                                imgH = finalW;
+                            }
+                            imgRot = 0;
+                        }
+                    }
+
                 yield return new TypstElement
                 {
                     Type = "Image",
                     Id = id,
                     Name = name,
-                    X = finalX,
-                    Y = finalY,
-                    Width = finalW,
-                    Height = finalH,
-                    Rotation = finalRot,
+                    X = imgX,
+                    Y = imgY,
+                    Width = imgW,
+                    Height = imgH,
+                    Rotation = imgRot,
                     Image = imageElement
                 };
                     yield break;
@@ -1252,12 +1303,24 @@ public sealed partial class PptxToTypstConverter : IDisposable
         return distinctXs.Count == 2 && distinctYs.Count == 2;
     }
 
-    private IEnumerable<TypstElement> ConvertPicture(SlidePart slidePart, P.Picture picture, double offX, double offY, double scaleX, double scaleY)
+    private IEnumerable<TypstElement> ConvertPicture(SlidePart slidePart, P.Picture picture, double offX, double offY, double scaleX, double scaleY, OpenXmlPartContainer? imageRelScope = null)
     {
         var (id, name) = GetElementIdAndName(picture.NonVisualPictureProperties);
         var position = GetElementPosition(picture.ShapeProperties);
 
-        var imageElement = ExtractImage(slidePart, picture);
+        // Picture placeholders (ph type="pic") with no transform inherit their
+        // position/size from the layout placeholder (ECMA-376 placeholder
+        // inheritance), same as text placeholders do in ConvertShape.
+        if (picture.ShapeProperties?.Transform2D == null)
+        {
+            var layoutPosition = GetLayoutPlaceholderPosition(slidePart, picture);
+            if (layoutPosition != null)
+            {
+                position = layoutPosition.Value;
+            }
+        }
+
+        var imageElement = ExtractImage(slidePart, picture, imageRelScope);
         if (imageElement == null) yield break;
 
         yield return new TypstElement
@@ -1854,7 +1917,8 @@ public sealed partial class PptxToTypstConverter : IDisposable
                 PaddingBottom = text.PaddingBottom,
                 LineSpacing = text.Paragraphs.FirstOrDefault()?.LineSpacing,
                 ParagraphCount = text.ParagraphCount,
-                HasExplicitLineBreaks = text.HasExplicitLineBreaks
+                HasExplicitLineBreaks = text.HasExplicitLineBreaks,
+                NoWrap = text.NoWrap
             };
         }
 
@@ -1947,8 +2011,11 @@ public sealed partial class PptxToTypstConverter : IDisposable
             if (source.Rotation?.Value != null)
                 result.Rotation = new Int32Value(source.Rotation.Value);
 
-            if (source.Wrap?.Value != null)
-                result.Wrap = source.Wrap.Value;
+            // Wrap — like anchor, the SDK attribute read is unreliable; regex it.
+            if (System.Text.RegularExpressions.Regex.IsMatch(source.OuterXml, @"\bwrap\s*=\s*""none"""))
+                result.Wrap = Drawing.TextWrappingValues.None;
+            else if (System.Text.RegularExpressions.Regex.IsMatch(source.OuterXml, @"\bwrap\s*=\s*""square"""))
+                result.Wrap = Drawing.TextWrappingValues.Square;
         }
 
         // Copy autofit child elements from slide -> layout -> master
@@ -2073,7 +2140,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
         return (EmuToPt(xEmu), EmuToPt(yEmu), EmuToPt(cxEmu), EmuToPt(cyEmu));
     }
 
-    private IEnumerable<TypstElement> ConvertGroupShape(SlidePart slidePart, P.GroupShape groupShape, StyleResolver styleResolver, int slideIndex, double parentOffX, double parentOffY, double parentScaleX, double parentScaleY)
+    private IEnumerable<TypstElement> ConvertGroupShape(SlidePart slidePart, P.GroupShape groupShape, StyleResolver styleResolver, int slideIndex, double parentOffX, double parentOffY, double parentScaleX, double parentScaleY, OpenXmlPartContainer? imageRelScope = null)
     {
         var grpXfrm = groupShape.GroupShapeProperties?.TransformGroup;
 
@@ -2106,11 +2173,68 @@ public sealed partial class PptxToTypstConverter : IDisposable
             newScaleY = parentScaleY * localScaleY;
         }
 
+        // Group rotation (a:xfrm/@rot): every child pivots about the group's
+        // centre — the centre of its (off, ext) box in parent space — and the
+        // angle adds to each child's own rotation. Applied as a post-pass on
+        // the positioned children so nested groups compose naturally.
+        var groupRotDeg = (grpXfrm?.Rotation?.Value ?? 0) / 60000.0;
+        double rotCentreX = 0, rotCentreY = 0;
+        if (Math.Abs(groupRotDeg) > 0.001 && grpXfrm != null)
+        {
+            var grpExtXPt = EmuToPt((long)(grpXfrm.Extents?.Cx?.Value ?? 0));
+            var grpExtYPt = EmuToPt((long)(grpXfrm.Extents?.Cy?.Value ?? 0));
+            rotCentreX = parentOffX + (EmuToPt((long)(grpXfrm.Offset?.X?.Value ?? 0)) + grpExtXPt / 2) * parentScaleX;
+            rotCentreY = parentOffY + (EmuToPt((long)(grpXfrm.Offset?.Y?.Value ?? 0)) + grpExtYPt / 2) * parentScaleY;
+        }
+
         foreach (var child in groupShape.ChildElements)
         {
-            foreach (var element in ConvertElement(slidePart, child, styleResolver, slideIndex, newOffX, newOffY, newScaleX, newScaleY))
-                yield return element;
+            foreach (var element in ConvertElement(slidePart, child, styleResolver, slideIndex, newOffX, newOffY, newScaleX, newScaleY, imageRelScope))
+            {
+                yield return Math.Abs(groupRotDeg) > 0.001
+                    ? RotateElementAboutPoint(element, groupRotDeg, rotCentreX, rotCentreY)
+                    : element;
+            }
         }
+    }
+
+    /// <summary>
+    /// Rotates a positioned element about an arbitrary point (group-rotation
+    /// post-pass): the element centre moves on the rotation circle and the
+    /// angle accumulates into <see cref="TypstElement.Rotation"/>, which the
+    /// emitters apply about the element centre. Positive angles are clockwise
+    /// (OOXML and Typst agree in y-down space).
+    /// </summary>
+    private static TypstElement RotateElementAboutPoint(TypstElement element, double angleDeg, double pivotX, double pivotY)
+    {
+        var radians = angleDeg * Math.PI / 180.0;
+        var cos = Math.Cos(radians);
+        var sin = Math.Sin(radians);
+
+        var centreX = element.X + element.Width / 2;
+        var centreY = element.Y + element.Height / 2;
+        var dx = centreX - pivotX;
+        var dy = centreY - pivotY;
+
+        var rotatedX = pivotX + dx * cos - dy * sin;
+        var rotatedY = pivotY + dx * sin + dy * cos;
+
+        return new TypstElement
+        {
+            Type = element.Type,
+            Id = element.Id,
+            Name = element.Name,
+            ModelId = element.ModelId,
+            X = rotatedX - element.Width / 2,
+            Y = rotatedY - element.Height / 2,
+            Width = element.Width,
+            Height = element.Height,
+            Rotation = element.Rotation + angleDeg,
+            Text = element.Text,
+            Image = element.Image,
+            Table = element.Table,
+            Shape = element.Shape
+        };
     }
 
     /// <summary>
@@ -2187,6 +2311,17 @@ public sealed partial class PptxToTypstConverter : IDisposable
                 newFmt = newFmt with { Italic = defaultStyle.Italic.Value };
             if (newFmt.Color == "#000000" && !string.IsNullOrEmpty(defaultStyle.Color))
                 newFmt = newFmt with { Color = defaultStyle.Color };
+
+            // Theme default text color (last resort): a run whose color was
+            // never set anywhere in the cascade inherits tx1 (OOXML default) —
+            // usually black, but themes may redefine dk1 (the Pencil decks use
+            // a grey dk1, which is why their body text renders grey).
+            if (newFmt.Color == "#000000")
+            {
+                var tx1Color = styleResolver.ResolveSchemeColor("tx1");
+                if (!string.IsNullOrEmpty(tx1Color))
+                    newFmt = newFmt with { Color = tx1Color };
+            }
             if (newFmt.FontFamily == "Arial" && !string.IsNullOrEmpty(defaultStyle.FontFamily))
             {
                 var fontName = defaultStyle.FontFamily;
@@ -2255,7 +2390,8 @@ public sealed partial class PptxToTypstConverter : IDisposable
             PaddingBottom = result.PaddingBottom,
             LineSpacing = updatedParagraphs.FirstOrDefault()?.LineSpacing,
             ParagraphCount = result.ParagraphCount,
-            HasExplicitLineBreaks = result.HasExplicitLineBreaks
+            HasExplicitLineBreaks = result.HasExplicitLineBreaks,
+            NoWrap = result.NoWrap
         };
     }
 
@@ -2320,7 +2456,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
                     {
                         "ctr" => "center",
                         "r" => "right",
-                        "just" => "left",
+                        "just" => "justify",
                         "l" => "left",
                         _ => null
                     };
@@ -2480,7 +2616,9 @@ public sealed partial class PptxToTypstConverter : IDisposable
             PaddingBottom = padBottom,
             LineSpacing = paragraphs.FirstOrDefault()?.LineSpacing,
             ParagraphCount = Math.Max(1, paragraphCount),
-            HasExplicitLineBreaks = hasExplicitLineBreaks
+            HasExplicitLineBreaks = hasExplicitLineBreaks,
+            NoWrap = System.Text.RegularExpressions.Regex.IsMatch(
+                bodyPr?.OuterXml ?? "", @"\bwrap\s*=\s*""none""")
         };
     }
 
@@ -2767,7 +2905,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
                 {
                     "ctr" => "center",
                     "r" => "right",
-                    "just" => "left",  // Typst doesn't have 'justify', use left as fallback
+                    "just" => "justify",
                     _ => "left"
                 };
             }
@@ -3426,7 +3564,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
         return null;
     }
 
-    private TypstImageElement? ExtractImage(SlidePart slidePart, P.Picture picture)
+    private TypstImageElement? ExtractImage(SlidePart slidePart, P.Picture picture, OpenXmlPartContainer? imageRelScope = null)
     {
         var blipFill = picture.BlipFill;
         if (blipFill == null) return null;
@@ -3437,8 +3575,12 @@ public sealed partial class PptxToTypstConverter : IDisposable
         var embed = blip.Embed?.Value;
         if (string.IsNullOrEmpty(embed)) return null;
 
-        // See ExtractImage: layout shapes resolve image rels via the layout part.
-        var imagePart = TryGetImagePart(slidePart, embed)
+        // The rId is scoped to the part that OWNS the shape: layout pictures
+        // resolve via the layout part (imageRelScope), slide pictures via the
+        // slide part. rIds collide freely across parts, so the owner scope
+        // must win; the other parts are fallbacks only.
+        var imagePart = TryGetImagePart(imageRelScope, embed)
+            ?? TryGetImagePart(slidePart, embed)
             ?? TryGetImagePart(slidePart.SlideLayoutPart, embed);
         if (imagePart == null) return null;
 
@@ -3482,7 +3624,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
         };
     }
 
-    private TypstImageElement? ExtractImageFromBlipFill(SlidePart slidePart, Drawing.BlipFill blipFill)
+    private TypstImageElement? ExtractImageFromBlipFill(SlidePart slidePart, Drawing.BlipFill blipFill, OpenXmlPartContainer? imageRelScope = null)
     {
         var blip = blipFill.Blip;
         if (blip == null) return null;
@@ -3490,9 +3632,10 @@ public sealed partial class PptxToTypstConverter : IDisposable
         var embed = blip.Embed?.Value;
         if (string.IsNullOrEmpty(embed)) return null;
 
-        // Layout pictures reference image parts through the LAYOUT part's
-        // relationships, not the slide part's — try both.
-        var imagePart = TryGetImagePart(slidePart, embed)
+        // See ExtractImage: the owner part's relationships win (rIds collide
+        // across slide/layout parts); the others are fallbacks.
+        var imagePart = TryGetImagePart(imageRelScope, embed)
+            ?? TryGetImagePart(slidePart, embed)
             ?? TryGetImagePart(slidePart.SlideLayoutPart, embed);
         if (imagePart == null) return null;
 
@@ -4389,24 +4532,44 @@ public sealed partial class PptxToTypstConverter : IDisposable
 
     private (double X, double Y, double Width, double Height, double Rotation)? GetLayoutPlaceholderPosition(SlidePart slidePart, P.Shape shape)
     {
-        var layoutPart = slidePart.SlideLayoutPart;
-        if (layoutPart?.SlideLayout?.CommonSlideData?.ShapeTree == null)
-            return null;
-
         // Get placeholder info from the slide shape
         var slidePh = GetPlaceholderInfo(shape);
         if (slidePh == null)
             return null;
 
-        // Find matching placeholder in layout
-        foreach (var layoutShape in layoutPart.SlideLayout.CommonSlideData.ShapeTree.ChildElements.OfType<P.Shape>())
+        return FindLayoutPlaceholderXfrm(slidePart, slidePh.Value.Type, slidePh.Value.Index);
+    }
+
+    private (double X, double Y, double Width, double Height, double Rotation)? GetLayoutPlaceholderPosition(SlidePart slidePart, P.Picture picture)
+    {
+        // Picture placeholders carry their ph under nvPicPr/nvPr.
+        var ph = picture.NonVisualPictureProperties?.ApplicationNonVisualDrawingProperties?
+            .Elements<PlaceholderShape>().FirstOrDefault();
+        if (ph == null)
+            return null;
+
+        var (type, idx) = ParsePlaceholderTypeAndIndex(ph);
+        return FindLayoutPlaceholderXfrm(slidePart, type, idx);
+    }
+
+    private (double X, double Y, double Width, double Height, double Rotation)? FindLayoutPlaceholderXfrm(SlidePart slidePart, string? slideType, int? slideIdx)
+    {
+        var layoutPart = slidePart.SlideLayoutPart;
+        if (layoutPart?.SlideLayout?.CommonSlideData?.ShapeTree == null)
+            return null;
+
+        // Find matching placeholder in layout (shape or picture placeholders)
+        foreach (var layoutElement in layoutPart.SlideLayout.CommonSlideData.ShapeTree.ChildElements)
         {
-            var layoutPh = GetPlaceholderInfo(layoutShape);
+            (string? Type, int? Index)? layoutPh = layoutElement switch
+            {
+                P.Shape layoutShape => GetPlaceholderInfo(layoutShape),
+                P.Picture layoutPicture => GetPicturePlaceholderInfo(layoutPicture),
+                _ => null
+            };
             if (layoutPh == null)
                 continue;
 
-            var slideType = slidePh.Value.Type;
-            var slideIdx = slidePh.Value.Index;
             var layoutType = layoutPh.Value.Type;
             var layoutIdx = layoutPh.Value.Index;
 
@@ -4417,7 +4580,12 @@ public sealed partial class PptxToTypstConverter : IDisposable
 
             if (matches)
             {
-                var layoutXfrm = layoutShape.ShapeProperties?.Transform2D;
+                var layoutXfrm = layoutElement switch
+                {
+                    P.Shape layoutShape => layoutShape.ShapeProperties?.Transform2D,
+                    P.Picture layoutPicture => layoutPicture.ShapeProperties?.Transform2D,
+                    _ => null
+                };
                 if (layoutXfrm != null)
                 {
                     var x = layoutXfrm.Offset?.X?.Value ?? 0;
@@ -4433,20 +4601,15 @@ public sealed partial class PptxToTypstConverter : IDisposable
         return null;
     }
 
-    private (string? Type, int? Index)? GetPlaceholderInfo(P.Shape shape)
+    private static (string? Type, int? Index)? GetPicturePlaceholderInfo(P.Picture picture)
     {
-        var nvSpPr = shape.NonVisualShapeProperties;
-        if (nvSpPr == null) return null;
+        var ph = picture.NonVisualPictureProperties?.ApplicationNonVisualDrawingProperties?
+            .Elements<PlaceholderShape>().FirstOrDefault();
+        return ph == null ? null : ParsePlaceholderTypeAndIndex(ph);
+    }
 
-        PlaceholderShape? ph = nvSpPr.Elements<PlaceholderShape>().FirstOrDefault();
-        if (ph == null)
-        {
-            var appProps = nvSpPr.ApplicationNonVisualDrawingProperties;
-            ph = appProps?.Elements<PlaceholderShape>().FirstOrDefault();
-        }
-
-        if (ph == null) return null;
-
+    private static (string? Type, int? Index) ParsePlaceholderTypeAndIndex(PlaceholderShape ph)
+    {
         string? type = null;
         int? idx = null;
 
@@ -4463,6 +4626,23 @@ public sealed partial class PptxToTypstConverter : IDisposable
         }
 
         return (type, idx);
+    }
+
+    private (string? Type, int? Index)? GetPlaceholderInfo(P.Shape shape)
+    {
+        var nvSpPr = shape.NonVisualShapeProperties;
+        if (nvSpPr == null) return null;
+
+        PlaceholderShape? ph = nvSpPr.Elements<PlaceholderShape>().FirstOrDefault();
+        if (ph == null)
+        {
+            var appProps = nvSpPr.ApplicationNonVisualDrawingProperties;
+            ph = appProps?.Elements<PlaceholderShape>().FirstOrDefault();
+        }
+
+        if (ph == null) return null;
+
+        return ParsePlaceholderTypeAndIndex(ph);
     }
 
     private (double X, double Y, double Width, double Height) GetGraphicFramePosition(P.GraphicFrame graphicFrame)
