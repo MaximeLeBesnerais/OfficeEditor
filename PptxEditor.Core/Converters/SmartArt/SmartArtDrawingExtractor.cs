@@ -55,6 +55,7 @@ namespace PptxEditor.Core.Converters.SmartArt;
         ["upArrowCallout"] = (ShapeType.UpArrowCallout, null),
         ["pie"] = (ShapeType.Pie, null),
         ["pieWedge"] = (ShapeType.PieWedge, null),
+        ["round2DiagRect"] = (ShapeType.Round2DiagRect, null),
     };
 
     /// <summary>
@@ -62,11 +63,6 @@ namespace PptxEditor.Core.Converters.SmartArt;
     /// </summary>
     private static readonly Dictionary<ShapeType, List<(double, double)>> PolygonPoints = new()
     {
-        [ShapeType.Chevron] = new()
-        {
-            // OOXML chevron (adj = 0.5): a rectangle with an arrow notch — 6 points.
-            (0, 0), (0.5, 0), (1, 0.5), (0.5, 1), (0, 1), (0.5, 0.5)
-        },
         [ShapeType.RightArrow] = new()
         {
             (0, 0.25), (0.6, 0.25), (0.6, 0), (1, 0.5),
@@ -125,12 +121,14 @@ namespace PptxEditor.Core.Converters.SmartArt;
     {
         return shapeType is ShapeType.Trapezoid or ShapeType.NonIsoscelesTrapezoid
             or ShapeType.WedgeRectCallout
+            or ShapeType.Chevron
             or ShapeType.CircularArrow or ShapeType.LeftCircularArrow
             or ShapeType.Gear6 or ShapeType.Gear9
             or ShapeType.HomePlate or ShapeType.FlowChartManualOperation
             or ShapeType.QuadArrow or ShapeType.BlockArc
             or ShapeType.LeftRightRibbon or ShapeType.UpArrowCallout
-            or ShapeType.Pie or ShapeType.PieWedge;
+            or ShapeType.Pie or ShapeType.PieWedge
+            or ShapeType.Round2DiagRect;
     }
 
     /// <summary>
@@ -860,6 +858,7 @@ namespace PptxEditor.Core.Converters.SmartArt;
         LeftRightRibbon,
         UpArrowCallout,
         Pie,
-        PieWedge
+        PieWedge,
+        Round2DiagRect
     }
 }

@@ -1502,7 +1502,8 @@ public sealed partial class PptxToTypstConverter : IDisposable
             var (tx, ty, tw, th) = textBounds.Value;
 
             // PowerPoint re-lays diagrams out with shrink-on-overflow text semantics,
-            // independent of the autofit flag cached in dsp:drawing.
+            // independent of the autofit flag cached in dsp:drawing. Measurement uses
+            // the unrotated box: text is laid out before the rotation is applied.
             ShrinkDiagramTextToFit(textElement, tw * shapeScaleX, th * shapeScaleY);
 
             textElements.Add(new TypstElement
@@ -1512,6 +1513,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
                 Y = offY + (shapeFrameY + ty) * shapeScaleY,
                 Width = tw * shapeScaleX,
                 Height = th * shapeScaleY,
+                Rotation = GetDiagramTextRotation(shape),
                 ModelId = modelId,
                 Text = textElement
             });
@@ -1852,7 +1854,11 @@ public sealed partial class PptxToTypstConverter : IDisposable
                 return "#" + match.Groups[1].Value;
         }
 
-        return null;
+        // A fontRef without an explicit colour follows the theme's text colour
+        // (tx1 → dk1) — NOT black. The corpus theme maps dk1 to a grey
+        // (#95A5A6): every diagram label without an explicit run colour renders
+        // grey in PowerPoint (slides 15/152 label text) but came out black.
+        return SmartArtDrawingExtractor.ResolveSchemeColor("tx1", schemeColors);
     }
 
     private static Drawing.BodyProperties? GetCascadedBodyPr(
@@ -1957,6 +1963,47 @@ public sealed partial class PptxToTypstConverter : IDisposable
             .FirstOrDefault(e => e.LocalName == "txXfrm" && _diagramNamespaces.Contains(e.NamespaceUri));
 
         return ReadDiagramXfrm(txXfrm) ?? GetDiagramShapeGeometry(diagramShape);
+    }
+
+    /// <summary>
+    /// Rotation (degrees, clockwise) applied to diagram text. A
+    /// <c>dsp:txXfrm@rot</c> is a text-only rotation about the txXfrm box centre —
+    /// its off/ext are already in post-rotation drawing space (-030), so
+    /// the shape rotation must not be re-applied to the text. A txXfrm WITHOUT rot
+    /// is cached in pre-rotation space (identical to the shape rect, e.g. the
+    /// slide-152 labels): the text box then rides the shape's own
+    /// <c>a:xfrm@rot</c> about the text-box centre.
+    /// </summary>
+    private static double GetDiagramTextRotation(OpenXmlElement diagramShape)
+    {
+        var txXfrm = diagramShape.Elements()
+            .FirstOrDefault(e => e.LocalName == "txXfrm" && _diagramNamespaces.Contains(e.NamespaceUri));
+        if (txXfrm != null && ReadDiagramRot(txXfrm) is { } txXfrmRot)
+            return txXfrmRot;
+
+        var spPr = diagramShape.Elements()
+            .FirstOrDefault(e => e.LocalName == "spPr" && _diagramNamespaces.Contains(e.NamespaceUri));
+        var xfrm = spPr?.Elements()
+            .FirstOrDefault(e => e.LocalName == "xfrm" &&
+                e.NamespaceUri == "http://schemas.openxmlformats.org/drawingml/2006/main");
+
+        return xfrm == null ? 0.0 : ReadDiagramRot(xfrm) ?? 0.0;
+    }
+
+    private static double? ReadDiagramRot(OpenXmlElement xfrm)
+    {
+        // GetAttribute() throws on unknown (dsp-namespace) elements when the
+        // attribute is absent — scan GetAttributes() instead.
+        var rotValue = xfrm.GetAttributes()
+            .FirstOrDefault(a => a.LocalName == "rot" && string.IsNullOrEmpty(a.NamespaceUri))
+            .Value;
+        if (string.IsNullOrEmpty(rotValue))
+            return null;
+
+        if (!long.TryParse(rotValue, NumberStyles.Integer, CultureInfo.InvariantCulture, out var rot60000))
+            return null;
+
+        return rot60000 / 60000.0;
     }
 
     private static (double X, double Y, double Width, double Height)? ReadDiagramXfrm(OpenXmlElement? xfrm)
