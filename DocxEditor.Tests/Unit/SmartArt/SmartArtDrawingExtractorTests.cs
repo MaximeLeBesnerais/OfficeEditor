@@ -121,6 +121,74 @@ public sealed class SmartArtDrawingExtractorTests
         Assert.Equal(expected, result.Shape.FillColor);
     }
 
+    [Theory]
+    [InlineData("roundRect")]
+    [InlineData("round1Rect")]
+    [InlineData("round2SameRect")]
+    public void Extract_RoundedRectEmptyAvLst_UsesEcmaDefaultCornerRadius(string prst)
+    {
+        // ECMA-376 default for the rounded-rectangle family is adj = 16667 (1/6 of
+        // min(w,h)). Cached SmartArt drawings carry an empty avLst; the shape must
+        // still render rounded instead of collapsing to a sharp rectangle.
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""1904255"" cy=""1142553""/>
+    </a:xfrm>
+    <a:prstGeom prst=""{prst}"">
+      <a:avLst/>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""C00000""/>
+    </a:solidFill>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 150, shapeH: 90);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal("rect", result.Shape.ShapeType);
+        // 16667/100000 * min(150, 90) = 15.0003
+        Assert.Equal(15.0, result.Shape.CornerRadius, precision: 1);
+    }
+
+    [Fact]
+    public void Extract_PlainRectEmptyAvLst_KeepsSharpCorners()
+    {
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""1904255"" cy=""1142553""/>
+    </a:xfrm>
+    <a:prstGeom prst=""rect"">
+      <a:avLst/>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""C00000""/>
+    </a:solidFill>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 150, shapeH: 90);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal(0.0, result.Shape.CornerRadius);
+    }
+
     [Fact]
     public void Extract_RightArrow_ReturnsPolygonShape()
     {
