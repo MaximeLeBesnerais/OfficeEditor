@@ -2481,7 +2481,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
                     {
                         "ctr" => "center",
                         "r" => "right",
-                        "just" => "left",
+                        "just" => "justify",
                         "l" => "left",
                         _ => null
                     };
@@ -2939,7 +2939,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
                 {
                     "ctr" => "center",
                     "r" => "right",
-                    "just" => "left",  // Typst doesn't have 'justify', use left as fallback
+                    "just" => "justify",
                     _ => "left"
                 };
             }
@@ -3931,7 +3931,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
         {
             "ctr" => "center",
             "r" => "right",
-            "just" => "left",
+            "just" => "justify",
             _ => "left"
         };
     }
