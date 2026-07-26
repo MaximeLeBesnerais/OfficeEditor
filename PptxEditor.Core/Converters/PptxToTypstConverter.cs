@@ -2306,6 +2306,17 @@ public sealed partial class PptxToTypstConverter : IDisposable
                 newFmt = newFmt with { Italic = defaultStyle.Italic.Value };
             if (newFmt.Color == "#000000" && !string.IsNullOrEmpty(defaultStyle.Color))
                 newFmt = newFmt with { Color = defaultStyle.Color };
+
+            // Theme default text color (last resort): a run whose color was
+            // never set anywhere in the cascade inherits tx1 (OOXML default) —
+            // usually black, but themes may redefine dk1 (the  decks use
+            // a grey dk1, which is why their body text renders grey).
+            if (newFmt.Color == "#000000")
+            {
+                var tx1Color = styleResolver.ResolveSchemeColor("tx1");
+                if (!string.IsNullOrEmpty(tx1Color))
+                    newFmt = newFmt with { Color = tx1Color };
+            }
             if (newFmt.FontFamily == "Arial" && !string.IsNullOrEmpty(defaultStyle.FontFamily))
             {
                 var fontName = defaultStyle.FontFamily;
