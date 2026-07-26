@@ -333,6 +333,50 @@ public sealed class DemoDeckServiceTests
     }
 
     [Fact]
+    public void RenderUploadedDeck_CompileFailure_ThrowsInsteadOfReturningEmptyPreviews()
+    {
+        if (Environment.GetEnvironmentVariable(EnableRenderEnvVar) != "1")
+        {
+            return; // no Typst backend in this environment (see class summary)
+        }
+
+        // Regression: a deck whose Typst compile fails (here: an image Typst cannot
+        // decode) used to come back as a "successful" result with ZERO pages — the
+        // upload endpoint serialized that as {"success": true, "previews": []} and
+        // the UI showed an empty gallery with no error. Compile failures must
+        // propagate so the endpoint (500 {error}) and the Blazor AnyRenderScreen
+        // (StatusMessage) can surface them.
+        var service = new DemoDeckService(new StubDeckSessionStore());
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            service.RenderUploadedDeck(BuildDeckWithUndecodableImageBytes(), "broken.pptx", "png", 110));
+
+        Assert.Contains("Typst", ex.Message);
+    }
+
+    private static byte[] BuildDeckWithUndecodableImageBytes()
+    {
+        var imagePath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.jpg");
+        try
+        {
+            // Not a JPEG — Typst fails to decode it at compile time.
+            File.WriteAllBytes(imagePath, [0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x01, 0x02, 0x03]);
+
+            using var builder = PresentationBuilder.Create();
+            builder.AddSlide();
+            builder.CurrentSlide.AddImage(imagePath);
+            return builder.SaveToBytes();
+        }
+        finally
+        {
+            if (File.Exists(imagePath))
+            {
+                File.Delete(imagePath);
+            }
+        }
+    }
+
+    [Fact]
     public void RenderTypstLeg_GarbageBytes_ThrowsArgumentExceptionMentioningValidPptx()
     {
         var service = new DemoDeckService(new StubDeckSessionStore());
