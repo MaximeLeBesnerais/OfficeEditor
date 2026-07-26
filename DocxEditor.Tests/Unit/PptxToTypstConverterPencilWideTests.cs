@@ -283,6 +283,89 @@ public sealed class PptxToTypstConverterPencilWideTests : IDisposable
     }
 
     /// <summary>
+    /// algn="just" (justified) must emit Typst par(justify: true), not a
+    /// left-aligned fallback and never an invalid #align(justify) — the
+    /// Pencil body paragraphs are justified, visible as stretched word
+    /// spacing in the official PDFs.
+    /// </summary>
+    [Fact]
+    public void Convert_JustifiedParagraph_EmitsParJustify()
+    {
+        var deckPath = Path.Combine(_tempDir, $"{Guid.NewGuid():N}.pptx");
+
+        using (var document = PresentationDocument.Create(deckPath, PresentationDocumentType.Presentation))
+        {
+            var presentationPart = document.AddPresentationPart();
+            presentationPart.Presentation = new Presentation
+            {
+                SlideMasterIdList = new SlideMasterIdList(),
+                SlideIdList = new SlideIdList(),
+                SlideSize = new SlideSize { Cx = 12192000, Cy = 6858000 }
+            };
+
+            var slideMasterPart = presentationPart.AddNewPart<SlideMasterPart>();
+            slideMasterPart.SlideMaster = new SlideMaster(
+                new CommonSlideData(CreateShapeTree()),
+                CreateColorMap(),
+                new SlideLayoutIdList());
+
+            var slideLayoutPart = slideMasterPart.AddNewPart<SlideLayoutPart>();
+            slideLayoutPart.SlideLayout = new P.SlideLayout(new CommonSlideData(CreateShapeTree()));
+            slideLayoutPart.AddPart(slideMasterPart);
+            slideMasterPart.SlideMaster.SlideLayoutIdList!.Append(new SlideLayoutId
+            {
+                Id = 2147483649,
+                RelationshipId = slideMasterPart.GetIdOfPart(slideLayoutPart)
+            });
+            presentationPart.Presentation.SlideMasterIdList.Append(new SlideMasterId
+            {
+                Id = 2147483648,
+                RelationshipId = presentationPart.GetIdOfPart(slideMasterPart)
+            });
+
+            var slidePart = presentationPart.AddNewPart<SlidePart>();
+            slidePart.AddPart(slideLayoutPart);
+            presentationPart.Presentation.SlideIdList.Append(new SlideId
+            {
+                Id = 256,
+                RelationshipId = presentationPart.GetIdOfPart(slidePart)
+            });
+
+            var shape = new P.Shape(
+                new P.NonVisualShapeProperties(
+                    new NonVisualDrawingProperties { Id = 80, Name = "Body" },
+                    new P.NonVisualShapeDrawingProperties(),
+                    new ApplicationNonVisualDrawingProperties()),
+                new ShapeProperties(
+                    new Drawing.Transform2D(
+                        new Drawing.Offset { X = 1000000, Y = 1000000 },
+                        new Drawing.Extents { Cx = 4000000, Cy = 1000000 }),
+                    new Drawing.PresetGeometry(new Drawing.AdjustValueList())
+                    { Preset = Drawing.ShapeTypeValues.Rectangle }),
+                new P.TextBody(
+                    new Drawing.BodyProperties(),
+                    new Drawing.ListStyle(),
+                    new Drawing.Paragraph(
+                        new Drawing.ParagraphProperties { Alignment = Drawing.TextAlignmentTypeValues.Justified },
+                        new Drawing.Run(
+                            new Drawing.RunProperties { Language = "en-US", FontSize = 1400 },
+                            new Drawing.Text("justified body text that should stretch across the full box width")))));
+
+            slidePart.Slide = new Slide(new CommonSlideData(CreateShapeTree(shape)));
+        }
+
+        using (var document = PresentationDocument.Open(deckPath, false))
+        using (var converter = new PptxToTypstConverter(document))
+        {
+            var presentation = converter.Convert();
+            var source = converter.GenerateTypstSource(presentation);
+
+            Assert.Contains("#set par(justify: true)", source);
+            Assert.DoesNotContain("#align(justify)", source);
+        }
+    }
+
+    /// <summary>
     /// bodyPr wrap="none" (typically with spAutoFit): PowerPoint never wraps
     /// the line — the box grows/overflows instead. The converter must widen
     /// the emitted block beyond the shape width so fallback-font metrics

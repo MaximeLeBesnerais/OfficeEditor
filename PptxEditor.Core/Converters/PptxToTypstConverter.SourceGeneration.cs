@@ -258,8 +258,16 @@ public sealed partial class PptxToTypstConverter
             sb.Append($"#set par(leading: {FormatPt(leading)})\n");
         }
 
+        // Justified paragraphs (algn="just") use Typst's par justify; the
+        // horizontal alignment wrapper stays left.
+        var justify = text.Paragraphs.Any(p => p.Formatting.Align == "justify");
+        if (justify)
+        {
+            sb.Append("#set par(justify: true)\n");
+        }
+
         // Apply horizontal alignment if not left
-        if (fmt.Align != "left" && !string.IsNullOrEmpty(fmt.Align))
+        if (fmt.Align != "left" && fmt.Align != "justify" && !string.IsNullOrEmpty(fmt.Align))
         {
             sb.Append($"#align({fmt.Align})[");
         }
@@ -267,7 +275,7 @@ public sealed partial class PptxToTypstConverter
         AppendParagraphs(sb, text, availableFonts);
 
         // Close horizontal alignment wrapper if opened
-        if (fmt.Align != "left" && !string.IsNullOrEmpty(fmt.Align))
+        if (fmt.Align != "left" && fmt.Align != "justify" && !string.IsNullOrEmpty(fmt.Align))
         {
             sb.Append("]");
         }
