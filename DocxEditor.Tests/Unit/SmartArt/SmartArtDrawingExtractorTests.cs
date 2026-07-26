@@ -1896,6 +1896,94 @@ public sealed class SmartArtDrawingExtractorTests
         Assert.Equal(0.5, result.Shape.Points[3].Y, precision: 6);
     }
 
+    [Fact]
+    public void Extract_Pie_ReturnsSectorPolygon()
+    {
+        // ECMA pie defaults: adj1 = 0 (start angle), adj2 = 16200000 (270°) →
+        // a three-quarter sector from 3 o'clock sweeping clockwise to 12 o'clock.
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""1270000"" cy=""1270000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""pie"">
+      <a:avLst/>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""16A085""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 100, shapeH: 100);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal("polygon", result.Shape.ShapeType);
+        // 270° arc flattened at ~2° steps → well over 100 points.
+        Assert.True(result.Shape.Points.Count > 100);
+        // Arc starts at angle 0 → right midpoint; closes back to the center.
+        Assert.Equal(1.0, result.Shape.Points[0].X, precision: 3);
+        Assert.Equal(0.5, result.Shape.Points[0].Y, precision: 3);
+        Assert.Equal(0.5, result.Shape.Points[^1].X, precision: 6);
+        Assert.Equal(0.5, result.Shape.Points[^1].Y, precision: 6);
+        // The sweep covers the bottom and left quadrants: max Y at 90°.
+        Assert.True(result.Shape.Points.Max(p => p.Y) > 0.98);
+        Assert.True(result.Shape.Points.Min(p => p.X) < 0.02);
+        Assert.True(result.Shape.Points.Min(p => p.Y) < 0.02);
+    }
+
+    [Fact]
+    public void Extract_Pie_HonorsAdjustmentValues()
+    {
+        // Slide-87/88 wedge: adj1 = 16200000 (270°), adj2 = 3240000 (54°) —
+        // end < start, so the sweep wraps through +360° (144° wedge).
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""1270000"" cy=""1270000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""pie"">
+      <a:avLst>
+        <a:gd name=""adj1"" fmla=""val 16200000""/>
+        <a:gd name=""adj2"" fmla=""val 3240000""/>
+      </a:avLst>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""16A085""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 100, shapeH: 100);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal("polygon", result.Shape.ShapeType);
+        // Arc starts at 270° → top midpoint (0.5, 0).
+        Assert.Equal(0.5, result.Shape.Points[0].X, precision: 3);
+        Assert.Equal(0.0, result.Shape.Points[0].Y, precision: 3);
+        // 144° sweep → the wedge never reaches the left half of the box.
+        Assert.True(result.Shape.Points.Min(p => p.X) > 0.4);
+        // Ends at 54° → (0.5 + 0.5·cos54°, 0.5 + 0.5·sin54°) ≈ (0.794, 0.905).
+        Assert.Contains(result.Shape.Points, p =>
+            Math.Abs(p.X - 0.7939) < 0.01 && Math.Abs(p.Y - 0.9045) < 0.01);
+    }
+
     private static OpenXmlElement ParseXml(string xml)
     {
         var xElement = XElement.Parse(xml);
