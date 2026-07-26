@@ -2506,6 +2506,148 @@ public class PptxToTypstConverterTests : IDisposable
 
         return path;
     }
+
+    private string CreateShapeWithOuterShadowPptx()
+    {
+        var path = Path.Combine(_tempDir, "outer-shadow.pptx");
+
+        using (var document = PresentationDocument.Create(path, PresentationDocumentType.Presentation))
+        {
+            var presentationPart = document.AddPresentationPart();
+            presentationPart.Presentation = new Presentation();
+            presentationPart.Presentation.SlideMasterIdList = new SlideMasterIdList();
+
+            var slideMasterPart = presentationPart.AddNewPart<SlideMasterPart>();
+            slideMasterPart.SlideMaster = new SlideMaster(
+                new CommonSlideData(
+                    new ShapeTree(
+                        new NonVisualGroupShapeProperties(
+                            new NonVisualDrawingProperties { Id = 0, Name = "" },
+                            new NonVisualGroupShapeDrawingProperties(),
+                            new ApplicationNonVisualDrawingProperties()
+                        ),
+                        new GroupShapeProperties(
+                            new Drawing.TransformGroup(
+                                new Drawing.Offset { X = 0, Y = 0 },
+                                new Drawing.Extents { Cx = 0, Cy = 0 },
+                                new Drawing.ChildOffset { X = 0, Y = 0 },
+                                new Drawing.ChildExtents { Cx = 0, Cy = 0 }
+                            )
+                        )
+                    )
+                ),
+                new ColorMap(),
+                new SlideLayoutIdList()
+            );
+
+            var slideLayoutPart = slideMasterPart.AddNewPart<SlideLayoutPart>();
+            slideLayoutPart.SlideLayout = new P.SlideLayout(new CommonSlideData(new ShapeTree(
+                new NonVisualGroupShapeProperties(
+                    new NonVisualDrawingProperties { Id = 0, Name = "" },
+                    new NonVisualGroupShapeDrawingProperties(),
+                    new ApplicationNonVisualDrawingProperties()
+                ),
+                new GroupShapeProperties(
+                    new Drawing.TransformGroup(
+                        new Drawing.Offset { X = 0, Y = 0 },
+                        new Drawing.Extents { Cx = 0, Cy = 0 },
+                        new Drawing.ChildOffset { X = 0, Y = 0 },
+                        new Drawing.ChildExtents { Cx = 0, Cy = 0 }
+                    )
+                )
+            )));
+            slideLayoutPart.AddPart(slideMasterPart);
+
+            slideMasterPart.SlideMaster.SlideLayoutIdList!.Append(new SlideLayoutId
+            {
+                Id = 2147483649,
+                RelationshipId = slideMasterPart.GetIdOfPart(slideLayoutPart)
+            });
+
+            presentationPart.Presentation.SlideIdList = new SlideIdList();
+            presentationPart.Presentation.SlideMasterIdList.Append(new SlideMasterId
+            {
+                Id = 2147483648,
+                RelationshipId = presentationPart.GetIdOfPart(slideMasterPart)
+            });
+
+            // <a:prstClr val="black"><a:alpha val="40000"/></a:prstClr>
+            var shadowColor = new Drawing.PresetColor { Val = Drawing.PresetColorValues.Black };
+            shadowColor.Append(new Drawing.Alpha { Val = 40000 });
+
+            var shapeProperties = new ShapeProperties(
+                new Drawing.Transform2D(
+                    new Drawing.Offset { X = Pt(100), Y = Pt(50) },
+                    new Drawing.Extents { Cx = Pt(270), Cy = Pt(53) }),
+                new Drawing.PresetGeometry(new Drawing.AdjustValueList()) { Preset = Drawing.ShapeTypeValues.Rectangle },
+                new Drawing.SolidFill(new Drawing.RgbColorModelHex { Val = "FFFF00" }),
+                new Drawing.EffectList(
+                    new Drawing.OuterShadow(shadowColor)
+                    {
+                        BlurRadius = 50800,
+                        Distance = 38100,
+                        Direction = 2700000,
+                        Alignment = Drawing.RectangleAlignmentValues.TopLeft,
+                        RotateWithShape = false
+                    })
+            );
+
+            var slidePart = presentationPart.AddNewPart<SlidePart>();
+            slidePart.Slide = new Slide(
+                new CommonSlideData(
+                    new ShapeTree(
+                        new NonVisualGroupShapeProperties(
+                            new NonVisualDrawingProperties { Id = 0, Name = "" },
+                            new NonVisualGroupShapeDrawingProperties(),
+                            new ApplicationNonVisualDrawingProperties()
+                        ),
+                        new GroupShapeProperties(
+                            new Drawing.TransformGroup(
+                                new Drawing.Offset { X = 0, Y = 0 },
+                                new Drawing.Extents { Cx = 0, Cy = 0 },
+                                new Drawing.ChildOffset { X = 0, Y = 0 },
+                                new Drawing.ChildExtents { Cx = 0, Cy = 0 }
+                            )
+                        ),
+                        new P.Shape(
+                            new NonVisualShapeProperties(
+                                new NonVisualDrawingProperties { Id = 2, Name = "TextBox 8" },
+                                new NonVisualShapeDrawingProperties { TextBox = true },
+                                new ApplicationNonVisualDrawingProperties()
+                            ),
+                            shapeProperties,
+                            new TextBody(
+                                new Drawing.BodyProperties(),
+                                new Drawing.ListStyle(),
+                                new Drawing.Paragraph(
+                                    new Drawing.Run(
+                                        new Drawing.RunProperties { Language = "en-US", FontSize = 3200, Bold = true },
+                                        new Drawing.Text { Text = "22 new graphics!" })
+                                )
+                            )
+                        )
+                    )
+                )
+            );
+            slidePart.AddPart(slideLayoutPart);
+
+            presentationPart.Presentation.SlideIdList.Append(new SlideId
+            {
+                Id = 256,
+                RelationshipId = presentationPart.GetIdOfPart(slidePart)
+            });
+
+            presentationPart.Presentation.SlideSize = new SlideSize
+            {
+                Cx = 9144000,
+                Cy = 6858000,
+                Type = SlideSizeValues.Screen4x3
+            };
+        }
+
+        return path;
+    }
+
     private string CreateMismatchedMasterPlaceholderPptx()
     {
         var path = Path.Combine(_tempDir, "mismatched-master.pptx");
@@ -2954,6 +3096,36 @@ public class PptxToTypstConverterTests : IDisposable
         {
             Assert.Contains("Arial", result);
         }
+    }
+
+    [Fact]
+    public void Convert_ShapeWithOuterShadow_EmitsOffsetShadowShapeBehindShape()
+    {
+        // a:effectLst/a:outerShdw (documented engine gap): Typst has no native shadow,
+        // so the converter approximates it with an offset copy of the shape geometry
+        // filled with the shadow color, emitted behind the shape.
+        var path = CreateShapeWithOuterShadowPptx();
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+        var presentation = converter.Convert();
+
+        var shapes = presentation.Slides[0].Elements
+            .Where(e => e.Type == "Shape")
+            .ToList();
+
+        Assert.True(shapes.Count >= 2, $"expected shadow + shape elements, got {shapes.Count}");
+
+        // Shadow first (z-order behind), offset by dist=3pt at dir=45deg (2.121pt, 2.121pt),
+        // black at 40% alpha.
+        var shadow = shapes[0];
+        Assert.Equal(100 + 2.1213, shadow.X, 2);
+        Assert.Equal(50 + 2.1213, shadow.Y, 2);
+        Assert.Equal("#00000066", shadow.Shape!.FillColor);
+        Assert.Equal("rect", shadow.Shape.ShapeType);
+
+        var rect = shapes[1];
+        Assert.Equal("#FFFF00", rect.Shape!.FillColor);
     }
 
     [Fact]
