@@ -87,7 +87,7 @@ public sealed class SmartArtDrawingExtractorTests
     }
 
     [Theory]
-    [InlineData("C00000", "tint", 60000, "#D96666")]   // SmartArt connector pattern: pale accent
+    [InlineData("C00000", "tint", 60000, "#DCA8A8")]   // SmartArt connector pattern: pale accent (gamma-linear blend)
     [InlineData("C00000", "shade", 50000, "#600000")]
     [InlineData("4472C4", "lumMod", 50000, "#223962")]
     [InlineData("000000", "lumOff", 20000, "#333333")]
@@ -119,6 +119,74 @@ public sealed class SmartArtDrawingExtractorTests
         Assert.NotNull(result);
         Assert.NotNull(result.Shape);
         Assert.Equal(expected, result.Shape.FillColor);
+    }
+
+    [Theory]
+    [InlineData("roundRect")]
+    [InlineData("round1Rect")]
+    [InlineData("round2SameRect")]
+    public void Extract_RoundedRectEmptyAvLst_UsesEcmaDefaultCornerRadius(string prst)
+    {
+        // ECMA-376 default for the rounded-rectangle family is adj = 16667 (1/6 of
+        // min(w,h)). Cached SmartArt drawings carry an empty avLst; the shape must
+        // still render rounded instead of collapsing to a sharp rectangle.
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""1904255"" cy=""1142553""/>
+    </a:xfrm>
+    <a:prstGeom prst=""{prst}"">
+      <a:avLst/>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""C00000""/>
+    </a:solidFill>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 150, shapeH: 90);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal("rect", result.Shape.ShapeType);
+        // 16667/100000 * min(150, 90) = 15.0003
+        Assert.Equal(15.0, result.Shape.CornerRadius, precision: 1);
+    }
+
+    [Fact]
+    public void Extract_PlainRectEmptyAvLst_KeepsSharpCorners()
+    {
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""1904255"" cy=""1142553""/>
+    </a:xfrm>
+    <a:prstGeom prst=""rect"">
+      <a:avLst/>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""C00000""/>
+    </a:solidFill>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 150, shapeH: 90);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal(0.0, result.Shape.CornerRadius);
     }
 
     [Fact]
@@ -322,6 +390,92 @@ public sealed class SmartArtDrawingExtractorTests
         Assert.Equal("rect", result.Shape.ShapeType);
         Assert.True(string.IsNullOrEmpty(result.Shape.FillColor));
         Assert.True(string.IsNullOrEmpty(result.Shape.StrokeColor));
+    }
+
+    [Fact]
+    public void Extract_GradientFill_ShadeAndSatModStops_AppliedInDocumentOrder()
+    {
+        // showeet corpus pattern (slides 25/58/131): gradient stops differ ONLY by
+        // shade/satMod transforms. Without them all stops collapse to the raw scheme
+        // color and the gradient renders flat.
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""1904255"" cy=""1142553""/>
+    </a:xfrm>
+    <a:prstGeom prst=""rect"">
+      <a:avLst/>
+    </a:prstGeom>
+    <a:gradFill>
+      <a:gsLst>
+        <a:gs pos=""0""><a:schemeClr val=""accent2""><a:shade val=""51000""/><a:satMod val=""130000""/></a:schemeClr></a:gs>
+        <a:gs pos=""80000""><a:schemeClr val=""accent2""><a:shade val=""93000""/><a:satMod val=""130000""/></a:schemeClr></a:gs>
+        <a:gs pos=""100000""><a:schemeClr val=""accent2""><a:shade val=""94000""/><a:satMod val=""135000""/></a:schemeClr></a:gs>
+      </a:gsLst>
+      <a:lin ang=""16200000"" scaled=""0""/>
+    </a:gradFill>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+        var schemeColors = new Dictionary<string, string> { ["accent2"] = "16A085" };
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 150, shapeH: 90,
+            schemeColors: schemeColors);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        var gradient = Assert.IsType<TypstGradientFill>(result.Shape.FillGradient);
+        Assert.Equal(3, gradient.Stops.Count);
+        // shade (per-channel scale, exact in HSL for L<0.5) then satMod (HSL
+        // saturation multiply) — all three stops must be DISTINCT dark teal tones.
+        Assert.Equal(new TypstGradientStop("#005D4A", 0.0), gradient.Stops[0]);
+        Assert.Equal(new TypstGradientStop("#01A888", 0.8), gradient.Stops[1]);
+        Assert.Equal(new TypstGradientStop("#00AB8A", 1.0), gradient.Stops[2]);
+    }
+
+    [Theory]
+    [InlineData("shade", 51000, "#0B5244")]  // per-channel ×0.51 (exact for shade when L<0.5)
+    [InlineData("satMod", 130000, "#01B592")] // HSL saturation ×1.3, hue/lightness preserved
+    public void Extract_GradientStop_SingleColorTransform_AppliesTransform(string op, int opVal, string expected)
+    {
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""1904255"" cy=""1142553""/>
+    </a:xfrm>
+    <a:prstGeom prst=""rect"">
+      <a:avLst/>
+    </a:prstGeom>
+    <a:gradFill>
+      <a:gsLst>
+        <a:gs pos=""0""><a:schemeClr val=""accent2""><a:{op} val=""{opVal}""/></a:schemeClr></a:gs>
+        <a:gs pos=""100000""><a:schemeClr val=""accent2""/></a:gs>
+      </a:gsLst>
+      <a:lin ang=""0"" scaled=""0""/>
+    </a:gradFill>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+        var schemeColors = new Dictionary<string, string> { ["accent2"] = "16A085" };
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 150, shapeH: 90,
+            schemeColors: schemeColors);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        var gradient = Assert.IsType<TypstGradientFill>(result.Shape.FillGradient);
+        Assert.Equal(new TypstGradientStop(expected, 0.0), gradient.Stops[0]);
+        Assert.Equal(new TypstGradientStop("#16A085", 1.0), gradient.Stops[1]);
     }
 
     [Fact]
@@ -543,6 +697,163 @@ public sealed class SmartArtDrawingExtractorTests
         Assert.NotNull(result);
         Assert.NotNull(result.Shape);
         Assert.False(result.Shape.NoStroke);
+    }
+
+    [Fact]
+    public void ComputeBoundingBox_UnsupportedPreset_DoesNotPolluteBounds()
+    {
+        // INV-slide-033: an unrenderable connector shape (preset not in the map,
+        // silently dropped at extraction) must not set the fit bbox — its cached
+        // xfrm legitimately extends outside the node layout and would otherwise
+        // shrink the whole diagram (slide 33: scale 0.63 instead of ~1.0).
+        var rect = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""127000"" y=""254000""/>
+      <a:ext cx=""2540000"" cy=""1270000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""rect"">
+      <a:avLst/>
+    </a:prstGeom>
+  </dsp:spPr>
+</dsp:sp>";
+        var star = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""-6350000"" y=""-1270000""/>
+      <a:ext cx=""8890000"" cy=""7620000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""star8"">
+      <a:avLst/>
+    </a:prstGeom>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var bounds = SmartArtDrawingExtractor.ComputeBoundingBox(
+            new[] { ParseXml(rect), ParseXml(star) });
+
+        Assert.NotNull(bounds);
+        Assert.Equal(10.0, bounds.Value.MinX, precision: 6);
+        Assert.Equal(20.0, bounds.Value.MinY, precision: 6);
+        Assert.Equal(200.0, bounds.Value.Width, precision: 6);
+        Assert.Equal(100.0, bounds.Value.Height, precision: 6);
+    }
+
+    [Fact]
+    public void ComputeBoundingBox_MissingPrstGeom_DoesNotPolluteBounds()
+    {
+        var noGeom = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""-6350000"" y=""-1270000""/>
+      <a:ext cx=""8890000"" cy=""7620000""/>
+    </a:xfrm>
+  </dsp:spPr>
+</dsp:sp>";
+        var rect = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""127000"" y=""254000""/>
+      <a:ext cx=""2540000"" cy=""1270000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""rect"">
+      <a:avLst/>
+    </a:prstGeom>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var bounds = SmartArtDrawingExtractor.ComputeBoundingBox(
+            new[] { ParseXml(noGeom), ParseXml(rect) });
+
+        Assert.NotNull(bounds);
+        Assert.Equal(10.0, bounds.Value.MinX, precision: 6);
+        Assert.Equal(20.0, bounds.Value.MinY, precision: 6);
+        Assert.Equal(200.0, bounds.Value.Width, precision: 6);
+        Assert.Equal(100.0, bounds.Value.Height, precision: 6);
+    }
+
+    [Fact]
+    public void ComputeBoundingBox_RotatedShape_UnionsRotatedCorners()
+    {
+        // INV-slide-130: quadrants stored as tall rects rotated ±90° must contribute
+        // their ROTATED footprint. rot=90° about center (120,50) turns the 40×100pt
+        // rect at (100,0) into a 100×40pt footprint at (70,30).
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm rot=""5400000"">
+      <a:off x=""1270000"" y=""0""/>
+      <a:ext cx=""508000"" cy=""1270000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""rect"">
+      <a:avLst/>
+    </a:prstGeom>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var bounds = SmartArtDrawingExtractor.ComputeBoundingBox(new[] { ParseXml(xml) });
+
+        Assert.NotNull(bounds);
+        Assert.Equal(70.0, bounds.Value.MinX, precision: 6);
+        Assert.Equal(30.0, bounds.Value.MinY, precision: 6);
+        Assert.Equal(100.0, bounds.Value.Width, precision: 6);
+        Assert.Equal(40.0, bounds.Value.Height, precision: 6);
+    }
+
+    [Fact]
+    public void ComputeBoundingBox_RotatedShape270_UnionsRotatedCorners()
+    {
+        // Slide-30 pattern: rot=270°, wide-short rect becomes tall-wide footprint.
+        // rect (0,100) 100×40pt, center (50,120) → footprint 40×100 at (30,70).
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm rot=""16200000"">
+      <a:off x=""0"" y=""1270000""/>
+      <a:ext cx=""1270000"" cy=""508000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""rect"">
+      <a:avLst/>
+    </a:prstGeom>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var bounds = SmartArtDrawingExtractor.ComputeBoundingBox(new[] { ParseXml(xml) });
+
+        Assert.NotNull(bounds);
+        Assert.Equal(30.0, bounds.Value.MinX, precision: 6);
+        Assert.Equal(70.0, bounds.Value.MinY, precision: 6);
+        Assert.Equal(40.0, bounds.Value.Width, precision: 6);
+        Assert.Equal(100.0, bounds.Value.Height, precision: 6);
+    }
+
+    [Fact]
+    public void ComputeBoundingBox_UnrotatedShapes_UnchangedUnion()
+    {
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""127000"" y=""254000""/>
+      <a:ext cx=""2540000"" cy=""1270000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""rect"">
+      <a:avLst/>
+    </a:prstGeom>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var bounds = SmartArtDrawingExtractor.ComputeBoundingBox(new[] { ParseXml(xml) });
+
+        Assert.NotNull(bounds);
+        Assert.Equal(10.0, bounds.Value.MinX, precision: 6);
+        Assert.Equal(20.0, bounds.Value.MinY, precision: 6);
+        Assert.Equal(200.0, bounds.Value.Width, precision: 6);
+        Assert.Equal(100.0, bounds.Value.Height, precision: 6);
     }
 
     [Fact]
@@ -1082,6 +1393,333 @@ public sealed class SmartArtDrawingExtractorTests
         Assert.True(result.Shape.Points.Min(p => p.X) < 0.02);
         Assert.True(result.Shape.Points.Max(p => p.X) > 0.98);
         Assert.True(result.Shape.Points.Min(p => p.Y) < 0.02);
+    }
+
+    [Fact]
+    public void Extract_HomePlate_ReturnsAspectAwarePolygon()
+    {
+        // ECMA homePlate: point depth = adj * min(w,h) (default adj 50000), so on a
+        // wide 80x10pt bar the point sits at x = 1 - 0.5*10/80 = 0.9375 — a static
+        // 0.5-width table would be grossly wrong (INV-slide-025).
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""1016000"" cy=""127000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""homePlate"">
+      <a:avLst/>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""16A085""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 80, shapeH: 10);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal("polygon", result.Shape.ShapeType);
+        Assert.Equal(5, result.Shape.Points.Count);
+        Assert.Equal((0, 0), result.Shape.Points[0]);
+        Assert.Equal(0.9375, result.Shape.Points[1].X, precision: 6);
+        Assert.Equal(0.0, result.Shape.Points[1].Y, precision: 6);
+        Assert.Equal((1, 0.5), result.Shape.Points[2]);
+        Assert.Equal(0.9375, result.Shape.Points[3].X, precision: 6);
+        Assert.Equal(1.0, result.Shape.Points[3].Y, precision: 6);
+        Assert.Equal((0, 1), result.Shape.Points[4]);
+    }
+
+    [Fact]
+    public void Extract_HomePlate_HonorsAdjustmentValue()
+    {
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""1016000"" cy=""127000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""homePlate"">
+      <a:avLst>
+        <a:gd name=""adj"" fmla=""val 25000""/>
+      </a:avLst>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""16A085""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 80, shapeH: 10);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal(5, result.Shape.Points.Count);
+        // dx1 = 0.25 * 10pt → x1 = 77.5/80 = 0.96875
+        Assert.Equal(0.96875, result.Shape.Points[1].X, precision: 6);
+    }
+
+    [Fact]
+    public void Extract_FlowChartManualOperation_ReturnsTrapezoid()
+    {
+        // ECMA: full-width top edge, bottom edge inset by w/5 on both sides
+        // (fixed 5x5 path space — the preset has no avLst).
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""635000"" cy=""127000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""flowChartManualOperation"">
+      <a:avLst/>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""16A085""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 50, shapeH: 10);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal("polygon", result.Shape.ShapeType);
+        Assert.Equal(4, result.Shape.Points.Count);
+        Assert.Equal((0, 0), result.Shape.Points[0]);
+        Assert.Equal((1, 0), result.Shape.Points[1]);
+        Assert.Equal(0.8, result.Shape.Points[2].X, precision: 6);
+        Assert.Equal(1.0, result.Shape.Points[2].Y, precision: 6);
+        Assert.Equal(0.2, result.Shape.Points[3].X, precision: 6);
+        Assert.Equal(1.0, result.Shape.Points[3].Y, precision: 6);
+    }
+
+    [Fact]
+    public void Extract_QuadArrow_HonorsAdjustmentValues()
+    {
+        // Slide-131 values: adj1 (shaft thickness) 2000, adj2 (head half-width)
+        // 4000, adj3 (head length) 5000 — all fractions of min(w,h)=100pt.
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""1270000"" cy=""1270000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""quadArrow"">
+      <a:avLst>
+        <a:gd name=""adj1"" fmla=""val 2000""/>
+        <a:gd name=""adj2"" fmla=""val 4000""/>
+        <a:gd name=""adj3"" fmla=""val 5000""/>
+      </a:avLst>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""16A085""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 100, shapeH: 100);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal("polygon", result.Shape.ShapeType);
+        Assert.Equal(24, result.Shape.Points.Count);
+        // Left tip, then head base: head half-width dx2 = 4pt, head length x1 = 5pt,
+        // shaft half-width dx3 = 1pt.
+        Assert.Equal((0, 0.5), result.Shape.Points[0]);
+        Assert.Equal(0.05, result.Shape.Points[1].X, precision: 6);
+        Assert.Equal(0.46, result.Shape.Points[1].Y, precision: 6);
+        Assert.Equal(0.05, result.Shape.Points[2].X, precision: 6);
+        Assert.Equal(0.49, result.Shape.Points[2].Y, precision: 6);
+        // Up-arrow tip is the 7th point.
+        Assert.Equal((0.5, 0), result.Shape.Points[6]);
+        // Right/down tips land on the shape edges.
+        Assert.Equal((1, 0.5), result.Shape.Points[12]);
+        Assert.Equal((0.5, 1), result.Shape.Points[18]);
+    }
+
+    [Fact]
+    public void Extract_BlockArc_ReturnsArcBand()
+    {
+        // ECMA blockArc defaults: 180° → 0° sweep (top-half annulus band),
+        // thickness 25% of min(w,h).
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""1270000"" cy=""1270000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""blockArc"">
+      <a:avLst/>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""16A085""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 100, shapeH: 100);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal("polygon", result.Shape.ShapeType);
+        // Two 180° arcs flattened at ~2° steps → well over 100 points.
+        Assert.True(result.Shape.Points.Count > 100);
+        // Band spans the full width and the TOP half of the box.
+        Assert.Equal(0.0, result.Shape.Points[0].X, precision: 3);
+        Assert.Equal(0.5, result.Shape.Points[0].Y, precision: 3);
+        Assert.True(result.Shape.Points.Min(p => p.Y) < 0.02);
+        Assert.True(result.Shape.Points.Max(p => p.Y) <= 0.51);
+        Assert.True(result.Shape.Points.Max(p => p.X) > 0.98);
+    }
+
+    [Fact]
+    public void Extract_BlockArc_HonorsAdjustmentValues()
+    {
+        // Slide-33 connector: start 315°, end 45°, thin band (adj3 376).
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""1270000"" cy=""1270000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""blockArc"">
+      <a:avLst>
+        <a:gd name=""adj1"" fmla=""val 18900000""/>
+        <a:gd name=""adj2"" fmla=""val 2700000""/>
+        <a:gd name=""adj3"" fmla=""val 376""/>
+      </a:avLst>
+    </a:prstGeom>
+    <a:noFill/>
+    <a:ln w=""9525"">
+      <a:solidFill><a:srgbClr val=""16A085""/></a:solidFill>
+    </a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 100, shapeH: 100);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal("polygon", result.Shape.ShapeType);
+        // Outer-arc start at 315°: (0.5 + 0.5·cos315°, 0.5 + 0.5·sin315°).
+        Assert.Equal(0.8536, result.Shape.Points[0].X, precision: 3);
+        Assert.Equal(0.1464, result.Shape.Points[0].Y, precision: 3);
+        // The 90° arc band occupies the right side of the box only.
+        Assert.True(result.Shape.Points.Min(p => p.X) > 0.8);
+        Assert.True(result.Shape.Points.Max(p => p.X) <= 1.0);
+    }
+
+    [Fact]
+    public void ComputeBoundingBox_NoFillBlockArc_DoesNotPolluteBounds()
+    {
+        // INV-slide-033: a stroke-only connector arc (noFill blockArc) is clipped to
+        // the frame by PowerPoint, never fitted — its cached xfrm legitimately
+        // extends outside the node layout, so it must not set the fit bbox.
+        var rect = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""127000"" y=""254000""/>
+      <a:ext cx=""2540000"" cy=""1270000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""rect"">
+      <a:avLst/>
+    </a:prstGeom>
+  </dsp:spPr>
+</dsp:sp>";
+        var connectorArc = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""-6350000"" y=""-1270000""/>
+      <a:ext cx=""8890000"" cy=""7620000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""blockArc"">
+      <a:avLst>
+        <a:gd name=""adj1"" fmla=""val 18900000""/>
+        <a:gd name=""adj2"" fmla=""val 2700000""/>
+        <a:gd name=""adj3"" fmla=""val 376""/>
+      </a:avLst>
+    </a:prstGeom>
+    <a:noFill/>
+    <a:ln w=""9525"">
+      <a:solidFill><a:srgbClr val=""16A085""/></a:solidFill>
+    </a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var bounds = SmartArtDrawingExtractor.ComputeBoundingBox(
+            new[] { ParseXml(rect), ParseXml(connectorArc) });
+
+        Assert.NotNull(bounds);
+        Assert.Equal(10.0, bounds.Value.MinX, precision: 6);
+        Assert.Equal(20.0, bounds.Value.MinY, precision: 6);
+        Assert.Equal(200.0, bounds.Value.Width, precision: 6);
+        Assert.Equal(100.0, bounds.Value.Height, precision: 6);
+    }
+
+    [Fact]
+    public void ComputeBoundingBox_FilledBlockArc_ContributesToBounds()
+    {
+        // A FILLED blockArc is real content (e.g. donut-chart segments) and must
+        // still set the fit bbox.
+        var arc = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""-6350000"" y=""-1270000""/>
+      <a:ext cx=""8890000"" cy=""7620000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""blockArc"">
+      <a:avLst/>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""16A085""/>
+    </a:solidFill>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var bounds = SmartArtDrawingExtractor.ComputeBoundingBox(new[] { ParseXml(arc) });
+
+        Assert.NotNull(bounds);
+        Assert.Equal(-500.0, bounds.Value.MinX, precision: 6);
+        Assert.Equal(700.0, bounds.Value.Width, precision: 6);
     }
 
     private static OpenXmlElement ParseXml(string xml)
