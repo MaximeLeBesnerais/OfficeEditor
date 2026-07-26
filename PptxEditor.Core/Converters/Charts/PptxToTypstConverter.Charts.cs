@@ -9,8 +9,9 @@ namespace PptxEditor.Core.Converters;
 /// <summary>
 /// Chart graphicFrame conversion: resolves the <c>c:chart</c> relationship to its chart
 /// part, parses it (see <see cref="ChartPartParser"/>) and decomposes clustered bar/column
-/// charts into Typst primitives (see <see cref="BarChartElementBuilder"/>). Everything
-/// else — line/pie/stacked charts, unresolvable parts, unparseable XML — keeps the
+/// charts into Typst primitives (see <see cref="BarChartElementBuilder"/>) and pie charts
+/// into wedge polygons (see <see cref="PieChartElementBuilder"/>). Everything
+/// else — line/stacked/doughnut charts, unresolvable parts, unparseable XML — keeps the
 /// existing visible-placeholder fallback with an accurate warning.
 /// </summary>
 public sealed partial class PptxToTypstConverter
@@ -62,6 +63,18 @@ public sealed partial class PptxToTypstConverter
         if (model.Kind == ChartKind.Bar && model.Grouping == BarGrouping.Clustered)
         {
             var elements = BarChartElementBuilder.Build(model,
+                offX + position.X * scaleX, offY + position.Y * scaleY,
+                position.Width * scaleX, position.Height * scaleY);
+            if (elements.Count > 0)
+                return (elements, null);
+
+            return (Placeholder(position, offX, offY, scaleX, scaleY),
+                $"Chart '{name}' has no plottable data and was replaced by a placeholder.");
+        }
+
+        if (model.Kind == ChartKind.Pie)
+        {
+            var elements = PieChartElementBuilder.Build(model,
                 offX + position.X * scaleX, offY + position.Y * scaleY,
                 position.Width * scaleX, position.Height * scaleY);
             if (elements.Count > 0)

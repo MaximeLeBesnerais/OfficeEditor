@@ -4,6 +4,7 @@ using DocumentFormat.OpenXml.Presentation;
 using Drawing = DocumentFormat.OpenXml.Drawing;
 using P = DocumentFormat.OpenXml.Presentation;
 using PptxEditor.Core.Converters;
+using PptxEditor.Core.Converters.Charts;
 using Xunit;
 
 namespace DocxEditor.Tests.Unit;
@@ -123,6 +124,149 @@ public sealed class PptxToTypstConverterSpaceTests : IDisposable
 
         return deckPath;
     }
+
+    // ------------------------------------------------------------------
+    // Pie chart support ( 15 rendered a blank placeholder box)
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public void Parse_PieChart_ReadsPerPointFillsAndFirstSliceAngle()
+    {
+        var model = ChartPartParser.Parse(PieChartXml);
+
+        Assert.NotNull(model);
+        Assert.Equal(ChartKind.Pie, model!.Kind);
+        Assert.Equal(45.0, model.FirstSliceAngleDegrees);
+
+        var series = Assert.Single(model.Series);
+        Assert.Equal([8.2, 3.2, 1.4, 1.2], series.Values.Select(v => v!.Value).ToArray());
+        Assert.Equal(["#009CBB", "#57A166", "#C83A50", "#FEC60E"], series.PointFillColors);
+        Assert.Equal(1.5, series.PointLineWidthPt, 3);
+        Assert.NotNull(series.PointLineColor);
+    }
+
+    [Fact]
+    public void Build_PieChart_EmitsOneWedgePolygonPerSlice()
+    {
+        var model = new ChartModel
+        {
+            Kind = ChartKind.Pie,
+            Categories = ["A", "B", "C", "D"],
+            Series =
+            [
+                new ChartSeries
+                {
+                    Name = "Sales",
+                    Values = [8.2, 3.2, 1.4, 1.2],
+                    PointFillColors = ["#009CBB", "#57A166", "#C83A50", "#FEC60E"],
+                    PointLineColor = "#FFFFFF",
+                    PointLineWidthPt = 1.5
+                }
+            ]
+        };
+
+        var elements = PieChartElementBuilder.Build(model, 100, 50, 240, 200);
+
+        var wedges = elements.Where(e => e.Type == "Shape" && e.Shape?.ShapeType == "polygon").ToList();
+        Assert.Equal(4, wedges.Count);
+        Assert.Equal(["#009CBB", "#57A166", "#C83A50", "#FEC60E"],
+            wedges.Select(w => w.Shape!.FillColor).ToArray());
+        Assert.All(wedges, w => Assert.Equal("#FFFFFF", w.Shape!.StrokeColor));
+
+        // Every wedge point must be normalized to the 0..1 element box.
+        Assert.All(wedges.SelectMany(w => w.Shape!.Points),
+            p => Assert.InRange(p.X, 0, 1));
+        Assert.All(wedges.SelectMany(w => w.Shape!.Points),
+            p => Assert.InRange(p.Y, 0, 1));
+
+        // First slice starts at 12 o'clock (firstSliceAng=0): the largest slice
+        // must include the top-center point of the pie circle.
+        var first = wedges[0];
+        var topCenter = first.Shape!.Points
+            .Where(p => Math.Abs(p.X - 0.5) < 0.02)
+            .OrderBy(p => p.Y)
+            .FirstOrDefault();
+        Assert.True(topCenter.Y < 0.15, "first slice should touch the top of the pie");
+    }
+
+    [Fact]
+    public void Build_PieChart_SingleValue_EmitsFullEllipse()
+    {
+        var model = new ChartModel
+        {
+            Kind = ChartKind.Pie,
+            Categories = ["A"],
+            Series = [new ChartSeries { Name = "S", Values = [5.0], PointFillColors = ["#009CBB"] }]
+        };
+
+        var elements = PieChartElementBuilder.Build(model, 0, 0, 200, 200);
+
+        var ellipse = Assert.Single(elements, e => e.Type == "Shape" && e.Shape?.ShapeType == "ellipse");
+        Assert.Equal("#009CBB", ellipse.Shape!.FillColor);
+    }
+
+    /// <summary>Synthetic pie chart part mirroring  15's chart1.xml.</summary>
+    private const string PieChartXml = """
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"
+                      xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+          <c:chart>
+            <c:autoTitleDeleted val="1"/>
+            <c:plotArea>
+              <c:layout/>
+              <c:pieChart>
+                <c:varyColors val="1"/>
+                <c:ser>
+                  <c:idx val="0"/>
+                  <c:order val="0"/>
+                  <c:tx><c:strRef><c:strCache><c:pt idx="0"><c:v>Sales</c:v></c:pt></c:strCache></c:strRef></c:tx>
+                  <c:dPt>
+                    <c:idx val="0"/>
+                    <c:spPr>
+                      <a:solidFill><a:srgbClr val="009CBB"/></a:solidFill>
+                      <a:ln w="19050"><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill></a:ln>
+                    </c:spPr>
+                  </c:dPt>
+                  <c:dPt>
+                    <c:idx val="1"/>
+                    <c:spPr>
+                      <a:solidFill><a:srgbClr val="57A166"/></a:solidFill>
+                      <a:ln w="19050"><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill></a:ln>
+                    </c:spPr>
+                  </c:dPt>
+                  <c:dPt>
+                    <c:idx val="2"/>
+                    <c:spPr>
+                      <a:solidFill><a:srgbClr val="C83A50"/></a:solidFill>
+                      <a:ln w="19050"><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill></a:ln>
+                    </c:spPr>
+                  </c:dPt>
+                  <c:dPt>
+                    <c:idx val="3"/>
+                    <c:spPr>
+                      <a:solidFill><a:srgbClr val="FEC60E"/></a:solidFill>
+                      <a:ln w="19050"><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill></a:ln>
+                    </c:spPr>
+                  </c:dPt>
+                  <c:cat><c:strRef><c:strCache>
+                    <c:pt idx="0"><c:v>1st Qtr</c:v></c:pt>
+                    <c:pt idx="1"><c:v>2nd Qtr</c:v></c:pt>
+                    <c:pt idx="2"><c:v>3rd Qtr</c:v></c:pt>
+                    <c:pt idx="3"><c:v>4th Qtr</c:v></c:pt>
+                  </c:strCache></c:strRef></c:cat>
+                  <c:val><c:numRef><c:numCache>
+                    <c:pt idx="0"><c:v>8.2</c:v></c:pt>
+                    <c:pt idx="1"><c:v>3.2</c:v></c:pt>
+                    <c:pt idx="2"><c:v>1.4</c:v></c:pt>
+                    <c:pt idx="3"><c:v>1.2</c:v></c:pt>
+                  </c:numCache></c:numRef></c:val>
+                </c:ser>
+                <c:firstSliceAng val="45"/>
+              </c:pieChart>
+            </c:plotArea>
+          </c:chart>
+        </c:chartSpace>
+        """;
 
     /// <summary>
     /// Deck whose slide has a pic placeholder (ph type="pic" idx="10") with an
