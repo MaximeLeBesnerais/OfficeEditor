@@ -628,6 +628,65 @@ public sealed class PptxToTypstConverterSpaceTests : IDisposable
         Assert.Equal("#16A085", run.Formatting.Color);
     }
 
+    // ------------------------------------------------------------------
+    // Line pitch for unknown fonts (Space slide 19's Calibri Light text:
+    // font not installed → Typst's ~1.3em default pitch instead of
+    // PowerPoint's ~1.2em single spacing → lines drift apart)
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public void Convert_UnknownFontWithoutLnSpc_TargetsPowerPointSingleSpacing()
+    {
+        var deckPath = Path.Combine(_tempDir, $"{Guid.NewGuid():N}.pptx");
+        using (var document = PresentationDocument.Create(deckPath, PresentationDocumentType.Presentation))
+        {
+            var (presentationPart, slideLayoutPart) = CreateShell(document);
+            slideLayoutPart.SlideLayout = new P.SlideLayout(new CommonSlideData(CreateShapeTree()));
+
+            var slidePart = presentationPart.AddNewPart<SlidePart>();
+            var textBox = new P.Shape(
+                new NonVisualShapeProperties(
+                    new NonVisualDrawingProperties { Id = 5, Name = "TextBox" },
+                    new NonVisualShapeDrawingProperties(),
+                    new ApplicationNonVisualDrawingProperties()),
+                new ShapeProperties(
+                    new Drawing.Transform2D(
+                        new Drawing.Offset { X = 2185947, Y = 2158991 },
+                        new Drawing.Extents { Cx = 7820106, Cy = 3416320 }),
+                    new Drawing.PresetGeometry(new Drawing.AdjustValueList())
+                    { Preset = Drawing.ShapeTypeValues.Rectangle }),
+                new P.TextBody(
+                    new Drawing.BodyProperties(),
+                    new Drawing.ListStyle(),
+                    new Drawing.Paragraph(
+                        new Drawing.Run(
+                            new Drawing.RunProperties(
+                                new Drawing.LatinFont { Typeface = "Zq Definitely Not Installed Font" })
+                            { Language = "en-US", FontSize = 2000 },
+                            new Drawing.Text("Line one"),
+                            new Drawing.Break(),
+                            new Drawing.Text("Line two")))));
+            slidePart.Slide = new Slide(new CommonSlideData(CreateShapeTree(textBox)));
+            slidePart.AddPart(slideLayoutPart);
+
+            presentationPart.Presentation!.SlideIdList!.Append(new SlideId
+            {
+                Id = 256,
+                RelationshipId = presentationPart.GetIdOfPart(slidePart)
+            });
+        }
+
+        using var doc = PresentationDocument.Open(deckPath, false);
+        using var converter = new PptxToTypstConverter(doc);
+
+        var presentation = converter.Convert();
+        var source = converter.GenerateTypstSource(presentation);
+
+        // PowerPoint single spacing for a 20pt font: pitch ≈ 1.2em = 24pt.
+        // Typst pitch = cap height (≈0.65em = 13pt) + leading → leading ≈ 11pt.
+        Assert.Contains("#set par(leading: 11.00pt)", source);
+    }
+
     /// <summary>
     /// Deck whose slide has a pic placeholder (ph type="pic" idx="10") with an
     /// EMPTY spPr (no xfrm). The layout carries the matching pic placeholder
