@@ -272,12 +272,13 @@ public sealed class PptxToTypstConverterPencilWideTests : IDisposable
             var presentation = converter.Convert();
             var shape = Assert.Single(presentation.Slides[0].Elements, e => e.Type == "Shape");
 
-            // Group centre (2000000, 1500000); child centre (500000, 250000).
+            // Group centre (2000000, 1500000); child centre mapped into parent
+            // space = grpOff + (500000, 250000) = (1500000, 1250000).
             // Rotating 270° clockwise about the group centre maps the child
-            // centre to (750000, 3000000) EMU.
+            // centre to (1750000, 2000000) EMU.
             AssertInRange(shape.Rotation, 270.0);
-            AssertInRange(shape.X + shape.Width / 2, 750000 / 12700.0);
-            AssertInRange(shape.Y + shape.Height / 2, 3000000 / 12700.0);
+            AssertInRange(shape.X + shape.Width / 2, 1750000 / 12700.0);
+            AssertInRange(shape.Y + shape.Height / 2, 2000000 / 12700.0);
         }
     }
 

@@ -2118,11 +2118,68 @@ public sealed partial class PptxToTypstConverter : IDisposable
             newScaleY = parentScaleY * localScaleY;
         }
 
+        // Group rotation (a:xfrm/@rot): every child pivots about the group's
+        // centre — the centre of its (off, ext) box in parent space — and the
+        // angle adds to each child's own rotation. Applied as a post-pass on
+        // the positioned children so nested groups compose naturally.
+        var groupRotDeg = (grpXfrm?.Rotation?.Value ?? 0) / 60000.0;
+        double rotCentreX = 0, rotCentreY = 0;
+        if (Math.Abs(groupRotDeg) > 0.001 && grpXfrm != null)
+        {
+            var grpExtXPt = EmuToPt((long)(grpXfrm.Extents?.Cx?.Value ?? 0));
+            var grpExtYPt = EmuToPt((long)(grpXfrm.Extents?.Cy?.Value ?? 0));
+            rotCentreX = parentOffX + (EmuToPt((long)(grpXfrm.Offset?.X?.Value ?? 0)) + grpExtXPt / 2) * parentScaleX;
+            rotCentreY = parentOffY + (EmuToPt((long)(grpXfrm.Offset?.Y?.Value ?? 0)) + grpExtYPt / 2) * parentScaleY;
+        }
+
         foreach (var child in groupShape.ChildElements)
         {
             foreach (var element in ConvertElement(slidePart, child, styleResolver, slideIndex, newOffX, newOffY, newScaleX, newScaleY, imageRelScope))
-                yield return element;
+            {
+                yield return Math.Abs(groupRotDeg) > 0.001
+                    ? RotateElementAboutPoint(element, groupRotDeg, rotCentreX, rotCentreY)
+                    : element;
+            }
         }
+    }
+
+    /// <summary>
+    /// Rotates a positioned element about an arbitrary point (group-rotation
+    /// post-pass): the element centre moves on the rotation circle and the
+    /// angle accumulates into <see cref="TypstElement.Rotation"/>, which the
+    /// emitters apply about the element centre. Positive angles are clockwise
+    /// (OOXML and Typst agree in y-down space).
+    /// </summary>
+    private static TypstElement RotateElementAboutPoint(TypstElement element, double angleDeg, double pivotX, double pivotY)
+    {
+        var radians = angleDeg * Math.PI / 180.0;
+        var cos = Math.Cos(radians);
+        var sin = Math.Sin(radians);
+
+        var centreX = element.X + element.Width / 2;
+        var centreY = element.Y + element.Height / 2;
+        var dx = centreX - pivotX;
+        var dy = centreY - pivotY;
+
+        var rotatedX = pivotX + dx * cos - dy * sin;
+        var rotatedY = pivotY + dx * sin + dy * cos;
+
+        return new TypstElement
+        {
+            Type = element.Type,
+            Id = element.Id,
+            Name = element.Name,
+            ModelId = element.ModelId,
+            X = rotatedX - element.Width / 2,
+            Y = rotatedY - element.Height / 2,
+            Width = element.Width,
+            Height = element.Height,
+            Rotation = element.Rotation + angleDeg,
+            Text = element.Text,
+            Image = element.Image,
+            Table = element.Table,
+            Shape = element.Shape
+        };
     }
 
     /// <summary>
