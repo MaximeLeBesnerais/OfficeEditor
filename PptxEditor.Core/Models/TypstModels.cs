@@ -207,6 +207,14 @@ public sealed class TypstShapeElement
     public bool NoStroke { get; init; }
     public double CornerRadius { get; init; }
     public List<(double X, double Y)> Points { get; init; } = new();
+    /// <summary>
+    /// Multi-contour polygon (custGeom with several moveTo subpaths, e.g. a ring whose
+    /// hole must stay transparent). When more than one subpath is present the shape is
+    /// emitted as a Typst <c>#path(closed: true, fill-rule: "even-odd")</c> instead of a
+    /// flat <c>#polygon</c>, which would fill the hole. Normalized 0..1 coordinates,
+    /// same as <see cref="Points"/>.
+    /// </summary>
+    public List<List<(double X, double Y)>> Subpaths { get; init; } = new();
 }
 
 /// <summary>

@@ -268,6 +268,106 @@ public sealed class PptxToTypstConverterSpaceTests : IDisposable
         </c:chartSpace>
         """;
 
+    // ------------------------------------------------------------------
+    // Multi-subpath custGeom (Space slide 15's lens ring filled its hole)
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public void Convert_MultiSubpathFreeform_EmitsEvenOddPathNotFilledPolygon()
+    {
+        var path = CreateDeckWithRingFreeform();
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = converter.Convert();
+        var source = converter.GenerateTypstSource(presentation);
+
+        // A ring (outer square + inner square subpath) must keep its hole:
+        // even-odd #curve with both subpaths, not a single filled #polygon.
+        Assert.Contains("#curve(", source);
+        Assert.Contains("fill-rule: \"even-odd\"", source);
+        Assert.Contains("curve.move(", source);
+        Assert.DoesNotContain("#polygon(fill: rgb(\"#A8A9AC\")", source);
+    }
+
+    [Fact]
+    public void Convert_SingleSubpathFreeform_StillEmitsPolygon()
+    {
+        var path = CreateDeckWithRingFreeform(singleSubpath: true);
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = converter.Convert();
+        var source = converter.GenerateTypstSource(presentation);
+
+        Assert.Contains("#polygon(fill: rgb(\"#A8A9AC\")", source);
+        Assert.DoesNotContain("#curve(", source);
+    }
+
+    /// <summary>
+    /// Deck with a custGeom "ring": outer square subpath plus inner square subpath
+    /// (like Space slide 15's telescope lens ring, whose hole must stay transparent).
+    /// </summary>
+    private string CreateDeckWithRingFreeform(bool singleSubpath = false)
+    {
+        var deckPath = Path.Combine(_tempDir, $"{Guid.NewGuid():N}.pptx");
+        using (var document = PresentationDocument.Create(deckPath, PresentationDocumentType.Presentation))
+        {
+            var (presentationPart, slideLayoutPart) = CreateShell(document);
+            slideLayoutPart.SlideLayout = new P.SlideLayout(new CommonSlideData(CreateShapeTree()));
+
+            var slidePart = presentationPart.AddNewPart<SlidePart>();
+            var innerSubpath = singleSubpath
+                ? string.Empty
+                : """
+                  <a:moveTo><a:pt x="25" y="25"/></a:moveTo>
+                  <a:lnTo><a:pt x="75" y="25"/></a:lnTo>
+                  <a:lnTo><a:pt x="75" y="75"/></a:lnTo>
+                  <a:lnTo><a:pt x="25" y="75"/></a:lnTo>
+                  <a:close/>
+                  """;
+            var shapeTree = CreateShapeTree();
+            var sp = new P.Shape();
+            sp.InnerXml = $"""
+                <p:nvSpPr xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+                          xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+                  <p:cNvPr id="5" name="Ring"/>
+                  <p:cNvSpPr/>
+                  <p:nvPr/>
+                </p:nvSpPr>
+                <p:spPr xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+                  <a:xfrm><a:off x="1000000" y="1000000"/><a:ext cx="2000000" cy="2000000"/></a:xfrm>
+                  <a:custGeom>
+                    <a:avLst/><a:gdLst/><a:ahLst/><a:cxnLst/><a:rect l="0" t="0" r="0" b="0"/>
+                    <a:pathLst>
+                      <a:path w="100" h="100">
+                        <a:moveTo><a:pt x="0" y="0"/></a:moveTo>
+                        <a:lnTo><a:pt x="100" y="0"/></a:lnTo>
+                        <a:lnTo><a:pt x="100" y="100"/></a:lnTo>
+                        <a:lnTo><a:pt x="0" y="100"/></a:lnTo>
+                        <a:lnTo><a:pt x="0" y="50"/></a:lnTo>
+                        <a:close/>
+                        {innerSubpath}
+                      </a:path>
+                    </a:pathLst>
+                  </a:custGeom>
+                  <a:solidFill><a:srgbClr val="A8A9AC"/></a:solidFill>
+                </p:spPr>
+                """;
+            shapeTree.Append(sp);
+            slidePart.Slide = new Slide(new CommonSlideData(shapeTree));
+            slidePart.AddPart(slideLayoutPart);
+
+            presentationPart.Presentation!.SlideIdList!.Append(new SlideId
+            {
+                Id = 256,
+                RelationshipId = presentationPart.GetIdOfPart(slidePart)
+            });
+        }
+
+        return deckPath;
+    }
+
     /// <summary>
     /// Deck whose slide has a pic placeholder (ph type="pic" idx="10") with an
     /// EMPTY spPr (no xfrm). The layout carries the matching pic placeholder
