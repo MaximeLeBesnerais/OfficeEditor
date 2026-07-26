@@ -198,8 +198,8 @@ public sealed class SmartArtColorsDefResolverTests
     [Fact]
     public void CreateContext_MissingParts_ReturnsNull()
     {
-        Assert.Null(SmartArtColorsDefResolver.CreateContext(null, ParseXml(DataModelXml), null));
-        Assert.Null(SmartArtColorsDefResolver.CreateContext(ParseXml(ColorsDefXml), null, null));
+        Assert.Null(SmartArtColorsDefResolver.CreateContext(colorsDefRoot: null, ParseXml(DataModelXml), styleDefRoot: null));
+        Assert.Null(SmartArtColorsDefResolver.CreateContext(ParseXml(ColorsDefXml), dataModelRoot: null, styleDefRoot: null));
     }
 
     // ---------- end-to-end precedence through TryExtractShape ----------
@@ -293,18 +293,33 @@ public sealed class SmartArtColorsDefResolverTests
 
     private static OpenXmlElement ConvertXElementToOpenXml(XElement xElement)
     {
-        var element = new OpenXmlUnknownElement(xElement.Name.NamespaceName, xElement.Name.LocalName, null);
+        var prefix = xElement.GetPrefixOfNamespace(xElement.Name.Namespace);
+        var localName = xElement.Name.LocalName;
+        var nsUri = xElement.Name.NamespaceName;
 
-        foreach (var attribute in xElement.Attributes())
+        var result = new OpenXmlUnknownElement(
+            prefix ?? "",
+            localName,
+            nsUri);
+
+        foreach (var attr in xElement.Attributes())
         {
-            element.SetAttribute(new OpenXmlAttribute(attribute.Name.LocalName, null, attribute.Value));
+            if (attr.IsNamespaceDeclaration)
+                continue;
+
+            var attrNs = attr.Name.NamespaceName;
+            result.SetAttribute(new OpenXmlAttribute(
+                string.IsNullOrEmpty(attrNs) ? "" : "",
+                attr.Name.LocalName,
+                string.IsNullOrEmpty(attrNs) ? "" : attrNs,
+                attr.Value));
         }
 
         foreach (var child in xElement.Elements())
         {
-            element.AppendChild(ConvertXElementToOpenXml(child));
+            result.Append(ConvertXElementToOpenXml(child));
         }
 
-        return element;
+        return result;
     }
 }
