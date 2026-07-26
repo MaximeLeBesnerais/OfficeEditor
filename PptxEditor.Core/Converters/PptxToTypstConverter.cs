@@ -500,6 +500,29 @@ public sealed partial class PptxToTypstConverter : IDisposable
             // independent decorative/text elements (e.g. section headers like
             // "List //") that must be rendered beneath the slide's own shapes.
             var layoutPart = slidePart.SlideLayoutPart;
+
+            // Master user-drawn shapes (logos, taglines, watermark art) render
+            // beneath layout shapes on every slide using the master, unless the
+            // layout opts out via showMasterSp="0".
+            var masterPart = layoutPart?.SlideMasterPart;
+            if (layoutPart?.SlideLayout?.ShowMasterShapes?.Value != false
+                && masterPart?.SlideMaster?.CommonSlideData?.ShapeTree != null)
+            {
+                foreach (var masterElement in masterPart.SlideMaster.CommonSlideData.ShapeTree.ChildElements)
+                {
+                    if (!IsUserDrawnShape(masterElement))
+                        continue;
+
+                    if (IsOverriddenBySlide(masterElement, slidePositions))
+                        continue;
+
+                    foreach (var typstElement in ConvertElement(slidePart, masterElement, styleResolver, slideIndex, imageRelScope: masterPart))
+                    {
+                        typstSlide.Elements.Add(typstElement);
+                    }
+                }
+            }
+
             if (layoutPart?.SlideLayout?.CommonSlideData?.ShapeTree != null)
             {
                 foreach (var layoutElement in layoutPart.SlideLayout.CommonSlideData.ShapeTree.ChildElements)
