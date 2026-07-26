@@ -283,6 +283,97 @@ public sealed class PptxToTypstConverterWideTests : IDisposable
     }
 
     /// <summary>
+    /// bodyPr wrap="none" (typically with spAutoFit): PowerPoint never wraps
+    /// the line — the box grows/overflows instead. The converter must widen
+    /// the emitted block beyond the shape width so fallback-font metrics
+    /// cannot force a wrap (-Wide cover taglines "
+    /// Slides" / "16:9 Screen Template" are single lines in the official PDF).
+    /// </summary>
+    [Fact]
+    public void Convert_NoWrapTextBox_EmitsBlockWiderThanShape()
+    {
+        var deckPath = Path.Combine(_tempDir, $"{Guid.NewGuid():N}.pptx");
+
+        using (var document = PresentationDocument.Create(deckPath, PresentationDocumentType.Presentation))
+        {
+            var presentationPart = document.AddPresentationPart();
+            presentationPart.Presentation = new Presentation
+            {
+                SlideMasterIdList = new SlideMasterIdList(),
+                SlideIdList = new SlideIdList(),
+                SlideSize = new SlideSize { Cx = 12192000, Cy = 6858000 }
+            };
+
+            var slideMasterPart = presentationPart.AddNewPart<SlideMasterPart>();
+            slideMasterPart.SlideMaster = new SlideMaster(
+                new CommonSlideData(CreateShapeTree()),
+                CreateColorMap(),
+                new SlideLayoutIdList());
+
+            var slideLayoutPart = slideMasterPart.AddNewPart<SlideLayoutPart>();
+            slideLayoutPart.SlideLayout = new P.SlideLayout(new CommonSlideData(CreateShapeTree()));
+            slideLayoutPart.AddPart(slideMasterPart);
+            slideMasterPart.SlideMaster.SlideLayoutIdList!.Append(new SlideLayoutId
+            {
+                Id = 2147483649,
+                RelationshipId = slideMasterPart.GetIdOfPart(slideLayoutPart)
+            });
+            presentationPart.Presentation.SlideMasterIdList.Append(new SlideMasterId
+            {
+                Id = 2147483648,
+                RelationshipId = presentationPart.GetIdOfPart(slideMasterPart)
+            });
+
+            var slidePart = presentationPart.AddNewPart<SlidePart>();
+            slidePart.AddPart(slideLayoutPart);
+            presentationPart.Presentation.SlideIdList.Append(new SlideId
+            {
+                Id = 256,
+                RelationshipId = presentationPart.GetIdOfPart(slidePart)
+            });
+
+            // 100pt-wide box (1270000 EMU) with wrap="none" and a line that
+            // measures far wider than 100pt.
+            var shape = new P.Shape(
+                new P.NonVisualShapeProperties(
+                    new NonVisualDrawingProperties { Id = 70, Name = "Tagline" },
+                    new P.NonVisualShapeDrawingProperties(),
+                    new ApplicationNonVisualDrawingProperties()),
+                new ShapeProperties(
+                    new Drawing.Transform2D(
+                        new Drawing.Offset { X = 2000000, Y = 1000000 },
+                        new Drawing.Extents { Cx = 1270000, Cy = 500000 }),
+                    new Drawing.PresetGeometry(new Drawing.AdjustValueList())
+                    { Preset = Drawing.ShapeTypeValues.Rectangle }),
+                new P.TextBody(
+                    new Drawing.BodyProperties { Wrap = Drawing.TextWrappingValues.None },
+                    new Drawing.ListStyle(),
+                    new Drawing.Paragraph(
+                        new Drawing.Run(
+                            new Drawing.RunProperties { Language = "en-US", FontSize = 2800, Bold = true },
+                            new Drawing.Text(" Slides")))));
+
+            slidePart.Slide = new Slide(new CommonSlideData(CreateShapeTree(shape)));
+        }
+
+        using (var document = PresentationDocument.Open(deckPath, false))
+        using (var converter = new PptxToTypstConverter(document))
+        {
+            var presentation = converter.Convert();
+            var text = Assert.Single(presentation.Slides[0].Elements, e => e.Type == "Text");
+            Assert.True(text.Text!.NoWrap, "wrap=\"none\" must set the NoWrap flag");
+
+            var source = converter.GenerateTypstSource(presentation);
+            var match = System.Text.RegularExpressions.Regex.Match(
+                source, @"#place\(top \+ left, dx: [0-9.]+pt, dy: [0-9.]+pt\)\[#block\(width: ([0-9.]+)pt");
+            Assert.True(match.Success, "expected a placed width-constrained text block");
+            var emittedWidth = double.Parse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+            Assert.True(emittedWidth > 100.0,
+                $"no-wrap block must exceed the 100pt shape width, got {emittedWidth:F2}pt");
+        }
+    }
+
+    /// <summary>
     /// A run with no color anywhere in the cascade inherits the theme's tx1
     /// (→ dk1) color — not hardcoded black. The  decks redefine dk1 as
     /// grey #95A5A6, and their body text renders grey in the official PDFs.
