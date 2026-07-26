@@ -283,6 +283,116 @@ public sealed class PptxToTypstConverterWideTests : IDisposable
     }
 
     /// <summary>
+    /// Hyperlink runs render in the theme hlink color with an underline —
+    /// the behaviour of the reference renderer (and LibreOffice), which
+    /// overrides even an explicit solidFill. -Wide slide 22's
+    /// "www.example.com" is white/50% in XML but teal #16A085 + underline in
+    /// the official PDF.
+    /// </summary>
+    [Fact]
+    public void Convert_HyperlinkRun_UsesThemeHlinkColorAndUnderline()
+    {
+        var deckPath = Path.Combine(_tempDir, $"{Guid.NewGuid():N}.pptx");
+
+        using (var document = PresentationDocument.Create(deckPath, PresentationDocumentType.Presentation))
+        {
+            var presentationPart = document.AddPresentationPart();
+            presentationPart.Presentation = new Presentation
+            {
+                SlideMasterIdList = new SlideMasterIdList(),
+                SlideIdList = new SlideIdList(),
+                SlideSize = new SlideSize { Cx = 12192000, Cy = 6858000 }
+            };
+
+            var slideMasterPart = presentationPart.AddNewPart<SlideMasterPart>();
+            slideMasterPart.SlideMaster = new SlideMaster(
+                new CommonSlideData(CreateShapeTree()),
+                CreateColorMap(),
+                new SlideLayoutIdList());
+
+            var themePart = slideMasterPart.AddNewPart<ThemePart>();
+            themePart.Theme = new Drawing.Theme(
+                new Drawing.ThemeElements(
+                    new Drawing.ColorScheme(
+                        new Drawing.Dark1Color(new Drawing.SystemColor { Val = Drawing.SystemColorValues.WindowText, LastColor = "000000" }),
+                        new Drawing.Light1Color(new Drawing.SystemColor { Val = Drawing.SystemColorValues.Window, LastColor = "FFFFFF" }),
+                        new Drawing.Dark2Color(new Drawing.RgbColorModelHex { Val = "1F497D" }),
+                        new Drawing.Light2Color(new Drawing.RgbColorModelHex { Val = "EEECE1" }),
+                        new Drawing.Accent1Color(new Drawing.RgbColorModelHex { Val = "4F81BD" }),
+                        new Drawing.Accent2Color(new Drawing.RgbColorModelHex { Val = "C0504D" }),
+                        new Drawing.Accent3Color(new Drawing.RgbColorModelHex { Val = "9BBB59" }),
+                        new Drawing.Accent4Color(new Drawing.RgbColorModelHex { Val = "8064A2" }),
+                        new Drawing.Accent5Color(new Drawing.RgbColorModelHex { Val = "4BACC6" }),
+                        new Drawing.Accent6Color(new Drawing.RgbColorModelHex { Val = "F79646" }),
+                        new Drawing.Hyperlink(new Drawing.RgbColorModelHex { Val = "16A085" }),
+                        new Drawing.FollowedHyperlinkColor(new Drawing.RgbColorModelHex { Val = "800080" })) { Name = "Office" },
+                    new Drawing.FontScheme(new Drawing.MajorFont(), new Drawing.MinorFont()) { Name = "Office" },
+                    new Drawing.FormatScheme(new Drawing.FillStyleList(), new Drawing.LineStyleList(), new Drawing.EffectStyleList(), new Drawing.BackgroundFillStyleList()) { Name = "Office" }),
+                new Drawing.ObjectDefaults(),
+                new Drawing.ExtraColorSchemeList()) { Name = "Office Theme" };
+
+            var slideLayoutPart = slideMasterPart.AddNewPart<SlideLayoutPart>();
+            slideLayoutPart.SlideLayout = new P.SlideLayout(new CommonSlideData(CreateShapeTree()));
+            slideLayoutPart.AddPart(slideMasterPart);
+            slideMasterPart.SlideMaster.SlideLayoutIdList!.Append(new SlideLayoutId
+            {
+                Id = 2147483649,
+                RelationshipId = slideMasterPart.GetIdOfPart(slideLayoutPart)
+            });
+            presentationPart.Presentation.SlideMasterIdList.Append(new SlideMasterId
+            {
+                Id = 2147483648,
+                RelationshipId = presentationPart.GetIdOfPart(slideMasterPart)
+            });
+
+            var slidePart = presentationPart.AddNewPart<SlidePart>();
+            slidePart.AddPart(slideLayoutPart);
+            presentationPart.Presentation.SlideIdList.Append(new SlideId
+            {
+                Id = 256,
+                RelationshipId = presentationPart.GetIdOfPart(slidePart)
+            });
+
+            // Run with an explicit white fill AND a hyperlink: the hlink
+            // styling wins (reference-renderer behaviour).
+            var shape = new P.Shape(
+                new P.NonVisualShapeProperties(
+                    new NonVisualDrawingProperties { Id = 50, Name = "Link" },
+                    new P.NonVisualShapeDrawingProperties(),
+                    new ApplicationNonVisualDrawingProperties()),
+                new ShapeProperties(
+                    new Drawing.Transform2D(
+                        new Drawing.Offset { X = 1000000, Y = 1000000 },
+                        new Drawing.Extents { Cx = 3000000, Cy = 500000 }),
+                    new Drawing.PresetGeometry(new Drawing.AdjustValueList())
+                    { Preset = Drawing.ShapeTypeValues.Rectangle }),
+                new P.TextBody(
+                    new Drawing.BodyProperties(),
+                    new Drawing.ListStyle(),
+                    new Drawing.Paragraph(
+                        new Drawing.Run(
+                            new Drawing.RunProperties(
+                                new Drawing.SolidFill(new Drawing.PresetColor { Val = Drawing.PresetColorValues.White }),
+                                new Drawing.HyperlinkOnClick { Id = "rId99" })
+                            { Language = "en-US", FontSize = 1200 },
+                            new Drawing.Text("www.example.com")))));
+
+            slidePart.Slide = new Slide(new CommonSlideData(CreateShapeTree(shape)));
+        }
+
+        using (var document = PresentationDocument.Open(deckPath, false))
+        using (var converter = new PptxToTypstConverter(document))
+        {
+            var presentation = converter.Convert();
+            var text = Assert.Single(presentation.Slides[0].Elements, e => e.Type == "Text");
+            var run = Assert.Single(text.Text!.Paragraphs.SelectMany(p => p.Runs));
+
+            Assert.Equal("#16A085", run.Formatting.Color);
+            Assert.True(run.Formatting.Underline);
+        }
+    }
+
+    /// <summary>
     /// A picture-filled shape with blipFill rotWithShape="0" (the OOXML
     /// default) keeps its fill slide-aligned: PowerPoint does not rotate the
     /// image with the shape. For quarter-turn rotations the displayed bounds
