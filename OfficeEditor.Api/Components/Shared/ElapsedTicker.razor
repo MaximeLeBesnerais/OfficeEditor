@@ -1,0 +1,30 @@
+@* ElapsedTicker.razor — Live elapsed-time ticker (0.1s resolution) for in-progress operations *@
+@implements IDisposable
+
+<span class="font-mono @Class">@_text</span>
+
+@code {
+    /// <summary>UTC instant the timed operation started.</summary>
+    [Parameter] public DateTimeOffset Since { get; set; }
+
+    /// <summary>Extra CSS classes (font-mono is always applied).</summary>
+    [Parameter] public string? Class { get; set; }
+
+    private Timer? _timer;
+    private string _text = "0.0 s";
+
+    protected override void OnInitialized()
+    {
+        UpdateText();
+        _timer = new Timer(_ => InvokeAsync(() =>
+        {
+            UpdateText();
+            StateHasChanged();
+        }), null, 100, 100);
+    }
+
+    private void UpdateText() =>
+        _text = $"{(DateTimeOffset.UtcNow - Since).TotalSeconds:F1} s";
+
+    public void Dispose() => _timer?.Dispose();
+}
