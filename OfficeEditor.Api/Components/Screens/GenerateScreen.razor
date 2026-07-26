@@ -1,0 +1,382 @@
+@* GenerateScreen.razor — Edit a demo deck JSON, generate, preview (matches React GenerateScreen.tsx) *@
+
+@inject IDemoDeckService DemoDeckService
+@inject IDeckGenerationService DeckGenerationService
+@inject IDeckSessionStore DeckSessionStore
+@inject NavigationManager Nav
+
+<div class="flex flex-col gap-8 lg:flex-row">
+    @* Left panel *@
+    <div class="space-y-6 lg:w-2/5">
+        <section class="space-y-2">
+            <h1 class="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-50">
+                Generate a deck from JSON
+            </h1>
+            <p class="text-slate-400">
+                Edit the title, swap the theme, generate — watch the pipeline run.
+            </p>
+        </section>
+
+        @if (_templateError is not null)
+        {
+            <StatusMessage Type="error" Title="Template unavailable" Message="_templateError" />
+        }
+
+        <div class="space-y-2">
+            <label for="deck-title" class="block text-sm font-semibold text-slate-300">Deck title</label>
+            <input id="deck-title" type="text"
+                   @bind-value="_title"
+                   @bind-value:event="oninput"
+                   disabled="@(_template is null || _generating)"
+                   class="w-full rounded-xl border border-slate-700 bg-slate-900 px-4 py-2.5 text-slate-100 placeholder-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 disabled:opacity-50"
+                   placeholder="Northwind Labs" />
+        </div>
+
+        <div class="space-y-2">
+            <p class="text-sm font-semibold text-slate-300">Theme</p>
+            <div class="flex flex-wrap gap-2">
+                @foreach (var preset in ThemePresets.All)
+                {
+                    var active = preset.Id == _theme.Id;
+                    <button type="button"
+                            @onclick='() => SelectTheme(preset.Id)'
+                            disabled="@(_template is null || _generating)"
+                            class="flex items-center gap-2.5 rounded-xl border px-3.5 py-2 text-sm font-semibold transition-all duration-200 disabled:opacity-50 @(active ? "border-indigo-500 bg-indigo-500/10 text-slate-100 ring-1 ring-indigo-500/50" : "border-slate-700 bg-slate-900 text-slate-400 hover:border-slate-500 hover:text-slate-200")">
+                        <span class="flex -space-x-1">
+                            <span class="h-3 w-3 rounded-full ring-1 ring-slate-950" style="background-color:@preset.Design.Palette.Primary"></span>
+                            <span class="h-3 w-3 rounded-full ring-1 ring-slate-950" style="background-color:@preset.Design.Palette.Accent"></span>
+                            <span class="h-3 w-3 rounded-full ring-1 ring-slate-950" style="background-color:@preset.Design.Palette.Ink"></span>
+                        </span>
+                        @preset.Name
+                    </button>
+                }
+            </div>
+        </div>
+
+        <div class="space-y-2">
+            <div class="flex items-center justify-between">
+                <p class="text-sm font-semibold text-slate-300">Custom colors</p>
+                @if (_paletteDirty)
+                {
+                    <button type="button"
+                            @onclick="ResetPalette"
+                            disabled="@(_template is null || _generating)"
+                            class="text-xs font-semibold text-slate-400 transition-colors hover:text-slate-200 disabled:opacity-50">
+                        Reset to preset
+                    </button>
+                }
+            </div>
+            <div class="flex flex-wrap gap-3">
+                @foreach (var (role, label) in new[] { ("primary", "Primary"), ("accent", "Accent"), ("ink", "Ink") })
+                {
+                    <label class="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 @(_template is null || _generating ? "opacity-50" : "")">
+                        <input type="color"
+                               value="@GetPaletteColor(role)"
+                               @onchange='e => SetPaletteColor(role, e.Value?.ToString())'
+                               disabled="@(_template is null || _generating)"
+                               aria-label="@label color"
+                               class="h-6 w-8 cursor-pointer rounded border-0 bg-transparent p-0 disabled:cursor-not-allowed" />
+                        <span class="text-sm text-slate-300">@label</span>
+                        <span class="font-mono text-xs uppercase text-slate-500">@GetPaletteColor(role)</span>
+                    </label>
+                }
+            </div>
+        </div>
+
+        <div class="flex items-center gap-3">
+            <span class="text-sm font-semibold text-slate-300">Preview format</span>
+            <FormatToggle Value="@_format" ValueChanged="OnFormatChanged" Disabled="@(_template is null || _generating)" />
+        </div>
+
+        <div class="space-y-2">
+            <button type="button"
+                    @onclick='() => _showJson = !_showJson'
+                    class="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-400 hover:text-slate-200 transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                     class="h-4 w-4 transition-transform duration-200 @(_showJson ? "rotate-90" : "")" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+                </svg>
+                @(_showJson ? "Hide JSON" : "Show JSON")
+            </button>
+            @if (_showJson)
+            {
+                <textarea readonly
+                          value="@BuildDocumentJson()"
+                          spellcheck="false"
+                          class="h-72 w-full resize-none overflow-auto rounded-xl border border-slate-800 bg-slate-900/80 p-4 font-mono text-xs leading-relaxed text-slate-300 focus:outline-none">
+                </textarea>
+            }
+        </div>
+
+        <button type="button"
+                @onclick="HandleGenerate"
+                disabled="@(_template is null || _generating)"
+                class="inline-flex w-full items-center justify-center gap-2 rounded-xl px-6 py-3 bg-gradient-to-r from-indigo-500 to-violet-600 font-bold text-white shadow-lg shadow-indigo-500/25 hover:from-indigo-400 hover:to-violet-500 active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:ring-offset-2 focus:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-50 transition-all duration-200">
+            @if (_generating) { <Spinner Size="h-5 w-5" /> }
+            @(_generating ? "Generating…" : "Generate")
+        </button>
+
+        @if (_generateError is not null)
+        {
+            <StatusMessage Type="error" Title="Generation failed" Message="_generateError" />
+        }
+
+        @if (_response is { Success: false })
+        {
+            <StatusMessage Type="error" Title="Generation failed"
+                Message="@(_response.ErrorMessage ?? "The document was rejected.")"
+                Messages="@GetIssueMessages(_response)" />
+        }
+
+        @if (_response is { Success: true })
+        {
+            var warnMessages = new List<string>();
+            if (_response.PreviewError is not null) warnMessages.Add(_response.PreviewError);
+            if (_response.Warnings is not null) warnMessages.AddRange(_response.Warnings.Select(w => w.Message));
+            if (_response.PipelineWarnings is not null) warnMessages.AddRange(_response.PipelineWarnings);
+            @if (warnMessages.Count > 0)
+            {
+                <StatusMessage Type="warning" Title="Generated with warnings"
+                    Message="@(_response.PreviewError is not null ? "The deck was built, but slide previews failed." : "The pipeline reported warnings.")"
+                    Messages="@warnMessages" />
+            }
+        }
+    </div>
+
+    @* Right stage *@
+    <div class="lg:w-3/5">
+        @if (_response is { Success: true })
+        {
+            var renderedMs = _response.TotalMilliseconds - _response.GenerationMilliseconds;
+            var slidePreviews = _response.Previews ?? new List<GeneratedSlidePreviewDto>();
+            var slides = slidePreviews
+                .Select(p => new GallerySlide(p.Slide, $"data:{p.ContentType};base64,{p.ContentBase64}"))
+                .ToList();
+            <div class="fade-in-up space-y-5">
+                <TimingReceipt Stats="@(new TimingStats
+                {
+                    Slides = _response.SlideCount,
+                    TotalMs = renderedMs,
+                    Label = "rendered",
+                    Extra = new TimingExtra { Label = "built", Ms = _response.GenerationMilliseconds },
+                })" />
+                <SlideGallery Slides="@slides" Title="Generated deck" />
+                @if (_response.DownloadUrl is not null)
+                {
+                    <a href="@_response.DownloadUrl" download="northwind-labs-demo.pptx"
+                       class="inline-flex items-center justify-center gap-2 rounded-xl px-6 py-3 bg-slate-100 font-bold text-slate-900 shadow-lg hover:bg-white active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 focus:ring-offset-slate-950 transition-all duration-200">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M7.5 12 12 16.5m0 0L16.5 12M12 16.5V3" />
+                        </svg>
+                        Download .pptx
+                    </a>
+                }
+            </div>
+        }
+        else
+        {
+            <div class="flex h-full min-h-72 flex-col items-center justify-center gap-4 rounded-3xl border border-dashed border-slate-800 bg-slate-900/40 p-10 text-center">
+                <div class="grid grid-cols-3 gap-2 opacity-60" aria-hidden="true">
+                    <span class="aspect-video w-14 rounded-md bg-indigo-500/40"></span>
+                    <span class="aspect-video w-14 rounded-md bg-violet-500/40"></span>
+                    <span class="aspect-video w-14 rounded-md bg-fuchsia-500/40"></span>
+                    <span class="aspect-video w-14 rounded-md bg-slate-700"></span>
+                    <span class="aspect-video w-14 rounded-md bg-indigo-500/40"></span>
+                    <span class="aspect-video w-14 rounded-md bg-slate-700"></span>
+                    <span class="aspect-video w-14 rounded-md bg-slate-700"></span>
+                    <span class="aspect-video w-14 rounded-md bg-violet-500/40"></span>
+                    <span class="aspect-video w-14 rounded-md bg-slate-700"></span>
+                </div>
+                <div>
+                    <p class="text-lg font-bold text-slate-200">Generate to see your deck</p>
+                    <p class="text-sm text-slate-500">Slides appear here the moment the pipeline finishes.</p>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private const string TitleSentinel = "{{DECK_TITLE}}";
+
+    private string? _template;
+    private string? _templateError;
+    private string _title = "Northwind Labs";
+    private ThemePreset _theme = ThemePresets.All[0];
+    private string _primary = ThemePresets.All[0].Design.Palette.Primary;
+    private string _accent = ThemePresets.All[0].Design.Palette.Accent;
+    private string _ink = ThemePresets.All[0].Design.Palette.Ink;
+    private string _format = "svg";
+    private bool _showJson;
+    private bool _generating;
+    private GenerateDeckResponse? _response;
+    private string? _generateError;
+    private bool _paramsApplied;
+
+    private bool _paletteDirty =>
+        _primary != _theme.Design.Palette.Primary ||
+        _accent != _theme.Design.Palette.Accent ||
+        _ink != _theme.Design.Palette.Ink;
+
+    protected override void OnInitialized()
+    {
+        try
+        {
+            _template = DemoDeckService.GetDeckTemplateJson();
+        }
+        catch (Exception ex)
+        {
+            _templateError = ex.Message;
+        }
+
+        var uri = new Uri(Nav.BaseUri + Nav.Uri.TrimStart('/'));
+        var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
+        if (query["format"] == "png") _format = "png";
+    }
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender && _template is not null && !_paramsApplied)
+        {
+            _paramsApplied = true;
+            var uri = new Uri(Nav.BaseUri + Nav.Uri.TrimStart('/'));
+            var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
+            var paramTitle = query["title"];
+            var paramTheme = query["theme"];
+            var autogen = query["autogen"];
+
+            var nextTitle = paramTitle ?? _title;
+            var nextTheme = ThemePresets.All.FirstOrDefault(t => t.Id == paramTheme) ?? _theme;
+
+            if (paramTitle is not null) _title = paramTitle;
+            if (paramTheme is not null)
+            {
+                _theme = nextTheme;
+                _primary = nextTheme.Design.Palette.Primary;
+                _accent = nextTheme.Design.Palette.Accent;
+                _ink = nextTheme.Design.Palette.Ink;
+            }
+
+            if (autogen == "1")
+            {
+                _ = HandleGenerateWithTitle(nextTitle, nextTheme, _primary, _accent, _ink, _format);
+            }
+        }
+    }
+
+    private void SelectTheme(string id)
+    {
+        var preset = ThemePresets.All.FirstOrDefault(t => t.Id == id) ?? ThemePresets.All[0];
+        _theme = preset;
+        _primary = preset.Design.Palette.Primary;
+        _accent = preset.Design.Palette.Accent;
+        _ink = preset.Design.Palette.Ink;
+    }
+
+    private void ResetPalette()
+    {
+        _primary = _theme.Design.Palette.Primary;
+        _accent = _theme.Design.Palette.Accent;
+        _ink = _theme.Design.Palette.Ink;
+    }
+
+    private string GetPaletteColor(string role) => role switch
+    {
+        "primary" => _primary,
+        "accent" => _accent,
+        _ => _ink,
+    };
+
+    private void SetPaletteColor(string role, string? value)
+    {
+        if (value is null) return;
+        switch (role)
+        {
+            case "primary": _primary = value; break;
+            case "accent": _accent = value; break;
+            case "ink": _ink = value; break;
+        }
+    }
+
+    private async Task OnFormatChanged(string fmt) => _format = fmt;
+
+    private string BuildDocumentJson()
+    {
+        if (_template is null) return "";
+        var doc = BuildDocument(_template, _title, _theme, _primary, _accent, _ink);
+        var node = JsonNode.Parse(doc);
+        return node?.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) ?? "";
+    }
+
+    private async Task HandleGenerate()
+    {
+        if (_template is null) return;
+        await HandleGenerateWithTitle(_title, _theme, _primary, _accent, _ink, _format);
+    }
+
+    private async Task HandleGenerateWithTitle(string title, ThemePreset theme, string primary, string accent, string ink, string format)
+    {
+        if (_template is null) return;
+        _generating = true;
+        _generateError = null;
+        _response = null;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            var doc = BuildDocument(_template, title, theme, primary, accent, ink);
+            var result = await Task.Run(() => DeckGenerationService.Generate(doc, format, DeckPreviewValidators.DefaultPpi));
+
+            string? downloadUrl = null;
+            if (result.Success && result.PptxBytes is not null)
+            {
+                var deckId = DeckSessionStore.Store(result.PptxBytes, "generated.pptx", result.SlideCount);
+                downloadUrl = $"{Nav.BaseUri}api/decks/{deckId}/file";
+            }
+
+            _response = new GenerateDeckResponse(
+                Success: result.Success,
+                DeckId: null,
+                SlideCount: result.SlideCount,
+                DownloadUrl: downloadUrl,
+                Previews: result.Previews
+                    .Select(p => new GeneratedSlidePreviewDto(p.Slide, p.Format, p.ContentType, Convert.ToBase64String(p.Bytes)))
+                    .ToList(),
+                Errors: result.Errors.Select(e => new GenerationIssueDto(e.Path, e.Message, e.Suggestion, e.Severity.ToString())).ToList(),
+                Warnings: result.Warnings.Select(w => new GenerationIssueDto(w.Path, w.Message, w.Suggestion, w.Severity.ToString())).ToList(),
+                PipelineWarnings: result.PipelineWarnings,
+                PreviewError: result.PreviewError,
+                ErrorMessage: result.Errors.FirstOrDefault()?.Message,
+                GenerationMilliseconds: result.GenerationMilliseconds,
+                TotalMilliseconds: result.TotalMilliseconds);
+        }
+        catch (Exception ex)
+        {
+            _generateError = ex.Message;
+        }
+        finally
+        {
+            _generating = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private static string BuildDocument(string template, string title, ThemePreset theme, string primary, string accent, string ink)
+    {
+        var doc = template.Replace(TitleSentinel, title);
+        var node = JsonNode.Parse(doc) ?? throw new InvalidOperationException("Invalid template JSON");
+        var design = theme.Design.ToJsonObject();
+        ((JsonObject)design["palette"]!)["primary"] = primary;
+        ((JsonObject)design["palette"]!)["accent"] = accent;
+        ((JsonObject)design["palette"]!)["ink"] = ink;
+        node["design"] = design;
+        return node.ToJsonString();
+    }
+
+    private static IReadOnlyList<string> GetIssueMessages(GenerateDeckResponse response)
+    {
+        if (response.Errors is { Count: > 0 })
+            return response.Errors.Select(e => e.Message ?? "").Where(m => m.Length > 0).ToList();
+        return new[] { response.ErrorMessage ?? "Generation failed." };
+    }
+}

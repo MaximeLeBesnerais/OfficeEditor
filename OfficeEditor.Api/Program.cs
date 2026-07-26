@@ -1,9 +1,13 @@
 using System.Text.Json;
+using OfficeEditor.Api.Components;
 using OfficeEditor.Api.Models;
 using OfficeEditor.Api.Services;
 using PptxEditor.Core.Builders;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddRazorComponents()
+    .AddInteractiveServerComponents();
 
 const string ReactCorsPolicy = "ReactCorsPolicy";
 
@@ -867,6 +871,12 @@ app.MapGet("/api/demo/deck-template", (IDemoDeckService demoDeckService) =>
         return Results.NotFound(new { error = ex.Message });
     }
 });
+
+app.UseStaticFiles();
+app.UseAntiforgery();
+
+app.MapRazorComponents<App>()
+    .AddInteractiveServerRenderMode();
 
 app.Run();
 
