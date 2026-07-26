@@ -179,6 +179,35 @@ internal static class SmartArtPresetGeometry
                 "Z",
             }),
 
+        // ECMA-376 chevron: notch/point depth dx1 = ss·a/100000 with
+        // a = pin(0, adj, 100000·w/ss) — a fraction of min(w,h), NOT of the
+        // width. The static 0.5-of-width table carved a 2.5× too-deep notch
+        // into the wide (~2.5:1) process chevrons on slides 56/58
+        // (INV-slide-025 §4); on square shapes the default adj=50000
+        // reproduces that legacy table exactly.
+        ["chevron"] = new SmartArtPresetGeometry.PresetDef(
+            new Dictionary<string, double>
+            {
+                ["adj"] = 50000,
+            },
+            new[]
+            {
+                "maxAdj */ 100000 w ss",
+                "a pin 0 adj maxAdj",
+                "x1 */ ss a 100000",
+                "x2 +- r 0 x1",
+            },
+            new[]
+            {
+                "M l t",
+                "L x2 t",
+                "L r vc",
+                "L x2 b",
+                "L l b",
+                "L x1 vc",
+                "Z",
+            }),
+
         // ECMA-376 flowChartManualOperation has no avLst: a fixed path in 5x5
         // space — full-width top edge, bottom edge inset by w/5 on both sides.
         ["flowChartManualOperation"] = new SmartArtPresetGeometry.PresetDef(
@@ -443,6 +472,41 @@ internal static class SmartArtPresetGeometry
                 "L x2 t",
                 "L r b",
                 "L l b",
+                "Z",
+            }),
+
+        // ECMA-376 round2DiagRect: rectangle with two diagonally-opposite
+        // rounded corners — adj1 rounds top-left + bottom-right, adj2 rounds
+        // top-right + bottom-left (radii are fractions of ss, defaults
+        // 16667/0; slide 113's OpposingIdeas body caches adj1=0, adj2=16670).
+        // Corner arcs are quarter-ellipses flattened by the shared arcTo.
+        // (The dx/dy/ir/ib text-rect guides are omitted — they feed no path.)
+        ["round2DiagRect"] = new SmartArtPresetGeometry.PresetDef(
+            new Dictionary<string, double>
+            {
+                ["adj1"] = 16667,
+                ["adj2"] = 0,
+            },
+            new[]
+            {
+                "a1 pin 0 adj1 50000",
+                "a2 pin 0 adj2 50000",
+                "x1 */ ss a1 100000",
+                "y1 +- b 0 x1",
+                "a */ ss a2 100000",
+                "x2 +- r 0 a",
+            },
+            new[]
+            {
+                "M x1 t",
+                "L x2 t",
+                "A a a 3cd4 cd4",
+                "L r y1",
+                "A x1 x1 0 cd4",
+                "L a b",
+                "A a a cd4 cd4",
+                "L l x1",
+                "A x1 x1 cd2 cd4",
                 "Z",
             }),
 
