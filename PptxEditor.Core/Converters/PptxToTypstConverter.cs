@@ -2489,7 +2489,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
                     if (!string.IsNullOrEmpty(runText))
                     {
                         paragraphText.Append(runText);
-                        textRuns.Add((runText, run, ExtractTextFormatting(run)));
+                        textRuns.Add((runText, run, ExtractTextFormatting(run, styleResolver)));
                         elements.Add((true, run, runText));
                     }
 
@@ -2929,7 +2929,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
         return null;
     }
 
-    private TypstTextFormatting ExtractTextFormatting(Drawing.Run run)
+    private TypstTextFormatting ExtractTextFormatting(Drawing.Run run, StyleResolver? styleResolver = null)
     {
         var runProps = run.RunProperties;
         if (runProps == null) return new TypstTextFormatting();
@@ -2965,6 +2965,18 @@ public sealed partial class PptxToTypstConverter : IDisposable
         if (!string.IsNullOrEmpty(color))
         {
             fmt = fmt with { Color = color };
+        }
+
+        // Hyperlink runs render in the theme's hlink color — PowerPoint overrides
+        // the explicit run fill ( 19's example.com link: explicit
+        // white-50% fill, rendered in teal hlink color).
+        if (runProps.Elements<Drawing.HyperlinkOnClick>().FirstOrDefault() != null)
+        {
+            var hlinkColor = styleResolver?.ResolveSchemeColor("hlink");
+            if (!string.IsNullOrEmpty(hlinkColor))
+            {
+                fmt = fmt with { Color = hlinkColor };
+            }
         }
 
         // Font family - map common "Bold" suffix fonts to base family

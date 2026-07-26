@@ -799,6 +799,15 @@ public sealed partial class PptxToTypstConverter
         if (!string.IsNullOrEmpty(color))
             result = result with { Color = color };
 
+        // Hyperlink runs render in the theme's hlink color — PowerPoint overrides
+        // the explicit run fill ( 19's example.com link).
+        if (runProps.Elements<Drawing.HyperlinkOnClick>().FirstOrDefault() != null)
+        {
+            var hlinkColor = styleResolver?.ResolveSchemeColor("hlink");
+            if (!string.IsNullOrEmpty(hlinkColor))
+                result = result with { Color = hlinkColor };
+        }
+
         var latinFont = runProps.Elements<Drawing.LatinFont>().FirstOrDefault();
         if (latinFont?.Typeface != null)
         {

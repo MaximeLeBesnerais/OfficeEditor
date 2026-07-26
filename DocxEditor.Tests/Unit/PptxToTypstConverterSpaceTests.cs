@@ -568,6 +568,66 @@ public sealed class PptxToTypstConverterSpaceTests : IDisposable
         Assert.True(elements.IndexOf(image) < elements.Count - 1 || elements.Count == 2);
     }
 
+    // ------------------------------------------------------------------
+    // Hyperlink run color ( 19's www.example.com renders in the
+    // theme hlink color, not its explicit run fill)
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public void Convert_HyperlinkRun_UsesThemeHlinkColor()
+    {
+        var deckPath = Path.Combine(_tempDir, $"{Guid.NewGuid():N}.pptx");
+        using (var document = PresentationDocument.Create(deckPath, PresentationDocumentType.Presentation))
+        {
+            var (presentationPart, slideLayoutPart) = CreateShell(document, themeColors: ("hlink", "16A085"));
+            slideLayoutPart.SlideLayout = new P.SlideLayout(new CommonSlideData(CreateShapeTree()));
+
+            var slidePart = presentationPart.AddNewPart<SlidePart>();
+            var hyperlinkRel = slidePart.AddHyperlinkRelationship(
+                new Uri("https://www.example.com/", UriKind.Absolute), true);
+            var textBox = new P.Shape(
+                new NonVisualShapeProperties(
+                    new NonVisualDrawingProperties { Id = 5, Name = "Link TextBox" },
+                    new NonVisualShapeDrawingProperties(),
+                    new ApplicationNonVisualDrawingProperties()),
+                new ShapeProperties(
+                    new Drawing.Transform2D(
+                        new Drawing.Offset { X = 5071254, Y = 6461797 },
+                        new Drawing.Extents { Cx = 2049493, Cy = 276999 }),
+                    new Drawing.PresetGeometry(new Drawing.AdjustValueList())
+                    { Preset = Drawing.ShapeTypeValues.Rectangle }),
+                new P.TextBody(
+                    new Drawing.BodyProperties(),
+                    new Drawing.ListStyle(),
+                    new Drawing.Paragraph(
+                        new Drawing.Run(
+                            new Drawing.RunProperties(
+                                new Drawing.SolidFill(
+                                    new Drawing.PresetColor(
+                                        new Drawing.LuminanceModulation { Val = 50000 })
+                                    { Val = Drawing.PresetColorValues.White }),
+                                new Drawing.HyperlinkOnClick { Id = hyperlinkRel.Id })
+                            { Language = "en-US", FontSize = 1200 },
+                            new Drawing.Text("www.example.com")))));
+            slidePart.Slide = new Slide(new CommonSlideData(CreateShapeTree(textBox)));
+            slidePart.AddPart(slideLayoutPart);
+
+            presentationPart.Presentation!.SlideIdList!.Append(new SlideId
+            {
+                Id = 256,
+                RelationshipId = presentationPart.GetIdOfPart(slidePart)
+            });
+        }
+
+        using var doc = PresentationDocument.Open(deckPath, false);
+        using var converter = new PptxToTypstConverter(doc);
+
+        var presentation = converter.Convert();
+        var element = Assert.Single(presentation.Slides[0].Elements, e => e.Type == "Text");
+        var run = Assert.Single(element.Text!.Paragraphs[0].Runs);
+        Assert.Equal("#16A085", run.Formatting.Color);
+    }
+
     /// <summary>
     /// Deck whose slide has a pic placeholder (ph type="pic" idx="10") with an
     /// EMPTY spPr (no xfrm). The layout carries the matching pic placeholder
@@ -631,7 +691,8 @@ public sealed class PptxToTypstConverterSpaceTests : IDisposable
     }
 
     private static (PresentationPart PresentationPart, SlideLayoutPart SlideLayoutPart) CreateShell(
-        PresentationDocument document, string? txStylesXml = null)
+        PresentationDocument document, string? txStylesXml = null,
+        params (string Name, string Hex)[] themeColors)
     {
         var presentationPart = document.AddPresentationPart();
         presentationPart.Presentation = new Presentation
@@ -666,7 +727,24 @@ public sealed class PptxToTypstConverterSpaceTests : IDisposable
             slideMasterPart.SlideMaster.TextStyles = new TextStyles { InnerXml = txStylesXml };
         }
 
-        var slideLayoutPart = slideMasterPart.AddNewPart<SlideLayoutPart>();
+if (themeColors.Length > 0)
+        {
+            var entries = string.Join(string.Empty,
+                themeColors.Select(c => $"<a:{c.Name}><a:srgbClr val=\"{c.Hex}\"/></a:{c.Name}>"));
+            var themePart = slideMasterPart.AddNewPart<ThemePart>();
+            themePart.Theme = new Drawing.Theme
+            {
+                InnerXml = $"""
+                    <a:themeElements xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+                      <a:clrScheme name="Test">{entries}</a:clrScheme>
+                      <a:fontScheme name="Test"><a:majorFont><a:latin typeface="Calibri"/></a:majorFont><a:minorFont><a:latin typeface="Calibri"/></a:minorFont></a:fontScheme>
+                      <a:fmtScheme name="Test"/>
+                    </a:themeElements>
+                    """
+            };
+        }
+
+                var slideLayoutPart = slideMasterPart.AddNewPart<SlideLayoutPart>();
         slideLayoutPart.AddPart(slideMasterPart);
         slideMasterPart.SlideMaster.SlideLayoutIdList!.Append(new SlideLayoutId
         {
