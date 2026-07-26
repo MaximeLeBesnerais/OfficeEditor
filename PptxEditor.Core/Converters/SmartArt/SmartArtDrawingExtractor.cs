@@ -42,6 +42,7 @@ namespace PptxEditor.Core.Converters.SmartArt;
         ["upDownArrow"] = (ShapeType.UpDownArrow, null),
         ["trapezoid"] = (ShapeType.Trapezoid, null),
         ["nonIsoscelesTrapezoid"] = (ShapeType.NonIsoscelesTrapezoid, null),
+        ["wedgeRectCallout"] = (ShapeType.WedgeRectCallout, null),
         ["circularArrow"] = (ShapeType.CircularArrow, null),
         ["leftCircularArrow"] = (ShapeType.LeftCircularArrow, null),
         ["gear6"] = (ShapeType.Gear6, null),
@@ -123,6 +124,7 @@ namespace PptxEditor.Core.Converters.SmartArt;
     private static bool UsesPerShapeGeometry(ShapeType shapeType)
     {
         return shapeType is ShapeType.Trapezoid or ShapeType.NonIsoscelesTrapezoid
+            or ShapeType.WedgeRectCallout
             or ShapeType.CircularArrow or ShapeType.LeftCircularArrow
             or ShapeType.Gear6 or ShapeType.Gear9
             or ShapeType.HomePlate or ShapeType.FlowChartManualOperation
@@ -765,6 +767,7 @@ namespace PptxEditor.Core.Converters.SmartArt;
         UpDownArrow,
         Trapezoid,
         NonIsoscelesTrapezoid,
+        WedgeRectCallout,
         CircularArrow,
         LeftCircularArrow,
         Gear6,

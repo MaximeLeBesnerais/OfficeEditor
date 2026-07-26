@@ -2237,6 +2237,173 @@ public sealed class SmartArtDrawingExtractorTests
         Assert.Equal(335.9, bounds.Value.Height, precision: 6);
     }
 
+    [Fact]
+    public void Extract_WedgeRectCallout_DegenerateAdjustments_RendersAsRect()
+    {
+        // INV-regressions-b1 §3: slide 49's first column body caches
+        // adj1 = adj2 = 0 — the tip lands on the shape centre, a
+        // self-intersecting bowtie — so the outline must degenerate to the
+        // plain rect (the fifth point collapses onto the last rect vertex).
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""0"" y=""0""/>
+      <a:ext cx=""2540000"" cy=""1270000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""wedgeRectCallout"">
+      <a:avLst>
+        <a:gd name=""adj1"" fmla=""val 0""/>
+        <a:gd name=""adj2"" fmla=""val 0""/>
+      </a:avLst>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""4472C4""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 200, shapeH: 100);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal("polygon", result.Shape.ShapeType);
+        Assert.Equal(5, result.Shape.Points.Count);
+        Assert.Equal((0.0, 0.0), result.Shape.Points[0]);
+        Assert.Equal((1.0, 0.0), result.Shape.Points[1]);
+        Assert.Equal((1.0, 1.0), result.Shape.Points[2]);
+        Assert.Equal((0.0, 1.0), result.Shape.Points[3]);
+        // Degenerate tip: collapses onto (l,b) — no interior point, no bowtie.
+        Assert.Equal((0.0, 1.0), result.Shape.Points[4]);
+    }
+
+    [Fact]
+    public void Extract_WedgeRectCallout_HonorsAdjustmentValues()
+    {
+        // Slide-149 caption pattern: adj1 = 20250, adj2 = -60700 on a
+        // 200x100pt shape → tip at (hc + 0.2025·w, vc − 0.607·h)
+        // = (140.5, -10.7)pt → (0.7025, -0.107) normalized — the tip pokes
+        // ABOVE the top edge (the reference's caption bump).
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""0"" y=""0""/>
+      <a:ext cx=""2540000"" cy=""1270000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""wedgeRectCallout"">
+      <a:avLst>
+        <a:gd name=""adj1"" fmla=""val 20250""/>
+        <a:gd name=""adj2"" fmla=""val -60700""/>
+      </a:avLst>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""4472C4""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 200, shapeH: 100);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal("polygon", result.Shape.ShapeType);
+        Assert.Equal(5, result.Shape.Points.Count);
+        Assert.Equal(0.7025, result.Shape.Points[4].X, precision: 4);
+        Assert.Equal(-0.107, result.Shape.Points[4].Y, precision: 3);
+    }
+
+    [Fact]
+    public void Extract_WedgeRectCallout_EmptyAvLst_UsesEcmaDefaults()
+    {
+        // ECMA-376 defaults adj1 = -20833, adj2 = 62500: tip below the
+        // bottom edge, left of centre: (0.5 − 0.20833, 0.5 + 0.625).
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""0"" y=""0""/>
+      <a:ext cx=""1270000"" cy=""1270000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""wedgeRectCallout"">
+      <a:avLst/>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""4472C4""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 100, shapeH: 100);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal("polygon", result.Shape.ShapeType);
+        Assert.Equal(5, result.Shape.Points.Count);
+        Assert.Equal(0.29167, result.Shape.Points[4].X, precision: 4);
+        Assert.Equal(1.125, result.Shape.Points[4].Y, precision: 3);
+    }
+
+    [Fact]
+    public void ComputeBoundingBox_WedgeRectCallout_ContributesToBounds()
+    {
+        // INV-regressions-b1 §3: slide 49 regressed because the bbox
+        // pollution skip dropped the wedgeRectCallout column bodies
+        // (y 67.2→335.9), shrinking the bbox to the 67.2pt-tall header row
+        // and fit-scaling the diagram ×1.21 with a +127pt downshift. Now
+        // that the preset is renderable it must set the fit bbox again.
+        var header = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""853198"" y=""0""/>
+      <a:ext cx=""1343775"" cy=""853198""/>
+    </a:xfrm>
+    <a:prstGeom prst=""rect"">
+      <a:avLst/>
+    </a:prstGeom>
+  </dsp:spPr>
+</dsp:sp>";
+        var body = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""853198"" y=""853198""/>
+      <a:ext cx=""1343775"" cy=""3412792""/>
+    </a:xfrm>
+    <a:prstGeom prst=""wedgeRectCallout"">
+      <a:avLst>
+        <a:gd name=""adj1"" fmla=""val 0""/>
+        <a:gd name=""adj2"" fmla=""val 0""/>
+      </a:avLst>
+    </a:prstGeom>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var bounds = SmartArtDrawingExtractor.ComputeBoundingBox(
+            new[] { ParseXml(header), ParseXml(body) });
+
+        Assert.NotNull(bounds);
+        Assert.Equal(0.0, bounds.Value.MinY, precision: 6);
+        // (853198 + 3412792) EMU = 4265990 EMU — the full column height.
+        Assert.Equal(4265990.0 / 12700.0, bounds.Value.Height, precision: 6);
+    }
+
     private static OpenXmlElement ParseXml(string xml)
     {
         var xElement = XElement.Parse(xml);
