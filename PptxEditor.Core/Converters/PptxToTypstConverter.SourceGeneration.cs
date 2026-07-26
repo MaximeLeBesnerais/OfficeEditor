@@ -238,8 +238,18 @@ public sealed partial class PptxToTypstConverter
             sb.Append($"#set par(leading: {FormatPt(leading)})\n");
         }
 
+        // Justified text (algn="just") is a Typst par property, not an alignment.
+        // PowerPoint justifies by stretching spaces only — Typst would also
+        // hyphenate (its default), so disable hyphenation alongside.
+        var justify = fmt.Align == "justify";
+        if (justify)
+        {
+            sb.Append("#set par(justify: true)\n");
+            sb.Append("#set text(hyphenate: false)\n");
+        }
+
         // Apply horizontal alignment if not left
-        if (fmt.Align != "left" && !string.IsNullOrEmpty(fmt.Align))
+        if (fmt.Align != "left" && !justify && !string.IsNullOrEmpty(fmt.Align))
         {
             sb.Append($"#align({fmt.Align})[");
         }
@@ -247,7 +257,7 @@ public sealed partial class PptxToTypstConverter
         AppendParagraphs(sb, text, availableFonts);
 
         // Close horizontal alignment wrapper if opened
-        if (fmt.Align != "left" && !string.IsNullOrEmpty(fmt.Align))
+        if (fmt.Align != "left" && !justify && !string.IsNullOrEmpty(fmt.Align))
         {
             sb.Append("]");
         }
@@ -1324,7 +1334,8 @@ public sealed partial class PptxToTypstConverter
 
             var paragraph = cell.Paragraphs[i];
             var align = paragraph.Formatting.Align;
-            var hasExplicitAlign = !string.IsNullOrEmpty(align) && align != "left";
+            // "justify" is a par property, not a Typst alignment — skip the wrapper.
+            var hasExplicitAlign = !string.IsNullOrEmpty(align) && align != "left" && align != "justify";
             if (hasExplicitAlign)
                 sb.Append($"#align({align})[");
 
