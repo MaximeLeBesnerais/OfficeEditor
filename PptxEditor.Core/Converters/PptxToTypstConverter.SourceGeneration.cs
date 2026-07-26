@@ -179,7 +179,7 @@ public sealed partial class PptxToTypstConverter
                 GenerateTextSource(sb, element.Text!, widthStr, heightStr, availableFonts);
                 break;
             case "Image":
-                GenerateImageSource(sb, element.Image!, widthStr, heightStr);
+                GenerateImageSource(sb, element.Image!, widthStr, heightStr, element.Width, element.Height, element.Rotation);
                 break;
             case "Table":
                 GenerateTableSource(sb, element.Table!, widthStr, heightStr);
@@ -1073,25 +1073,54 @@ public sealed partial class PptxToTypstConverter
     }
 
     private void GenerateImageSource(StringBuilder sb, TypstImageElement image,
-        string widthStr, string heightStr)
+        string widthStr, string heightStr, double elementWidth, double elementHeight, double elementRotation)
     {
         var relativePath = $"assets/{image.FileName}";
+        var needsSrcRect = image.SrcRect != null && (image.SrcRect.Left > 0 || image.SrcRect.Top > 0 || image.SrcRect.Right > 0 || image.SrcRect.Bottom > 0);
+        var needsCounterRotate = !image.FillRotatesWithShape && Math.Abs(elementRotation) > 0.01;
+        var needsClip = image.CornerRadius > 0 || needsSrcRect || needsCounterRotate;
 
-        // Image geometry comes from the PPTX frame. Native pixel dimensions are
-        // retained on TypstImageElement for diagnostics but must not change layout.
-        var imageTag = $"#image(\"{relativePath}\", width: {widthStr}, height: {heightStr})";
-
-        // Wrap in a clipping block if corner radius is set. #rect has no clip
-        // argument (compilation fails with "unexpected argument: clip"); #block
-        // supports clip + radius and gives the same rounded-corner clip semantics.
-        if (image.CornerRadius > 0)
+        string BuildImageTag(string w, string h)
         {
-            var radius = FormatPt(image.CornerRadius);
-            sb.Append($"#block(clip: true, width: {widthStr}, height: {heightStr}, radius: {radius})[{imageTag}]");
+            return $"#image(\"{relativePath}\", width: {w}, height: {h})";
+        }
+
+        string imageContent;
+
+        if (needsSrcRect)
+        {
+            var src = image.SrcRect!;
+            var l = src.Left / 100000.0;
+            var t = src.Top / 100000.0;
+            var r = src.Right / 100000.0;
+            var b = src.Bottom / 100000.0;
+            var visibleW = Math.Max(0.001, 1.0 - l - r);
+            var visibleH = Math.Max(0.001, 1.0 - t - b);
+            var scaledW = elementWidth / visibleW;
+            var scaledH = elementHeight / visibleH;
+            var offsetX = -(scaledW * l);
+            var offsetY = -(scaledH * t);
+            imageContent = $"#place(dx: {FormatPt(offsetX)}, dy: {FormatPt(offsetY)})[{BuildImageTag(FormatPt(scaledW), FormatPt(scaledH))}]";
         }
         else
         {
-            sb.Append(imageTag);
+            imageContent = BuildImageTag(widthStr, heightStr);
+        }
+
+        if (needsCounterRotate)
+        {
+            imageContent = $"#rotate({(-elementRotation).ToString("F1", CultureInfo.InvariantCulture)}deg, origin: center)[{imageContent}]";
+            needsClip = true;
+        }
+
+        if (needsClip)
+        {
+            var radius = image.CornerRadius > 0 ? $", radius: {FormatPt(image.CornerRadius)}" : "";
+            sb.Append($"#block(clip: true, width: {widthStr}, height: {heightStr}{radius})[{imageContent}]");
+        }
+        else
+        {
+            sb.Append(imageContent);
         }
     }
 

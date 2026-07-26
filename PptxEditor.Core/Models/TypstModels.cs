@@ -151,6 +151,16 @@ public sealed class TypstImageElement
     public int? PixelWidth { get; init; }
     /// <summary>Native pixel height read from image header, or null if unknown.</summary>
     public int? PixelHeight { get; init; }
+    public SrcRect? SrcRect { get; init; }
+    public bool FillRotatesWithShape { get; init; } = true;
+}
+
+public sealed class SrcRect
+{
+    public double Left { get; init; }
+    public double Top { get; init; }
+    public double Right { get; init; }
+    public double Bottom { get; init; }
 }
 
 public sealed class TypstTableElement

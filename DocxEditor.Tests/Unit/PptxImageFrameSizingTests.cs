@@ -107,12 +107,23 @@ public sealed class PptxImageFrameSizingTests
 
     private static (double Width, double Height) EmittedImageSize(string source, string fileName)
     {
-        var pattern = $"#image\\(\\\"assets/{Regex.Escape(fileName)}\\\", width: (?<width>[0-9.]+)pt, height: (?<height>[0-9.]+)pt\\)";
-        var match = Regex.Match(source, pattern);
-        Assert.True(match.Success, $"Image call for '{fileName}' was not found in generated source.");
+        // Image may be wrapped in a clipped block when srcRect or other
+        // transforms are applied — extract the dimensions from the block.
+        var blockPattern = $"#block\\(clip: true, width: (?<bw>[0-9.]+)pt, height: (?<bh>[0-9.]+)pt(?:, radius: [0-9.]+pt)?\\)\\[.+?#image\\(\\\"assets/{Regex.Escape(fileName)}\\\", width: (?<iw>[0-9.]+)pt, height: (?<ih>[0-9.]+)pt\\)";
+        var match = Regex.Match(source, blockPattern, RegexOptions.Singleline);
+        if (match.Success)
+        {
+            return (
+                double.Parse(match.Groups["bw"].Value, System.Globalization.CultureInfo.InvariantCulture),
+                double.Parse(match.Groups["bh"].Value, System.Globalization.CultureInfo.InvariantCulture));
+        }
+
+        var directPattern = $"#image\\(\\\"assets/{Regex.Escape(fileName)}\\\", width: (?<width>[0-9.]+)pt, height: (?<height>[0-9.]+)pt\\)";
+        var directMatch = Regex.Match(source, directPattern);
+        Assert.True(directMatch.Success, $"Image call for '{fileName}' was not found in generated source.");
 
         return (
-            double.Parse(match.Groups["width"].Value, System.Globalization.CultureInfo.InvariantCulture),
-            double.Parse(match.Groups["height"].Value, System.Globalization.CultureInfo.InvariantCulture));
+            double.Parse(directMatch.Groups["width"].Value, System.Globalization.CultureInfo.InvariantCulture),
+            double.Parse(directMatch.Groups["height"].Value, System.Globalization.CultureInfo.InvariantCulture));
     }
 }
