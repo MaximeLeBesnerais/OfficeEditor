@@ -2030,6 +2030,213 @@ public sealed class SmartArtDrawingExtractorTests
             Math.Abs(p.X - 0.2929) < 0.02 && Math.Abs(p.Y - 0.2929) < 0.02);
     }
 
+    [Fact]
+    public void Extract_Trapezoid_HonorsAdjustmentValues()
+    {
+        // -b1 §1: the cached trapezoid adj (64780 on slides
+        // 134/135) must set the top-edge inset — ECMA-376 x1 = ss·adj/100000
+        // with ss = min(w,h), NOT the static table's fixed 25% of the width.
+        // 200x100pt shape, adj=64780: x1 = 100·0.6478 = 64.78pt → 0.3239 of w.
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""0"" y=""0""/>
+      <a:ext cx=""2540000"" cy=""1270000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""trapezoid"">
+      <a:avLst><a:gd name=""adj"" fmla=""val 64780""/></a:avLst>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""A5A5A5""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 200, shapeH: 100);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal("polygon", result.Shape.ShapeType);
+        Assert.Equal(4, result.Shape.Points.Count);
+        Assert.Equal(0.3239, result.Shape.Points[0].X, precision: 4);
+        Assert.Equal(0.0, result.Shape.Points[0].Y, precision: 9);
+        Assert.Equal(0.6761, result.Shape.Points[1].X, precision: 4);
+        Assert.Equal(1.0, result.Shape.Points[2].X, precision: 9);
+        Assert.Equal(1.0, result.Shape.Points[2].Y, precision: 9);
+        Assert.Equal(0.0, result.Shape.Points[3].X, precision: 9);
+        Assert.Equal(1.0, result.Shape.Points[3].Y, precision: 9);
+    }
+
+    [Fact]
+    public void Extract_Trapezoid_EmptyAvLst_UsesEcmaDefaultAdj()
+    {
+        // ECMA-376 default adj = 25000: on a square shape (ss = w) the inset is
+        // 25% of the width — identical to the legacy static-table rendering.
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""0"" y=""0""/>
+      <a:ext cx=""1270000"" cy=""1270000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""trapezoid"">
+      <a:avLst/>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""A5A5A5""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 100, shapeH: 100);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal("polygon", result.Shape.ShapeType);
+        Assert.Equal(4, result.Shape.Points.Count);
+        Assert.Equal(0.25, result.Shape.Points[0].X, precision: 6);
+        Assert.Equal(0.75, result.Shape.Points[1].X, precision: 6);
+    }
+
+    [Fact]
+    public void Extract_NonIsoscelesTrapezoid_ReturnsPolygonShape()
+    {
+        // ECMA-376 defaults adj1 = adj2 = 20000: square shape → 20% insets.
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""0"" y=""0""/>
+      <a:ext cx=""1270000"" cy=""1270000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""nonIsoscelesTrapezoid"">
+      <a:avLst/>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""4472C4""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 100, shapeH: 100);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal("polygon", result.Shape.ShapeType);
+        Assert.Equal(4, result.Shape.Points.Count);
+        Assert.Equal(0.2, result.Shape.Points[0].X, precision: 6);
+        Assert.Equal(0.0, result.Shape.Points[0].Y, precision: 9);
+        Assert.Equal(0.8, result.Shape.Points[1].X, precision: 6);
+        Assert.Equal(0.0, result.Shape.Points[1].Y, precision: 9);
+        Assert.Equal(1.0, result.Shape.Points[2].X, precision: 9);
+        Assert.Equal(1.0, result.Shape.Points[2].Y, precision: 9);
+        Assert.Equal(0.0, result.Shape.Points[3].X, precision: 9);
+        Assert.Equal(1.0, result.Shape.Points[3].Y, precision: 9);
+    }
+
+    [Fact]
+    public void Extract_NonIsoscelesTrapezoid_HonorsAdjustmentValues()
+    {
+        // Slide-134 label-box pattern: adj1 = 0, adj2 = 64780 on a 200x100pt
+        // shape → x1 = 0, x2 = 100·0.6478 = 64.78pt → right top corner at
+        // (200−64.78)/200 = 0.6761 of the width.
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""0"" y=""0""/>
+      <a:ext cx=""2540000"" cy=""1270000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""nonIsoscelesTrapezoid"">
+      <a:avLst>
+        <a:gd name=""adj1"" fmla=""val 0""/>
+        <a:gd name=""adj2"" fmla=""val 64780""/>
+      </a:avLst>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""4472C4""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 200, shapeH: 100);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal("polygon", result.Shape.ShapeType);
+        Assert.Equal(4, result.Shape.Points.Count);
+        Assert.Equal(0.0, result.Shape.Points[0].X, precision: 9);
+        Assert.Equal(0.6761, result.Shape.Points[1].X, precision: 4);
+    }
+
+    [Fact]
+    public void ComputeBoundingBox_NonIsoscelesTrapezoid_ContributesToBounds()
+    {
+        // -b1 §1: slides 134/135 regressed because the bbox
+        // pollution skip dropped the nonIsoscelesTrapezoid label boxes
+        // (x 217.6→640), shrinking the bbox to the 435.2pt-wide pyramid and
+        // center-shifting the whole diagram +102pt. Now that the preset is
+        // renderable, it must participate in the fit bbox again.
+        var pyramid = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""0"" y=""0""/>
+      <a:ext cx=""5527040"" cy=""4265930""/>
+    </a:xfrm>
+    <a:prstGeom prst=""trapezoid"">
+      <a:avLst><a:gd name=""adj"" fmla=""val 64780""/></a:avLst>
+    </a:prstGeom>
+  </dsp:spPr>
+</dsp:sp>";
+        var labelBox = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""2763520"" y=""0""/>
+      <a:ext cx=""5364480"" cy=""4265930""/>
+    </a:xfrm>
+    <a:prstGeom prst=""nonIsoscelesTrapezoid"">
+      <a:avLst>
+        <a:gd name=""adj1"" fmla=""val 0""/>
+        <a:gd name=""adj2"" fmla=""val 64780""/>
+      </a:avLst>
+    </a:prstGeom>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var bounds = SmartArtDrawingExtractor.ComputeBoundingBox(
+            new[] { ParseXml(pyramid), ParseXml(labelBox) });
+
+        Assert.NotNull(bounds);
+        Assert.Equal(0.0, bounds.Value.MinX, precision: 6);
+        Assert.Equal(0.0, bounds.Value.MinY, precision: 6);
+        // 2763520 + 5364480 = 8128000 EMU = 640pt — the identity-fit bbox.
+        Assert.Equal(640.0, bounds.Value.Width, precision: 6);
+        Assert.Equal(335.9, bounds.Value.Height, precision: 6);
+    }
+
     private static OpenXmlElement ParseXml(string xml)
     {
         var xElement = XElement.Parse(xml);

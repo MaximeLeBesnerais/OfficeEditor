@@ -41,6 +41,7 @@ namespace PptxEditor.Core.Converters.SmartArt;
         ["leftRightArrow"] = (ShapeType.LeftRightArrow, null),
         ["upDownArrow"] = (ShapeType.UpDownArrow, null),
         ["trapezoid"] = (ShapeType.Trapezoid, null),
+        ["nonIsoscelesTrapezoid"] = (ShapeType.NonIsoscelesTrapezoid, null),
         ["circularArrow"] = (ShapeType.CircularArrow, null),
         ["leftCircularArrow"] = (ShapeType.LeftCircularArrow, null),
         ["gear6"] = (ShapeType.Gear6, null),
@@ -111,10 +112,6 @@ namespace PptxEditor.Core.Converters.SmartArt;
             (0.5, 0), (1, 0.4), (0.75, 0.4), (0.75, 0.6), (1, 0.6),
             (0.5, 1), (0, 0.6), (0.25, 0.6), (0.25, 0.4), (0, 0.4)
         },
-        [ShapeType.Trapezoid] = new()
-        {
-            (0.25, 0), (0.75, 0), (1, 1), (0, 1)
-        },
     };
 
     /// <summary>
@@ -125,7 +122,8 @@ namespace PptxEditor.Core.Converters.SmartArt;
     /// </summary>
     private static bool UsesPerShapeGeometry(ShapeType shapeType)
     {
-        return shapeType is ShapeType.CircularArrow or ShapeType.LeftCircularArrow
+        return shapeType is ShapeType.Trapezoid or ShapeType.NonIsoscelesTrapezoid
+            or ShapeType.CircularArrow or ShapeType.LeftCircularArrow
             or ShapeType.Gear6 or ShapeType.Gear9
             or ShapeType.HomePlate or ShapeType.FlowChartManualOperation
             or ShapeType.QuadArrow or ShapeType.BlockArc
@@ -766,6 +764,7 @@ namespace PptxEditor.Core.Converters.SmartArt;
         LeftRightArrow,
         UpDownArrow,
         Trapezoid,
+        NonIsoscelesTrapezoid,
         CircularArrow,
         LeftCircularArrow,
         Gear6,
