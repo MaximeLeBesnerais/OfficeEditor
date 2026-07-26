@@ -139,7 +139,7 @@ public sealed partial class PptxToTypstConverter
                 GenerateTableSource(sb, element.Table!, widthStr, heightStr);
                 break;
             case "Shape":
-                GenerateShapeSource(sb, element.Shape!, widthStr, heightStr, element.Width, element.Height);
+                GenerateShapeSource(sb, element.Shape!, widthStr, heightStr, element.Width, element.Height, element.Rotation);
                 break;
         }
 
@@ -949,7 +949,7 @@ public sealed partial class PptxToTypstConverter
         }
     }
 
-    private void GenerateShapeSource(StringBuilder sb, TypstShapeElement shape, string widthStr, string heightStr, double width, double height)
+    private void GenerateShapeSource(StringBuilder sb, TypstShapeElement shape, string widthStr, string heightStr, double width, double height, double rotation = 0.0)
     {
         var fill = shape.FillGradient != null
             ? $"fill: {FormatGradient(shape.FillGradient)}"
@@ -980,6 +980,15 @@ public sealed partial class PptxToTypstConverter
                 // first emitted argument must not be preceded by a comma. Shapes with
                 // neither fill nor stroke (noFill decorators, unparsed gradient fills)
                 // get an explicit fill: none — invisible, matching PowerPoint semantics.
+                //
+                // A #polygon's Typst bbox is its INK bbox, which can be smaller than
+                // the shape box (blockArc bands, stripes). The outer
+                // #rotate(origin: center) would then rotate about the ink center
+                // instead of the shape-box center (xfrm@rot semantics), displacing
+                // the shape — wrap rotated polygons in an explicit-size block.
+                var wrapForRotation = Math.Abs(rotation) > 0.01;
+                if (wrapForRotation)
+                    sb.Append($"#block(width: {widthStr}, height: {heightStr})[");
                 sb.Append("#polygon(");
                 var hasPolygonArg = false;
                 if (!string.IsNullOrEmpty(fill))
@@ -1006,6 +1015,8 @@ public sealed partial class PptxToTypstConverter
                     hasPolygonArg = true;
                 }
                 sb.Append(")");
+                if (wrapForRotation)
+                    sb.Append("]");
                 break;
         }
     }

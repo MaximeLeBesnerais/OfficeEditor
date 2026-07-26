@@ -114,10 +114,11 @@ internal static class GradientFillReader
     }
 
     /// <summary>
-    /// Applies DrawingML color transforms (<c>a:tint</c>, <c>a:alpha</c>) to a base
-    /// color. Returns null when the result is fully transparent (visually identical
-    /// to <c>a:noFill</c> for solid fills) — gradient callers substitute an explicit
-    /// <c>#RRGGBB00</c> stop instead.
+    /// Applies DrawingML color transforms (<c>a:tint</c>, <c>a:shade</c>,
+    /// <c>a:satMod</c>, <c>a:lumMod</c>, <c>a:lumOff</c>, <c>a:alpha</c>) in
+    /// document order. Returns null when the result is fully transparent
+    /// (visually identical to <c>a:noFill</c> for solid fills) — gradient callers
+    /// substitute an explicit <c>#RRGGBB00</c> stop instead.
     /// </summary>
     internal static string? ApplyColorModifiers((byte R, byte G, byte B) color, OpenXmlElementList modifiers)
     {
@@ -134,6 +135,14 @@ internal static class GradientFillReader
                     if (TryGetOoxmlVal(mod, out var alphaVal))
                         alpha = ApplyAlpha(alphaVal);
                     break;
+                case "shade": // darken: exact HSL-lightness scale when L<0.5 (no clamping)
+                    if (TryGetOoxmlVal(mod, out var shadeVal))
+                        color = ScaleChannels(color, shadeVal / 100000.0);
+                    break;
+                case "satMod": // HSL saturation multiply (hue/lightness preserved)
+                    if (TryGetOoxmlVal(mod, out var satModVal))
+                        color = ApplySatMod(color, satModVal / 100000.0);
+                    break;
                 case "lumMod":
                     if (TryGetOoxmlVal(mod, out var lumModVal))
                         color = ScaleChannels(color, lumModVal / 100000.0);
@@ -149,7 +158,7 @@ internal static class GradientFillReader
         return alpha == 0 ? null : FormatHexColor(color, alpha);
     }
 
-    private static (byte R, byte G, byte B) ApplyTint((byte R, byte G, byte B) color, int tint)
+    internal static (byte R, byte G, byte B) ApplyTint((byte R, byte G, byte B) color, int tint)
     {
         // DrawingML tint values specify how much of the source color to keep;
         // the remainder is blended toward white. Blend in linear light so very
@@ -175,6 +184,51 @@ internal static class GradientFillReader
     private static (byte R, byte G, byte B) ScaleChannels((byte R, byte G, byte B) color, double factor)
     {
         return (Clamp(color.R * factor), Clamp(color.G * factor), Clamp(color.B * factor));
+    }
+
+    /// <summary>
+    /// ECMA-376 <c>a:satMod</c>: multiplies the HSL saturation, preserving hue and
+    /// lightness. (Scaling channels toward gray would shift lightness and distort
+    /// saturated accent colors, so a real HSL round-trip is required.)
+    /// </summary>
+    private static (byte R, byte G, byte B) ApplySatMod((byte R, byte G, byte B) color, double factor)
+    {
+        var (h, s, l) = RgbToHsl(color);
+        s = Math.Clamp(s * factor, 0.0, 1.0);
+        return HslToRgb(h, s, l);
+    }
+
+    private static (double H, double S, double L) RgbToHsl((byte R, byte G, byte B) color)
+    {
+        double r = color.R / 255.0, g = color.G / 255.0, b = color.B / 255.0;
+        var max = Math.Max(r, Math.Max(g, b));
+        var min = Math.Min(r, Math.Min(g, b));
+        var l = (max + min) / 2;
+        var d = max - min;
+        if (d == 0)
+            return (0, 0, l);
+
+        var s = l <= 0.5 ? d / (max + min) : d / (2 - max - min);
+        double h;
+        if (max == r) h = ((g - b) / d) % 6;
+        else if (max == g) h = (b - r) / d + 2;
+        else h = (r - g) / d + 4;
+        return ((h * 60 + 360) % 360, s, l);
+    }
+
+    private static (byte R, byte G, byte B) HslToRgb(double h, double s, double l)
+    {
+        var c = (1 - Math.Abs(2 * l - 1)) * s;
+        var x = c * (1 - Math.Abs((h / 60) % 2 - 1));
+        var m = l - c / 2;
+        double r, g, b;
+        if (h < 60) (r, g, b) = (c, x, 0);
+        else if (h < 120) (r, g, b) = (x, c, 0);
+        else if (h < 180) (r, g, b) = (0, c, x);
+        else if (h < 240) (r, g, b) = (0, x, c);
+        else if (h < 300) (r, g, b) = (x, 0, c);
+        else (r, g, b) = (c, 0, x);
+        return (Clamp((r + m) * 255), Clamp((g + m) * 255), Clamp((b + m) * 255));
     }
 
     private static (byte R, byte G, byte B) OffsetChannels((byte R, byte G, byte B) color, double offset)
