@@ -1,7 +1,8 @@
-@* RenderScreen.razor — Pick a REF deck and render slides (matches React RenderScreen.tsx) *@
+@* RenderScreen.razor — Pick a REF deck; one click renders PNG + SVG + PDF in a single run *@
 
 @inject IDemoDeckService DemoDeckService
 @inject IOfficialRenderService OfficialRenderService
+@inject IConversionResultStore ResultStore
 @inject NavigationManager Nav
 
 <div class="space-y-8">
@@ -10,7 +11,7 @@
             Render an existing deck
         </h1>
         <p class="text-slate-400">
-            Pick a deck — the OfficeEditor Engine compiles every slide to a PNG preview.
+            Pick a deck — one click renders every slide to PNG + SVG and produces a PDF, all in a single run.
         </p>
     </section>
 
@@ -34,19 +35,17 @@
 
     @if (_decks is { Count: > 0 })
     {
-        <div class="space-y-3">
-            <div class="flex items-center gap-3">
-                <span class="text-sm font-semibold text-slate-300">Preview format</span>
-                <FormatToggle Value="@_format" ValueChanged="OnFormatChanged" Disabled="@(_renderingDeck is not null)" />
-            </div>
-            <div class="grid gap-4 sm:grid-cols-2">
+        <div class="grid gap-6 lg:grid-cols-10">
+            @* LEFT (~30%): deck list — stays visible during the render *@
+            <div class="space-y-3 lg:col-span-3">
                 @foreach (var deck in _decks)
                 {
                     var isRendering = _renderingDeck?.Name == deck.Name;
+                    var isDimmed = _renderingDeck is not null && !isRendering;
                     <button type="button"
                             @onclick="() => HandleRender(deck)"
                             disabled="@(_renderingDeck is not null)"
-                            class="group rounded-2xl border p-5 text-left transition-all duration-200 border-slate-800 bg-slate-900/60 hover:border-indigo-500/60 hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-indigo-500/60">
+                            class="group w-full rounded-2xl border p-5 text-left transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/60 disabled:cursor-not-allowed @(isRendering ? "border-indigo-500 bg-indigo-500/10 ring-1 ring-indigo-500/50" : "border-slate-800 bg-slate-900/60 hover:border-indigo-500/60 hover:bg-slate-900") @(isDimmed ? "opacity-50" : "")">
                         <div class="flex items-start justify-between gap-3">
                             <div class="min-w-0 space-y-1">
                                 <p class="truncate text-lg font-bold text-slate-100 group-hover:text-white">@deck.Name</p>
@@ -63,76 +62,141 @@
                                 </span>
                             }
                         </div>
-                        <p class="mt-3 font-mono text-xs text-slate-500">@deck.FileName</p>
+                        <div class="mt-3 flex items-center justify-between gap-3">
+                            <p class="truncate font-mono text-xs text-slate-500">@deck.FileName</p>
+                            @if (isRendering)
+                            {
+                                <span class="flex shrink-0 items-center gap-2 text-xs font-semibold text-indigo-300">
+                                    Rendering…
+                                    <ElapsedTicker Since="_renderStartedAt" Class="text-xs text-indigo-300" />
+                                </span>
+                            }
+                        </div>
                     </button>
                 }
             </div>
-        </div>
-    }
 
-    @if (_renderingDeck is not null)
-    {
-        <div class="fade-in-up flex items-center gap-4 rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
-            <Spinner />
-            <div>
-                <p class="font-semibold text-slate-100">Rendering @_renderingDeck.Name…</p>
-                <p class="text-sm text-slate-400">
-                    OfficeEditor Engine compiling @(_renderingDeck.SlideCount > 0 ? $"{_renderingDeck.SlideCount} slides" : "slides")
-                </p>
-            </div>
-        </div>
-    }
-
-    @if (_renderError is not null)
-    {
-        <StatusMessage Type="error" Title="Render failed" Message="_renderError" />
-    }
-
-    @if (_result is not null)
-    {
-        <div class="fade-in-up space-y-5">
-            <TimingReceipt Stats="_result.Stats" />
-            @if (_result.OfficialSlides is not null)
-            {
-                <div class="space-y-4">
-                    <div class="flex items-center gap-3">
-                        <span class="text-sm font-semibold text-slate-300">View</span>
-                        <div class="inline-flex items-center rounded-full border border-slate-800 bg-slate-900 p-1">
-                            @foreach (var opt in _viewOptions)
+            @* RIGHT (~70%): render output *@
+            <div class="lg:col-span-7">
+                @if (_renderingDeck is not null)
+                {
+                    <div class="fade-in-up flex items-center gap-4 rounded-2xl border border-indigo-500/40 bg-indigo-500/5 p-5">
+                        <Spinner />
+                        <div class="min-w-0 space-y-0.5">
+                            <p class="font-semibold text-slate-100">Rendering @_renderingDeck.Name…</p>
+                            <p class="text-sm text-slate-400">
+                                One conversion, then PNG + SVG + PDF compiled in parallel
+                            </p>
+                        </div>
+                        <ElapsedTicker Since="_renderStartedAt" Class="ml-auto shrink-0 text-lg font-semibold text-indigo-300" />
+                    </div>
+                }
+                else if (_renderError is not null)
+                {
+                    <StatusMessage Type="error" Title="Render failed" Message="_renderError" />
+                }
+                else if (_result is null)
+                {
+                    <div class="flex min-h-[16rem] flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-slate-800 bg-slate-900/40 p-8 text-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-10 w-10 text-slate-600" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Zm10.5-11.25h.008v.008h-.008V8.25Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z" />
+                        </svg>
+                        <p class="text-lg font-semibold text-slate-300">No render yet</p>
+                        <p class="max-w-sm text-sm text-slate-500">
+                            Pick a deck on the left — one click renders every slide to PNG + SVG
+                            and produces a PDF, all in a single run.
+                        </p>
+                    </div>
+                }
+                else
+                {
+                    <div class="fade-in-up space-y-5">
+                        @* Panel header: deck name + PDF download *@
+                        <div class="flex flex-wrap items-center justify-between gap-3">
+                            <div class="flex min-w-0 items-center gap-3">
+                                <h2 class="truncate text-lg font-bold text-slate-100">@_result.DeckName</h2>
+                                <span class="shrink-0 rounded-full bg-slate-800 px-2.5 py-1 font-mono text-xs text-slate-300">
+                                    @_result.SlideCount slides
+                                </span>
+                            </div>
+                            @if (_result.PdfUrl is not null)
                             {
-                                <button type="button"
-                                        @onclick="() => _view = opt.Id"
-                                        class="rounded-full px-4 py-1.5 text-sm font-semibold transition-all duration-200 @(_view == opt.Id ? "bg-slate-700 text-white shadow-sm" : "text-slate-400 hover:bg-slate-800 hover:text-slate-200")">
-                                    @opt.Label
-                                </button>
+                                <a href="@_result.PdfUrl" target="_blank" rel="noreferrer"
+                                   class="inline-flex shrink-0 items-center gap-2 rounded-full bg-indigo-500 px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 transition-all duration-200 hover:bg-indigo-400">
+                                    Download PDF
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4" aria-hidden="true">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                                    </svg>
+                                </a>
                             }
                         </div>
+                        @if (_result.PdfError is not null)
+                        {
+                            <p class="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs leading-relaxed text-amber-200">
+                                PDF export failed: @_result.PdfError
+                            </p>
+                        }
+
+                        @* Stats strip *@
+                        <div class="space-y-1.5">
+                            <StatsStrip Slides="_result.SlideCount" TotalMs="_result.TotalMs" Stages="_result.Stages" />
+                            <p class="text-xs text-slate-500">
+                                Formats compiled in parallel from a single conversion — the total is wall clock, not the sum of the stages.
+                            </p>
+                        </div>
+
+                        @* Gallery controls *@
+                        <div class="flex flex-wrap items-center gap-x-6 gap-y-3">
+                            <div class="flex items-center gap-3">
+                                <span class="text-sm font-semibold text-slate-300">Format</span>
+                                <FormatToggle Value="@_galleryFormat" ValueChanged="fmt => _galleryFormat = fmt" />
+                            </div>
+                            @if (_result.OfficialSlides is not null)
+                            {
+                                <div class="flex items-center gap-3">
+                                    <span class="text-sm font-semibold text-slate-300">View</span>
+                                    <div class="inline-flex items-center rounded-full border border-slate-800 bg-slate-900 p-1">
+                                        @foreach (var opt in _viewOptions)
+                                        {
+                                            <button type="button"
+                                                    @onclick="() => _view = opt.Id"
+                                                    class="rounded-full px-4 py-1.5 text-sm font-semibold transition-all duration-200 @(_view == opt.Id ? "bg-slate-700 text-white shadow-sm" : "text-slate-400 hover:bg-slate-800 hover:text-slate-200")">
+                                                @opt.Label
+                                            </button>
+                                        }
+                                    </div>
+                                </div>
+                            }
+                        </div>
+
+                        @* Galleries *@
+                        @if (_result.OfficialSlides is not null)
+                        {
+                            @if (_view == "engine")
+                            {
+                                <SlideGallery Slides="EngineSlides" Title="@($"{_result.DeckName} — OfficeEditor Engine")" />
+                            }
+                            else if (_view == "official")
+                            {
+                                <SlideGallery Slides="_result.OfficialSlides" Title="@($"{_result.DeckName} — PowerPoint (official)")" />
+                            }
+                            else
+                            {
+                                <CompareGallery TypstSlides="EngineSlides"
+                                                LoSlides="_result.OfficialSlides"
+                                                LoState="ready"
+                                                RightLabel="PowerPoint (official)"
+                                                LeftLabel="OfficeEditor Engine" />
+                            }
+                        }
+                        else
+                        {
+                            <SlideGallery Slides="EngineSlides" Title="_result.DeckName" />
+                            <p class="text-sm text-slate-500">No official render available for this deck.</p>
+                        }
                     </div>
-                    @if (_view == "engine")
-                    {
-                        <SlideGallery Slides="_result.Slides" Title="@($"{_result.DeckName} — OfficeEditor Engine")" />
-                    }
-                    else if (_view == "official")
-                    {
-                        <SlideGallery Slides="_result.OfficialSlides" Title="@($"{_result.DeckName} — PowerPoint (official)")" />
-                    }
-                    else
-                    {
-                        <CompareGallery TypstSlides="_result.Slides"
-                                        LoSlides="_result.OfficialSlides"
-                                        LoState="ready"
-                                        RightLabel="PowerPoint (official)"
-                                        LeftLabel="OfficeEditor Engine" />
-                    }
-                </div>
-            }
-            else
-            {
-                <div class="space-y-3">
-                    <SlideGallery Slides="_result.Slides" Title="_result.DeckName" />
-                    <p class="text-sm text-slate-500">No official render available for this deck.</p>
-                </div>
-            }
+                }
+            </div>
         </div>
     }
 </div>
@@ -141,10 +205,11 @@
     private IReadOnlyList<DemoDeckInfo>? _decks;
     private string? _decksError;
     private DemoDeckInfo? _renderingDeck;
+    private DateTimeOffset _renderStartedAt;
     private RenderResult? _result;
     private string? _renderError;
     private string _view = "compare";
-    private string _format = "png";
+    private string _galleryFormat = "png";
     private bool _autoRenderFired;
 
     private static readonly (string Id, string Label)[] _viewOptions =
@@ -157,10 +222,19 @@
     private sealed class RenderResult
     {
         public required string DeckName { get; init; }
-        public required IReadOnlyList<GallerySlide> Slides { get; init; }
+        public required int SlideCount { get; init; }
+        public required double TotalMs { get; init; }
+        public required IReadOnlyList<StageTiming> Stages { get; init; }
+        public required IReadOnlyList<GallerySlide> PngSlides { get; init; }
+        public required IReadOnlyList<GallerySlide> SvgSlides { get; init; }
         public IReadOnlyList<GallerySlide>? OfficialSlides { get; init; }
-        public required TimingStats Stats { get; init; }
+        public string? PdfUrl { get; init; }
+        public string? PdfError { get; init; }
     }
+
+    private IReadOnlyList<GallerySlide> EngineSlides =>
+        _result is null ? []
+        : _galleryFormat == "svg" ? _result.SvgSlides : _result.PngSlides;
 
     protected override void OnInitialized()
     {
@@ -195,48 +269,85 @@
 
     private async Task HandleRender(DemoDeckInfo deck)
     {
+        if (_renderingDeck is not null)
+        {
+            return;
+        }
+
+        // Immediate feedback: flag the clicked card + start the ticker and re-render
+        // BEFORE the blocking render work starts (same pattern as CompareScreen).
         _renderingDeck = deck;
         _renderError = null;
-        _result = null;
-        var currentFormat = _format;
+        _renderStartedAt = DateTimeOffset.UtcNow;
         await InvokeAsync(StateHasChanged);
 
-        try
+        _ = Task.Run(async () =>
         {
-            var format = currentFormat;
-            var renderTask = Task.Run(() => DemoDeckService.RenderDeck(deck.Name, DeckPreviewValidators.DefaultPpi, format));
-
-            OfficialRenderService.TryGetOfficialSlides(deck.Name, out var official);
-
-            var response = await renderTask;
-
-            _view = "compare";
-            _result = new RenderResult
+            try
             {
-                DeckName = deck.Name,
-                Slides = response.Pages.Select((b, i) => new GallerySlide(i + 1, $"data:{DeckPreviewValidators.ContentTypeForFormat(response.Format)};base64,{Convert.ToBase64String(b)}")).ToList(),
-                OfficialSlides = official?.Pages.Select((b, i) => new GallerySlide(i + 1, $"data:image/png;base64,{Convert.ToBase64String(b)}")).ToList(),
-                Stats = new TimingStats
+                if (DemoDeckService is not DemoDeckService concrete)
                 {
-                    Slides = response.SlideCount,
-                    TotalMs = response.TotalMilliseconds,
-                    Label = "rendered",
-                },
-            };
-        }
-        catch (Exception ex)
-        {
-            _renderError = ex.Message;
-        }
-        finally
-        {
-            _renderingDeck = null;
-            await InvokeAsync(StateHasChanged);
-        }
+                    throw new InvalidOperationException(
+                        "The all-formats demo render requires the concrete DemoDeckService.");
+                }
+
+                // One conversion, then PNG + SVG + PDF compiled in parallel (timed per stage).
+                var result = concrete.RenderDeckAllFormats(deck.Name, DeckPreviewValidators.DefaultPpi);
+
+                OfficialRenderService.TryGetOfficialSlides(deck.Name, out var official);
+
+                // The PDF rides on the download store — never embedded in the page.
+                string? pdfUrl = null;
+                if (result.PdfBytes is not null)
+                {
+                    var id = ResultStore.Store(result.PdfBytes, "application/pdf", $"{deck.Name}.pdf");
+                    pdfUrl = $"{Nav.BaseUri}api/download/{id}";
+                }
+
+                var stages = new List<StageTiming>
+                {
+                    new("Conversion", result.ConversionMilliseconds),
+                    new("PNG raster", result.PngMilliseconds),
+                    new("SVG emit", result.SvgMilliseconds),
+                };
+                if (result.PdfMilliseconds is { } pdfMs)
+                {
+                    stages.Add(new StageTiming("PDF export", pdfMs));
+                }
+
+                var run = new RenderResult
+                {
+                    DeckName = deck.Name,
+                    SlideCount = result.SlideCount,
+                    TotalMs = result.TotalMilliseconds,
+                    Stages = stages,
+                    PngSlides = ToGallerySlides(result.PngPages, "image/png"),
+                    SvgSlides = ToGallerySlides(result.SvgPages, "image/svg+xml"),
+                    OfficialSlides = official?.Pages.Select((b, i) => new GallerySlide(i + 1, $"data:image/png;base64,{Convert.ToBase64String(b)}")).ToList(),
+                    PdfUrl = pdfUrl,
+                    PdfError = result.PdfError,
+                };
+
+                await InvokeAsync(() =>
+                {
+                    _result = run;
+                    _view = "compare";
+                    _renderingDeck = null;
+                    StateHasChanged();
+                });
+            }
+            catch (Exception ex)
+            {
+                await InvokeAsync(() =>
+                {
+                    _renderError = ex.Message;
+                    _renderingDeck = null;
+                    StateHasChanged();
+                });
+            }
+        });
     }
 
-    private async Task OnFormatChanged(string fmt)
-    {
-        _format = fmt;
-    }
+    private static IReadOnlyList<GallerySlide> ToGallerySlides(IReadOnlyList<byte[]> pages, string contentType) =>
+        pages.Select((b, i) => new GallerySlide(i + 1, $"data:{contentType};base64,{Convert.ToBase64String(b)}")).ToList();
 }
