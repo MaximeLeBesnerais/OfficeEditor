@@ -450,6 +450,19 @@ internal static class SmartArtPresetGeometry
                 "Z",
             }),
 
+        // ECMA-376 pieWedge: fixed quarter-ellipse sector (no avLst) — the
+        // arc is centered on the bottom-right corner and sweeps 180° → 270°.
+        ["pieWedge"] = new SmartArtPresetGeometry.PresetDef(
+            new Dictionary<string, double>(),
+            new string[0],
+            new[]
+            {
+                "M l b",
+                "A w h cd2 cd4",
+                "L r b",
+                "Z",
+            }),
+
         ["gear6"] = new SmartArtPresetGeometry.PresetDef(
             new Dictionary<string, double>
             {
