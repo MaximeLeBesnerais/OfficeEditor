@@ -568,6 +568,16 @@ public class PresentationBuilder : IPresentationBuilder
         };
 
         var result = compiler.Compile(typstSource, compileOptions);
+
+        // Surface compile failures honestly: a swallowed failure returned an EMPTY
+        // page array, which the demo upload render then serialized as
+        // {"success": true, "previews": []} — the UI showed nothing with no error.
+        if (!result.Success || result.Pages.Length == 0)
+        {
+            throw new InvalidOperationException(
+                $"Typst {outputFormat} compilation failed: {result.ErrorMessage ?? "no output produced."}");
+        }
+
         return result.Pages;
     }
 
