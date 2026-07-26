@@ -45,6 +45,10 @@ namespace PptxEditor.Core.Converters.SmartArt;
         ["leftCircularArrow"] = (ShapeType.LeftCircularArrow, null),
         ["gear6"] = (ShapeType.Gear6, null),
         ["gear9"] = (ShapeType.Gear9, null),
+        ["homePlate"] = (ShapeType.HomePlate, null),
+        ["flowChartManualOperation"] = (ShapeType.FlowChartManualOperation, null),
+        ["quadArrow"] = (ShapeType.QuadArrow, null),
+        ["blockArc"] = (ShapeType.BlockArc, null),
     };
 
     /// <summary>
@@ -110,14 +114,17 @@ namespace PptxEditor.Core.Converters.SmartArt;
     };
 
     /// <summary>
-    /// Presets whose faithful outline requires elliptical arcs. Their polygon
-    /// points are computed per shape by <see cref="SmartArtPresetGeometry"/>
-    /// (honoring a:avLst adjustments) instead of the static table above.
+    /// Presets whose faithful outline must be computed per shape (arc-based
+    /// outlines and polygons whose vertices depend on the aspect ratio / a:avLst
+    /// adjustments). Their points are built by <see cref="SmartArtPresetGeometry"/>
+    /// instead of the static table above.
     /// </summary>
-    private static bool IsArcBasedPreset(ShapeType shapeType)
+    private static bool UsesPerShapeGeometry(ShapeType shapeType)
     {
         return shapeType is ShapeType.CircularArrow or ShapeType.LeftCircularArrow
-            or ShapeType.Gear6 or ShapeType.Gear9;
+            or ShapeType.Gear6 or ShapeType.Gear9
+            or ShapeType.HomePlate or ShapeType.FlowChartManualOperation
+            or ShapeType.QuadArrow or ShapeType.BlockArc;
     }
 
     /// <summary>
@@ -136,10 +143,31 @@ namespace PptxEditor.Core.Converters.SmartArt;
         foreach (var shape in dspShapes)
         {
             var spPr = GetChild(shape, "spPr", DiagramNamespaces);
-            var xfrm = spPr == null ? null : GetChild(spPr, "xfrm", DrawingmlNs);
-            var off = xfrm == null ? null : GetChild(xfrm, "off", DrawingmlNs);
-            var ext = xfrm == null ? null : GetChild(xfrm, "ext", DrawingmlNs);
+            if (spPr == null) continue;
+            var xfrm = GetChild(spPr, "xfrm", DrawingmlNs);
+            if (xfrm == null) continue;
+            var off = GetChild(xfrm, "off", DrawingmlNs);
+            var ext = GetChild(xfrm, "ext", DrawingmlNs);
             if (off == null || ext == null) continue;
+
+            // Only bound shapes we can actually render (the same predicate
+            // ReadGeometry applies): an unsupported preset is silently dropped at
+            // extraction, and its cached xfrm — which legitimately extends outside
+            // the node layout, e.g. connector arcs — must not set the fit bbox
+            // (INV-slide-033: a dropped blockArc inflated the bbox width 1.61× and
+            // fit-scaled the whole diagram to 0.63).
+            var prstGeom = GetChild(spPr, "prstGeom", DrawingmlNs);
+            var prstValue = prstGeom == null ? null : ReadAttribute(prstGeom, "prst");
+            if (string.IsNullOrEmpty(prstValue) || !PresetGeometryMap.ContainsKey(prstValue))
+                continue;
+
+            // A stroke-only connector arc (noFill blockArc) is clipped to the frame
+            // by PowerPoint, never fitted — its cached xfrm legitimately extends
+            // outside the node layout, so it must not set the fit bbox either
+            // (INV-slide-033 §4: rendering the connector must not re-introduce the
+            // 0.63 fit-scale the unrenderable-preset skip above just removed).
+            if (prstValue == "blockArc" && GetChild(spPr, "noFill", DrawingmlNs) != null)
+                continue;
 
             var x = ReadEmuAsPt(off, "x");
             var y = ReadEmuAsPt(off, "y");
@@ -148,10 +176,39 @@ namespace PptxEditor.Core.Converters.SmartArt;
             if (x == null || y == null || cx == null || cy == null) continue;
 
             found = true;
-            minX = Math.Min(minX, x.Value);
-            minY = Math.Min(minY, y.Value);
-            maxX = Math.Max(maxX, x.Value + cx.Value);
-            maxY = Math.Max(maxY, y.Value + cy.Value);
+            var rotationDeg = ReadRotation(xfrm) ?? 0.0;
+            if (rotationDeg == 0.0)
+            {
+                minX = Math.Min(minX, x.Value);
+                minY = Math.Min(minY, y.Value);
+                maxX = Math.Max(maxX, x.Value + cx.Value);
+                maxY = Math.Max(maxY, y.Value + cy.Value);
+                continue;
+            }
+
+            // Union the four corners rotated about the rect centre — xfrm@rot is
+            // applied per shape downstream, so the fit box must bound the rotated
+            // footprint, not the raw off/ext rect (INV-slide-130: a rotation-blind
+            // bbox inflated the content height by 45% and fit-scaled the whole
+            // diagram to 0.69).
+            var centerX = x.Value + cx.Value / 2;
+            var centerY = y.Value + cy.Value / 2;
+            var radians = rotationDeg * Math.PI / 180.0;
+            var cos = Math.Cos(radians);
+            var sin = Math.Sin(radians);
+            foreach (var (px, py) in new[]
+            {
+                (x.Value, y.Value), (x.Value + cx.Value, y.Value),
+                (x.Value, y.Value + cy.Value), (x.Value + cx.Value, y.Value + cy.Value)
+            })
+            {
+                var dx = px - centerX;
+                var dy = py - centerY;
+                minX = Math.Min(minX, centerX + dx * cos - dy * sin);
+                maxX = Math.Max(maxX, centerX + dx * cos - dy * sin);
+                minY = Math.Min(minY, centerY + dx * sin + dy * cos);
+                maxY = Math.Max(maxY, centerY + dx * sin + dy * cos);
+            }
         }
 
         return found ? (minX, minY, maxX - minX, maxY - minY) : null;
@@ -279,11 +336,11 @@ namespace PptxEditor.Core.Converters.SmartArt;
     private static TypstElement BuildPolygon(double x, double y, double w, double h, double rotation,
         string? fillColor, TypstGradientFill? fillGradient, string? strokeColor, double strokeWidth, bool noStroke, DiagramGeometry geometry, string? modelId)
     {
-        // Arc-based presets (gears, circular arrows) evaluate their ECMA-376
-        // preset definition per shape so a:avLst adjustments are honored;
-        // everything else uses the static normalized polygon table.
+        // Arc-based and aspect-dependent presets evaluate their ECMA-376 preset
+        // definition per shape so a:avLst adjustments (and the shape aspect ratio)
+        // are honored; everything else uses the static normalized polygon table.
         List<(double, double)>? points = null;
-        if (IsArcBasedPreset(geometry.ShapeType))
+        if (UsesPerShapeGeometry(geometry.ShapeType))
         {
             points = SmartArtPresetGeometry.TryBuildNormalizedPoints(
                 geometry.PrstName, geometry.Width, geometry.Height, geometry.Adjustments);
@@ -340,12 +397,18 @@ namespace PptxEditor.Core.Converters.SmartArt;
         if (string.IsNullOrEmpty(prstValue)) return null;
 
         if (!PresetGeometryMap.TryGetValue(prstValue, out var mapping))
+        {
+            // Diagnostic aid: unsupported presets are dropped silently by design;
+            // surface them in debug builds so corpus/tooling runs can list them.
+            System.Diagnostics.Debug.WriteLine(
+                $"SmartArtDrawingExtractor: unsupported preset geometry '{prstValue}' — shape skipped.");
             return null;
+        }
 
         var cornerRadius = 0.0;
         if (mapping.Type == ShapeType.Rect)
         {
-            cornerRadius = ReadCornerRadius(prstGeom, shapeW, shapeH);
+            cornerRadius = ReadCornerRadius(prstGeom, prstValue, shapeW, shapeH);
         }
 
         return new DiagramGeometry
@@ -406,14 +469,22 @@ namespace PptxEditor.Core.Converters.SmartArt;
         return rot60000 / 60000.0;
     }
 
-    private static double ReadCornerRadius(OpenXmlElement prstGeom, double shapeW, double shapeH)
+    /// <summary>
+    /// ECMA-376 default corner-radius adjustment for the rounded-rectangle family
+    /// (<c>roundRect</c>, <c>round1Rect</c>, <c>round2SameRect</c>): 1/6 of
+    /// min(w,h). Cached SmartArt drawings almost always carry an empty avLst, which
+    /// must still render rounded — not collapse to a sharp rectangle.
+    /// </summary>
+    private const long DefaultRoundedRectAdj = 16667;
+
+    private static double ReadCornerRadius(OpenXmlElement prstGeom, string prstName, double shapeW, double shapeH)
     {
         var avLst = GetChild(prstGeom, "avLst", DrawingmlNs);
-        if (avLst == null) return 0;
-
-        var gdList = avLst.Elements()
-            .Where(e => e.LocalName == "gd" && e.NamespaceUri == DrawingmlNs)
-            .ToList();
+        var gdList = avLst == null
+            ? new List<OpenXmlElement>()
+            : avLst.Elements()
+                .Where(e => e.LocalName == "gd" && e.NamespaceUri == DrawingmlNs)
+                .ToList();
 
         foreach (var gd in gdList)
         {
@@ -430,15 +501,23 @@ namespace PptxEditor.Core.Converters.SmartArt;
             if (!long.TryParse(valPart, NumberStyles.Integer, CultureInfo.InvariantCulture, out var adjVal))
                 continue;
 
-            // adj is a fraction of the smaller shape dimension in 100000ths
-            // (e.g. val 10000 = 10% of min(w,h)) — NOT an EMU value. Mirrors
-            // PptxToTypstConverter.ExtractShapeCornerRadius.
-            var minSide = Math.Min(shapeW, shapeH);
-            var radiusPt = adjVal / 100000.0 * minSide;
-            return Math.Min(radiusPt, minSide * 0.5);
+            return AdjToCornerRadius(adjVal, shapeW, shapeH);
         }
 
-        return 0;
+        // No explicit adj: the rounded-rectangle family falls back to the ECMA
+        // default; every other rect-mapped preset (rect, line) stays sharp.
+        var isRoundedRect = prstName is "roundRect" or "round1Rect" or "round2SameRect";
+        return isRoundedRect ? AdjToCornerRadius(DefaultRoundedRectAdj, shapeW, shapeH) : 0;
+    }
+
+    private static double AdjToCornerRadius(long adjVal, double shapeW, double shapeH)
+    {
+        // adj is a fraction of the smaller shape dimension in 100000ths
+        // (e.g. val 10000 = 10% of min(w,h)) — NOT an EMU value. Mirrors
+        // PptxToTypstConverter.ExtractShapeCornerRadius.
+        var minSide = Math.Min(shapeW, shapeH);
+        var radiusPt = adjVal / 100000.0 * minSide;
+        return Math.Min(radiusPt, minSide * 0.5);
     }
 
     private static string? ReadFillColor(OpenXmlElement spPr, IReadOnlyDictionary<string, string>? schemeColors)
@@ -508,11 +587,12 @@ namespace PptxEditor.Core.Converters.SmartArt;
 
     /// <summary>
     /// Applies OOXML colour transforms (<c>a:tint</c>, <c>a:shade</c>, <c>a:lumMod</c>,
-    /// <c>a:lumOff</c>, <c>a:alpha</c>) in document order. Per-channel arithmetic — a close
-    /// approximation of the HSL-space spec (ECMA-376) that matches PowerPoint for common
-    /// tint/shade usage (e.g. SmartArt connector fills like accent1 + tint 60% = pale accent).
+    /// <c>a:lumOff</c>, <c>a:alpha</c>) in document order. <c>a:tint</c> delegates to
+    /// <see cref="GradientFillReader.ApplyTint"/> (gamma-linear blend, matching
+    /// PowerPoint's pale tints); the remaining transforms use per-channel arithmetic —
+    /// a close approximation of the HSL-space spec (ECMA-376).
     /// <c>a:alpha</c> yields an 8-digit <c>#RRGGBBAA</c> hex (Typst <c>rgb()</c> accepts it).
-    /// Saturation transforms are not applied (rare in diagram drawing parts).
+    /// Saturation transforms are not applied (unused in diagram drawing-part solid fills).
     /// </summary>
     private static string ApplyColorTransforms(string hex, OpenXmlElement colorElement)
     {
@@ -535,8 +615,11 @@ namespace PptxEditor.Core.Converters.SmartArt;
             var f = rawVal / 100000.0;
             switch (child.LocalName)
             {
-                case "tint": // mix toward white
-                    r = r * f + 255 * (1 - f); g = g * f + 255 * (1 - f); b = b * f + 255 * (1 - f);
+                case "tint": // mix toward white in linear light (matches PowerPoint's pale tints)
+                    var tinted = GradientFillReader.ApplyTint(
+                        ((byte)ClampChannel(r), (byte)ClampChannel(g), (byte)ClampChannel(b)),
+                        (int)Math.Round(rawVal));
+                    r = tinted.R; g = tinted.G; b = tinted.B;
                     break;
                 case "shade": // mix toward black
                 case "lumMod": // luminance multiply (per-channel approximation)
@@ -680,6 +763,10 @@ namespace PptxEditor.Core.Converters.SmartArt;
         CircularArrow,
         LeftCircularArrow,
         Gear6,
-        Gear9
+        Gear9,
+        HomePlate,
+        FlowChartManualOperation,
+        QuadArrow,
+        BlockArc
     }
 }
