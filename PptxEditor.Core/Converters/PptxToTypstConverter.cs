@@ -510,7 +510,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
                     if (IsOverriddenBySlide(layoutElement, slidePositions))
                         continue;
 
-                    foreach (var typstElement in ConvertElement(slidePart, layoutElement, styleResolver, slideIndex))
+                    foreach (var typstElement in ConvertElement(slidePart, layoutElement, styleResolver, slideIndex, imageRelScope: layoutPart))
                     {
                         typstSlide.Elements.Add(typstElement);
                     }
@@ -646,20 +646,20 @@ public sealed partial class PptxToTypstConverter : IDisposable
         };
     }
 
-    private IEnumerable<TypstElement> ConvertElement(SlidePart slidePart, OpenXmlElement element, StyleResolver styleResolver, int slideIndex, double offX = 0, double offY = 0, double scaleX = 1, double scaleY = 1)
+    private IEnumerable<TypstElement> ConvertElement(SlidePart slidePart, OpenXmlElement element, StyleResolver styleResolver, int slideIndex, double offX = 0, double offY = 0, double scaleX = 1, double scaleY = 1, OpenXmlPartContainer? imageRelScope = null)
     {
         return element switch
         {
-            P.Shape shape => ConvertShape(slidePart, shape, styleResolver, slideIndex, offX, offY, scaleX, scaleY),
-            P.Picture picture => ConvertPicture(slidePart, picture, offX, offY, scaleX, scaleY),
+            P.Shape shape => ConvertShape(slidePart, shape, styleResolver, slideIndex, offX, offY, scaleX, scaleY, imageRelScope),
+            P.Picture picture => ConvertPicture(slidePart, picture, offX, offY, scaleX, scaleY, imageRelScope),
             P.GraphicFrame graphicFrame => ConvertGraphicFrame(slidePart, graphicFrame, styleResolver, offX, offY, scaleX, scaleY),
-            P.GroupShape groupShape => ConvertGroupShape(slidePart, groupShape, styleResolver, slideIndex, offX, offY, scaleX, scaleY),
+            P.GroupShape groupShape => ConvertGroupShape(slidePart, groupShape, styleResolver, slideIndex, offX, offY, scaleX, scaleY, imageRelScope),
             P.ConnectionShape connectionShape => ConvertConnectionShape(connectionShape, styleResolver, offX, offY, scaleX, scaleY),
             _ => Array.Empty<TypstElement>()
         };
     }
 
-    private IEnumerable<TypstElement> ConvertShape(SlidePart slidePart, P.Shape shape, StyleResolver styleResolver, int slideIndex, double offX, double offY, double scaleX, double scaleY)
+    private IEnumerable<TypstElement> ConvertShape(SlidePart slidePart, P.Shape shape, StyleResolver styleResolver, int slideIndex, double offX, double offY, double scaleX, double scaleY, OpenXmlPartContainer? imageRelScope = null)
     {
         var (id, name) = GetElementIdAndName(shape.NonVisualShapeProperties);
         var position = GetElementPosition(shape.ShapeProperties);
@@ -714,7 +714,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
         var blipFill = shape.ShapeProperties?.Elements<Drawing.BlipFill>().FirstOrDefault();
         if (blipFill != null)
         {
-            var imageElement = ExtractImageFromBlipFill(slidePart, blipFill);
+            var imageElement = ExtractImageFromBlipFill(slidePart, blipFill, imageRelScope);
             if (imageElement != null)
             {
                 // Extract corner radius from shape geometry for rounded image clipping
@@ -1252,12 +1252,12 @@ public sealed partial class PptxToTypstConverter : IDisposable
         return distinctXs.Count == 2 && distinctYs.Count == 2;
     }
 
-    private IEnumerable<TypstElement> ConvertPicture(SlidePart slidePart, P.Picture picture, double offX, double offY, double scaleX, double scaleY)
+    private IEnumerable<TypstElement> ConvertPicture(SlidePart slidePart, P.Picture picture, double offX, double offY, double scaleX, double scaleY, OpenXmlPartContainer? imageRelScope = null)
     {
         var (id, name) = GetElementIdAndName(picture.NonVisualPictureProperties);
         var position = GetElementPosition(picture.ShapeProperties);
 
-        var imageElement = ExtractImage(slidePart, picture);
+        var imageElement = ExtractImage(slidePart, picture, imageRelScope);
         if (imageElement == null) yield break;
 
         yield return new TypstElement
@@ -2073,7 +2073,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
         return (EmuToPt(xEmu), EmuToPt(yEmu), EmuToPt(cxEmu), EmuToPt(cyEmu));
     }
 
-    private IEnumerable<TypstElement> ConvertGroupShape(SlidePart slidePart, P.GroupShape groupShape, StyleResolver styleResolver, int slideIndex, double parentOffX, double parentOffY, double parentScaleX, double parentScaleY)
+    private IEnumerable<TypstElement> ConvertGroupShape(SlidePart slidePart, P.GroupShape groupShape, StyleResolver styleResolver, int slideIndex, double parentOffX, double parentOffY, double parentScaleX, double parentScaleY, OpenXmlPartContainer? imageRelScope = null)
     {
         var grpXfrm = groupShape.GroupShapeProperties?.TransformGroup;
 
@@ -2108,7 +2108,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
 
         foreach (var child in groupShape.ChildElements)
         {
-            foreach (var element in ConvertElement(slidePart, child, styleResolver, slideIndex, newOffX, newOffY, newScaleX, newScaleY))
+            foreach (var element in ConvertElement(slidePart, child, styleResolver, slideIndex, newOffX, newOffY, newScaleX, newScaleY, imageRelScope))
                 yield return element;
         }
     }
@@ -3426,7 +3426,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
         return null;
     }
 
-    private TypstImageElement? ExtractImage(SlidePart slidePart, P.Picture picture)
+    private TypstImageElement? ExtractImage(SlidePart slidePart, P.Picture picture, OpenXmlPartContainer? imageRelScope = null)
     {
         var blipFill = picture.BlipFill;
         if (blipFill == null) return null;
@@ -3437,8 +3437,12 @@ public sealed partial class PptxToTypstConverter : IDisposable
         var embed = blip.Embed?.Value;
         if (string.IsNullOrEmpty(embed)) return null;
 
-        // See ExtractImage: layout shapes resolve image rels via the layout part.
-        var imagePart = TryGetImagePart(slidePart, embed)
+        // The rId is scoped to the part that OWNS the shape: layout pictures
+        // resolve via the layout part (imageRelScope), slide pictures via the
+        // slide part. rIds collide freely across parts, so the owner scope
+        // must win; the other parts are fallbacks only.
+        var imagePart = TryGetImagePart(imageRelScope, embed)
+            ?? TryGetImagePart(slidePart, embed)
             ?? TryGetImagePart(slidePart.SlideLayoutPart, embed);
         if (imagePart == null) return null;
 
@@ -3482,7 +3486,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
         };
     }
 
-    private TypstImageElement? ExtractImageFromBlipFill(SlidePart slidePart, Drawing.BlipFill blipFill)
+    private TypstImageElement? ExtractImageFromBlipFill(SlidePart slidePart, Drawing.BlipFill blipFill, OpenXmlPartContainer? imageRelScope = null)
     {
         var blip = blipFill.Blip;
         if (blip == null) return null;
@@ -3490,9 +3494,10 @@ public sealed partial class PptxToTypstConverter : IDisposable
         var embed = blip.Embed?.Value;
         if (string.IsNullOrEmpty(embed)) return null;
 
-        // Layout pictures reference image parts through the LAYOUT part's
-        // relationships, not the slide part's — try both.
-        var imagePart = TryGetImagePart(slidePart, embed)
+        // See ExtractImage: the owner part's relationships win (rIds collide
+        // across slide/layout parts); the others are fallbacks.
+        var imagePart = TryGetImagePart(imageRelScope, embed)
+            ?? TryGetImagePart(slidePart, embed)
             ?? TryGetImagePart(slidePart.SlideLayoutPart, embed);
         if (imagePart == null) return null;
 
