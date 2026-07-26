@@ -313,6 +313,63 @@ internal static class SmartArtPresetGeometry
                 "Z",
             }),
 
+        // ECMA-376 leftRightRibbon: horizontal ribbon with arrow tips on both
+        // ends and a fold-under center band. adj1 = fold depth, adj2 = tip
+        // inset (both fractions of ss·2/h), adj3 = fold curvature (arc height).
+        // Only the main fill path is emitted — the darkenLess fold detail path
+        // and the stroke-only path add no silhouette.
+        ["leftRightRibbon"] = new SmartArtPresetGeometry.PresetDef(
+            new Dictionary<string, double>
+            {
+                ["adj1"] = 50000,
+                ["adj2"] = 50000,
+                ["adj3"] = 16667,
+            },
+            new[]
+            {
+                "a3 pin 0 adj3 33333",
+                "maxAdj1 +- 100000 0 a3",
+                "a1 pin 0 adj1 maxAdj1",
+                "wd32 */ w 1 32",
+                "w1 +- wd2 0 wd32",
+                "maxAdj2 */ 100000 w1 ss",
+                "a2 pin 0 adj2 maxAdj2",
+                "x1 */ ss a2 100000",
+                "x4 +- r 0 x1",
+                "dy1 */ h a1 200000",
+                "dy2 */ h a3 -200000",
+                "ly1 +- vc dy2 dy1",
+                "ry4 +- vc dy1 dy2",
+                "ly2 +- ly1 dy1 0",
+                "ry3 +- b 0 ly2",
+                "ly4 */ ly2 2 1",
+                "ry1 +- b 0 ly4",
+                "ly3 +- ly4 0 ly1",
+                "ry2 +- b 0 ly3",
+                "hR */ a3 ss 400000",
+                "x2 +- hc 0 wd32",
+            },
+            new[]
+            {
+                "M l ly2",
+                "L x1 t",
+                "L x1 ly1",
+                "L hc ly1",
+                "A wd32 hR 3cd4 cd2",
+                "A wd32 hR 3cd4 -10800000",
+                "L x4 ry2",
+                "L x4 ry1",
+                "L r ry3",
+                "L x4 b",
+                "L x4 ry4",
+                "L hc ry4",
+                "A wd32 hR cd4 cd4",
+                "L x2 ly3",
+                "L x1 ly3",
+                "L x1 ly4",
+                "Z",
+            }),
+
         ["gear6"] = new SmartArtPresetGeometry.PresetDef(
             new Dictionary<string, double>
             {
