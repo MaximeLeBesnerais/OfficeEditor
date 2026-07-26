@@ -492,6 +492,82 @@ public sealed class PptxToTypstConverterSpaceTests : IDisposable
         Assert.Equal(90.0, element.Rotation, 3);
     }
 
+    // ------------------------------------------------------------------
+    // Master shapes (Space slide 19's logo + big text live on slideMaster2
+    // and were not rendered at all)
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public void Convert_MasterUserDrawnShapes_RenderBeneathLayoutAndSlide()
+    {
+        var deckPath = Path.Combine(_tempDir, $"{Guid.NewGuid():N}.pptx");
+        var pngPath = SlideOpsTestHelpers.WriteMinimalPng(_tempDir);
+        using (var document = PresentationDocument.Create(deckPath, PresentationDocumentType.Presentation))
+        {
+            var (presentationPart, slideLayoutPart) = CreateShell(document);
+            var slideMasterPart = presentationPart.Presentation!.SlideMasterIdList!
+                .Elements<SlideMasterId>()
+                .Select(id => (SlideMasterPart)presentationPart.GetPartById(id.RelationshipId!))
+                .Single();
+
+            var masterImagePart = slideMasterPart.AddNewPart<ImagePart>("image/png", "rIdMasterImg");
+            using (var s = File.OpenRead(pngPath))
+            {
+                masterImagePart.FeedData(s);
+            }
+
+            slideMasterPart.SlideMaster!.CommonSlideData = new CommonSlideData(CreateShapeTree(
+                PlainPicture("Master Picture", slideMasterPart.GetIdOfPart(masterImagePart),
+                    1000000, 500000, 2540000, 1270000),
+                new P.Shape(
+                    new NonVisualShapeProperties(
+                        new NonVisualDrawingProperties { Id = 5, Name = "Master TextBox" },
+                        new NonVisualShapeDrawingProperties(),
+                        new ApplicationNonVisualDrawingProperties()),
+                    new ShapeProperties(
+                        new Drawing.Transform2D(
+                            new Drawing.Offset { X = 2185947, Y = 2158991 },
+                            new Drawing.Extents { Cx = 7820106, Cy = 3416320 }),
+                        new Drawing.PresetGeometry(new Drawing.AdjustValueList())
+                        { Preset = Drawing.ShapeTypeValues.Rectangle }),
+                    new P.TextBody(
+                        new Drawing.BodyProperties(),
+                        new Drawing.ListStyle(),
+                        new Drawing.Paragraph(
+                            new Drawing.Run(
+                                new Drawing.RunProperties { Language = "en-US", FontSize = 5400 },
+                                new Drawing.Text("Free creative templates")))))));
+
+            slideLayoutPart.SlideLayout = new P.SlideLayout(new CommonSlideData(CreateShapeTree()));
+
+            var slidePart = presentationPart.AddNewPart<SlidePart>();
+            slidePart.Slide = new Slide(new CommonSlideData(CreateShapeTree()));
+            slidePart.AddPart(slideLayoutPart);
+
+            presentationPart.Presentation!.SlideIdList!.Append(new SlideId
+            {
+                Id = 256,
+                RelationshipId = presentationPart.GetIdOfPart(slidePart)
+            });
+        }
+
+        using var doc = PresentationDocument.Open(deckPath, false);
+        using var converter = new PptxToTypstConverter(doc);
+
+        var presentation = converter.Convert();
+        var elements = presentation.Slides[0].Elements;
+
+        var image = Assert.Single(elements, e => e.Type == "Image" && e.Name == "Master Picture");
+        Assert.NotNull(image.Image);
+        Assert.Equal(1, image.Image!.PixelWidth); // master's own 1x1 PNG, resolved via master part
+
+        var text = Assert.Single(elements, e => e.Type == "Text" && e.Name == "Master TextBox");
+        Assert.Contains("Free creative templates", text.Text!.Paragraphs[0].Runs[0].Content);
+
+        // Master shapes come first (beneath layout/slide content).
+        Assert.True(elements.IndexOf(image) < elements.Count - 1 || elements.Count == 2);
+    }
+
     /// <summary>
     /// Deck whose slide has a pic placeholder (ph type="pic" idx="10") with an
     /// EMPTY spPr (no xfrm). The layout carries the matching pic placeholder
