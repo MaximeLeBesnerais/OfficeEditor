@@ -9,8 +9,9 @@ namespace DocxEditor.Tests.Unit.SmartArt;
 /// Tests for the colorsDef fill-precedence rule (-b1 §5-6):
 /// when a cached dsp:sp gradFill conflicts with a flat dgm:colorsDef styleLbl
 /// mapping (plain schemeClr/srgbClr, no transforms) and the quickStyle carries
-/// no gradient, the colorsDef solid fill wins; in every other case the cached
-/// spPr keeps precedence.
+/// no gradient, the cached gradient is truncated to its visible window
+/// (cached pos 44-100% — what PowerPoint's relayout displays); in every other
+/// case the cached spPr keeps precedence untouched.
 /// </summary>
 public sealed class SmartArtColorsDefResolverTests
 {
@@ -205,14 +206,46 @@ public sealed class SmartArtColorsDefResolverTests
     // ---------- end-to-end precedence through TryExtractShape ----------
 
     [Fact]
-    public void Extract_FlatColorsDefConflict_SolidColorsDefFillWins()
+    public void Extract_FlatColorsDefConflict_GradientTruncatedToVisibleWindow()
     {
         var context = CreateContext();
 
         var result = ExtractWithContext(GradientShape(FlatNode), context, FlatNode);
 
-        Assert.Equal("#FFC000", result.Shape!.FillColor);
-        Assert.Null(result.Shape.FillGradient);
+        // Clear-conflict case: the cached gradient is truncated to its visible
+        // window — cached pos 100% at offset 1, cached pos ~44% at offset 0
+        // (PowerPoint relayout shows only the top slice of the scaled="0"
+        // gradient vector). The middle stop (pos 80%) lands at (80-44)/56.
+        Assert.True(string.IsNullOrEmpty(result.Shape!.FillColor));
+        var gradient = Assert.IsType<TypstGradientFill>(result.Shape.FillGradient);
+        Assert.Equal(270.0, gradient.Angle);
+        Assert.Equal(3, gradient.Stops.Count);
+        Assert.Equal(0.0, gradient.Stops[0].Offset);
+        Assert.Equal((80.0 - 44.0) / 56.0, gradient.Stops[1].Offset, precision: 6);
+        Assert.Equal(1.0, gradient.Stops[2].Offset);
+
+        // Window edges: the far edge keeps the cached pos-100 colour; the near
+        // edge is the cached pos-44 colour (interpolated 55% from stop 0 to
+        // stop 80), not the cached pos-0 colour.
+        var untruncated = ExtractWithContext(GradientShape(TransformedNode), context, TransformedNode)
+            .Shape!.FillGradient!;
+        Assert.Equal(untruncated.Stops[2].Color, gradient.Stops[2].Color);
+        Assert.NotEqual(untruncated.Stops[0].Color, gradient.Stops[0].Color);
+        var stop0 = ParseHex(untruncated.Stops[0].Color);
+        var stop80 = ParseHex(untruncated.Stops[1].Color);
+        var expectedNear = LerpHex(stop0, stop80, 44.0 / 80.0);
+        Assert.Equal(expectedNear, gradient.Stops[0].Color);
+    }
+
+    private static (int R, int G, int B) ParseHex(string hex)
+    {
+        var h = hex.TrimStart('#');
+        return (Convert.ToInt32(h[..2], 16), Convert.ToInt32(h[2..4], 16), Convert.ToInt32(h[4..6], 16));
+    }
+
+    private static string LerpHex((int R, int G, int B) a, (int R, int G, int B) b, double t)
+    {
+        return $"#{(int)Math.Round(a.R + (b.R - a.R) * t):X2}{(int)Math.Round(a.G + (b.G - a.G) * t):X2}{(int)Math.Round(a.B + (b.B - a.B) * t):X2}";
     }
 
     [Fact]
@@ -255,8 +288,10 @@ public sealed class SmartArtColorsDefResolverTests
 
         var result = ExtractWithContext(GradientShape(FlatNode), context, modelId: null);
 
-        Assert.Equal("#FFC000", result.Shape!.FillColor);
-        Assert.Null(result.Shape.FillGradient);
+        Assert.True(string.IsNullOrEmpty(result.Shape!.FillColor));
+        var gradient = Assert.IsType<TypstGradientFill>(result.Shape.FillGradient);
+        Assert.Equal(0.0, gradient.Stops[0].Offset);
+        Assert.Equal(1.0, gradient.Stops[gradient.Stops.Count - 1].Offset);
     }
 
     [Fact]
