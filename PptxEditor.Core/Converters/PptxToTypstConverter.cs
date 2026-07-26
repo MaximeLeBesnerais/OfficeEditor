@@ -905,29 +905,48 @@ public sealed partial class PptxToTypstConverter : IDisposable
             var pathList = custGeom.Elements<Drawing.PathList>().FirstOrDefault();
             if (pathList != null)
             {
-                var path = pathList.Elements<Drawing.Path>().FirstOrDefault();
-                if (path != null)
+                // Every a:path may contain several moveTo subpaths (e.g. a ring's outer
+                // and inner contours). Flattening them into one polygon fills the holes,
+                // so multi-subpath geometry is kept as subpaths and emitted as an
+                // even-odd #path instead.
+                var subpaths = new List<List<(double X, double Y)>>();
+                foreach (var geomPath in pathList.Elements<Drawing.Path>())
                 {
-                    var points = ExtractPathPoints(path);
-                    if (points.Count > 2)
-                    {
-                        // Check if it's a simple rectangle (4 points + close)
-                        if (IsRectanglePath(points))
-                        {
-                            return CreateElement("rect");
-                        }
+                    subpaths.AddRange(ExtractPathSubpaths(geomPath));
+                }
 
-                        // Otherwise treat as polygon
-                        return new TypstShapeElement
-                        {
-                            ShapeType = "polygon",
-                            FillColor = fillColor,
-                            FillGradient = fillGradient,
-                            StrokeColor = strokeColor,
-                            StrokeWidth = strokeWidth,
-                            Points = points
-                        };
+                var points = subpaths.Count > 0 ? subpaths[0] : [];
+                if (subpaths.Count > 1)
+                {
+                    return new TypstShapeElement
+                    {
+                        ShapeType = "polygon",
+                        FillColor = fillColor,
+                        FillGradient = fillGradient,
+                        StrokeColor = strokeColor,
+                        StrokeWidth = strokeWidth,
+                        Subpaths = subpaths.Where(s => s.Count > 2).ToList()
+                    };
+                }
+
+                if (points.Count > 2)
+                {
+                    // Check if it's a simple rectangle (4 points + close)
+                    if (IsRectanglePath(points))
+                    {
+                        return CreateElement("rect");
                     }
+
+                    // Otherwise treat as polygon
+                    return new TypstShapeElement
+                    {
+                        ShapeType = "polygon",
+                        FillColor = fillColor,
+                        FillGradient = fillGradient,
+                        StrokeColor = strokeColor,
+                        StrokeWidth = strokeWidth,
+                        Points = points
+                    };
                 }
             }
         }
@@ -1189,8 +1208,14 @@ public sealed partial class PptxToTypstConverter : IDisposable
         return Math.Min(width, height) * 0.05;
     }
 
-    private List<(double X, double Y)> ExtractPathPoints(Drawing.Path path)
+    /// <summary>
+    /// Extracts the contours of a custGeom <c>a:path</c>: a new subpath starts at every
+    /// <c>a:moveTo</c>. Bezier segments are sampled to line segments (8 points each),
+    /// coordinates normalized to 0..1 against the path's declared w/h.
+    /// </summary>
+    private List<List<(double X, double Y)>> ExtractPathSubpaths(Drawing.Path path)
     {
+        var subpaths = new List<List<(double X, double Y)>>();
         var points = new List<(double X, double Y)>();
         var width = (double)(path.Width?.Value ?? 1);
         var height = (double)(path.Height?.Value ?? 1);
@@ -1202,6 +1227,11 @@ public sealed partial class PptxToTypstConverter : IDisposable
             switch (cmd)
             {
                 case Drawing.MoveTo moveTo:
+                    if (points.Count > 0)
+                    {
+                        subpaths.Add(points);
+                        points = new List<(double X, double Y)>();
+                    }
                     (currentX, currentY) = GetPoint(moveTo.Point, width, height);
                     points.Add((currentX, currentY));
                     break;
@@ -1246,7 +1276,12 @@ public sealed partial class PptxToTypstConverter : IDisposable
             }
         }
 
-        return points;
+        if (points.Count > 0)
+        {
+            subpaths.Add(points);
+        }
+
+        return subpaths;
     }
 
     private (double X, double Y) GetPoint(Drawing.Point? point, double width, double height)
