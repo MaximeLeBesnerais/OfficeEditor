@@ -113,6 +113,7 @@ static string? DefaultSystemFontPath()
     [
         "/System/Library/Fonts",
         "/Library/Fonts",
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Library", "Fonts"),
         "/usr/share/fonts",
         "/usr/local/share/fonts",
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".fonts"),
