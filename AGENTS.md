@@ -49,6 +49,7 @@ git status                # expect clean or only intended changes
 - Run conversions **sequentially** — parallel `dotnet run` causes build file locks.
 - Visual fixes: always verify against reference PDFs in `examples/REF/` before claiming done.
 - Use conventional commits (`feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`) — explain **why**, not what.
+- **Never delete a stalled agent's worktree/branch without proving it is stalled.** Check the agent/session status AND inspect the worktree for uncommitted work (`git status`, recent file mtimes) immediately before removal — an earlier check is not proof. If work exists, recover it (commit it or restore from the agent's session transcript) before deleting anything.
 
 ## Workflow (branches, CI, release)
 
