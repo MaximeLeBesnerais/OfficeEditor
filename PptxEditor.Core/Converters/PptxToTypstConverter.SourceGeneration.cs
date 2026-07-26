@@ -141,16 +141,15 @@ public sealed partial class PptxToTypstConverter
             }
 
             // wrap="none": the line must never wrap — PowerPoint overflows the
-            // box instead. Widen the block to the measured line width (with
-            // slack for fallback-font metric drift), keeping the alignment
-            // anchor: left boxes grow rightward, centered boxes grow about
-            // their centre, right boxes grow leftward.
+            // box instead. Font-metric measurement underestimates when the
+            // original font is unavailable, so widen generously (the block is
+            // transparent; only wrapping changes the render). The alignment
+            // anchor is preserved: left boxes grow rightward, centred boxes
+            // grow about their centre, right boxes grow leftward.
             if (text.NoWrap)
             {
                 var measured = MeasureTextWidth(text);
-                var target = measured.HasValue
-                    ? measured.Value * 1.05 + 2
-                    : slideWidth;
+                var target = Math.Max(width * 1.2, (measured ?? 0) * 1.05 + 2);
                 if (target > width)
                 {
                     if (text.Formatting.Align == "center")

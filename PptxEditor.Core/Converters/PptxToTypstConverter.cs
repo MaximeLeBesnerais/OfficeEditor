@@ -2011,8 +2011,11 @@ public sealed partial class PptxToTypstConverter : IDisposable
             if (source.Rotation?.Value != null)
                 result.Rotation = new Int32Value(source.Rotation.Value);
 
-            if (source.Wrap?.Value != null)
-                result.Wrap = source.Wrap.Value;
+            // Wrap — like anchor, the SDK attribute read is unreliable; regex it.
+            if (System.Text.RegularExpressions.Regex.IsMatch(source.OuterXml, @"\bwrap\s*=\s*""none"""))
+                result.Wrap = Drawing.TextWrappingValues.None;
+            else if (System.Text.RegularExpressions.Regex.IsMatch(source.OuterXml, @"\bwrap\s*=\s*""square"""))
+                result.Wrap = Drawing.TextWrappingValues.Square;
         }
 
         // Copy autofit child elements from slide -> layout -> master
