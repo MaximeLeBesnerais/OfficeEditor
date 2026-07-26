@@ -504,11 +504,42 @@ public sealed partial class PptxToTypstConverter : IDisposable
             // Collect slide shape positions for override detection
             var slidePositions = CollectShapePositions(shapeTree.ChildElements);
 
+            // Extract non-placeholder (user-drawn) shapes from the slide MASTER.
+            // Master shapes render on every slide (unless the layout suppresses them
+            // with showMasterSp="0") beneath layout and slide content — e.g. Space
+            // slide 19's showeet logo + big text live on slideMaster2.
+            var layoutPart = slidePart.SlideLayoutPart;
+            var masterPart = layoutPart?.SlideMasterPart;
+            var layoutSuppressesMasterShapes = layoutPart?.SlideLayout?.ShowMasterShapes?.Value == false;
+            if (!layoutSuppressesMasterShapes && masterPart?.SlideMaster?.CommonSlideData?.ShapeTree != null)
+            {
+                _activeImageRelOwner = masterPart;
+                try
+                {
+                    foreach (var masterElement in masterPart.SlideMaster.CommonSlideData.ShapeTree.ChildElements)
+                    {
+                        if (!IsUserDrawnShape(masterElement))
+                            continue;
+
+                        if (IsOverriddenBySlide(masterElement, slidePositions))
+                            continue;
+
+                        foreach (var typstElement in ConvertElement(slidePart, masterElement, styleResolver, slideIndex))
+                        {
+                            typstSlide.Elements.Add(typstElement);
+                        }
+                    }
+                }
+                finally
+                {
+                    _activeImageRelOwner = null;
+                }
+            }
+
             // Extract non-placeholder (user-drawn) shapes from the slide layout.
             // These shapes live on the layout but are not placeholders — they are
             // independent decorative/text elements (e.g. section headers like
             // "List //") that must be rendered beneath the slide's own shapes.
-            var layoutPart = slidePart.SlideLayoutPart;
             if (layoutPart?.SlideLayout?.CommonSlideData?.ShapeTree != null)
             {
                 _activeImageRelOwner = layoutPart;
