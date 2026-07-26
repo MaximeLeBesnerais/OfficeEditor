@@ -45,12 +45,14 @@ public sealed record TypstLegResult(
 /// <see cref="TotalMilliseconds"/> is the wall-clock time of the whole run (conversion +
 /// the parallel compile trio), NOT the sum of the phases. The PDF leg is best-effort —
 /// on failure <see cref="PdfError"/> carries the message and <see cref="PdfBytes"/>/
-/// <see cref="PdfMilliseconds"/> are null (PNG/SVG failures throw instead).
+/// <see cref="PdfMilliseconds"/> are null (PNG/SVG failures throw instead). When the PNG
+/// leg is skipped (includePng: false) <see cref="PngMilliseconds"/> is null and
+/// <see cref="PngPages"/> is empty — a skipped leg is never reported as 0 ms.
 /// </summary>
 internal sealed record DemoDeckAllFormatsResult(
     int SlideCount,
     double ConversionMilliseconds,
-    double PngMilliseconds,
+    double? PngMilliseconds,
     double SvgMilliseconds,
     double? PdfMilliseconds,
     double TotalMilliseconds,
@@ -372,9 +374,11 @@ public sealed class DemoDeckService : IDemoDeckService
     /// Same name/file validation contract as <see cref="RenderDeck"/>. PNG/SVG compile
     /// failures throw; the PDF leg is best-effort and reports via
     /// <see cref="DemoDeckAllFormatsResult.PdfError"/>. Internal: not part of the HTTP
-    /// surface, so the public per-format DTOs are untouched.
+    /// surface, so the public per-format DTOs are untouched. <paramref name="includePng"/>
+    /// false skips the PNG raster leg entirely (the expensive leg): no PNG compile runs,
+    /// and the result reports the leg as skipped (null timing, empty pages).
     /// </summary>
-    internal DemoDeckAllFormatsResult RenderDeckAllFormats(string name, int ppi)
+    internal DemoDeckAllFormatsResult RenderDeckAllFormats(string name, int ppi, bool includePng = true)
     {
         var entry = ResolveCatalogEntry(name);
         var fullPath = ResolveDeckFilePath(entry);
@@ -415,18 +419,22 @@ public sealed class DemoDeckService : IDemoDeckService
                 : string.IsNullOrWhiteSpace(_fontDirectory) ? embeddedFonts
                 : embeddedFonts + Path.PathSeparator + _fontDirectory;
 
-            // The three format legs compile the SAME source in parallel (TypstBridge
+            // The format legs compile the SAME source in parallel (TypstBridge
             // compiles run in parallel per its docs; the CLI fallback writes uniquely
             // named files per compile into the shared working directory, so the legs
             // cannot collide). The converter — and therefore the temp directory — stays
-            // alive until the WhenAll below completes.
-            var pngTask = Task.Run(() =>
-            {
-                var pngTimer = Stopwatch.StartNew();
-                var pngPages = CompileChecked(typstSource, OutputFormat.Png, clampedPpi, fontDirectory, workingDirectory);
-                pngTimer.Stop();
-                return (Pages: pngPages, Milliseconds: pngTimer.Elapsed.TotalMilliseconds);
-            });
+            // alive until the WhenAll below completes. When includePng is false the PNG
+            // leg never starts: a pre-completed empty task keeps the WhenAll shape
+            // unchanged and reports the leg as skipped (null timing, no pages).
+            var pngTask = includePng
+                ? Task.Run(() =>
+                {
+                    var pngTimer = Stopwatch.StartNew();
+                    var pngPages = CompileChecked(typstSource, OutputFormat.Png, clampedPpi, fontDirectory, workingDirectory);
+                    pngTimer.Stop();
+                    return (Pages: pngPages, Milliseconds: (double?)pngTimer.Elapsed.TotalMilliseconds);
+                })
+                : Task.FromResult((Pages: Array.Empty<byte[]>(), Milliseconds: (double?)null));
 
             var svgTask = Task.Run(() =>
             {
