@@ -2169,11 +2169,61 @@ public sealed partial class PptxToTypstConverter : IDisposable
             newScaleY = parentScaleY * localScaleY;
         }
 
+        // A rotated group (xfrm@rot, e.g. Space slide 9's tilted constellation) rotates
+        // every descendant about the group's frame center: rotate each emitted element's
+        // center and add the angle to its own rotation (exact for uniform child scaling).
+        var groupRotation = (grpXfrm?.Rotation?.Value ?? 0) / 60000.0;
+        double groupCenterX = 0, groupCenterY = 0;
+        if (grpXfrm != null && groupRotation != 0)
+        {
+            var grpExtXpt = EmuToPt((long)(grpXfrm.Extents?.Cx?.Value ?? 0));
+            var grpExtYpt = EmuToPt((long)(grpXfrm.Extents?.Cy?.Value ?? 0));
+            groupCenterX = parentOffX + (EmuToPt((long)(grpXfrm.Offset?.X?.Value ?? 0)) + grpExtXpt / 2) * parentScaleX;
+            groupCenterY = parentOffY + (EmuToPt((long)(grpXfrm.Offset?.Y?.Value ?? 0)) + grpExtYpt / 2) * parentScaleY;
+        }
+
         foreach (var child in groupShape.ChildElements)
         {
             foreach (var element in ConvertElement(slidePart, child, styleResolver, slideIndex, newOffX, newOffY, newScaleX, newScaleY))
-                yield return element;
+            {
+                yield return groupRotation != 0
+                    ? RotateElementAround(element, groupCenterX, groupCenterY, groupRotation)
+                    : element;
+            }
         }
+    }
+
+    /// <summary>
+    /// Rotates an element's frame center about (<paramref name="cx"/>,
+    /// <paramref name="cy"/>) by <paramref name="degrees"/> (clockwise, OOXML convention)
+    /// and adds the angle to the element's own rotation.
+    /// </summary>
+    private static TypstElement RotateElementAround(TypstElement element, double cx, double cy, double degrees)
+    {
+        var rad = degrees * Math.PI / 180.0;
+        var cos = Math.Cos(rad);
+        var sin = Math.Sin(rad);
+        var dx = element.X + element.Width / 2 - cx;
+        var dy = element.Y + element.Height / 2 - cy;
+        var newCenterX = cx + dx * cos - dy * sin;
+        var newCenterY = cy + dx * sin + dy * cos;
+
+        return new TypstElement
+        {
+            Type = element.Type,
+            Id = element.Id,
+            Name = element.Name,
+            ModelId = element.ModelId,
+            X = newCenterX - element.Width / 2,
+            Y = newCenterY - element.Height / 2,
+            Width = element.Width,
+            Height = element.Height,
+            Rotation = element.Rotation + degrees,
+            Text = element.Text,
+            Image = element.Image,
+            Table = element.Table,
+            Shape = element.Shape
+        };
     }
 
     /// <summary>

@@ -427,6 +427,71 @@ public sealed class PptxToTypstConverterSpaceTests : IDisposable
         Assert.Equal("#95A5A6", run.Formatting.Color);
     }
 
+    // ------------------------------------------------------------------
+    // Group rotation (Space slide 9's Big Dipper group has rot="21063105"
+    // — ignored entirely, so the whole constellation rendered unrotated)
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public void Convert_RotatedGroup_RotatesChildPositionsAndRotations()
+    {
+        var deckPath = Path.Combine(_tempDir, $"{Guid.NewGuid():N}.pptx");
+        using (var document = PresentationDocument.Create(deckPath, PresentationDocumentType.Presentation))
+        {
+            var (presentationPart, slideLayoutPart) = CreateShell(document);
+            slideLayoutPart.SlideLayout = new P.SlideLayout(new CommonSlideData(CreateShapeTree()));
+
+            var slidePart = presentationPart.AddNewPart<SlidePart>();
+            var child = new P.Shape(
+                new NonVisualShapeProperties(
+                    new NonVisualDrawingProperties { Id = 3, Name = "Child Rect" },
+                    new NonVisualShapeDrawingProperties(),
+                    new ApplicationNonVisualDrawingProperties()),
+                new ShapeProperties(
+                    new Drawing.Transform2D(
+                        new Drawing.Offset { X = 0, Y = 0 },
+                        new Drawing.Extents { Cx = 500000, Cy = 500000 }),
+                    new Drawing.PresetGeometry(new Drawing.AdjustValueList())
+                    { Preset = Drawing.ShapeTypeValues.Rectangle },
+                    new Drawing.SolidFill(new Drawing.RgbColorModelHex { Val = "FF0000" })));
+            var group = new P.GroupShape(
+                new P.NonVisualGroupShapeProperties(
+                    new NonVisualDrawingProperties { Id = 2, Name = "Rotated Group" },
+                    new P.NonVisualGroupShapeDrawingProperties(),
+                    new ApplicationNonVisualDrawingProperties()),
+                new P.GroupShapeProperties(
+                    new Drawing.TransformGroup(
+                        new Drawing.Offset { X = 1000000, Y = 1000000 },
+                        new Drawing.Extents { Cx = 2000000, Cy = 2000000 },
+                        new Drawing.ChildOffset { X = 0, Y = 0 },
+                        new Drawing.ChildExtents { Cx = 2000000, Cy = 2000000 })
+                    { Rotation = 90 * 60000 }),
+                child);
+            slidePart.Slide = new Slide(new CommonSlideData(CreateShapeTree(group)));
+            slidePart.AddPart(slideLayoutPart);
+
+            presentationPart.Presentation!.SlideIdList!.Append(new SlideId
+            {
+                Id = 256,
+                RelationshipId = presentationPart.GetIdOfPart(slidePart)
+            });
+        }
+
+        using var doc = PresentationDocument.Open(deckPath, false);
+        using var converter = new PptxToTypstConverter(doc);
+
+        var presentation = converter.Convert();
+        var element = Assert.Single(presentation.Slides[0].Elements, e => e.Type == "Shape");
+
+        // Group center: (1000000+1000000, 1000000+1000000) EMU = (157.48, 157.48)pt.
+        // Child center: (250000, 250000) EMU → slide (1250000, 1250000) = (98.43, 98.43)pt.
+        // Rotating the child center 90° clockwise about the group center gives
+        // (216.54, 98.43)pt; element box = center − (19.69, 19.69)pt.
+        Assert.Equal(216.535 - 19.685, element.X, 2);
+        Assert.Equal(98.425 - 19.685, element.Y, 2);
+        Assert.Equal(90.0, element.Rotation, 3);
+    }
+
     /// <summary>
     /// Deck whose slide has a pic placeholder (ph type="pic" idx="10") with an
     /// EMPTY spPr (no xfrm). The layout carries the matching pic placeholder
