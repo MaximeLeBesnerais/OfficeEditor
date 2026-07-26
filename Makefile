@@ -11,11 +11,11 @@ DOTNET_ROLL  := DOTNET_ROLL_FORWARD=Major
 
 ## Run the API with Blazor Server demo (single process, no Node needed)
 dev:
-	cd $(API_DIR) && $(DOTNET_ROLL) dotnet run --urls "$(API_URL)"
+	cd $(API_DIR) && $(DOTNET_ROLL) DOTNET_ENVIRONMENT=Development dotnet run --no-launch-profile --urls "$(API_URL)"
 
 ## Run only the ASP.NET Core API
 api:
-	cd $(API_DIR) && $(DOTNET_ROLL) dotnet run --urls "$(API_URL)"
+	cd $(API_DIR) && $(DOTNET_ROLL) DOTNET_ENVIRONMENT=Development dotnet run --no-launch-profile --urls "$(API_URL)"
 
 ## Run only the React client (expects the API to be running on $(API_URL))
 web:
