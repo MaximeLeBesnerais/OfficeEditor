@@ -9,10 +9,9 @@ DOTNET_ROLL  := DOTNET_ROLL_FORWARD=Major
 
 .PHONY: dev api web build test clean install help
 
-## Run the API and the React client in parallel (colored output, Ctrl+C kills both)
+## Run the API with Blazor Server demo (single process, no Node needed)
 dev:
-	@echo "Starting OfficeEditor API and web client..."
-	@cd $(WEB_DIR) && npm run dev:all
+	cd $(API_DIR) && $(DOTNET_ROLL) dotnet run --urls "$(API_URL)"
 
 ## Run only the ASP.NET Core API
 api:

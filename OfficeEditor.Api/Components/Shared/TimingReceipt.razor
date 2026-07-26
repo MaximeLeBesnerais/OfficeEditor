@@ -1,0 +1,30 @@
+@* TimingReceipt.razor — Compact timing badge (matches React TimingReceipt.tsx) *@
+
+<div class="inline-flex flex-wrap items-center gap-x-2 gap-y-1 rounded-full border border-slate-700/80 bg-slate-900/80 px-4 py-1.5 font-mono text-sm text-slate-300 shadow-lg shadow-black/20">
+    <span class="text-slate-100 font-semibold">@Stats.Slides slides</span>
+    @if (Stats.Extra is not null)
+    {
+        <span class="text-slate-600">·</span>
+        <span>
+            @Stats.Extra.Label in <span class="text-slate-100">@FormatMs(Stats.Extra.Ms)ms</span>
+        </span>
+    }
+    <span class="text-slate-600">·</span>
+    <span>
+        @(Stats.Label ?? "rendered") in <span class="text-emerald-400">@FormatMs(Stats.TotalMs)ms</span>
+    </span>
+    <span class="text-slate-600">·</span>
+    <span class="text-slate-400">(@FormatPerSlideMs(PerSlideMs)ms/slide)</span>
+</div>
+
+@code {
+    [Parameter] public required TimingStats Stats { get; set; }
+
+    private double PerSlideMs => Stats.PerSlideMs > 0
+        ? Stats.PerSlideMs
+        : (Stats.Slides > 0 ? Stats.TotalMs / Stats.Slides : 0);
+
+    private static string FormatMs(double ms) => ms >= 100 ? ms.ToString("F0") : ms.ToString("F1");
+
+    private static string FormatPerSlideMs(double ms) => ms.ToString("F1");
+}
