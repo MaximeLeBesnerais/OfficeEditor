@@ -1257,6 +1257,18 @@ public sealed partial class PptxToTypstConverter : IDisposable
         var (id, name) = GetElementIdAndName(picture.NonVisualPictureProperties);
         var position = GetElementPosition(picture.ShapeProperties);
 
+        // Picture placeholders (ph type="pic") with no transform inherit their
+        // position/size from the layout placeholder (ECMA-376 placeholder
+        // inheritance), same as text placeholders do in ConvertShape.
+        if (picture.ShapeProperties?.Transform2D == null)
+        {
+            var layoutPosition = GetLayoutPlaceholderPosition(slidePart, picture);
+            if (layoutPosition != null)
+            {
+                position = layoutPosition.Value;
+            }
+        }
+
         var imageElement = ExtractImage(slidePart, picture, imageRelScope);
         if (imageElement == null) yield break;
 
@@ -4394,24 +4406,44 @@ public sealed partial class PptxToTypstConverter : IDisposable
 
     private (double X, double Y, double Width, double Height, double Rotation)? GetLayoutPlaceholderPosition(SlidePart slidePart, P.Shape shape)
     {
-        var layoutPart = slidePart.SlideLayoutPart;
-        if (layoutPart?.SlideLayout?.CommonSlideData?.ShapeTree == null)
-            return null;
-
         // Get placeholder info from the slide shape
         var slidePh = GetPlaceholderInfo(shape);
         if (slidePh == null)
             return null;
 
-        // Find matching placeholder in layout
-        foreach (var layoutShape in layoutPart.SlideLayout.CommonSlideData.ShapeTree.ChildElements.OfType<P.Shape>())
+        return FindLayoutPlaceholderXfrm(slidePart, slidePh.Value.Type, slidePh.Value.Index);
+    }
+
+    private (double X, double Y, double Width, double Height, double Rotation)? GetLayoutPlaceholderPosition(SlidePart slidePart, P.Picture picture)
+    {
+        // Picture placeholders carry their ph under nvPicPr/nvPr.
+        var ph = picture.NonVisualPictureProperties?.ApplicationNonVisualDrawingProperties?
+            .Elements<PlaceholderShape>().FirstOrDefault();
+        if (ph == null)
+            return null;
+
+        var (type, idx) = ParsePlaceholderTypeAndIndex(ph);
+        return FindLayoutPlaceholderXfrm(slidePart, type, idx);
+    }
+
+    private (double X, double Y, double Width, double Height, double Rotation)? FindLayoutPlaceholderXfrm(SlidePart slidePart, string? slideType, int? slideIdx)
+    {
+        var layoutPart = slidePart.SlideLayoutPart;
+        if (layoutPart?.SlideLayout?.CommonSlideData?.ShapeTree == null)
+            return null;
+
+        // Find matching placeholder in layout (shape or picture placeholders)
+        foreach (var layoutElement in layoutPart.SlideLayout.CommonSlideData.ShapeTree.ChildElements)
         {
-            var layoutPh = GetPlaceholderInfo(layoutShape);
+            (string? Type, int? Index)? layoutPh = layoutElement switch
+            {
+                P.Shape layoutShape => GetPlaceholderInfo(layoutShape),
+                P.Picture layoutPicture => GetPicturePlaceholderInfo(layoutPicture),
+                _ => null
+            };
             if (layoutPh == null)
                 continue;
 
-            var slideType = slidePh.Value.Type;
-            var slideIdx = slidePh.Value.Index;
             var layoutType = layoutPh.Value.Type;
             var layoutIdx = layoutPh.Value.Index;
 
@@ -4422,7 +4454,12 @@ public sealed partial class PptxToTypstConverter : IDisposable
 
             if (matches)
             {
-                var layoutXfrm = layoutShape.ShapeProperties?.Transform2D;
+                var layoutXfrm = layoutElement switch
+                {
+                    P.Shape layoutShape => layoutShape.ShapeProperties?.Transform2D,
+                    P.Picture layoutPicture => layoutPicture.ShapeProperties?.Transform2D,
+                    _ => null
+                };
                 if (layoutXfrm != null)
                 {
                     var x = layoutXfrm.Offset?.X?.Value ?? 0;
@@ -4438,20 +4475,15 @@ public sealed partial class PptxToTypstConverter : IDisposable
         return null;
     }
 
-    private (string? Type, int? Index)? GetPlaceholderInfo(P.Shape shape)
+    private static (string? Type, int? Index)? GetPicturePlaceholderInfo(P.Picture picture)
     {
-        var nvSpPr = shape.NonVisualShapeProperties;
-        if (nvSpPr == null) return null;
+        var ph = picture.NonVisualPictureProperties?.ApplicationNonVisualDrawingProperties?
+            .Elements<PlaceholderShape>().FirstOrDefault();
+        return ph == null ? null : ParsePlaceholderTypeAndIndex(ph);
+    }
 
-        PlaceholderShape? ph = nvSpPr.Elements<PlaceholderShape>().FirstOrDefault();
-        if (ph == null)
-        {
-            var appProps = nvSpPr.ApplicationNonVisualDrawingProperties;
-            ph = appProps?.Elements<PlaceholderShape>().FirstOrDefault();
-        }
-
-        if (ph == null) return null;
-
+    private static (string? Type, int? Index) ParsePlaceholderTypeAndIndex(PlaceholderShape ph)
+    {
         string? type = null;
         int? idx = null;
 
@@ -4468,6 +4500,23 @@ public sealed partial class PptxToTypstConverter : IDisposable
         }
 
         return (type, idx);
+    }
+
+    private (string? Type, int? Index)? GetPlaceholderInfo(P.Shape shape)
+    {
+        var nvSpPr = shape.NonVisualShapeProperties;
+        if (nvSpPr == null) return null;
+
+        PlaceholderShape? ph = nvSpPr.Elements<PlaceholderShape>().FirstOrDefault();
+        if (ph == null)
+        {
+            var appProps = nvSpPr.ApplicationNonVisualDrawingProperties;
+            ph = appProps?.Elements<PlaceholderShape>().FirstOrDefault();
+        }
+
+        if (ph == null) return null;
+
+        return ParsePlaceholderTypeAndIndex(ph);
     }
 
     private (double X, double Y, double Width, double Height) GetGraphicFramePosition(P.GraphicFrame graphicFrame)
