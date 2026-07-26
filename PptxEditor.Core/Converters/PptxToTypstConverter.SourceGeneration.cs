@@ -95,18 +95,29 @@ public sealed partial class PptxToTypstConverter
         var width = element.Width;
         var height = element.Height;
 
+        var isRotatedText = element.Type == "Text" && element.Text != null && Math.Abs(element.Rotation) > 0.01;
+        double padLeft = 0, padTop = 0, padRight = 0, padBottom = 0;
+
         if (element.Type == "Text" && element.Text != null)
         {
             var text = element.Text;
             var topLeading = Math.Max(0, ((text.LineSpacing ?? text.Formatting.FontSize) - text.Formatting.FontSize) / 2);
             var metricOffset = GetTextMetricOffset(text);
 
+            if (isRotatedText)
+            {
+                padLeft = text.PaddingLeft;
+                padTop = text.PaddingTop + topLeading + metricOffset;
+                padRight = text.PaddingRight;
+                padBottom = text.PaddingBottom;
+            }
+
             xPos += text.PaddingLeft;
             yPos += text.PaddingTop + topLeading + metricOffset;
             width = Math.Max(0, width - text.PaddingLeft - text.PaddingRight);
             height = Math.Max(0, height - text.PaddingTop - text.PaddingBottom);
 
-            if (IsSingleLineAutoFit(text, height) && text.Formatting.Align == "left")
+            if (!isRotatedText && IsSingleLineAutoFit(text, height) && text.Formatting.Align == "left")
             {
                 width = Math.Max(width, slideWidth - xPos - 2);
             }
@@ -116,6 +127,23 @@ public sealed partial class PptxToTypstConverter
         var y = FormatPt(yPos);
         var widthStr = FormatPt(width);
         var heightStr = FormatPt(height);
+
+        if (isRotatedText)
+        {
+            // Rotated text pivots about the text-box centre (PowerPoint semantics):
+            // place the untrimmed box, rotate a full-size block about its centre,
+            // and apply the text insets inside via #pad. Rotating the
+            // padding-trimmed content (the generic path below) would pivot about
+            // the content centre, off the box centre by the insets + leading/
+            // metric offsets.
+            sb.Append($"#place(top + left, dx: {FormatPt(element.X)}, dy: {FormatPt(element.Y)})");
+            sb.Append($"[#rotate({element.Rotation.ToString("F1", CultureInfo.InvariantCulture)}deg, origin: center)");
+            sb.Append($"[#block(width: {FormatPt(element.Width)}, height: {FormatPt(element.Height)})");
+            sb.Append($"[#pad(left: {FormatPt(padLeft)}, top: {FormatPt(padTop)}, right: {FormatPt(padRight)}, bottom: {FormatPt(padBottom)})[");
+            GenerateTextSource(sb, element.Text!, widthStr, heightStr, availableFonts);
+            sb.AppendLine("]]]]");
+            return;
+        }
 
         sb.Append($"#place(top + left, dx: {x}, dy: {y})");
         sb.Append("[");
