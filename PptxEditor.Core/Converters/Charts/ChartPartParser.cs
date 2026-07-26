@@ -65,7 +65,8 @@ public static class ChartPartParser
             DataLabels = ParseDataLabels(chartTypeElement.Element(C + "dLbls"), schemeColorResolver),
             Legend = ParseLegend(chart.Element(C + "legend"), schemeColorResolver),
             CategoryAxis = ParseCategoryAxis(plotArea.Element(C + "catAx"), schemeColorResolver),
-            ValueAxis = ParseValueAxis(plotArea.Element(C + "valAx"), schemeColorResolver)
+            ValueAxis = ParseValueAxis(plotArea.Element(C + "valAx"), schemeColorResolver),
+            FirstSliceAngleDegrees = ParseDoubleAttribute(chartTypeElement.Element(C + "firstSliceAng")) ?? 0.0
         };
 
         var series = new List<ChartSeries>();
@@ -87,6 +88,7 @@ public static class ChartPartParser
             Legend = model.Legend,
             CategoryAxis = model.CategoryAxis,
             ValueAxis = model.ValueAxis,
+            FirstSliceAngleDegrees = model.FirstSliceAngleDegrees,
             Series = series,
             Categories = categories ?? []
         };
@@ -118,12 +120,43 @@ public static class ChartPartParser
                 valueArray[index] = value;
         }
 
+        // Pie/doughnut per-data-point styling (c:dPt): fills are indexed by point;
+        // the slice outline is taken from the first dPt that declares one.
+        var pointFills = new List<(int Index, string? Color)>();
+        string? pointLineColor = null;
+        double pointLineWidthPt = 0;
+        foreach (var dPt in ser.Elements(C + "dPt"))
+        {
+            var index = ParseInt(dPt.Element(C + "idx")?.Attribute("val")?.Value) ?? pointFills.Count;
+            var spPr = dPt.Element(C + "spPr");
+            pointFills.Add((index, ParseSolidFill(spPr?.Element(A + "solidFill"), schemeColorResolver)));
+
+            var ln = spPr?.Element(A + "ln");
+            if (pointLineColor == null && ln != null)
+            {
+                pointLineColor = ParseSolidFill(ln.Element(A + "solidFill"), schemeColorResolver);
+                if (pointLineColor != null)
+                    pointLineWidthPt = (ParseDoubleAttribute(ln, "w") ?? 0) / 12700.0;
+            }
+        }
+
+        var pointFillCount = pointFills.Count > 0 ? pointFills.Max(p => p.Index) + 1 : 0;
+        var pointFillArray = new string?[pointFillCount];
+        foreach (var (index, color) in pointFills)
+        {
+            if (index >= 0 && index < pointFillCount)
+                pointFillArray[index] = color;
+        }
+
         return new ChartSeries
         {
             Name = namePoints.Count > 0 ? namePoints[0].Text : string.Empty,
             FillColor = ParseSolidFill(ser.Element(C + "spPr")?.Element(A + "solidFill"), schemeColorResolver),
             Values = valueArray,
-            DataLabels = ParseDataLabels(ser.Element(C + "dLbls"), schemeColorResolver)
+            DataLabels = ParseDataLabels(ser.Element(C + "dLbls"), schemeColorResolver),
+            PointFillColors = pointFillArray,
+            PointLineColor = pointLineColor,
+            PointLineWidthPt = pointLineWidthPt
         };
     }
 
@@ -290,7 +323,10 @@ public static class ChartPartParser
     private static string? Val(XElement? element) => element?.Attribute("val")?.Value;
 
     private static double? ParseDoubleAttribute(XElement? element)
-        => double.TryParse(element?.Attribute("val")?.Value, NumberStyles.Float,
+        => ParseDoubleAttribute(element, "val");
+
+    private static double? ParseDoubleAttribute(XElement? element, string attribute)
+        => double.TryParse(element?.Attribute(attribute)?.Value, NumberStyles.Float,
             CultureInfo.InvariantCulture, out var value)
             ? value
             : null;
