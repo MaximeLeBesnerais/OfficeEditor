@@ -22,6 +22,8 @@ public sealed class TypstFontMetrics
     public short HheaLineGap { get; init; }
     public ushort WinAscent { get; init; }
     public ushort WinDescent { get; init; }
+    /// <summary>OS/2 sCapHeight (0 when the OS/2 table predates version 2).</summary>
+    public short CapHeight { get; init; }
     public Dictionary<int, ushort> AdvanceWidths { get; init; } = new();
 }
 

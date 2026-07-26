@@ -91,11 +91,11 @@ public sealed class PptxToTypstConverterTextListTests : IDisposable
                     new Drawing.Text { Text = "Second body line" })));
         var path = CreatePptx("line-spacing-pct.pptx", customizeMaster: null, shape);
 
-        var source = ConvertToTypstSource(path);
+        var source = ConvertToTypstSource(path, InjectDeterministicArialMetrics);
 
-        // 11pt * 1.25 - 11pt * 0.65 = 6.60pt ; 11pt * 1.50 - 11pt * 0.65 = 9.35pt
-        Assert.Contains("#set par(leading: 6.60pt)", source);
-        Assert.Contains("#set par(leading: 9.35pt)", source);
+        // 11pt * 1.25 - 11pt * 0.7 (cap) = 6.05pt ; 11pt * 1.50 - 11pt * 0.7 = 8.80pt
+        Assert.Contains("#set par(leading: 6.05pt)", source);
+        Assert.Contains("#set par(leading: 8.80pt)", source);
     }
 
     [Fact]
@@ -110,10 +110,10 @@ public sealed class PptxToTypstConverterTextListTests : IDisposable
                     new Drawing.Text { Text = "Absolute spaced line" })));
         var path = CreatePptx("line-spacing-pts.pptx", customizeMaster: null, shape);
 
-        var source = ConvertToTypstSource(path);
+        var source = ConvertToTypstSource(path, InjectDeterministicArialMetrics);
 
-        // spcPts 2000 = 20pt target line pitch; 20 - 11pt * 0.65 = 12.85pt
-        Assert.Contains("#set par(leading: 12.85pt)", source);
+        // spcPts 2000 = 20pt target line pitch; 20 - 11pt * 0.7 (cap) = 12.30pt
+        Assert.Contains("#set par(leading: 12.30pt)", source);
     }
 
     [Fact]
@@ -136,11 +136,11 @@ public sealed class PptxToTypstConverterTextListTests : IDisposable
                     new Drawing.Text { Text = "Regular follow" })));
         var path = CreatePptx("line-spacing-mixed.pptx", customizeMaster: null, shape);
 
-        var source = ConvertToTypstSource(path);
+        var source = ConvertToTypstSource(path, InjectDeterministicArialMetrics);
 
-        // 13pt * 1.12 - 13pt * 0.65 = 6.11pt ; 11.5pt * 1.12 - 11.5pt * 0.65 = 5.41pt (rounded)
-        Assert.Contains("#set par(leading: 6.11pt)", source);
-        Assert.Contains("#set par(leading: 5.41pt)", source);
+        // 13pt * 1.12 - 13pt * 0.7 (cap) = 5.46pt ; 11.5pt * 1.12 - 11.5pt * 0.7 = 4.83pt (rounded)
+        Assert.Contains("#set par(leading: 5.46pt)", source);
+        Assert.Contains("#set par(leading: 4.83pt)", source);
         Assert.DoesNotContain("#set par(leading: 8.46pt)", source);
     }
 
@@ -315,12 +315,34 @@ public sealed class PptxToTypstConverterTextListTests : IDisposable
                 new Drawing.Text { Text = text }));
     }
 
-    private string ConvertToTypstSource(string path)
+    private string ConvertToTypstSource(string path, Action<PptxToTypstConverter>? configure = null)
     {
         using var document = PresentationDocument.Open(path, false);
         using var converter = new PptxToTypstConverter(document);
         var presentation = converter.Convert();
+        configure?.Invoke(converter);
         return converter.GenerateTypstSource(presentation);
+    }
+
+    /// <summary>
+    /// Leading arithmetic depends on the font's cap height (Typst's natural advance).
+    /// Inject deterministic metrics for the default "Arial" family so the assertions
+    /// do not depend on which fonts the test machine has installed.
+    /// </summary>
+    private static void InjectDeterministicArialMetrics(PptxToTypstConverter converter)
+    {
+        var fontMetricsField = typeof(PptxToTypstConverter).GetField(
+            "_fontMetrics",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        var fontMetrics = (Dictionary<string, PptxEditor.Core.Models.TypstFontMetrics>)fontMetricsField!.GetValue(converter)!;
+        fontMetrics["Arial"] = new PptxEditor.Core.Models.TypstFontMetrics
+        {
+            UnitsPerEm = 1000,
+            HheaAscender = 800,
+            HheaDescender = -200,
+            HheaLineGap = 0,
+            CapHeight = 700
+        };
     }
 
     private static P.Shape TextShape(uint id, string text, Drawing.ParagraphProperties pPr)

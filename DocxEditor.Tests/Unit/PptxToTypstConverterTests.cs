@@ -2351,6 +2351,303 @@ public class PptxToTypstConverterTests : IDisposable
         return path;
     }
 
+    private static Drawing.DefaultRunProperties CreateOpenSansTitleDefRPr()
+    {
+        var defRPr = new Drawing.DefaultRunProperties { FontSize = 4000, Bold = true };
+        defRPr.Append(new Drawing.LatinFont { Typeface = "Open Sans" });
+        return defRPr;
+    }
+
+    private string CreateMasterOpenSansTitlePptx()
+    {
+        var path = Path.Combine(_tempDir, "master-open-sans-title.pptx");
+
+        using (var document = PresentationDocument.Create(path, PresentationDocumentType.Presentation))
+        {
+            var presentationPart = document.AddPresentationPart();
+            presentationPart.Presentation = new Presentation();
+            presentationPart.Presentation.SlideMasterIdList = new SlideMasterIdList();
+
+            var slideMasterPart = presentationPart.AddNewPart<SlideMasterPart>();
+            var slideMaster = new SlideMaster(
+                new CommonSlideData(
+                    new ShapeTree(
+                        new NonVisualGroupShapeProperties(
+                            new NonVisualDrawingProperties { Id = 0, Name = "" },
+                            new NonVisualGroupShapeDrawingProperties(),
+                            new ApplicationNonVisualDrawingProperties()
+                        ),
+                        new GroupShapeProperties(
+                            new Drawing.TransformGroup(
+                                new Drawing.Offset { X = 0, Y = 0 },
+                                new Drawing.Extents { Cx = 0, Cy = 0 },
+                                new Drawing.ChildOffset { X = 0, Y = 0 },
+                                new Drawing.ChildExtents { Cx = 0, Cy = 0 }
+                            )
+                        )
+                    )
+                ),
+                new ColorMap(),
+                new SlideLayoutIdList(),
+                // Master declares Open Sans titles:
+                // <p:titleStyle><a:lvl1pPr><a:defRPr sz="4000" b="1"><a:latin typeface="Open Sans"/>
+                new TextStyles(
+                    new TitleStyle(
+                        new Drawing.Level1ParagraphProperties(CreateOpenSansTitleDefRPr())
+                    )
+                )
+            );
+            slideMasterPart.SlideMaster = slideMaster;
+
+            var slideLayoutPart = slideMasterPart.AddNewPart<SlideLayoutPart>();
+            slideLayoutPart.SlideLayout = new P.SlideLayout(new CommonSlideData(new ShapeTree(
+                new NonVisualGroupShapeProperties(
+                    new NonVisualDrawingProperties { Id = 0, Name = "" },
+                    new NonVisualGroupShapeDrawingProperties(),
+                    new ApplicationNonVisualDrawingProperties()
+                ),
+                new GroupShapeProperties(
+                    new Drawing.TransformGroup(
+                        new Drawing.Offset { X = 0, Y = 0 },
+                        new Drawing.Extents { Cx = 0, Cy = 0 },
+                        new Drawing.ChildOffset { X = 0, Y = 0 },
+                        new Drawing.ChildExtents { Cx = 0, Cy = 0 }
+                    )
+                ),
+                new P.Shape(
+                    new NonVisualShapeProperties(
+                        new NonVisualDrawingProperties { Id = 1, Name = "Title" },
+                        new NonVisualShapeDrawingProperties(new Drawing.ShapeLocks { NoGrouping = true }),
+                        new ApplicationNonVisualDrawingProperties(
+                            new PlaceholderShape { Type = PlaceholderValues.Title }
+                        )
+                    ),
+                    new ShapeProperties(),
+                    new TextBody(
+                        new Drawing.BodyProperties(),
+                        new Drawing.ListStyle()
+                    )
+                )
+            )));
+            slideLayoutPart.AddPart(slideMasterPart);
+
+            var layoutId = new SlideLayoutId
+            {
+                Id = 2147483649,
+                RelationshipId = slideMasterPart.GetIdOfPart(slideLayoutPart)
+            };
+            slideMaster.SlideLayoutIdList!.Append(layoutId);
+
+            presentationPart.Presentation.SlideIdList = new SlideIdList();
+            presentationPart.Presentation.SlideMasterIdList.Append(new SlideMasterId
+            {
+                Id = 2147483648,
+                RelationshipId = presentationPart.GetIdOfPart(slideMasterPart)
+            });
+
+            var slidePart = presentationPart.AddNewPart<SlidePart>();
+            var slide = new Slide(
+                new CommonSlideData(
+                    new ShapeTree(
+                        new NonVisualGroupShapeProperties(
+                            new NonVisualDrawingProperties { Id = 0, Name = "" },
+                            new NonVisualGroupShapeDrawingProperties(),
+                            new ApplicationNonVisualDrawingProperties()
+                        ),
+                        new GroupShapeProperties(
+                            new Drawing.TransformGroup(
+                                new Drawing.Offset { X = 0, Y = 0 },
+                                new Drawing.Extents { Cx = 0, Cy = 0 },
+                                new Drawing.ChildOffset { X = 0, Y = 0 },
+                                new Drawing.ChildExtents { Cx = 0, Cy = 0 }
+                            )
+                        ),
+                        new P.Shape(
+                            new NonVisualShapeProperties(
+                                new NonVisualDrawingProperties { Id = 2, Name = "Title" },
+                                new NonVisualShapeDrawingProperties(new Drawing.ShapeLocks { NoGrouping = true }),
+                                new ApplicationNonVisualDrawingProperties(
+                                    new PlaceholderShape { Type = PlaceholderValues.Title }
+                                )
+                            ),
+                            new ShapeProperties(
+                                new Drawing.Transform2D(
+                                    new Drawing.Offset { X = Pt(40), Y = Pt(20) },
+                                    new Drawing.Extents { Cx = Pt(400), Cy = Pt(60) })),
+                            new TextBody(
+                                new Drawing.BodyProperties(),
+                                new Drawing.ListStyle(),
+                                // No rPr on the slide run — font must inherit from master txStyles
+                                new Drawing.Paragraph(
+                                    new Drawing.Run(new Drawing.Text { Text = "BASIC BLOCK LIST" })
+                                )
+                            )
+                        )
+                    )
+                )
+            );
+            slidePart.Slide = slide;
+            slidePart.AddPart(slideLayoutPart);
+
+            var slideId = new SlideId
+            {
+                Id = 256,
+                RelationshipId = presentationPart.GetIdOfPart(slidePart)
+            };
+            presentationPart.Presentation.SlideIdList.Append(slideId);
+
+            presentationPart.Presentation.SlideSize = new SlideSize
+            {
+                Cx = 9144000,
+                Cy = 6858000,
+                Type = SlideSizeValues.Screen4x3
+            };
+        }
+
+        return path;
+    }
+
+    private string CreateShapeWithOuterShadowPptx()
+    {
+        var path = Path.Combine(_tempDir, "outer-shadow.pptx");
+
+        using (var document = PresentationDocument.Create(path, PresentationDocumentType.Presentation))
+        {
+            var presentationPart = document.AddPresentationPart();
+            presentationPart.Presentation = new Presentation();
+            presentationPart.Presentation.SlideMasterIdList = new SlideMasterIdList();
+
+            var slideMasterPart = presentationPart.AddNewPart<SlideMasterPart>();
+            slideMasterPart.SlideMaster = new SlideMaster(
+                new CommonSlideData(
+                    new ShapeTree(
+                        new NonVisualGroupShapeProperties(
+                            new NonVisualDrawingProperties { Id = 0, Name = "" },
+                            new NonVisualGroupShapeDrawingProperties(),
+                            new ApplicationNonVisualDrawingProperties()
+                        ),
+                        new GroupShapeProperties(
+                            new Drawing.TransformGroup(
+                                new Drawing.Offset { X = 0, Y = 0 },
+                                new Drawing.Extents { Cx = 0, Cy = 0 },
+                                new Drawing.ChildOffset { X = 0, Y = 0 },
+                                new Drawing.ChildExtents { Cx = 0, Cy = 0 }
+                            )
+                        )
+                    )
+                ),
+                new ColorMap(),
+                new SlideLayoutIdList()
+            );
+
+            var slideLayoutPart = slideMasterPart.AddNewPart<SlideLayoutPart>();
+            slideLayoutPart.SlideLayout = new P.SlideLayout(new CommonSlideData(new ShapeTree(
+                new NonVisualGroupShapeProperties(
+                    new NonVisualDrawingProperties { Id = 0, Name = "" },
+                    new NonVisualGroupShapeDrawingProperties(),
+                    new ApplicationNonVisualDrawingProperties()
+                ),
+                new GroupShapeProperties(
+                    new Drawing.TransformGroup(
+                        new Drawing.Offset { X = 0, Y = 0 },
+                        new Drawing.Extents { Cx = 0, Cy = 0 },
+                        new Drawing.ChildOffset { X = 0, Y = 0 },
+                        new Drawing.ChildExtents { Cx = 0, Cy = 0 }
+                    )
+                )
+            )));
+            slideLayoutPart.AddPart(slideMasterPart);
+
+            slideMasterPart.SlideMaster.SlideLayoutIdList!.Append(new SlideLayoutId
+            {
+                Id = 2147483649,
+                RelationshipId = slideMasterPart.GetIdOfPart(slideLayoutPart)
+            });
+
+            presentationPart.Presentation.SlideIdList = new SlideIdList();
+            presentationPart.Presentation.SlideMasterIdList.Append(new SlideMasterId
+            {
+                Id = 2147483648,
+                RelationshipId = presentationPart.GetIdOfPart(slideMasterPart)
+            });
+
+            // <a:prstClr val="black"><a:alpha val="40000"/></a:prstClr>
+            var shadowColor = new Drawing.PresetColor { Val = Drawing.PresetColorValues.Black };
+            shadowColor.Append(new Drawing.Alpha { Val = 40000 });
+
+            var shapeProperties = new ShapeProperties(
+                new Drawing.Transform2D(
+                    new Drawing.Offset { X = Pt(100), Y = Pt(50) },
+                    new Drawing.Extents { Cx = Pt(270), Cy = Pt(53) }),
+                new Drawing.PresetGeometry(new Drawing.AdjustValueList()) { Preset = Drawing.ShapeTypeValues.Rectangle },
+                new Drawing.SolidFill(new Drawing.RgbColorModelHex { Val = "FFFF00" }),
+                new Drawing.EffectList(
+                    new Drawing.OuterShadow(shadowColor)
+                    {
+                        BlurRadius = 50800,
+                        Distance = 38100,
+                        Direction = 2700000,
+                        Alignment = Drawing.RectangleAlignmentValues.TopLeft,
+                        RotateWithShape = false
+                    })
+            );
+
+            var slidePart = presentationPart.AddNewPart<SlidePart>();
+            slidePart.Slide = new Slide(
+                new CommonSlideData(
+                    new ShapeTree(
+                        new NonVisualGroupShapeProperties(
+                            new NonVisualDrawingProperties { Id = 0, Name = "" },
+                            new NonVisualGroupShapeDrawingProperties(),
+                            new ApplicationNonVisualDrawingProperties()
+                        ),
+                        new GroupShapeProperties(
+                            new Drawing.TransformGroup(
+                                new Drawing.Offset { X = 0, Y = 0 },
+                                new Drawing.Extents { Cx = 0, Cy = 0 },
+                                new Drawing.ChildOffset { X = 0, Y = 0 },
+                                new Drawing.ChildExtents { Cx = 0, Cy = 0 }
+                            )
+                        ),
+                        new P.Shape(
+                            new NonVisualShapeProperties(
+                                new NonVisualDrawingProperties { Id = 2, Name = "TextBox 8" },
+                                new NonVisualShapeDrawingProperties { TextBox = true },
+                                new ApplicationNonVisualDrawingProperties()
+                            ),
+                            shapeProperties,
+                            new TextBody(
+                                new Drawing.BodyProperties(),
+                                new Drawing.ListStyle(),
+                                new Drawing.Paragraph(
+                                    new Drawing.Run(
+                                        new Drawing.RunProperties { Language = "en-US", FontSize = 3200, Bold = true },
+                                        new Drawing.Text { Text = "22 new graphics!" })
+                                )
+                            )
+                        )
+                    )
+                )
+            );
+            slidePart.AddPart(slideLayoutPart);
+
+            presentationPart.Presentation.SlideIdList.Append(new SlideId
+            {
+                Id = 256,
+                RelationshipId = presentationPart.GetIdOfPart(slidePart)
+            });
+
+            presentationPart.Presentation.SlideSize = new SlideSize
+            {
+                Cx = 9144000,
+                Cy = 6858000,
+                Type = SlideSizeValues.Screen4x3
+            };
+        }
+
+        return path;
+    }
+
     private string CreateMismatchedMasterPlaceholderPptx()
     {
         var path = Path.Combine(_tempDir, "mismatched-master.pptx");
@@ -2802,6 +3099,36 @@ public class PptxToTypstConverterTests : IDisposable
     }
 
     [Fact]
+    public void Convert_ShapeWithOuterShadow_EmitsOffsetShadowShapeBehindShape()
+    {
+        // a:effectLst/a:outerShdw (documented engine gap): Typst has no native shadow,
+        // so the converter approximates it with an offset copy of the shape geometry
+        // filled with the shadow color, emitted behind the shape.
+        var path = CreateShapeWithOuterShadowPptx();
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+        var presentation = converter.Convert();
+
+        var shapes = presentation.Slides[0].Elements
+            .Where(e => e.Type == "Shape")
+            .ToList();
+
+        Assert.True(shapes.Count >= 2, $"expected shadow + shape elements, got {shapes.Count}");
+
+        // Shadow first (z-order behind), offset by dist=3pt at dir=45deg (2.121pt, 2.121pt),
+        // black at 40% alpha.
+        var shadow = shapes[0];
+        Assert.Equal(100 + 2.1213, shadow.X, 2);
+        Assert.Equal(50 + 2.1213, shadow.Y, 2);
+        Assert.Equal("#00000066", shadow.Shape!.FillColor);
+        Assert.Equal("rect", shadow.Shape.ShapeType);
+
+        var rect = shapes[1];
+        Assert.Equal("#FFFF00", rect.Shape!.FillColor);
+    }
+
+    [Fact]
     public void SubstituteUnavailableFont_AptosVariantFallsBackToAptosBeforeCarlito()
     {
         var method = typeof(PptxToTypstConverter).GetMethod(
@@ -2895,8 +3222,296 @@ public class PptxToTypstConverterTests : IDisposable
 
         var source = converter.GenerateTypstSource(presentation);
 
-        Assert.Contains("font: \"Aptos Light\"", source);
+        Assert.Contains("font: (\"Aptos Light\"", source);
         Assert.DoesNotContain("font: \"Carlito\"", source);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_PerRunFontEmitsFallbackChainNotSingleFamily()
+    {
+        // In Typst, a per-element `font:` parameter REPLACES the whole font chain.
+        // Emitting a bare `font: "Calibri"` therefore collapses the chain to Typst's
+        // (serif) embedded fallback whenever Calibri is absent from the compiler's
+        // font set — the per-run emission must carry the global fallback chain.
+        var path = CreateSimplePptx();
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = CreateTextPresentation(new TypstTextElement
+        {
+            Paragraphs =
+            [
+                new TypstParagraph
+                {
+                    Content = "Body text",
+                    Formatting = new TypstTextFormatting { FontFamily = "+mn-lt", FontSize = 14 }
+                }
+            ]
+        });
+        presentation.ThemeFonts["+mn-lt"] = "Calibri";
+
+        var themeFontsField = typeof(PptxToTypstConverter).GetField(
+            "_themeFonts",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        themeFontsField!.SetValue(converter, presentation.ThemeFonts);
+
+        var source = converter.GenerateTypstSource(presentation);
+
+        Assert.DoesNotContain("font: \"Calibri\"", source);
+        Assert.Contains("font: (\"Calibri\", \"Carlito\", \"Arial\", \"Helvetica\", \"Liberation Sans\")", source);
+    }
+
+    [Fact]
+    public void Convert_TitlePlaceholderInheritsMasterTitleStyleFontFamily()
+    {
+        // The corpus master declares titleStyle latin="Open Sans"; placeholder title
+        // runs carry no font of their own and must inherit that family (not the
+        // theme minor font), so the emitted Typst can resolve the real font.
+        var path = CreateMasterOpenSansTitlePptx();
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+        var presentation = converter.Convert();
+
+        var textElement = presentation.Slides[0].Elements
+            .Where(e => e.Text != null)
+            .Select(e => e.Text!)
+            .First(t => t.Paragraphs.Any(p => p.Runs.Any(r => r.Content.Contains("BASIC BLOCK LIST"))));
+        var run = textElement.Paragraphs
+            .SelectMany(p => p.Runs)
+            .First(r => r.Content.Contains("BASIC BLOCK LIST"));
+
+        Assert.Equal("Open Sans", run.Formatting.FontFamily);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_PerRunFontEmitsDiscoveredNonThemeFamilyWithChain()
+    {
+        // A non-theme family resolved from the master (e.g. "Open Sans") must be
+        // emitted (with the fallback chain) when it is discovered on the system —
+        // otherwise the run silently falls back to the theme font chain.
+        var path = CreateSimplePptx();
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var availableSystemFontsField = typeof(PptxToTypstConverter).GetField(
+            "_availableSystemFonts",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        availableSystemFontsField!.SetValue(converter, new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Open Sans" });
+
+        var presentation = CreateTextPresentation(new TypstTextElement
+        {
+            Paragraphs =
+            [
+                new TypstParagraph
+                {
+                    Content = "BASIC BLOCK LIST",
+                    Formatting = new TypstTextFormatting { FontFamily = "Open Sans", FontSize = 40, Bold = true }
+                }
+            ]
+        });
+
+        var source = converter.GenerateTypstSource(presentation);
+
+        Assert.Contains("font: (\"Open Sans\", ", source);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_SingleSpacedText_EmitsPowerPointPitchLeading()
+    {
+        // Typst's natural line pitch is capHeight + par.leading (default 0.65em), while
+        // PowerPoint single spacing is the font's hhea line height — capped for fonts
+        // with inflated hhea metrics (Open Sans: 1.362, enlarged for tall Vietnamese
+        // glyphs; PowerPoint-compatible renderers keep ~1.2em). The converter must
+        // reconcile via par.leading so single-spaced text matches the PowerPoint pitch.
+        var path = CreateSimplePptx();
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        // Open-Sans-shaped metrics: upm 2048, hhea 2189/-600/0 (1.362 → capped 1.2),
+        // cap height 1462 (0.7139em). leading = (1.2 - 1462/2048) * 60 = 29.17pt.
+        InjectFontMetrics(converter, "TestOpenSans", new TypstFontMetrics
+        {
+            UnitsPerEm = 2048,
+            HheaAscender = 2189,
+            HheaDescender = -600,
+            HheaLineGap = 0,
+            CapHeight = 1462
+        });
+
+        var presentation = CreateTextPresentation(new TypstTextElement
+        {
+            Paragraphs =
+            [
+                new TypstParagraph
+                {
+                    Content = "POWERPOINT SMARTART GRAPHICS",
+                    Formatting = new TypstTextFormatting { FontFamily = "TestOpenSans", FontSize = 60 }
+                }
+            ]
+        });
+
+        var source = converter.GenerateTypstSource(presentation);
+
+        Assert.Contains("#set par(leading: 29.17pt)", source);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_SingleSpacedText_UsesHheaPitchWhenNotInflated()
+    {
+        // Calibri-shaped metrics: hhea 1950/-550/0 → factor 1.2207 (kept), cap 1294.
+        // leading = (2500/2048 - 1294/2048) * 16 = 9.42pt.
+        var path = CreateSimplePptx();
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        InjectFontMetrics(converter, "TestCalibri", new TypstFontMetrics
+        {
+            UnitsPerEm = 2048,
+            HheaAscender = 1950,
+            HheaDescender = -550,
+            HheaLineGap = 0,
+            CapHeight = 1294
+        });
+
+        var presentation = CreateTextPresentation(new TypstTextElement
+        {
+            Paragraphs =
+            [
+                new TypstParagraph
+                {
+                    Content = "Body text body text",
+                    Formatting = new TypstTextFormatting { FontFamily = "TestCalibri", FontSize = 16 }
+                }
+            ]
+        });
+
+        var source = converter.GenerateTypstSource(presentation);
+
+        Assert.Contains("#set par(leading: 9.42pt)", source);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_SingleSpacedTextWithoutMetrics_KeepsTypstDefault()
+    {
+        var path = CreateSimplePptx();
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = CreateTextPresentation(new TypstTextElement
+        {
+            Paragraphs =
+            [
+                new TypstParagraph
+                {
+                    Content = "Body text body text",
+                    Formatting = new TypstTextFormatting { FontFamily = "DefinitelyMissingFont", FontSize = 16 }
+                }
+            ]
+        });
+
+        var source = converter.GenerateTypstSource(presentation);
+
+        Assert.DoesNotContain("#set par(leading:", source);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_ExplicitLineSpacing_UsesCapHeightAdvance()
+    {
+        // Explicit a:lnSpc pitch must subtract Typst's natural advance (cap height),
+        // not the old 0.65em estimate: 16pt spcPct=100% → 16 - 1294/2048*16 = 5.89pt.
+        var path = CreateSimplePptx();
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        InjectFontMetrics(converter, "TestCalibri", new TypstFontMetrics
+        {
+            UnitsPerEm = 2048,
+            HheaAscender = 1950,
+            HheaDescender = -550,
+            HheaLineGap = 0,
+            CapHeight = 1294
+        });
+
+        var presentation = CreateTextPresentation(new TypstTextElement
+        {
+            Paragraphs =
+            [
+                new TypstParagraph
+                {
+                    Content = "Body text body text",
+                    Formatting = new TypstTextFormatting { FontFamily = "TestCalibri", FontSize = 16 },
+                    LineSpacing = 1.0
+                }
+            ]
+        });
+
+        var source = converter.GenerateTypstSource(presentation);
+
+        Assert.Contains("#set par(leading: 5.89pt)", source);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_BottomAnchoredText_ReservesDescentBelowBaseline()
+    {
+        // PowerPoint bottom-anchors a text block by the last line's DESCENT; Typst's
+        // bottom-edge is the baseline, so an unadjusted block sits ~descent too low.
+        // Reserve the descent with a bottom pad, and clamp the block bottom to the
+        // element's bottom inset (top trims must not push the bottom edge down).
+        var path = CreateSimplePptx();
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        InjectFontMetrics(converter, "TestOpenSans", new TypstFontMetrics
+        {
+            UnitsPerEm = 2048,
+            TypoAscender = 1567,
+            TypoDescender = -492,
+            HheaAscender = 2189,
+            HheaDescender = -600,
+            HheaLineGap = 0,
+            WinAscent = 2189,
+            WinDescent = 600,
+            CapHeight = 1462
+        });
+
+        var presentation = CreateTextPresentation(new TypstTextElement
+        {
+            Paragraphs =
+            [
+                new TypstParagraph
+                {
+                    Content = "POWERPOINT SMARTART GRAPHICS",
+                    Formatting = new TypstTextFormatting { FontFamily = "TestOpenSans", FontSize = 60 }
+                }
+            ],
+            VerticalAlign = "bottom",
+            PaddingTop = 3.6,
+            PaddingBottom = 3.6
+        }, height: 180.8, width: 705.6);
+
+        var source = converter.GenerateTypstSource(presentation);
+
+        // Descent: 492/2048 * 60 = 14.41pt. Block height: 180.8 - 3.6 bottom inset
+        // - (3.6 top inset + 18.22 metric offset) = 155.38pt.
+        Assert.Contains("#pad(bottom: 14.41pt)", source);
+        Assert.Contains("height: 155.38pt", source);
+    }
+
+    private static void InjectFontMetrics(PptxToTypstConverter converter, string family, TypstFontMetrics metrics)
+    {
+        var fontMetricsField = typeof(PptxToTypstConverter).GetField(
+            "_fontMetrics",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        var fontMetrics = (Dictionary<string, TypstFontMetrics>)fontMetricsField!.GetValue(converter)!;
+        fontMetrics[family] = metrics;
     }
 
     [Fact]
