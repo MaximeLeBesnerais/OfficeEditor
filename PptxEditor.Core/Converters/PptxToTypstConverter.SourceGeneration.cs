@@ -139,6 +139,27 @@ public sealed partial class PptxToTypstConverter
             {
                 width = Math.Max(width, slideWidth - xPos - 2);
             }
+
+            // wrap="none": the line must never wrap — PowerPoint overflows the
+            // box instead. Widen the block to the measured line width (with
+            // slack for fallback-font metric drift), keeping the alignment
+            // anchor: left boxes grow rightward, centered boxes grow about
+            // their centre, right boxes grow leftward.
+            if (text.NoWrap)
+            {
+                var measured = MeasureTextWidth(text);
+                var target = measured.HasValue
+                    ? measured.Value * 1.05 + 2
+                    : slideWidth;
+                if (target > width)
+                {
+                    if (text.Formatting.Align == "center")
+                        xPos -= (target - width) / 2;
+                    else if (text.Formatting.Align == "right")
+                        xPos -= target - width;
+                    width = target;
+                }
+            }
         }
 
         var x = FormatPt(xPos);
