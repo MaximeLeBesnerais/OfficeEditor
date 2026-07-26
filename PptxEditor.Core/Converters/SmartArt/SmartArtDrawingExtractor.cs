@@ -524,11 +524,12 @@ namespace PptxEditor.Core.Converters.SmartArt;
 
     /// <summary>
     /// Applies OOXML colour transforms (<c>a:tint</c>, <c>a:shade</c>, <c>a:lumMod</c>,
-    /// <c>a:lumOff</c>, <c>a:alpha</c>) in document order. Per-channel arithmetic — a close
-    /// approximation of the HSL-space spec (ECMA-376) that matches PowerPoint for common
-    /// tint/shade usage (e.g. SmartArt connector fills like accent1 + tint 60% = pale accent).
+    /// <c>a:lumOff</c>, <c>a:alpha</c>) in document order. <c>a:tint</c> delegates to
+    /// <see cref="GradientFillReader.ApplyTint"/> (gamma-linear blend, matching
+    /// PowerPoint's pale tints); the remaining transforms use per-channel arithmetic —
+    /// a close approximation of the HSL-space spec (ECMA-376).
     /// <c>a:alpha</c> yields an 8-digit <c>#RRGGBBAA</c> hex (Typst <c>rgb()</c> accepts it).
-    /// Saturation transforms are not applied (rare in diagram drawing parts).
+    /// Saturation transforms are not applied (unused in diagram drawing-part solid fills).
     /// </summary>
     private static string ApplyColorTransforms(string hex, OpenXmlElement colorElement)
     {
@@ -551,8 +552,11 @@ namespace PptxEditor.Core.Converters.SmartArt;
             var f = rawVal / 100000.0;
             switch (child.LocalName)
             {
-                case "tint": // mix toward white
-                    r = r * f + 255 * (1 - f); g = g * f + 255 * (1 - f); b = b * f + 255 * (1 - f);
+                case "tint": // mix toward white in linear light (matches PowerPoint's pale tints)
+                    var tinted = GradientFillReader.ApplyTint(
+                        ((byte)ClampChannel(r), (byte)ClampChannel(g), (byte)ClampChannel(b)),
+                        (int)Math.Round(rawVal));
+                    r = tinted.R; g = tinted.G; b = tinted.B;
                     break;
                 case "shade": // mix toward black
                 case "lumMod": // luminance multiply (per-channel approximation)
