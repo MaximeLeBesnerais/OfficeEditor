@@ -2030,6 +2030,515 @@ public sealed class SmartArtDrawingExtractorTests
             Math.Abs(p.X - 0.2929) < 0.02 && Math.Abs(p.Y - 0.2929) < 0.02);
     }
 
+    [Fact]
+    public void Extract_Trapezoid_HonorsAdjustmentValues()
+    {
+        // INV-regressions-b1 §1: the cached trapezoid adj (64780 on slides
+        // 134/135) must set the top-edge inset — ECMA-376 x1 = ss·adj/100000
+        // with ss = min(w,h), NOT the static table's fixed 25% of the width.
+        // 200x100pt shape, adj=64780: x1 = 100·0.6478 = 64.78pt → 0.3239 of w.
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""0"" y=""0""/>
+      <a:ext cx=""2540000"" cy=""1270000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""trapezoid"">
+      <a:avLst><a:gd name=""adj"" fmla=""val 64780""/></a:avLst>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""A5A5A5""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 200, shapeH: 100);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal("polygon", result.Shape.ShapeType);
+        Assert.Equal(4, result.Shape.Points.Count);
+        Assert.Equal(0.3239, result.Shape.Points[0].X, precision: 4);
+        Assert.Equal(0.0, result.Shape.Points[0].Y, precision: 9);
+        Assert.Equal(0.6761, result.Shape.Points[1].X, precision: 4);
+        Assert.Equal(1.0, result.Shape.Points[2].X, precision: 9);
+        Assert.Equal(1.0, result.Shape.Points[2].Y, precision: 9);
+        Assert.Equal(0.0, result.Shape.Points[3].X, precision: 9);
+        Assert.Equal(1.0, result.Shape.Points[3].Y, precision: 9);
+    }
+
+    [Fact]
+    public void Extract_Trapezoid_EmptyAvLst_UsesEcmaDefaultAdj()
+    {
+        // ECMA-376 default adj = 25000: on a square shape (ss = w) the inset is
+        // 25% of the width — identical to the legacy static-table rendering.
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""0"" y=""0""/>
+      <a:ext cx=""1270000"" cy=""1270000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""trapezoid"">
+      <a:avLst/>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""A5A5A5""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 100, shapeH: 100);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal("polygon", result.Shape.ShapeType);
+        Assert.Equal(4, result.Shape.Points.Count);
+        Assert.Equal(0.25, result.Shape.Points[0].X, precision: 6);
+        Assert.Equal(0.75, result.Shape.Points[1].X, precision: 6);
+    }
+
+    [Fact]
+    public void Extract_NonIsoscelesTrapezoid_ReturnsPolygonShape()
+    {
+        // ECMA-376 defaults adj1 = adj2 = 20000: square shape → 20% insets.
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""0"" y=""0""/>
+      <a:ext cx=""1270000"" cy=""1270000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""nonIsoscelesTrapezoid"">
+      <a:avLst/>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""4472C4""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 100, shapeH: 100);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal("polygon", result.Shape.ShapeType);
+        Assert.Equal(4, result.Shape.Points.Count);
+        Assert.Equal(0.2, result.Shape.Points[0].X, precision: 6);
+        Assert.Equal(0.0, result.Shape.Points[0].Y, precision: 9);
+        Assert.Equal(0.8, result.Shape.Points[1].X, precision: 6);
+        Assert.Equal(0.0, result.Shape.Points[1].Y, precision: 9);
+        Assert.Equal(1.0, result.Shape.Points[2].X, precision: 9);
+        Assert.Equal(1.0, result.Shape.Points[2].Y, precision: 9);
+        Assert.Equal(0.0, result.Shape.Points[3].X, precision: 9);
+        Assert.Equal(1.0, result.Shape.Points[3].Y, precision: 9);
+    }
+
+    [Fact]
+    public void Extract_NonIsoscelesTrapezoid_HonorsAdjustmentValues()
+    {
+        // Slide-134 label-box pattern: adj1 = 0, adj2 = 64780 on a 200x100pt
+        // shape → x1 = 0, x2 = 100·0.6478 = 64.78pt → right top corner at
+        // (200−64.78)/200 = 0.6761 of the width.
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""0"" y=""0""/>
+      <a:ext cx=""2540000"" cy=""1270000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""nonIsoscelesTrapezoid"">
+      <a:avLst>
+        <a:gd name=""adj1"" fmla=""val 0""/>
+        <a:gd name=""adj2"" fmla=""val 64780""/>
+      </a:avLst>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""4472C4""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 200, shapeH: 100);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal("polygon", result.Shape.ShapeType);
+        Assert.Equal(4, result.Shape.Points.Count);
+        Assert.Equal(0.0, result.Shape.Points[0].X, precision: 9);
+        Assert.Equal(0.6761, result.Shape.Points[1].X, precision: 4);
+    }
+
+    [Fact]
+    public void ComputeBoundingBox_NonIsoscelesTrapezoid_ContributesToBounds()
+    {
+        // INV-regressions-b1 §1: slides 134/135 regressed because the bbox
+        // pollution skip dropped the nonIsoscelesTrapezoid label boxes
+        // (x 217.6→640), shrinking the bbox to the 435.2pt-wide pyramid and
+        // center-shifting the whole diagram +102pt. Now that the preset is
+        // renderable, it must participate in the fit bbox again.
+        var pyramid = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""0"" y=""0""/>
+      <a:ext cx=""5527040"" cy=""4265930""/>
+    </a:xfrm>
+    <a:prstGeom prst=""trapezoid"">
+      <a:avLst><a:gd name=""adj"" fmla=""val 64780""/></a:avLst>
+    </a:prstGeom>
+  </dsp:spPr>
+</dsp:sp>";
+        var labelBox = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""2763520"" y=""0""/>
+      <a:ext cx=""5364480"" cy=""4265930""/>
+    </a:xfrm>
+    <a:prstGeom prst=""nonIsoscelesTrapezoid"">
+      <a:avLst>
+        <a:gd name=""adj1"" fmla=""val 0""/>
+        <a:gd name=""adj2"" fmla=""val 64780""/>
+      </a:avLst>
+    </a:prstGeom>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var bounds = SmartArtDrawingExtractor.ComputeBoundingBox(
+            new[] { ParseXml(pyramid), ParseXml(labelBox) });
+
+        Assert.NotNull(bounds);
+        Assert.Equal(0.0, bounds.Value.MinX, precision: 6);
+        Assert.Equal(0.0, bounds.Value.MinY, precision: 6);
+        // 2763520 + 5364480 = 8128000 EMU = 640pt — the identity-fit bbox.
+        Assert.Equal(640.0, bounds.Value.Width, precision: 6);
+        Assert.Equal(335.9, bounds.Value.Height, precision: 6);
+    }
+
+    [Fact]
+    public void Extract_WedgeRectCallout_DegenerateAdjustments_RendersAsRect()
+    {
+        // INV-regressions-b1 §3: slide 49's first column body caches
+        // adj1 = adj2 = 0 — the tip lands on the shape centre, a
+        // self-intersecting bowtie — so the outline must degenerate to the
+        // plain rect (the fifth point collapses onto the last rect vertex).
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""0"" y=""0""/>
+      <a:ext cx=""2540000"" cy=""1270000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""wedgeRectCallout"">
+      <a:avLst>
+        <a:gd name=""adj1"" fmla=""val 0""/>
+        <a:gd name=""adj2"" fmla=""val 0""/>
+      </a:avLst>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""4472C4""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 200, shapeH: 100);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal("polygon", result.Shape.ShapeType);
+        Assert.Equal(5, result.Shape.Points.Count);
+        Assert.Equal((0.0, 0.0), result.Shape.Points[0]);
+        Assert.Equal((1.0, 0.0), result.Shape.Points[1]);
+        Assert.Equal((1.0, 1.0), result.Shape.Points[2]);
+        Assert.Equal((0.0, 1.0), result.Shape.Points[3]);
+        // Degenerate tip: collapses onto (l,b) — no interior point, no bowtie.
+        Assert.Equal((0.0, 1.0), result.Shape.Points[4]);
+    }
+
+    [Fact]
+    public void Extract_WedgeRectCallout_HonorsAdjustmentValues()
+    {
+        // Slide-149 caption pattern: adj1 = 20250, adj2 = -60700 on a
+        // 200x100pt shape → tip at (hc + 0.2025·w, vc − 0.607·h)
+        // = (140.5, -10.7)pt → (0.7025, -0.107) normalized — the tip pokes
+        // ABOVE the top edge (the reference's caption bump).
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""0"" y=""0""/>
+      <a:ext cx=""2540000"" cy=""1270000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""wedgeRectCallout"">
+      <a:avLst>
+        <a:gd name=""adj1"" fmla=""val 20250""/>
+        <a:gd name=""adj2"" fmla=""val -60700""/>
+      </a:avLst>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""4472C4""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 200, shapeH: 100);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal("polygon", result.Shape.ShapeType);
+        Assert.Equal(5, result.Shape.Points.Count);
+        Assert.Equal(0.7025, result.Shape.Points[4].X, precision: 4);
+        Assert.Equal(-0.107, result.Shape.Points[4].Y, precision: 3);
+    }
+
+    [Fact]
+    public void Extract_WedgeRectCallout_EmptyAvLst_UsesEcmaDefaults()
+    {
+        // ECMA-376 defaults adj1 = -20833, adj2 = 62500: tip below the
+        // bottom edge, left of centre: (0.5 − 0.20833, 0.5 + 0.625).
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""0"" y=""0""/>
+      <a:ext cx=""1270000"" cy=""1270000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""wedgeRectCallout"">
+      <a:avLst/>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""4472C4""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 100, shapeH: 100);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal("polygon", result.Shape.ShapeType);
+        Assert.Equal(5, result.Shape.Points.Count);
+        Assert.Equal(0.29167, result.Shape.Points[4].X, precision: 4);
+        Assert.Equal(1.125, result.Shape.Points[4].Y, precision: 3);
+    }
+
+    [Fact]
+    public void ComputeBoundingBox_WedgeRectCallout_ContributesToBounds()
+    {
+        // INV-regressions-b1 §3: slide 49 regressed because the bbox
+        // pollution skip dropped the wedgeRectCallout column bodies
+        // (y 67.2→335.9), shrinking the bbox to the 67.2pt-tall header row
+        // and fit-scaling the diagram ×1.21 with a +127pt downshift. Now
+        // that the preset is renderable it must set the fit bbox again.
+        var header = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""853198"" y=""0""/>
+      <a:ext cx=""1343775"" cy=""853198""/>
+    </a:xfrm>
+    <a:prstGeom prst=""rect"">
+      <a:avLst/>
+    </a:prstGeom>
+  </dsp:spPr>
+</dsp:sp>";
+        var body = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""853198"" y=""853198""/>
+      <a:ext cx=""1343775"" cy=""3412792""/>
+    </a:xfrm>
+    <a:prstGeom prst=""wedgeRectCallout"">
+      <a:avLst>
+        <a:gd name=""adj1"" fmla=""val 0""/>
+        <a:gd name=""adj2"" fmla=""val 0""/>
+      </a:avLst>
+    </a:prstGeom>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var bounds = SmartArtDrawingExtractor.ComputeBoundingBox(
+            new[] { ParseXml(header), ParseXml(body) });
+
+        Assert.NotNull(bounds);
+        Assert.Equal(0.0, bounds.Value.MinY, precision: 6);
+        // (853198 + 3412792) EMU = 4265990 EMU — the full column height.
+        Assert.Equal(4265990.0 / 12700.0, bounds.Value.Height, precision: 6);
+    }
+
+    [Fact]
+    public void ComputeBoundingBoxes_RotatedShape_ReturnsBlindAndAwareBounds()
+    {
+        // rot=90° about center (120,50) turns the 40x100pt rect at (100,0)
+        // into a 100x40pt footprint at (70,30): the blind union keeps the
+        // raw off/ext rect, the aware union the rotated footprint.
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm rot=""5400000"">
+      <a:off x=""1270000"" y=""0""/>
+      <a:ext cx=""508000"" cy=""1270000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""rect"">
+      <a:avLst/>
+    </a:prstGeom>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var bounds = SmartArtDrawingExtractor.ComputeBoundingBoxes(new[] { ParseXml(xml) });
+
+        Assert.NotNull(bounds.Blind);
+        Assert.Equal(100.0, bounds.Blind.Value.MinX, precision: 6);
+        Assert.Equal(0.0, bounds.Blind.Value.MinY, precision: 6);
+        Assert.Equal(40.0, bounds.Blind.Value.Width, precision: 6);
+        Assert.Equal(100.0, bounds.Blind.Value.Height, precision: 6);
+
+        Assert.NotNull(bounds.Aware);
+        Assert.Equal(70.0, bounds.Aware.Value.MinX, precision: 6);
+        Assert.Equal(30.0, bounds.Aware.Value.MinY, precision: 6);
+        Assert.Equal(100.0, bounds.Aware.Value.Width, precision: 6);
+        Assert.Equal(40.0, bounds.Aware.Value.Height, precision: 6);
+    }
+
+    [Fact]
+    public void ComputeBoundingBoxes_UnrotatedShapes_BlindEqualsAware()
+    {
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""127000"" y=""254000""/>
+      <a:ext cx=""2540000"" cy=""1270000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""rect"">
+      <a:avLst/>
+    </a:prstGeom>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var bounds = SmartArtDrawingExtractor.ComputeBoundingBoxes(new[] { ParseXml(xml) });
+
+        Assert.NotNull(bounds.Blind);
+        Assert.NotNull(bounds.Aware);
+        Assert.Equal(bounds.Blind.Value, bounds.Aware.Value);
+    }
+
+    [Fact]
+    public void ComputeFrameFit_DualFit_PicksBlindWhenCloserToIdentity()
+    {
+        // INV-regressions-b1 §4 (slide 152, drawing149): the rotation-blind
+        // bbox (14.3,16.1,625.7,319.9) fits the 640x335.9 frame at scale
+        // 1.0229; the rotation-aware bbox (53.4,16.1,586.6,319.9) at 1.05.
+        // A cached dsp:drawing is authored in frame coordinates, so the fit
+        // closer to identity (1.0229) is the better approximation — the
+        // dual-fit rule must pick it (restoring the pre-regression render).
+        var blind = (MinX: 14.3, MinY: 16.1, Width: 625.7, Height: 319.9);
+        var aware = (MinX: 53.4, MinY: 16.1, Width: 586.6, Height: 319.9);
+        var frame = (X: 235.7, Y: 122.6, Width: 640.0, Height: 335.9);
+
+        var fit = SmartArtDrawingExtractor.ComputeFrameFit(blind, aware, frame);
+
+        var blindOnly = SmartArtDrawingExtractor.ComputeFrameFit(blind, frame);
+        Assert.Equal(640.0 / 625.7, fit.ScaleX, precision: 6);
+        Assert.Equal(blindOnly.ScaleX, fit.ScaleX, precision: 9);
+        Assert.Equal(blindOnly.FrameX, fit.FrameX, precision: 9);
+        Assert.Equal(blindOnly.FrameY, fit.FrameY, precision: 9);
+    }
+
+    [Fact]
+    public void ComputeFrameFit_DualFit_PicksAwareWhenBlindInflates()
+    {
+        // INV-slide-130: the rotation-blind bbox inflated the content height
+        // by 45% (fit scale 0.688) while the rotation-aware bbox fits at
+        // ~1.0 — the batch-1 win must be kept: dual-fit picks the aware fit.
+        var frame = (X: 235.7, Y: 122.6, Width: 640.0, Height: 335.9);
+        var aware = (MinX: 0.0, MinY: 0.0, Width: 640.0, Height: 335.9);
+        var blind = (MinX: 0.0, MinY: 0.0, Width: 640.0, Height: 335.9 / 0.688);
+
+        var fit = SmartArtDrawingExtractor.ComputeFrameFit(blind, aware, frame);
+
+        Assert.Equal(1.0, fit.ScaleX, precision: 6);
+        Assert.Equal(frame.X, fit.FrameX, precision: 6);
+        Assert.Equal(frame.Y, fit.FrameY, precision: 6);
+    }
+
+    [Fact]
+    public void ComputeFrameFit_DualFit_ScaleTie_PicksSmallerIdentityOffset()
+    {
+        // Slide-71 pattern (drawing74): the rot-90/270 labels' raw rects add
+        // phantom width their rotated ink never occupies, so the blind and
+        // aware bboxes tie on scale (both height-limited to 335.9/335.7).
+        // The aware fit is the identity transform (centerOffset ≈ minX·scale);
+        // the blind fit would shift the real ink +13.5pt. The tie-break must
+        // compare the identity-translation error, not the raw centering
+        // offset (which misleadingly favours the blind fit, 120 < 133.7).
+        var frame = (X: 235.7, Y: 122.6, Width: 640.0, Height: 335.9);
+        var blind = (MinX: 106.5, MinY: 0.1, Width: 399.7, Height: 335.7);
+        var aware = (MinX: 133.8, MinY: 0.1, Width: 372.4, Height: 335.7);
+
+        var fit = SmartArtDrawingExtractor.ComputeFrameFit(blind, aware, frame);
+
+        var awareOnly = SmartArtDrawingExtractor.ComputeFrameFit(aware, frame);
+        Assert.Equal(awareOnly.ScaleX, fit.ScaleX, precision: 9);
+        Assert.Equal(awareOnly.FrameX, fit.FrameX, precision: 9);
+        Assert.Equal(awareOnly.FrameY, fit.FrameY, precision: 9);
+    }
+
+    [Fact]
+    public void ComputeFrameFit_DualFit_IdenticalBounds_MatchesSingleBoundsFit()
+    {
+        // Drawings without rotated shapes have blind == aware: the dual-fit
+        // rule is a no-op and must reproduce the single-bounds fit exactly.
+        var bounds = (MinX: 10.0, MinY: 20.0, Width: 100.0, Height: 50.0);
+        var frame = (X: 40.0, Y: 80.0, Width: 200.0, Height: 100.0);
+
+        var dual = SmartArtDrawingExtractor.ComputeFrameFit(bounds, bounds, frame);
+        var single = SmartArtDrawingExtractor.ComputeFrameFit(bounds, frame);
+
+        Assert.Equal(single.ScaleX, dual.ScaleX, precision: 9);
+        Assert.Equal(single.ScaleY, dual.ScaleY, precision: 9);
+        Assert.Equal(single.FrameX, dual.FrameX, precision: 9);
+        Assert.Equal(single.FrameY, dual.FrameY, precision: 9);
+    }
+
     private static OpenXmlElement ParseXml(string xml)
     {
         var xElement = XElement.Parse(xml);
