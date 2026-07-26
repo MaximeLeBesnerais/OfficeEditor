@@ -15,5 +15,9 @@ public sealed class TimingExtra
     public double Ms { get; init; }
 }
 
-/// <summary>One named stage of a multi-phase render (e.g. "Conversion", "PNG raster").</summary>
-public sealed record StageTiming(string Label, double Milliseconds);
+/// <summary>
+/// One named stage of a multi-phase render (e.g. "Conversion", "PNG raster").
+/// <paramref name="Skipped"/> marks a stage that never ran — the UI shows "skipped"
+/// instead of a (meaningless) 0 ms duration.
+/// </summary>
+public sealed record StageTiming(string Label, double Milliseconds, bool Skipped = false);

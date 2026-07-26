@@ -9,7 +9,14 @@
     {
         <span class="inline-flex items-baseline gap-1.5 rounded-full border border-slate-700/80 bg-slate-900/80 px-4 py-1.5 font-mono text-sm text-slate-300">
             <span class="text-slate-500">@stage.Label</span>
-            <span class="text-slate-100">@FormatDuration(stage.Milliseconds)</span>
+            @if (stage.Skipped)
+            {
+                <span class="italic text-slate-500">skipped</span>
+            }
+            else
+            {
+                <span class="text-slate-100">@FormatDuration(stage.Milliseconds)</span>
+            }
         </span>
     }
     <span class="inline-flex items-baseline gap-1.5 rounded-full border border-slate-700/80 bg-slate-900/80 px-4 py-1.5 font-mono text-sm text-slate-300">
