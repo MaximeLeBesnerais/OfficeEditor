@@ -1722,6 +1722,93 @@ public sealed class SmartArtDrawingExtractorTests
         Assert.Equal(700.0, bounds.Value.Width, precision: 6);
     }
 
+    [Fact]
+    public void Extract_LeftRightRibbon_ReturnsRibbonOutline()
+    {
+        // ECMA leftRightRibbon (default adjustments, slide-79 aspect 2.5:1):
+        // dy1 = h·a1/200000 = 0.25h, dy2 = -h·a3/200000 = -h/12 — the ribbon's
+        // top fold starts at ly1 = vc+dy2-dy1 ≈ 0.1667h and the left tip at
+        // ly2 ≈ 0.4167h.
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""2540000"" cy=""1016000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""leftRightRibbon"">
+      <a:avLst/>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""16A085""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 200, shapeH: 80);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        Assert.Equal("polygon", result.Shape.ShapeType);
+        // Two 180° fold arcs + one 90° arc flattened at ~2° steps → >100 points.
+        Assert.True(result.Shape.Points.Count > 100);
+        // Left tip and top-edge start (adj2 = 50000 → x1 = ss/2 = 40/200 = 0.2).
+        Assert.Equal(0.0, result.Shape.Points[0].X, precision: 9);
+        Assert.Equal(0.416665, result.Shape.Points[0].Y, precision: 6);
+        Assert.Equal(0.2, result.Shape.Points[1].X, precision: 6);
+        Assert.Equal(0.0, result.Shape.Points[1].Y, precision: 6);
+        Assert.Equal(0.2, result.Shape.Points[2].X, precision: 6);
+        Assert.Equal(0.166665, result.Shape.Points[2].Y, precision: 6);
+        Assert.Equal(0.5, result.Shape.Points[3].X, precision: 6);
+        Assert.Equal(0.166665, result.Shape.Points[3].Y, precision: 6);
+        // Right tip mirrored at x = 1: ry3 = 1 - ly2.
+        Assert.Contains(result.Shape.Points, p =>
+            Math.Abs(p.X - 1) < 1e-9 && Math.Abs(p.Y - (1 - 0.416665)) < 1e-6);
+    }
+
+    [Fact]
+    public void Extract_LeftRightRibbon_HonorsAdjustmentValues()
+    {
+        // adj2 = 25000 → the ribbon's top edge starts at x1 = ss·0.25 instead of ss·0.5.
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
+  <dsp:spPr>
+    <a:xfrm>
+      <a:off x=""892"" y=""305395""/>
+      <a:ext cx=""2540000"" cy=""1016000""/>
+    </a:xfrm>
+    <a:prstGeom prst=""leftRightRibbon"">
+      <a:avLst>
+        <a:gd name=""adj1"" fmla=""val 50000""/>
+        <a:gd name=""adj2"" fmla=""val 25000""/>
+        <a:gd name=""adj3"" fmla=""val 16667""/>
+      </a:avLst>
+    </a:prstGeom>
+    <a:solidFill>
+      <a:srgbClr val=""16A085""/>
+    </a:solidFill>
+    <a:ln><a:noFill/></a:ln>
+  </dsp:spPr>
+</dsp:sp>";
+
+        var element = ParseXml(xml);
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            element, offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 200, shapeH: 80);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Shape);
+        // x1 = 80·0.25 = 20pt → 20/200 = 0.1
+        Assert.Equal(0.1, result.Shape.Points[1].X, precision: 6);
+        Assert.Equal(0.0, result.Shape.Points[1].Y, precision: 6);
+    }
+
     private static OpenXmlElement ParseXml(string xml)
     {
         var xElement = XElement.Parse(xml);
