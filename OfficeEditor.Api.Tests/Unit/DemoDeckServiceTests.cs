@@ -1,3 +1,4 @@
+using System.Text.Json;
 using OfficeEditor.Api.Services;
 using OfficeEditor.Core.Services;
 using PptxEditor.Core.Builders;
@@ -559,6 +560,389 @@ public sealed class DemoDeckServiceTests
             + result.SvgMilliseconds + (result.PdfMilliseconds ?? 0);
         Assert.True(result.TotalMilliseconds <= sequentialSum + epsilonMs,
             $"Total {result.TotalMilliseconds:F1}ms > sequential sum {sequentialSum:F1}ms (legs did not overlap)");
+    }
+
+    [Fact]
+    public void RewriteRelativeSrcPaths_NullInput_ThrowsArgumentNullException()
+    {
+        var ex = Assert.Throws<ArgumentNullException>(() => DemoDeckService.RewriteRelativeSrcPaths(null!));
+        Assert.Equal("json", ex.ParamName);
+    }
+
+    [Fact]
+    public void RewriteRelativeSrcPaths_EmptyString_Throws()
+    {
+        // JsonNode.Parse("") throws on empty input — the exception type depends on
+        // framework internals; the exact type doesn't matter, only that it throws.
+        var caught = Record.Exception(() => DemoDeckService.RewriteRelativeSrcPaths(""));
+        Assert.NotNull(caught);
+        Assert.IsAssignableFrom<Exception>(caught);
+    }
+
+    [Fact]
+    public void RewriteRelativeSrcPaths_MalformedJson_Throws()
+    {
+        var caught = Record.Exception(() =>
+            DemoDeckService.RewriteRelativeSrcPaths("{ not valid json"));
+        Assert.NotNull(caught);
+        Assert.IsAssignableFrom<Exception>(caught);
+    }
+
+    [Fact]
+    public void RewriteRelativeSrcPaths_DataUriSrc_IsLeftUntouched()
+    {
+        const string json = """
+            { "type": "image", "src": "data:image/png;base64,iVBORw0KGgo=" }
+            """;
+
+        var rewritten = DemoDeckService.RewriteRelativeSrcPaths(json);
+
+        Assert.Contains("\"src\": \"data:image/png;base64,iVBORw0KGgo=\"", rewritten);
+    }
+
+    [Fact]
+    public void RewriteRelativeSrcPaths_HttpUrlSrc_IsLeftUntouched()
+    {
+        const string json = """
+            { "type": "image", "src": "https://cdn.example.com/img/logo.png" }
+            """;
+
+        var rewritten = DemoDeckService.RewriteRelativeSrcPaths(json);
+
+        Assert.Contains("\"src\": \"https://cdn.example.com/img/logo.png\"", rewritten);
+    }
+
+    [Fact]
+    public void RewriteRelativeSrcPaths_EmptySrcString_IsNotNormalized()
+    {
+        const string json = """
+            { "type": "image", "src": "" }
+            """;
+
+        var rewritten = DemoDeckService.RewriteRelativeSrcPaths(json);
+
+        Assert.Contains("\"src\": \"\"", rewritten);
+    }
+
+    [Fact]
+    public void RewriteRelativeSrcPaths_WhitespaceOnlySrc_IsNotRewritten()
+    {
+        const string json = """
+            { "type": "image", "src": "   " }
+            """;
+
+        var rewritten = DemoDeckService.RewriteRelativeSrcPaths(json);
+
+        Assert.Contains("\"src\": \"   \"", rewritten);
+    }
+
+    [Fact]
+    public void RewriteRelativeSrcPaths_MultipleDotSlashPrefixes_AllStripped()
+    {
+        const string json = """
+            { "type": "image", "src": "./././demo/assets/img.png" }
+            """;
+
+        var rewritten = DemoDeckService.RewriteRelativeSrcPaths(json);
+
+        Assert.Contains("\"src\": \"demo/assets/img.png\"", rewritten);
+    }
+
+    [Fact]
+    public void RewriteRelativeSrcPaths_AbsoluteUnixPath_IsLeftUntouched()
+    {
+        const string json = """
+            { "type": "image", "src": "/var/data/assets/logo.png" }
+            """;
+
+        var rewritten = DemoDeckService.RewriteRelativeSrcPaths(json);
+
+        Assert.Contains("\"src\": \"/var/data/assets/logo.png\"", rewritten);
+    }
+
+    [Fact]
+    public void RewriteRelativeSrcPaths_WindowsAbsolutePath_IsLeftUntouchedBecauseRooted()
+    {
+        // Path.IsPathRooted("C:\\Users\\...") is true on Windows, false on Unix.
+        // The behavior depends on the platform, but on macOS this IS rooted
+        // via Path.IsPathRooted (which on macOS considers "/" prefixed paths rooted).
+        // A Windows-style backslash path starting with "C:" is NOT rooted on macOS.
+        // Testing the contract: backslashes in a non-rooted path ARE normalized.
+        const string json = """
+            { "type": "image", "src": "assets\\icons\\logo.png" }
+            """;
+
+        var rewritten = DemoDeckService.RewriteRelativeSrcPaths(json);
+
+        // On macOS, "assets\\icons\\logo.png" is not rooted, so:
+        // 1. Path.IsPathRooted → false
+        // 2. Backslashes → forward slashes
+        Assert.Contains("\"src\": \"assets/icons/logo.png\"", rewritten);
+    }
+
+    [Fact]
+    public void RewriteRelativeSrcPaths_DeeplyNested_RecursivelyRewrites()
+    {
+        const string json = """
+            {
+              "slides": [
+                {
+                  "elements": [
+                    { "type": "container", "children": [
+                      { "type": "image", "src": "./deep/nested.png" }
+                    ]}
+                  ]
+                }
+              ]
+            }
+            """;
+
+        var rewritten = DemoDeckService.RewriteRelativeSrcPaths(json);
+
+        Assert.Contains("\"src\": \"deep/nested.png\"", rewritten);
+    }
+
+    [Fact]
+    public void RewriteRelativeSrcPaths_NonSrcPropertyWithDotSlash_NotRewritten()
+    {
+        const string json = """
+            { "type": "image", "path": "./assets/logo.png", "src": "real.png" }
+            """;
+
+        var rewritten = DemoDeckService.RewriteRelativeSrcPaths(json);
+
+        // Only properties named "src" are rewritten; "path" is left alone.
+        Assert.Contains("\"path\": \"./assets/logo.png\"", rewritten);
+        Assert.Contains("\"src\": \"real.png\"", rewritten);
+    }
+
+    [Fact]
+    public void RewriteRelativeSrcPaths_MixedAbsoluteAndRelative_BothPreserved()
+    {
+        const string json = """
+            {
+              "slides": [
+                { "type": "image", "src": "/abs/logo.png" },
+                { "type": "image", "src": "./rel/icon.png" }
+              ]
+            }
+            """;
+
+        var rewritten = DemoDeckService.RewriteRelativeSrcPaths(json);
+
+        Assert.Contains("\"src\": \"/abs/logo.png\"", rewritten);
+        Assert.Contains("\"src\": \"rel/icon.png\"", rewritten);
+    }
+
+    [Fact]
+    public void RenderUploadedDeck_NullBytes_ThrowsArgumentNullException()
+    {
+        var service = new DemoDeckService(new StubDeckSessionStore());
+
+        var ex = Assert.Throws<ArgumentNullException>(() =>
+            service.RenderUploadedDeck(null!, "deck.pptx", "png", 110));
+
+        Assert.Equal("sourceBytes", ex.ParamName);
+    }
+
+    [Fact]
+    public void RenderUploadedDeck_NullFileName_ThrowsArgumentNullException()
+    {
+        var service = new DemoDeckService(new StubDeckSessionStore());
+
+        var ex = Assert.Throws<ArgumentNullException>(() =>
+            service.RenderUploadedDeck(BuildDeckBytes(1), null!, "png", 110));
+
+        Assert.Equal("fileName", ex.ParamName);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void RenderUploadedDeck_BlankFileName_ThrowsArgumentException(string fileName)
+    {
+        var service = new DemoDeckService(new StubDeckSessionStore());
+
+        var ex = Assert.Throws<ArgumentException>(() =>
+            service.RenderUploadedDeck(BuildDeckBytes(1), fileName, "png", 110));
+
+        Assert.Equal("fileName", ex.ParamName);
+    }
+
+    [Fact]
+    public void RenderUploadedDeck_EmptyDeck_ThrowsArgumentExceptionMentioningNoSlides()
+    {
+        var service = new DemoDeckService(new StubDeckSessionStore());
+
+        var ex = Assert.Throws<ArgumentException>(() =>
+            service.RenderUploadedDeck(BuildDeckBytes(0), "empty.pptx", "png", 110));
+
+        Assert.Contains("no slides", ex.Message);
+        Assert.Equal("sourceBytes", ex.ParamName);
+    }
+
+    [Fact]
+    public void RenderTypstLeg_NullBytes_ThrowsArgumentNullException()
+    {
+        var service = new DemoDeckService(new StubDeckSessionStore());
+
+        var ex = Assert.Throws<ArgumentNullException>(() =>
+            service.RenderTypstLeg(null!, "deck.pptx", 110));
+
+        Assert.Equal("sourceBytes", ex.ParamName);
+    }
+
+    [Fact]
+    public void RenderTypstLeg_NullFileName_ThrowsArgumentNullException()
+    {
+        var service = new DemoDeckService(new StubDeckSessionStore());
+
+        var ex = Assert.Throws<ArgumentNullException>(() =>
+            service.RenderTypstLeg(BuildDeckBytes(1), null!, 110));
+
+        Assert.Equal("fileName", ex.ParamName);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void RenderTypstLeg_BlankFileName_ThrowsArgumentException(string fileName)
+    {
+        var service = new DemoDeckService(new StubDeckSessionStore());
+
+        var ex = Assert.Throws<ArgumentException>(() =>
+            service.RenderTypstLeg(BuildDeckBytes(1), fileName, 110));
+
+        Assert.Equal("fileName", ex.ParamName);
+    }
+
+    [Fact]
+    public void RenderDeck_NullOrEmptyName_ThrowsArgumentException()
+    {
+        var service = new DemoDeckService(new StubDeckSessionStore());
+
+        var ex = Assert.Throws<ArgumentException>(() => service.RenderDeck("", 110, "png"));
+
+        Assert.Equal("name", ex.ParamName);
+    }
+
+    [Fact]
+    public void GetDeckTemplateJson_ReturnsNonEmptyRewrittenJson()
+    {
+        var service = new DemoDeckService(new StubDeckSessionStore());
+
+        var result = service.GetDeckTemplateJson();
+
+        Assert.False(string.IsNullOrWhiteSpace(result));
+        // The template is demo/demo-deck.json — must contain expected fields
+        // after the src-path rewrite.
+        Assert.Contains("\"slides\"", result);
+        Assert.Contains("\"title\"", result);
+    }
+
+    [Fact]
+    public void DemoRenderResult_DirectConstruction_HasCorrectShape()
+    {
+        var deckId = Guid.NewGuid();
+        var pages = new byte[][] { [0x89, (byte)'P', (byte)'N', (byte)'G'] };
+
+        var result = new DemoRenderResult(deckId, 1, 42.5, "png", pages);
+
+        Assert.Equal(deckId, result.DeckId);
+        Assert.Equal(1, result.SlideCount);
+        Assert.Equal(42.5, result.TotalMilliseconds);
+        Assert.Equal("png", result.Format);
+        Assert.Single(result.Pages);
+        Assert.Equal(0x89, result.Pages[0][0]);
+    }
+
+    [Fact]
+    public void TypstLegResult_DirectConstruction_HasCorrectShape()
+    {
+        var pngPages = new byte[][] { [0x89, (byte)'P', (byte)'N', (byte)'G'] };
+        var pdfBytes = System.Text.Encoding.ASCII.GetBytes("%PDF-1.4");
+
+        var result = new TypstLegResult(1, 250.0, 120.0, 270.0, pngPages, pdfBytes, null);
+
+        Assert.Equal(1, result.SlideCount);
+        Assert.Equal(250.0, result.PngMilliseconds);
+        Assert.Equal(120.0, result.PdfMilliseconds);
+        Assert.Equal(270.0, result.TotalMilliseconds);
+        Assert.Single(result.PngPages);
+        Assert.Equal("%PDF-1.4", System.Text.Encoding.ASCII.GetString(result.PdfBytes!));
+        Assert.Null(result.PdfError);
+    }
+
+    [Fact]
+    public void TypstLegResult_DirectConstruction_WithPdfError_HasCorrectShape()
+    {
+        var pngPages = new byte[][] { [0x89, (byte)'P'] };
+
+        var result = new TypstLegResult(1, 100.0, null, 100.0, pngPages, null, "PDF failed");
+
+        Assert.Equal(1, result.SlideCount);
+        Assert.Equal(100.0, result.PngMilliseconds);
+        Assert.Null(result.PdfMilliseconds);
+        Assert.Null(result.PdfBytes);
+        Assert.Equal("PDF failed", result.PdfError);
+    }
+
+    [Fact]
+    public void DemoDeckAllFormatsResult_DirectConstruction_HasCorrectShape()
+    {
+        var pngPages = new byte[][] { [0x89, (byte)'P'] };
+        var svgPages = new byte[][] { System.Text.Encoding.UTF8.GetBytes("<svg></svg>") };
+        var pdfBytes = System.Text.Encoding.ASCII.GetBytes("%PDF-1.4");
+
+        var result = new DemoDeckAllFormatsResult(
+            2,
+            500.0,
+            300.0,
+            200.0,
+            150.0,
+            600.0,
+            pngPages,
+            svgPages,
+            pdfBytes,
+            null);
+
+        Assert.Equal(2, result.SlideCount);
+        Assert.Equal(500.0, result.ConversionMilliseconds);
+        Assert.Equal(300.0, result.PngMilliseconds);
+        Assert.Equal(200.0, result.SvgMilliseconds);
+        Assert.Equal(150.0, result.PdfMilliseconds);
+        Assert.Equal(600.0, result.TotalMilliseconds);
+        Assert.Single(result.PngPages);
+        Assert.Single(result.SvgPages);
+        Assert.NotNull(result.PdfBytes);
+        Assert.Null(result.PdfError);
+    }
+
+    [Fact]
+    public void DemoDeckAllFormatsResult_DirectConstruction_WithPdfErrorAndSkippedPng_HasCorrectShape()
+    {
+        var svgPages = new byte[][] { System.Text.Encoding.UTF8.GetBytes("<svg></svg>") };
+
+        var result = new DemoDeckAllFormatsResult(
+            15,
+            1200.0,
+            null,
+            800.0,
+            null,
+            2100.0,
+            [],
+            svgPages,
+            null,
+            "PDF compilation error");
+
+        Assert.Equal(15, result.SlideCount);
+        Assert.Null(result.PngMilliseconds);
+        Assert.Empty(result.PngPages);
+        Assert.Equal(800.0, result.SvgMilliseconds);
+        Assert.Single(result.SvgPages);
+        Assert.Null(result.PdfMilliseconds);
+        Assert.Null(result.PdfBytes);
+        Assert.Equal("PDF compilation error", result.PdfError);
     }
 
     private static byte[] BuildDeckBytes(int slideCount)
