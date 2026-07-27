@@ -179,7 +179,7 @@ public class PptxToTypstConverterTests : IDisposable
         var presentation = converter.Convert();
         var source = converter.GenerateTypstSource(presentation);
 
-        Assert.Contains("#smallcaps[", source);
+        Assert.Contains("#show regex(\"\\p{Ll}\")", source);
     }
 
     [Fact]
@@ -210,7 +210,7 @@ public class PptxToTypstConverterTests : IDisposable
         var presentation = converter.Convert();
         var source = converter.GenerateTypstSource(presentation);
 
-        Assert.Contains("#smallcaps[", source);
+        Assert.Contains("#show regex(\"\\p{Ll}\")", source);
     }
 
     #endregion
