@@ -166,12 +166,64 @@ public class PptxToTypstConverterTests : IDisposable
 
     #endregion
 
+    #region Fix 3 — cap="small" emission
+
+    [Fact]
+    public void GenerateTypstSource_RunCapSmall_EmitsSmallCaps()
+    {
+        var path = CreateDeck("cap-small-run.pptx", TextShapeWithCap(2, "World Map", "small"));
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = converter.Convert();
+        var source = converter.GenerateTypstSource(presentation);
+
+        Assert.Contains("#smallcaps[", source);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_RunCapAll_StillEmitsUpper()
+    {
+        var path = CreateDeck("cap-all-run.pptx", TextShapeWithCap(2, "World Map", "all"));
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = converter.Convert();
+        var source = converter.GenerateTypstSource(presentation);
+
+        Assert.Contains("#upper[", source);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_MasterTitleStyleCapSmall_TitleInheritsSmallCaps()
+    {
+        //  header pattern: slideMaster titleStyle defRPr cap="small", slide
+        // title placeholder without its own cap → small-caps via master txStyles.
+        var path = CreateDeck("cap-small-master.pptx", withTheme: false, smallCapsTitleStyle: true,
+            TitlePlaceholder(2, "World Map"));
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = converter.Convert();
+        var source = converter.GenerateTypstSource(presentation);
+
+        Assert.Contains("#smallcaps[", source);
+    }
+
+    #endregion
+
     #region Test helpers
 
     private string CreateDeck(string fileName, params OpenXmlElement[] slideElements)
         => CreateDeck(fileName, withTheme: false, slideElements);
 
     private string CreateDeck(string fileName, bool withTheme, params OpenXmlElement[] slideElements)
+        => CreateDeck(fileName, withTheme, smallCapsTitleStyle: false, slideElements);
+
+    private string CreateDeck(string fileName, bool withTheme, bool smallCapsTitleStyle, params OpenXmlElement[] slideElements)
     {
         var path = Path.Combine(_tempDir, fileName);
 
@@ -208,6 +260,16 @@ public class PptxToTypstConverterTests : IDisposable
             if (withTheme)
             {
                 AddTestTheme(slideMasterPart);
+            }
+
+            if (smallCapsTitleStyle)
+            {
+                var titleDefRPr = new Drawing.DefaultRunProperties();
+                titleDefRPr.SetAttribute(new OpenXmlAttribute("cap", string.Empty, "small"));
+                slideMasterPart.SlideMaster.Append(new TextStyles(
+                    new TitleStyle(new Drawing.Level1ParagraphProperties(titleDefRPr)),
+                    new BodyStyle(new Drawing.Level1ParagraphProperties(new Drawing.DefaultRunProperties())),
+                    new OtherStyle(new Drawing.Level1ParagraphProperties(new Drawing.DefaultRunProperties()))));
             }
 
             var slideLayoutPart = slideMasterPart.AddNewPart<SlideLayoutPart>();
@@ -434,6 +496,46 @@ public class PptxToTypstConverterTests : IDisposable
                 new Drawing.FillReference(SchemeColorRef(schemeColorName)) { Index = (uint)fillRefIdx },
                 new Drawing.EffectReference(SchemeColorRef(schemeColorName)) { Index = 0U },
                 fontReference));
+    }
+
+    private static P.Shape TextShapeWithCap(uint id, string text, string cap)
+    {
+        var runProperties = new Drawing.RunProperties { FontSize = 2400 };
+        runProperties.SetAttribute(new OpenXmlAttribute("cap", string.Empty, cap));
+
+        return new P.Shape(
+            new NonVisualShapeProperties(
+                new NonVisualDrawingProperties { Id = id, Name = $"Text {id}" },
+                new NonVisualShapeDrawingProperties(),
+                new ApplicationNonVisualDrawingProperties()),
+            new ShapeProperties(
+                new Drawing.Transform2D(
+                    new Drawing.Offset { X = Pt(50), Y = Pt(50) },
+                    new Drawing.Extents { Cx = Pt(400), Cy = Pt(60) })),
+            new TextBody(
+                new Drawing.BodyProperties(),
+                new Drawing.ListStyle(),
+                new Drawing.Paragraph(
+                    new Drawing.Run(runProperties, new Drawing.Text { Text = text }))));
+    }
+
+    private static P.Shape TitlePlaceholder(uint id, string text)
+    {
+        return new P.Shape(
+            new NonVisualShapeProperties(
+                new NonVisualDrawingProperties { Id = id, Name = "Title" },
+                new NonVisualShapeDrawingProperties(),
+                new ApplicationNonVisualDrawingProperties(
+                    new PlaceholderShape { Type = PlaceholderValues.Title })),
+            new ShapeProperties(
+                new Drawing.Transform2D(
+                    new Drawing.Offset { X = Pt(50), Y = Pt(20) },
+                    new Drawing.Extents { Cx = Pt(600), Cy = Pt(60) })),
+            new TextBody(
+                new Drawing.BodyProperties(),
+                new Drawing.ListStyle(),
+                new Drawing.Paragraph(
+                    new Drawing.Run(new Drawing.Text { Text = text }))));
     }
 
     private static long Pt(double points) => (long)Math.Round(points * EmusPerPoint);
