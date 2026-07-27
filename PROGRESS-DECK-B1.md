@@ -44,9 +44,9 @@ cached under `/tmp/rmse-<deck>/ours/`.
   in StyleResolver; apply in ConvertShape when spPr lacks explicit fill/line and the
   shape is not a placeholder. REF decks checked: no placeholder+p:style collisions,
   no regression risk.
-- Status: implemented (StyleResolver.ResolveStyleFillReference /
-  ResolveStyleLineReference + ApplyStyleReferenceFillAndStroke in ConvertShape);
-  tests green, full suite green. Render/RMSE pending.
+- Status: DONE (commit 8f2c405). Opposites s5 21.8→8.9% (mean 9.0→8.5%),
+  zero regressions. Eyeballed s5: minus/plus icons render with correct
+  gradient fills + white bars, matching ref.
 - Tests: Convert_StyleFillReference_ResolvesThemeSolidFillAndLine,
   Convert_StyleFillReferenceGradient_ResolvesThemeGradientStops,
   Convert_StyleReference_DoesNotOverrideExplicitFill.
@@ -59,4 +59,22 @@ cached under `/tmp/rmse-<deck>/ours/`.
 - FRANCE: slideMaster2 titleStyle defRPr cap="small"; slides 1–4 titles map to it.
   Theme minor font = Calibri (→ Carlito, has OpenType smcp).
 - Plan: emit `#smallcaps[...]` for caps == "small" alongside the `#upper[...]` path.
-- Status: pending
+- Status: DONE (commits 95a100e + 7ddbab4). IMPORTANT: native `#smallcaps` no-ops
+  in this pipeline — TypstBridge disables system fonts and none of the resolvable
+  fonts (Open Sans, Carlito, Calibri, ...) carry OpenType smcp. Final emission
+  synthesizes small caps via a scoped show rule:
+  `#[#show regex("\p{Ll}"): it => text(size: 0.8em)[#upper(it)]; …]`
+  (verified via native bridge compiles: works with Carlito + Open Sans, scoped to
+  the block, survives embedded #linebreak()).
+- FRANCE after fix: s1 3.9, s2 14.3, s3 9.7, s4 13.4, s5 7.0, s6 6.9 — mean 9.2%
+  (was 13.7% baseline). Eyeballed s3 header: proper small caps vs ref.
+- Tests: GenerateTypstSource_RunCapSmall_EmitsSmallCaps,
+  GenerateTypstSource_RunCapAll_StillEmitsUpper,
+  GenerateTypstSource_MasterTitleStyleCapSmall_TitleInheritsSmallCaps.
+
+## Final state (all targets met)
+
+- FISHBONE mean 11.0→8.9%; s2/3/4/9 all <15% ✓; no regression >1pp ✓
+- FRANCE mean 13.7→9.2%; s1/2/3 all <15% ✓; no regression >1pp ✓
+- Opposites mean 9.0→8.5%; s5 21.8→8.9% <15% ✓; no regression >1pp ✓
+- Full `dotnet test` green (1493 DocxEditor.Tests + 332 Api + 40 Mcp + 20 Cli + 36 TypstBridge), 0 warnings.
