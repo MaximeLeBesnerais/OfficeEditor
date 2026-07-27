@@ -56,6 +56,9 @@ public sealed class ChartModel
     public ChartLegend? Legend { get; init; }
     public ChartAxis? CategoryAxis { get; init; }
     public ChartValueAxis? ValueAxis { get; init; }
+    /// <summary>Pie/doughnut only: <c>c:firstSliceAng</c> — angle of the first slice in
+    /// degrees, clockwise from 12 o'clock. Defaults to 0 when absent.</summary>
+    public double FirstSliceAngleDegrees { get; init; }
 }
 
 public sealed class ChartSeries
@@ -66,6 +69,13 @@ public sealed class ChartSeries
     /// <summary>Cached values indexed by category; null for missing points.</summary>
     public IReadOnlyList<double?> Values { get; init; } = [];
     public ChartDataLabels? DataLabels { get; init; }
+    /// <summary>Pie/doughnut per-data-point fills (<c>c:dPt/c:spPr/a:solidFill</c>),
+    /// indexed by point; null entries fall back to <see cref="FillColor"/>/palette.</summary>
+    public IReadOnlyList<string?> PointFillColors { get; init; } = [];
+    /// <summary>Pie/doughnut slice outline colour (first <c>c:dPt</c> line), if any.</summary>
+    public string? PointLineColor { get; init; }
+    /// <summary>Pie/doughnut slice outline width in points (<c>a:ln w</c>, EMU → pt).</summary>
+    public double PointLineWidthPt { get; init; }
 }
 
 /// <summary>Data label settings from a <c>c:dLbls</c> element.</summary>
