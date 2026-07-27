@@ -385,8 +385,9 @@ public sealed partial class PptxToTypstConverter
                     {
                         var paramStr = BuildTextParameters(paragraph.Formatting, availableFonts);
                         var escapedContent = EscapeTypstText(content);
-                        if (paragraph.Formatting.Caps == "all")
-                            escapedContent = $"#upper[{escapedContent}]";
+                        var capsOpen = CapsOpenTag(paragraph.Formatting.Caps);
+                        if (capsOpen != null)
+                            escapedContent = $"{capsOpen}{escapedContent}]";
                         var enumParams = BuildEnumParams(1, paragraph);
                         sb.Append($"#enum{enumParams}[{paramStr}[{escapedContent}]]");
                     }
@@ -397,8 +398,9 @@ public sealed partial class PptxToTypstConverter
                         var indent = paragraph.Level > 0 ? $"#h({paragraph.Level * 1.5}em) " : "";
                         var paramStr = BuildTextParameters(paragraph.Formatting, availableFonts);
                         var escapedContent = EscapeTypstText(content);
-                        if (paragraph.Formatting.Caps == "all")
-                            escapedContent = $"#upper[{escapedContent}]";
+                        var capsOpen = CapsOpenTag(paragraph.Formatting.Caps);
+                        if (capsOpen != null)
+                            escapedContent = $"{capsOpen}{escapedContent}]";
                         sb.Append($"{indent}#list(marker: [{markerEscaped}])[{paramStr}[{escapedContent}]]");
                     }
                     else
@@ -890,31 +892,42 @@ public sealed partial class PptxToTypstConverter
         }
     }
 
+    /// <summary>
+    /// Opening Typst tag for an OOXML cap text transform: cap="all" → #upper[,
+    /// cap="small" → #smallcaps[. The content is always closed with a single "]".
+    /// </summary>
+    private static string? CapsOpenTag(string? caps) => caps switch
+    {
+        "all" => "#upper[",
+        "small" => "#smallcaps[",
+        _ => null
+    };
+
     private void AppendParagraphContent(StringBuilder sb, TypstParagraph paragraph, string? overrideContent, HashSet<string> availableFonts)
     {
         if (paragraph.Runs.Count <= 1 || AllNonLineBreakRunsHaveSameFormatting(paragraph.Runs))
         {
             var paramStr = BuildTextParameters(paragraph.Formatting, availableFonts);
             var content = overrideContent ?? paragraph.Content;
-            var caps = paragraph.Formatting.Caps;
+            var capsOpen = CapsOpenTag(paragraph.Formatting.Caps);
 
             if (!string.IsNullOrEmpty(paramStr))
             {
                 sb.Append(paramStr);
                 sb.Append("[");
-                if (caps == "all")
-                    sb.Append("#upper[");
+                if (capsOpen != null)
+                    sb.Append(capsOpen);
                 AppendEscapedContentWithBreaks(sb, content);
-                if (caps == "all")
+                if (capsOpen != null)
                     sb.Append("]");
                 sb.Append("]");
             }
             else
             {
-                if (caps == "all")
-                    sb.Append("#upper[");
+                if (capsOpen != null)
+                    sb.Append(capsOpen);
                 AppendEscapedContentWithBreaks(sb, content);
-                if (caps == "all")
+                if (capsOpen != null)
                     sb.Append("]");
             }
         }
@@ -930,25 +943,25 @@ public sealed partial class PptxToTypstConverter
 
                 var paramStr = BuildTextParameters(run.Formatting, availableFonts);
                 var escapedContent = EscapeTypstText(run.Content);
-                var caps = run.Formatting.Caps;
+                var capsOpen = CapsOpenTag(run.Formatting.Caps);
 
                 if (!string.IsNullOrEmpty(paramStr))
                 {
                     sb.Append(paramStr);
                     sb.Append("[");
-                    if (caps == "all")
-                        sb.Append("#upper[");
+                    if (capsOpen != null)
+                        sb.Append(capsOpen);
                     sb.Append(escapedContent);
-                    if (caps == "all")
+                    if (capsOpen != null)
                         sb.Append("]");
                     sb.Append("]");
                 }
                 else
                 {
-                    if (caps == "all")
-                        sb.Append("#upper[");
+                    if (capsOpen != null)
+                        sb.Append(capsOpen);
                     sb.Append(escapedContent);
-                    if (caps == "all")
+                    if (capsOpen != null)
                         sb.Append("]");
                 }
             }
