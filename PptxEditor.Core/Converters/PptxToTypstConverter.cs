@@ -708,20 +708,20 @@ public sealed partial class PptxToTypstConverter : IDisposable
         };
     }
 
-    private IEnumerable<TypstElement> ConvertElement(SlidePart slidePart, OpenXmlElement element, StyleResolver styleResolver, int slideIndex, double offX = 0, double offY = 0, double scaleX = 1, double scaleY = 1, OpenXmlPartContainer? imageRelScope = null)
+    private IEnumerable<TypstElement> ConvertElement(SlidePart slidePart, OpenXmlElement element, StyleResolver styleResolver, int slideIndex, double offX = 0, double offY = 0, double scaleX = 1, double scaleY = 1, OpenXmlPartContainer? imageRelScope = null, string? groupFill = null)
     {
         return element switch
         {
-            P.Shape shape => ConvertShape(slidePart, shape, styleResolver, slideIndex, offX, offY, scaleX, scaleY, imageRelScope),
+            P.Shape shape => ConvertShape(slidePart, shape, styleResolver, slideIndex, offX, offY, scaleX, scaleY, imageRelScope, groupFill),
             P.Picture picture => ConvertPicture(slidePart, picture, offX, offY, scaleX, scaleY, imageRelScope),
             P.GraphicFrame graphicFrame => ConvertGraphicFrame(slidePart, graphicFrame, styleResolver, offX, offY, scaleX, scaleY),
-            P.GroupShape groupShape => ConvertGroupShape(slidePart, groupShape, styleResolver, slideIndex, offX, offY, scaleX, scaleY, imageRelScope),
+            P.GroupShape groupShape => ConvertGroupShape(slidePart, groupShape, styleResolver, slideIndex, offX, offY, scaleX, scaleY, imageRelScope, groupFill),
             P.ConnectionShape connectionShape => ConvertConnectionShape(connectionShape, styleResolver, offX, offY, scaleX, scaleY),
             _ => Array.Empty<TypstElement>()
         };
     }
 
-    private IEnumerable<TypstElement> ConvertShape(SlidePart slidePart, P.Shape shape, StyleResolver styleResolver, int slideIndex, double offX, double offY, double scaleX, double scaleY, OpenXmlPartContainer? imageRelScope = null)
+    private IEnumerable<TypstElement> ConvertShape(SlidePart slidePart, P.Shape shape, StyleResolver styleResolver, int slideIndex, double offX, double offY, double scaleX, double scaleY, OpenXmlPartContainer? imageRelScope = null, string? groupFill = null)
     {
         var (id, name) = GetElementIdAndName(shape.NonVisualShapeProperties);
         var position = GetElementPosition(shape.ShapeProperties);
@@ -835,7 +835,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
         }
 
         // Check for shape geometry with fill or stroke
-        var shapeElement = ExtractShapeGeometry(shape.ShapeProperties, styleResolver, finalW, finalH);
+        var shapeElement = ExtractShapeGeometry(shape.ShapeProperties, styleResolver, finalW, finalH, groupFill);
         shapeElement = ApplyPlaceholderShapeStyleInheritance(shape, shapeElement, styleResolver);
         if (shapeElement != null && (!string.IsNullOrEmpty(shapeElement.FillColor)
             || shapeElement.FillGradient != null
@@ -909,12 +909,12 @@ public sealed partial class PptxToTypstConverter : IDisposable
         }
     }
 
-    private TypstShapeElement? ExtractShapeGeometry(ShapeProperties? shapeProperties, StyleResolver? styleResolver = null, double shapeWidth = 0, double shapeHeight = 0)
+    private TypstShapeElement? ExtractShapeGeometry(ShapeProperties? shapeProperties, StyleResolver? styleResolver = null, double shapeWidth = 0, double shapeHeight = 0, string? groupFill = null)
     {
         if (shapeProperties == null) return null;
 
         // Extract fill color (solid), falling back to a linear gradient fill when present
-        var fillColor = ExtractShapeFillColor(shapeProperties, styleResolver);
+        var fillColor = ExtractShapeFillColor(shapeProperties, styleResolver, groupFill);
         var fillGradient = string.IsNullOrEmpty(fillColor)
             ? ExtractShapeFillGradient(shapeProperties, styleResolver)
             : null;
@@ -1110,7 +1110,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
             || shapeProperties.Elements<Drawing.GroupFill>().Any();
     }
 
-    private string ExtractShapeFillColor(ShapeProperties shapeProperties, StyleResolver? styleResolver = null)
+    private string ExtractShapeFillColor(ShapeProperties shapeProperties, StyleResolver? styleResolver = null, string? groupFill = null)
     {
         var solidFill = shapeProperties.Elements<Drawing.SolidFill>().FirstOrDefault();
         if (solidFill != null)
@@ -1121,6 +1121,15 @@ public sealed partial class PptxToTypstConverter : IDisposable
                 return color;
             }
         }
+
+        // a:grpFill — the shape takes its fill from the group it belongs to
+        // (ECMA-376 §20.1.8.35). The caller threads the resolved fill of the
+        // enclosing p:grpSp down to its children.
+        if (groupFill != null && shapeProperties.Elements<Drawing.GroupFill>().Any())
+        {
+            return groupFill;
+        }
+
         return string.Empty;
     }
 
@@ -2214,9 +2223,12 @@ public sealed partial class PptxToTypstConverter : IDisposable
         return (EmuToPt(xEmu), EmuToPt(yEmu), EmuToPt(cxEmu), EmuToPt(cyEmu));
     }
 
-    private IEnumerable<TypstElement> ConvertGroupShape(SlidePart slidePart, P.GroupShape groupShape, StyleResolver styleResolver, int slideIndex, double parentOffX, double parentOffY, double parentScaleX, double parentScaleY, OpenXmlPartContainer? imageRelScope = null)
+    private IEnumerable<TypstElement> ConvertGroupShape(SlidePart slidePart, P.GroupShape groupShape, StyleResolver styleResolver, int slideIndex, double parentOffX, double parentOffY, double parentScaleX, double parentScaleY, OpenXmlPartContainer? imageRelScope = null, string? parentGroupFill = null)
     {
         var grpXfrm = groupShape.GroupShapeProperties?.TransformGroup;
+
+        // The group's own fill is what a:grpFill children inherit (ECMA-376 §20.1.8.35).
+        var groupFill = ResolveGroupShapeFill(groupShape.GroupShapeProperties, styleResolver, parentGroupFill);
 
         double newOffX = parentOffX;
         double newOffY = parentOffY;
@@ -2263,13 +2275,40 @@ public sealed partial class PptxToTypstConverter : IDisposable
 
         foreach (var child in groupShape.ChildElements)
         {
-            foreach (var element in ConvertElement(slidePart, child, styleResolver, slideIndex, newOffX, newOffY, newScaleX, newScaleY, imageRelScope))
+            foreach (var element in ConvertElement(slidePart, child, styleResolver, slideIndex, newOffX, newOffY, newScaleX, newScaleY, imageRelScope, groupFill))
             {
                 yield return Math.Abs(groupRotDeg) > 0.001
                     ? RotateElementAboutPoint(element, groupRotDeg, rotCentreX, rotCentreY)
                     : element;
             }
         }
+    }
+
+    /// <summary>
+    /// Resolves the fill a &lt;p:grpSp&gt; contributes to children declaring
+    /// &lt;a:grpFill/&gt; (ECMA-376 §20.1.8.35): the group's explicit solid fill;
+    /// &lt;a:noFill/&gt; or an absent fill spec means "no group fill"; a group that
+    /// itself declares &lt;a:grpFill/&gt; passes its own inherited fill through.
+    /// </summary>
+    private string? ResolveGroupShapeFill(GroupShapeProperties? groupShapeProperties, StyleResolver styleResolver, string? parentGroupFill)
+    {
+        if (groupShapeProperties == null)
+            return parentGroupFill;
+
+        var solidFill = groupShapeProperties.Elements<Drawing.SolidFill>().FirstOrDefault();
+        if (solidFill != null)
+        {
+            var color = ExtractColor(solidFill, styleResolver);
+            if (!string.IsNullOrEmpty(color))
+                return color;
+        }
+
+        if (groupShapeProperties.Elements<Drawing.NoFill>().Any())
+            return null;
+
+        // grpFill on the group itself (nested groups) or no fill spec at all:
+        // the children inherit whatever this group inherited.
+        return parentGroupFill;
     }
 
     /// <summary>
