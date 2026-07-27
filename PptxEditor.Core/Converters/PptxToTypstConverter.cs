@@ -183,6 +183,12 @@ public sealed partial class PptxToTypstConverter : IDisposable
             catch { /* skip unreadable font metrics */ }
         }
 
+        // 3. Try a substitute font (e.g. Calibri → Carlito) so metric-compatible
+        //    installed fonts feed the genuine single-spacing factor and advance.
+        var substitute = ResolveSubstituteFont(fontFamily);
+        if (substitute != null && substitute != fontFamily)
+            return GetFontMetrics(substitute);
+
         return null;
     }
 
@@ -190,6 +196,39 @@ public sealed partial class PptxToTypstConverter : IDisposable
     {
         if (_systemFontPaths.TryGetValue(fontFamily, out var path))
             return path;
+        return null;
+    }
+
+    /// <summary>True when real font metrics are available for the family (embedded
+    /// font cache or a resolvable system font file) — i.e. the emitter will use
+    /// per-font single-spacing rather than a generic fallback.</summary>
+    private bool HasKnownFontMetrics(string fontFamily)
+    {
+        if (string.IsNullOrEmpty(fontFamily))
+            return false;
+        if (_fontMetrics.ContainsKey(fontFamily))
+            return true;
+        if (FindSystemFontPath(fontFamily) != null)
+            return true;
+
+        var substitute = ResolveSubstituteFont(fontFamily);
+        if (substitute != null && substitute != fontFamily && FindSystemFontPath(substitute) != null)
+            return true;
+
+        return false;
+    }
+
+    private string? ResolveSubstituteFont(string fontFamily)
+    {
+        if (fontFamily.StartsWith("Aptos", StringComparison.OrdinalIgnoreCase))
+        {
+            if (_systemFontPaths.ContainsKey("Aptos")) return "Aptos";
+            if (_systemFontPaths.ContainsKey("Carlito")) return "Carlito";
+        }
+        if (fontFamily.Equals("Calibri", StringComparison.OrdinalIgnoreCase))
+        {
+            if (_systemFontPaths.ContainsKey("Carlito")) return "Carlito";
+        }
         return null;
     }
 
@@ -939,29 +978,48 @@ public sealed partial class PptxToTypstConverter : IDisposable
             var pathList = custGeom.Elements<Drawing.PathList>().FirstOrDefault();
             if (pathList != null)
             {
-                var path = pathList.Elements<Drawing.Path>().FirstOrDefault();
-                if (path != null)
+                // Every a:path may contain several moveTo subpaths (e.g. a ring's outer
+                // and inner contours). Flattening them into one polygon fills the holes,
+                // so multi-subpath geometry is kept as subpaths and emitted as an
+                // even-odd #path instead.
+                var subpaths = new List<List<(double X, double Y)>>();
+                foreach (var geomPath in pathList.Elements<Drawing.Path>())
                 {
-                    var points = ExtractPathPoints(path);
-                    if (points.Count > 2)
-                    {
-                        // Check if it's a simple rectangle (4 points + close)
-                        if (IsRectanglePath(points))
-                        {
-                            return CreateElement("rect");
-                        }
+                    subpaths.AddRange(ExtractPathSubpaths(geomPath));
+                }
 
-                        // Otherwise treat as polygon
-                        return new TypstShapeElement
-                        {
-                            ShapeType = "polygon",
-                            FillColor = fillColor,
-                            FillGradient = fillGradient,
-                            StrokeColor = strokeColor,
-                            StrokeWidth = strokeWidth,
-                            Points = points
-                        };
+                var points = subpaths.Count > 0 ? subpaths[0] : [];
+                if (subpaths.Count > 1)
+                {
+                    return new TypstShapeElement
+                    {
+                        ShapeType = "polygon",
+                        FillColor = fillColor,
+                        FillGradient = fillGradient,
+                        StrokeColor = strokeColor,
+                        StrokeWidth = strokeWidth,
+                        Subpaths = subpaths.Where(s => s.Count > 2).ToList()
+                    };
+                }
+
+                if (points.Count > 2)
+                {
+                    // Check if it's a simple rectangle (4 points + close)
+                    if (IsRectanglePath(points))
+                    {
+                        return CreateElement("rect");
                     }
+
+                    // Otherwise treat as polygon
+                    return new TypstShapeElement
+                    {
+                        ShapeType = "polygon",
+                        FillColor = fillColor,
+                        FillGradient = fillGradient,
+                        StrokeColor = strokeColor,
+                        StrokeWidth = strokeWidth,
+                        Points = points
+                    };
                 }
             }
         }
@@ -1223,8 +1281,14 @@ public sealed partial class PptxToTypstConverter : IDisposable
         return Math.Min(width, height) * 0.05;
     }
 
-    private List<(double X, double Y)> ExtractPathPoints(Drawing.Path path)
+    /// <summary>
+    /// Extracts the contours of a custGeom <c>a:path</c>: a new subpath starts at every
+    /// <c>a:moveTo</c>. Bezier segments are sampled to line segments (8 points each),
+    /// coordinates normalized to 0..1 against the path's declared w/h.
+    /// </summary>
+    private List<List<(double X, double Y)>> ExtractPathSubpaths(Drawing.Path path)
     {
+        var subpaths = new List<List<(double X, double Y)>>();
         var points = new List<(double X, double Y)>();
         var width = (double)(path.Width?.Value ?? 1);
         var height = (double)(path.Height?.Value ?? 1);
@@ -1236,6 +1300,11 @@ public sealed partial class PptxToTypstConverter : IDisposable
             switch (cmd)
             {
                 case Drawing.MoveTo moveTo:
+                    if (points.Count > 0)
+                    {
+                        subpaths.Add(points);
+                        points = new List<(double X, double Y)>();
+                    }
                     (currentX, currentY) = GetPoint(moveTo.Point, width, height);
                     points.Add((currentX, currentY));
                     break;
@@ -1280,7 +1349,12 @@ public sealed partial class PptxToTypstConverter : IDisposable
             }
         }
 
-        return points;
+        if (points.Count > 0)
+        {
+            subpaths.Add(points);
+        }
+
+        return subpaths;
     }
 
     private (double X, double Y) GetPoint(Drawing.Point? point, double width, double height)
@@ -2293,8 +2367,13 @@ public sealed partial class PptxToTypstConverter : IDisposable
         
         var result = ExtractTextFromTextBody(textBody, styleResolver, placeholderInfo?.Index, placeholderType);
 
-        // Get default text style from master based on placeholder type
-        var defaultStyle = styleResolver.GetDefaultTextStyle(placeholderType);
+        // Get default text style from master based on placeholder type.
+        // Non-placeholder shapes (plain text boxes) take their defaults from the
+        // master's "other" text style — ECMA-376 defines p:txStyles/p:otherStyle as
+        // the default formatting for text in non-placeholder shapes.
+        var defaultStyle = placeholderType == null
+            ? styleResolver.GetTextStyle("Other", 0) ?? new StyleResolver.DefaultTextStyle()
+            : styleResolver.GetDefaultTextStyle(placeholderType);
 
         // Apply defaults for missing values per-paragraph
         var updatedParagraphs = new List<TypstParagraph>();
@@ -2476,7 +2555,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
                     if (!string.IsNullOrEmpty(runText))
                     {
                         paragraphText.Append(runText);
-                        textRuns.Add((runText, run, ExtractTextFormatting(run)));
+                        textRuns.Add((runText, run, ExtractTextFormatting(run, styleResolver)));
                         elements.Add((true, run, runText));
                     }
 
@@ -2579,6 +2658,17 @@ public sealed partial class PptxToTypstConverter : IDisposable
 
             // Resolve line spacing through full cascade
             var paragraphLineSpacing = ResolveLineSpacing(pPr, bodyLstStyle, level, styleResolver, placeholderIdx, placeholderType);
+
+            // No explicit a:lnSpc anywhere in the cascade AND the effective font's
+            // metrics are unknown (font not installed — e.g. "Calibri Light" on
+            // Space slide 19): Typst's ~1.3em default pitch would drift multi-line
+            // text apart. Pin PowerPoint's single-spacing target (1.2em) as an
+            // explicit ratio instead. Scoped to conversion: presentations built
+            // directly keep the emitter's Typst-default fallback for unknown fonts.
+            if (paragraphLineSpacing == null && !HasKnownFontMetrics(formatting.FontFamily))
+            {
+                paragraphLineSpacing = 1.2;
+            }
 
             // Resolve paragraph spacing (spcBef / spcAft) through full cascade
             var (spaceBefore, spaceAfter) = ResolveParagraphSpacing(pPr, bodyLstStyle, level, styleResolver, placeholderIdx, placeholderType);
@@ -2918,7 +3008,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
         return null;
     }
 
-    private TypstTextFormatting ExtractTextFormatting(Drawing.Run run)
+    private TypstTextFormatting ExtractTextFormatting(Drawing.Run run, StyleResolver? styleResolver = null)
     {
         var runProps = run.RunProperties;
         if (runProps == null) return new TypstTextFormatting();
@@ -2954,6 +3044,18 @@ public sealed partial class PptxToTypstConverter : IDisposable
         if (!string.IsNullOrEmpty(color))
         {
             fmt = fmt with { Color = color };
+        }
+
+        // Hyperlink runs render in the theme's hlink color — PowerPoint overrides
+        // the explicit run fill (Space slide 19's showeet.com link: explicit
+        // white-50% fill, rendered in teal hlink color).
+        if (runProps.Elements<Drawing.HyperlinkOnClick>().FirstOrDefault() != null)
+        {
+            var hlinkColor = styleResolver?.ResolveSchemeColor("hlink");
+            if (!string.IsNullOrEmpty(hlinkColor))
+            {
+                fmt = fmt with { Color = hlinkColor };
+            }
         }
 
         // Font family - map common "Bold" suffix fonts to base family
@@ -3620,7 +3722,9 @@ public sealed partial class PptxToTypstConverter : IDisposable
             Width = 0, // Will be set from shape position
             Height = 0,
             PixelWidth = dimensions?.Width,
-            PixelHeight = dimensions?.Height
+            PixelHeight = dimensions?.Height,
+            SrcRect = ExtractSrcRect(blipFill),
+            FillRotatesWithShape = ExtractFillRotatesWithShape(blipFill)
         };
     }
 
@@ -3667,6 +3771,8 @@ public sealed partial class PptxToTypstConverter : IDisposable
         File.WriteAllBytes(fullPath, imageData);
 
         var dimensions = GetNativeImageDimensions(imageData);
+        var srcRect = ExtractSrcRect(blipFill);
+        var fillRotates = ExtractFillRotatesWithShape(blipFill);
 
         return new TypstImageElement
         {
@@ -3675,8 +3781,39 @@ public sealed partial class PptxToTypstConverter : IDisposable
             Width = 0,
             Height = 0,
             PixelWidth = dimensions?.Width,
-            PixelHeight = dimensions?.Height
+            PixelHeight = dimensions?.Height,
+            SrcRect = srcRect,
+            FillRotatesWithShape = fillRotates
         };
+    }
+
+    private static SrcRect? ExtractSrcRect(OpenXmlElement blipFill)
+    {
+        var srcRect = blipFill.Descendants<Drawing.SourceRectangle>().FirstOrDefault();
+        if (srcRect == null) return null;
+
+        var l = srcRect.Left?.Value;
+        var t = srcRect.Top?.Value;
+        var r = srcRect.Right?.Value;
+        var b = srcRect.Bottom?.Value;
+
+        if (l == null && t == null && r == null && b == null) return null;
+
+        return new SrcRect
+        {
+            Left = l ?? 0,
+            Top = t ?? 0,
+            Right = r ?? 0,
+            Bottom = b ?? 0
+        };
+    }
+
+    private static bool ExtractFillRotatesWithShape(OpenXmlElement blipFill)
+    {
+        var attrs = blipFill.GetAttributes();
+        var rws = attrs.FirstOrDefault(a => a.LocalName == "rotWithShape");
+        if (string.IsNullOrEmpty(rws.Value)) return true;
+        return rws.Value == "1" || rws.Value.Equals("true", StringComparison.OrdinalIgnoreCase);
     }
 
     private static ImagePart? TryGetImagePart(OpenXmlPartContainer? container, string relationshipId)
@@ -3887,7 +4024,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
         {
             "ctr" => "center",
             "r" => "right",
-            "just" => "left",
+            "just" => "justify",
             _ => "left"
         };
     }

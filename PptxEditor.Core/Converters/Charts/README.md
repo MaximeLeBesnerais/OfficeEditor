@@ -19,7 +19,8 @@ doughnut, stacked) get a visible placeholder + warning.
 | Bar/Column | Clustered | Yes |
 | Bar/Column | Stacked / PercentStacked | Placeholder |
 | Line | — | Placeholder |
-| Pie / Doughnut | — | Placeholder |
+| Pie | — | Yes (wedge polygons) |
+| Doughnut | — | Rendered as pie (hole ignored) |
 
 ## Files
 
