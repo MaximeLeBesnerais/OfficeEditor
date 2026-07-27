@@ -71,6 +71,7 @@ git status                # expect clean or only intended changes
 | MCP stdio host (JSON-RPC) | `dotnet run --project OfficeEditor.Mcp` |
 | Example programs (all formats) | `dotnet run --project examples` |
 | Convert tools | `dotnet run --project tools/convert-pptx -- <in.pptx> <out> [--format pdf\|png]` · `tools/convert-docx` (same shape) |
+| Deck fidelity measurement | `python3 scripts/rmse.py <deck.pptx> [--format md\|json] [--no-render] [--force]` — renders ours, reuses/builds refs, per-slide RMSE % with mean/median/p85/p90/<10%/<15%/worst-5 |
 | Visual regression | `dotnet run --project tools/visual-diff -- --suite pptx\|docx\|gen` |
 | Benchmark (vs LibreOffice) | `dotnet run --project tools/pptx-benchmark` |
 
