@@ -458,4 +458,275 @@ public sealed class ConversionServiceTests
         Assert.NotNull(result.ErrorMessage);
         Assert.Contains("Conversion failed", result.ErrorMessage);
     }
+
+    [Fact]
+    public async Task ConvertAsync_GarbagePptx_ToPng_ReturnsError()
+    {
+        var service = new ConversionService();
+        var garbage = "this is not a pptx"u8.ToArray();
+        var request = new ConversionRequest(garbage, "corrupt.pptx", ConversionTargetFormat.Png);
+
+        var result = await service.ConvertAsync(request);
+
+        Assert.False(result.Success);
+        Assert.Null(result.OutputBytes);
+        Assert.NotNull(result.ErrorMessage);
+        Assert.Contains("Conversion failed", result.ErrorMessage);
+        Assert.NotNull(result.Messages);
+        Assert.Contains(result.Messages, m => m.Contains("Detected source format: Pptx"));
+    }
+
+    [Fact]
+    public async Task ConvertAsync_GarbagePptx_ToSvg_ReturnsError()
+    {
+        var service = new ConversionService();
+        var garbage = "this is not a pptx"u8.ToArray();
+        var request = new ConversionRequest(garbage, "corrupt.pptx", ConversionTargetFormat.Svg);
+
+        var result = await service.ConvertAsync(request);
+
+        Assert.False(result.Success);
+        Assert.Null(result.OutputBytes);
+        Assert.NotNull(result.ErrorMessage);
+        Assert.Contains("Conversion failed", result.ErrorMessage);
+        Assert.NotNull(result.Messages);
+        Assert.Contains(result.Messages, m => m.Contains("Detected source format: Pptx"));
+    }
+
+    [Fact]
+    public async Task ConvertAsync_EmptyPptxBytes_ToPng_ReturnsError()
+    {
+        var service = new ConversionService();
+        var request = new ConversionRequest([], "empty.pptx", ConversionTargetFormat.Png);
+
+        var result = await service.ConvertAsync(request);
+
+        Assert.False(result.Success);
+        Assert.NotNull(result.ErrorMessage);
+        Assert.Contains("Conversion failed", result.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task ConvertAsync_EmptyPptxBytes_ToSvg_ReturnsError()
+    {
+        var service = new ConversionService();
+        var request = new ConversionRequest([], "empty.pptx", ConversionTargetFormat.Svg);
+
+        var result = await service.ConvertAsync(request);
+
+        Assert.False(result.Success);
+        Assert.NotNull(result.ErrorMessage);
+        Assert.Contains("Conversion failed", result.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task ConvertAsync_Markdown_ToXlsx_ReturnsUnsupportedError()
+    {
+        var service = new ConversionService();
+        var markdown = "# test"u8.ToArray();
+        var request = new ConversionRequest(markdown, "notes.md", ConversionTargetFormat.Xlsx);
+
+        var result = await service.ConvertAsync(request);
+
+        Assert.False(result.Success);
+        Assert.Null(result.OutputBytes);
+        Assert.NotNull(result.ErrorMessage);
+        Assert.Contains("Unsupported conversion", result.ErrorMessage);
+        Assert.Contains("Markdown", result.ErrorMessage);
+        Assert.Contains("Xlsx", result.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task ConvertAsync_Markdown_ToPptx_ReturnsUnsupportedError()
+    {
+        var service = new ConversionService();
+        var markdown = "# test"u8.ToArray();
+        var request = new ConversionRequest(markdown, "notes.md", ConversionTargetFormat.Pptx);
+
+        var result = await service.ConvertAsync(request);
+
+        Assert.False(result.Success);
+        Assert.NotNull(result.ErrorMessage);
+        Assert.Contains("Unsupported conversion", result.ErrorMessage);
+        Assert.Contains("Markdown", result.ErrorMessage);
+        Assert.Contains("Pptx", result.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task ConvertAsync_Markdown_ToSvg_ReturnsUnsupportedError()
+    {
+        var service = new ConversionService();
+        var markdown = "# test"u8.ToArray();
+        var request = new ConversionRequest(markdown, "notes.md", ConversionTargetFormat.Svg);
+
+        var result = await service.ConvertAsync(request);
+
+        Assert.False(result.Success);
+        Assert.Contains("Unsupported conversion", result.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task ConvertAsync_CreateBlankXlsx_NullFileName_GeneratesDefaultFileName()
+    {
+        var service = new ConversionService();
+        var request = new ConversionRequest([], null!, ConversionTargetFormat.Xlsx);
+
+        var result = await service.ConvertAsync(request);
+
+        Assert.True(result.Success);
+        Assert.Equal("workbook.xlsx", result.OutputFileName);
+    }
+
+    [Fact]
+    public async Task ConvertAsync_CreateBlankXlsx_WhitespaceFileName_GeneratesDefaultFileName()
+    {
+        var service = new ConversionService();
+        var request = new ConversionRequest([], "   ", ConversionTargetFormat.Xlsx);
+
+        var result = await service.ConvertAsync(request);
+
+        Assert.True(result.Success);
+        Assert.Equal("workbook.xlsx", result.OutputFileName);
+    }
+
+    [Fact]
+    public async Task ConvertAsync_CreateBlankXlsx_NoExtensionFileName_AppendsXlsxExtension()
+    {
+        var service = new ConversionService();
+        var request = new ConversionRequest([], "mydata", ConversionTargetFormat.Xlsx);
+
+        var result = await service.ConvertAsync(request);
+
+        Assert.True(result.Success);
+        Assert.Equal("mydata.xlsx", result.OutputFileName);
+    }
+
+    [Fact]
+    public async Task ConvertAsync_CreateBlankPptx_NullFileName_GeneratesDefaultFileName()
+    {
+        var service = new ConversionService();
+        var request = new ConversionRequest([], null!, ConversionTargetFormat.Pptx);
+
+        var result = await service.ConvertAsync(request);
+
+        Assert.True(result.Success);
+        Assert.Equal("presentation.pptx", result.OutputFileName);
+    }
+
+    [Fact]
+    public async Task ConvertAsync_CreateBlankPptx_WhitespaceFileName_GeneratesDefaultFileName()
+    {
+        var service = new ConversionService();
+        var request = new ConversionRequest([], "   ", ConversionTargetFormat.Pptx);
+
+        var result = await service.ConvertAsync(request);
+
+        Assert.True(result.Success);
+        Assert.Equal("presentation.pptx", result.OutputFileName);
+    }
+
+    [Fact]
+    public async Task ConvertAsync_CreateBlankPptx_NoExtensionFileName_AppendsPptxExtension()
+    {
+        var service = new ConversionService();
+        var request = new ConversionRequest([], "mydeck", ConversionTargetFormat.Pptx);
+
+        var result = await service.ConvertAsync(request);
+
+        Assert.True(result.Success);
+        Assert.Equal("mydeck.pptx", result.OutputFileName);
+    }
+
+    [Fact]
+    public async Task ConvertAsync_DocxExtensionToXlsx_ReturnsUnsupportedError()
+    {
+        // A .docx source targeting XLSX goes to the unsupported default arm, NOT blank creation.
+        var service = new ConversionService();
+        var bytes = "some bytes"u8.ToArray();
+        var request = new ConversionRequest(bytes, "report.docx", ConversionTargetFormat.Xlsx);
+
+        var result = await service.ConvertAsync(request);
+
+        Assert.False(result.Success);
+        Assert.Contains("Unsupported conversion", result.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task ConvertAsync_XlsxExtensionToDocx_ReturnsUnsupportedError()
+    {
+        var service = new ConversionService();
+        var bytes = "some bytes"u8.ToArray();
+        var request = new ConversionRequest(bytes, "data.xlsx", ConversionTargetFormat.Docx);
+
+        var result = await service.ConvertAsync(request);
+
+        Assert.False(result.Success);
+        Assert.Contains("Unsupported conversion", result.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task ConvertAsync_ChangeExtension_PathSeparatorsInFileName_KeepsOnlyBaseName()
+    {
+        var service = new ConversionService();
+        var markdown = "# test"u8.ToArray();
+        var request = new ConversionRequest(markdown, "subdir/file.md", ConversionTargetFormat.Docx);
+
+        var result = await service.ConvertAsync(request);
+
+        Assert.True(result.Success);
+        Assert.Equal("file.docx", result.OutputFileName);
+    }
+
+    [Fact]
+    public async Task ConvertAsync_ChangeExtension_OnlyDotFile_UsesDefaultExtension()
+    {
+        var service = new ConversionService();
+        // Path.GetFileNameWithoutExtension(".gitignore") returns ".gitignore"
+        // because the leading dot makes it "just an extension" — but in practice
+        // the result depends on the platform. Verify behavioral contract.
+        var markdown = "# test"u8.ToArray();
+        var request = new ConversionRequest(markdown, ".gitignore", ConversionTargetFormat.Docx);
+
+        var result = await service.ConvertAsync(request);
+
+        // .gitignore has no base name → ChangeExtension returns "document.xxx"
+        Assert.True(result.Success);
+        Assert.Equal("document.docx", result.OutputFileName);
+    }
+
+    [Fact]
+    public async Task ConvertAsync_NullSourceFileName_MarkdownToDocx_DetectsUnknownAndCreatesBlank()
+    {
+        // When the source filename is null, DetectSourceFormat → Unknown,
+        // and since Unknown → Docx creates a blank document (not markdown conversion).
+        var service = new ConversionService();
+        var bytes = "some data"u8.ToArray();
+        var request = new ConversionRequest(bytes, null!, ConversionTargetFormat.Docx);
+
+        var result = await service.ConvertAsync(request);
+
+        Assert.True(result.Success);
+        Assert.Equal("document.docx", result.OutputFileName);
+        Assert.NotNull(result.Messages);
+        Assert.Contains(result.Messages, m => m.Contains("Detected source format: Unknown"));
+    }
+
+    [Fact]
+    public async Task ConvertAsync_UnsupportedConversion_ErrorResultHasNonNullMessagesList()
+    {
+        // When the switch _ arm fires, ConversionResultWithError is called without
+        // the messages parameter (it defaults to null, which becomes an empty list).
+        // The detection message IS collected but not passed through this code path —
+        // the result always carries a non-null list for safe enumeration.
+        var service = new ConversionService();
+        var bytes = new byte[] { 0x89, (byte)'P', (byte)'N', (byte)'G' };
+        var request = new ConversionRequest(bytes, "image.png", ConversionTargetFormat.Pdf);
+
+        var result = await service.ConvertAsync(request);
+
+        Assert.False(result.Success);
+        Assert.NotNull(result.ErrorMessage);
+        Assert.Contains("Unsupported conversion", result.ErrorMessage);
+        Assert.NotNull(result.Messages);
+    }
 }
