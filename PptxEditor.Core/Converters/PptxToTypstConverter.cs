@@ -837,6 +837,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
         // Check for shape geometry with fill or stroke
         var shapeElement = ExtractShapeGeometry(shape.ShapeProperties, styleResolver, finalW, finalH, groupFill);
         shapeElement = ApplyPlaceholderShapeStyleInheritance(shape, shapeElement, styleResolver);
+        shapeElement = ApplyStyleReferenceFillAndStroke(shape, shapeElement, styleResolver);
         if (shapeElement != null && (!string.IsNullOrEmpty(shapeElement.FillColor)
             || shapeElement.FillGradient != null
             || (!string.IsNullOrEmpty(shapeElement.StrokeColor) && shapeElement.StrokeWidth > 0)))
@@ -1094,6 +1095,65 @@ public sealed partial class PptxToTypstConverter : IDisposable
             NoStroke = shapeElement?.NoStroke ?? false,
             CornerRadius = shapeElement?.CornerRadius ?? 0,
             Points = shapeElement?.Points ?? new List<(double X, double Y)>()
+        };
+    }
+
+    /// <summary>
+    /// ECMA-376 shape-style references (p:style): a non-placeholder shape whose spPr
+    /// carries no explicit fill marker (or no a:ln) takes that aspect from its
+    /// a:fillRef (a:lnRef), which indexes the theme format scheme. Without this,
+    /// shapes that rely entirely on their style reference (e.g. the grouped
+    /// roundRect+custGeom icons in Opposites slide 5) resolve to empty fill/stroke
+    /// and are dropped by the fill/stroke gate.
+    /// </summary>
+    private TypstShapeElement? ApplyStyleReferenceFillAndStroke(P.Shape shape, TypstShapeElement? shapeElement, StyleResolver styleResolver)
+    {
+        var style = shape.ShapeStyle;
+        if (style == null)
+            return shapeElement;
+
+        // Placeholders inherit fill/line through the layout/master chain instead.
+        if (GetPlaceholderInfo(shape) != null)
+            return shapeElement;
+
+        var slideSpPr = shape.ShapeProperties;
+        var needsFill = (shapeElement == null || (string.IsNullOrEmpty(shapeElement.FillColor) && shapeElement.FillGradient == null))
+            && !HasAnyFillMarker(slideSpPr);
+        var needsStroke = (shapeElement == null || string.IsNullOrEmpty(shapeElement.StrokeColor))
+            && slideSpPr?.Elements<Drawing.Outline>().FirstOrDefault() == null;
+
+        if (!needsFill && !needsStroke)
+            return shapeElement;
+
+        string? fillColor = null;
+        TypstGradientFill? fillGradient = null;
+        if (needsFill)
+        {
+            (fillColor, fillGradient) = styleResolver.ResolveStyleFillReference(style.FillReference);
+        }
+
+        string? strokeColor = null;
+        double strokeWidth = 0;
+        if (needsStroke)
+        {
+            (strokeColor, strokeWidth) = styleResolver.ResolveStyleLineReference(style.LineReference);
+        }
+
+        if (fillColor == null && fillGradient == null && strokeColor == null)
+            return shapeElement;
+
+        // TypstShapeElement is init-only — rebuild with the style-referenced aspects merged in.
+        return new TypstShapeElement
+        {
+            ShapeType = shapeElement?.ShapeType ?? "rect",
+            FillColor = fillColor ?? shapeElement?.FillColor ?? string.Empty,
+            FillGradient = fillGradient ?? shapeElement?.FillGradient,
+            StrokeColor = strokeColor ?? shapeElement?.StrokeColor ?? string.Empty,
+            StrokeWidth = strokeColor != null ? strokeWidth : shapeElement?.StrokeWidth ?? 0,
+            NoStroke = shapeElement?.NoStroke ?? false,
+            CornerRadius = shapeElement?.CornerRadius ?? 0,
+            Points = shapeElement?.Points ?? new List<(double X, double Y)>(),
+            Subpaths = shapeElement?.Subpaths ?? new List<List<(double X, double Y)>>()
         };
     }
 
