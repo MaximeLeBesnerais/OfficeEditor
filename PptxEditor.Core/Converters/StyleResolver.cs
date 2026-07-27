@@ -1215,6 +1215,132 @@ public sealed class StyleResolver
 
     #endregion
 
+    #region Style Reference Resolution (p:style fillRef/lnRef)
+
+    /// <summary>
+    /// Resolves a &lt;p:style&gt; &lt;a:fillRef&gt; against the theme format scheme
+    /// (ECMA-376 §20.1.4.2.10): idx 1..3 selects from &lt;a:fillStyleLst&gt; and the
+    /// reference's own color replaces the style's phClr placeholder color, keeping the
+    /// style's transforms (tint/shade/satMod/...). Returns the solid color, or a linear
+    /// gradient when the referenced fill style is a gradient. idx 0 (and 1001+
+    /// background references) yield no fill.
+    /// </summary>
+    public (string? Color, PptxEditor.Core.Models.TypstGradientFill? Gradient) ResolveStyleFillReference(Drawing.FillReference? fillReference)
+    {
+        if (fillReference?.Index?.Value is not uint idx || idx < 1 || idx > 3)
+            return (null, null);
+
+        var fillStyle = _themePart?.Theme?.ThemeElements?.FormatScheme?.FillStyleList?
+            .Elements().ElementAtOrDefault((int)idx - 1);
+        if (fillStyle == null)
+            return (null, null);
+
+        var substituted = SubstitutePlaceholderColor(fillStyle, fillReference);
+        return substituted switch
+        {
+            Drawing.SolidFill solidFill => (ResolveSolidFillColorWithModifiers(solidFill), null),
+            Drawing.GradientFill gradientFill => (null, ReadThemeGradient(gradientFill)),
+            _ => (null, null)
+        };
+    }
+
+    /// <summary>
+    /// Resolves a &lt;p:style&gt; &lt;a:lnRef&gt; against the theme format scheme:
+    /// idx 1..3 selects from &lt;a:lnStyleLst&gt;; the reference's own color replaces
+    /// the line style's phClr placeholder color. Returns the stroke color and width
+    /// in points (EMU / 12700), or (null, 0) when there is no usable line style.
+    /// </summary>
+    public (string? Color, double Width) ResolveStyleLineReference(Drawing.LineReference? lineReference)
+    {
+        if (lineReference?.Index?.Value is not uint idx || idx < 1 || idx > 3)
+            return (null, 0);
+
+        var outline = _themePart?.Theme?.ThemeElements?.FormatScheme?.LineStyleList?
+            .Elements().ElementAtOrDefault((int)idx - 1) as Drawing.Outline;
+        if (outline == null)
+            return (null, 0);
+
+        var substituted = (Drawing.Outline)SubstitutePlaceholderColor(outline, lineReference);
+        var width = substituted.Width?.Value / 12700.0 ?? 0;
+        if (width <= 0)
+            return (null, 0);
+
+        var solidFill = substituted.Elements<Drawing.SolidFill>().FirstOrDefault();
+        return (solidFill == null ? null : ResolveSolidFillColorWithModifiers(solidFill), width);
+    }
+
+    private PptxEditor.Core.Models.TypstGradientFill? ReadThemeGradient(Drawing.GradientFill gradientFill)
+    {
+        // GradientFillReader matches children by local name, so any container works.
+        var wrapper = new ShapeProperties();
+        wrapper.Append(gradientFill);
+        return GradientFillReader.TryReadLinearGradient(wrapper, ResolveSchemeColor);
+    }
+
+    /// <summary>
+    /// Resolves an &lt;a:solidFill&gt; with the full set of color transforms
+    /// (tint/shade/satMod/lum/alpha) applied — needed for theme fill/line styles,
+    /// whose phClr entries carry the transform chain.
+    /// </summary>
+    private string? ResolveSolidFillColorWithModifiers(Drawing.SolidFill solidFill)
+    {
+        var rgb = solidFill.RgbColorModelHex;
+        if (rgb?.Val != null)
+            return GradientFillReader.ApplyColorModifiers(
+                GradientFillReader.ParseHexColor(rgb.Val.Value!), rgb.ChildElements);
+
+        var schemeClr = solidFill.SchemeColor;
+        if (schemeClr == null)
+            return null;
+
+        var schemeName = GetAttributeValue(schemeClr, "val");
+        var resolved = string.IsNullOrEmpty(schemeName) ? null : ResolveSchemeColor(schemeName);
+        return resolved == null
+            ? null
+            : GradientFillReader.ApplyColorModifiers(
+                GradientFillReader.ParseHexColor(resolved), schemeClr.ChildElements);
+    }
+
+    /// <summary>
+    /// Replaces every phClr placeholder color inside a cloned theme fill/line style
+    /// with the style reference's own color, preserving the placeholder's transform
+    /// children (tint/shade/satMod/...) per ECMA-376 §20.1.4.2.10.
+    /// </summary>
+    private static OpenXmlElement SubstitutePlaceholderColor(OpenXmlElement fillOrLineStyle, OpenXmlElement styleReference)
+    {
+        var clone = fillOrLineStyle.CloneNode(true);
+        var refScheme = styleReference.Elements<Drawing.SchemeColor>().FirstOrDefault();
+        var refRgb = styleReference.Elements<Drawing.RgbColorModelHex>().FirstOrDefault();
+        if (refScheme == null && refRgb == null)
+            return clone;
+
+        foreach (var schemeClr in clone.Descendants<Drawing.SchemeColor>().ToList())
+        {
+            var val = GetAttributeValue(schemeClr, "val");
+            if (!string.Equals(val, "phClr", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (refRgb?.Val != null)
+            {
+                var rgb = new Drawing.RgbColorModelHex { Val = refRgb.Val.Value };
+                foreach (var child in schemeClr.ChildElements.ToList())
+                    rgb.Append(child.CloneNode(true));
+                schemeClr.InsertBeforeSelf(rgb);
+                schemeClr.Remove();
+            }
+            else
+            {
+                var newVal = GetAttributeValue(refScheme, "val");
+                if (!string.IsNullOrEmpty(newVal))
+                    schemeClr.SetAttribute(new OpenXmlAttribute("val", string.Empty, newVal));
+            }
+        }
+
+        return clone;
+    }
+
+    #endregion
+
     #region Theme/Scheme Color Resolution
 
     private Dictionary<string, string> LoadSchemeColors()
