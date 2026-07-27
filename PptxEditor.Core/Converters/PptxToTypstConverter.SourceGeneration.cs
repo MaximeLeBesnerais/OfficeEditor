@@ -894,12 +894,16 @@ public sealed partial class PptxToTypstConverter
 
     /// <summary>
     /// Opening Typst tag for an OOXML cap text transform: cap="all" → #upper[,
-    /// cap="small" → #smallcaps[. The content is always closed with a single "]".
+    /// cap="small" → a scoped block that synthesizes small caps (lowercase letters
+    /// become uppercase at 0.8em; existing capitals stay full size). Typst's native
+    /// #smallcaps is NOT used: it maps to the OpenType smcp feature, which none of
+    /// the fonts this pipeline resolves (Open Sans, Carlito, Calibri, ...) provide,
+    /// so it silently no-ops. The content is always closed with a single "]".
     /// </summary>
     private static string? CapsOpenTag(string? caps) => caps switch
     {
         "all" => "#upper[",
-        "small" => "#smallcaps[",
+        "small" => "#[#show regex(\"\\p{Ll}\"): it => text(size: 0.8em)[#upper(it)]; ",
         _ => null
     };
 
