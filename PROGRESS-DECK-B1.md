@@ -24,7 +24,13 @@ cached under `/tmp/rmse-<deck>/ours/`.
   inheritance suffices. FRANCE Groups 23/40/115 same pattern (green 68BC6C).
 - Plan: thread resolved group fill through ConvertGroupShape → ConvertElement →
   ConvertShape → ExtractShapeGeometry → ExtractShapeFillColor.
-- Status: IN PROGRESS
+- Status: DONE (commit 6f27ab1). FISHBONE mean 11.0→8.9% (s2 18.6→7.7, s3 19.3→7.9,
+  s4 20.2→8.1, s9 23.9→9.9 — all <15%, no regressions >1pp). FRANCE mean 13.7→10.2%
+  (s1 16.6→3.9, s2 19.0→14.8, s3 17.3→13.0 — all <15%). Eyeballed FISHBONE s9 +
+  FRANCE s1: fishbone and map silhouette fully restored.
+- Tests: Convert_GrpFillFreeformInsideGroup_InheritsParentGroupSolidFill,
+  Convert_GrpFillFreeformInsideNestedGroup_InheritsOuterGroupFill,
+  Convert_GrpFillFreeform_GroupHasNoFill_StillNotInvented.
 
 ## Fix 2 — custGeom-in-group dropped (Opposites s5 Groups 10/11)
 
@@ -38,7 +44,12 @@ cached under `/tmp/rmse-<deck>/ours/`.
   in StyleResolver; apply in ConvertShape when spPr lacks explicit fill/line and the
   shape is not a placeholder. REF decks checked: no placeholder+p:style collisions,
   no regression risk.
-- Status: pending
+- Status: implemented (StyleResolver.ResolveStyleFillReference /
+  ResolveStyleLineReference + ApplyStyleReferenceFillAndStroke in ConvertShape);
+  tests green, full suite green. Render/RMSE pending.
+- Tests: Convert_StyleFillReference_ResolvesThemeSolidFillAndLine,
+  Convert_StyleFillReferenceGradient_ResolvesThemeGradientStops,
+  Convert_StyleReference_DoesNotOverrideExplicitFill.
 
 ## Fix 3 — cap="small" not emitted (FRANCE headers s1–4)
 
