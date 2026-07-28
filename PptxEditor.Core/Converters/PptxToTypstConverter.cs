@@ -624,6 +624,9 @@ public sealed partial class PptxToTypstConverter : IDisposable
             // Layout groups render unless they wrap placeholder shapes.
             case P.GroupShape groupShape:
                 return !groupShape.Descendants<PlaceholderShape>().Any();
+            case P.GraphicFrame:
+            case P.ConnectionShape:
+                return true;
             default:
                 return false;
         }
@@ -634,17 +637,9 @@ public sealed partial class PptxToTypstConverter : IDisposable
         var positions = new List<(double X, double Y, double W, double H)>();
         foreach (var element in elements)
         {
-            if (element is P.Shape shape)
+            if (TryGetElementBounds(element, out var bounds))
             {
-                var xfrm = shape.ShapeProperties?.Transform2D;
-                if (xfrm != null)
-                {
-                    var x = EmuToPt(xfrm.Offset?.X?.Value ?? 0);
-                    var y = EmuToPt(xfrm.Offset?.Y?.Value ?? 0);
-                    var w = EmuToPt(xfrm.Extents?.Cx?.Value ?? 0);
-                    var h = EmuToPt(xfrm.Extents?.Cy?.Value ?? 0);
-                    positions.Add((x, y, w, h));
-                }
+                positions.Add(bounds);
             }
         }
         return positions;
@@ -652,17 +647,10 @@ public sealed partial class PptxToTypstConverter : IDisposable
 
     private static bool IsOverriddenBySlide(OpenXmlElement layoutElement, List<(double X, double Y, double W, double H)> slidePositions)
     {
-        if (layoutElement is not P.Shape layoutShape)
+        if (!TryGetElementBounds(layoutElement, out var layoutBounds))
             return false;
 
-        var layoutXfrm = layoutShape.ShapeProperties?.Transform2D;
-        if (layoutXfrm == null)
-            return false;
-
-        var lx = EmuToPt(layoutXfrm.Offset?.X?.Value ?? 0);
-        var ly = EmuToPt(layoutXfrm.Offset?.Y?.Value ?? 0);
-        var lw = EmuToPt(layoutXfrm.Extents?.Cx?.Value ?? 0);
-        var lh = EmuToPt(layoutXfrm.Extents?.Cy?.Value ?? 0);
+        var (lx, ly, lw, lh) = layoutBounds;
 
         foreach (var (sx, sy, sw, sh) in slidePositions)
         {
@@ -674,6 +662,38 @@ public sealed partial class PptxToTypstConverter : IDisposable
         }
 
         return false;
+    }
+
+    private static bool TryGetElementBounds(OpenXmlElement element, out (double X, double Y, double W, double H) bounds)
+    {
+        var transform = element switch
+        {
+            P.Shape shape => (OpenXmlElement?)shape.ShapeProperties?.Transform2D,
+            P.Picture picture => picture.ShapeProperties?.Transform2D,
+            P.ConnectionShape connection => connection.ShapeProperties?.Transform2D,
+            P.GraphicFrame frame => frame.Transform,
+            P.GroupShape group => group.GroupShapeProperties?.TransformGroup,
+            _ => null
+        };
+
+        if (transform == null)
+        {
+            bounds = default;
+            return false;
+        }
+
+        var offset = transform.ChildElements.FirstOrDefault(child => child.LocalName == "off");
+        var extents = transform.ChildElements.FirstOrDefault(child => child.LocalName == "ext");
+        static long ReadLong(OpenXmlElement? owner, string name)
+            => long.TryParse(owner?.GetAttribute(name, "").Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value)
+                ? value : 0;
+
+        bounds = (
+            EmuToPt(ReadLong(offset, "x")),
+            EmuToPt(ReadLong(offset, "y")),
+            EmuToPt(ReadLong(extents, "cx")),
+            EmuToPt(ReadLong(extents, "cy")));
+        return true;
     }
 
     private void AddSlideWarning(string warning)
@@ -863,7 +883,8 @@ public sealed partial class PptxToTypstConverter : IDisposable
                         FillColor = shadow.Value.Color,
                         NoStroke = true,
                         CornerRadius = shapeElement.CornerRadius,
-                        Points = shapeElement.Points
+                        Points = shapeElement.Points,
+                        Subpaths = shapeElement.Subpaths
                     }
                 };
             }
@@ -2426,12 +2447,21 @@ public sealed partial class PptxToTypstConverter : IDisposable
         var finalH = position.Height * scaleY;
 
         var shapeElement = ExtractShapeGeometry(connectionShape.ShapeProperties, styleResolver, finalW, finalH);
-        if (shapeElement == null || (string.IsNullOrEmpty(shapeElement.FillColor)
-            && shapeElement.FillGradient == null
-            && (string.IsNullOrEmpty(shapeElement.StrokeColor) || shapeElement.StrokeWidth <= 0)))
+        if (shapeElement == null || string.IsNullOrEmpty(shapeElement.StrokeColor) || shapeElement.StrokeWidth <= 0)
         {
             yield break;
         }
+
+        // A connector is a stroked path, not a filled rectangle. In particular,
+        // vertical/horizontal connectors commonly have a zero width/height xfrm;
+        // emitting them as rects makes the line disappear in Typst.
+        shapeElement = new TypstShapeElement
+        {
+            ShapeType = "line",
+            StrokeColor = shapeElement.StrokeColor,
+            StrokeWidth = shapeElement.StrokeWidth,
+            NoStroke = false
+        };
 
         yield return new TypstElement
         {
@@ -2733,6 +2763,14 @@ public sealed partial class PptxToTypstConverter : IDisposable
                 if (isRun && run != null)
                 {
                     var runFormatting = MergeRunWithParagraphDefaults(formatting, run, styleResolver);
+                    if (pPr?.Descendants<Drawing.HyperlinkOnClick>().Any() == true
+                        || Regex.IsMatch(pPr?.OuterXml ?? string.Empty, @"<[^>]*hlinkClick\b"))
+                    {
+                        var hlinkColor = styleResolver?.ResolveSchemeColor("hlink");
+                        if (!string.IsNullOrEmpty(hlinkColor))
+                            runFormatting = runFormatting with { Color = hlinkColor };
+                        runFormatting = runFormatting with { Underline = true };
+                    }
                     if (AppendRunWithEmbeddedLineBreaks(runs, text, runFormatting))
                     {
                         hasExplicitLineBreaks = true;
