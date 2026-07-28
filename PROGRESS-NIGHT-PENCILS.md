@@ -24,6 +24,8 @@ inspected in both twins.
 - Paragraph-level `a:hlinkClick` is applied to every paragraph run (theme link
   color when available plus underline), with an OuterXml fallback for SDK
   child-model differences.
+- Run-level hyperlink detection also has an OuterXml fallback; hyperlink emission
+  now wraps the text in Typst `#underline[...]` as well as applying the theme color.
 - Shadow copies preserve multi-subpath geometry, so holes remain holes.
 - Added synthetic regression coverage in
   `DocxEditor.Tests/Unit/PptxToTypstConverterNightPencilTests.cs`.
@@ -31,5 +33,6 @@ inspected in both twins.
 ## Verification
 
 - Targeted night-pencil tests: 3 passed.
+- Direct Standard render visibly matches the reference footer link color and underline.
 - `PptxEditor.Core` build: 0 warnings, 0 errors.
 - Full build/test and post-fix 44-slide RMSE remain to be run before final.
