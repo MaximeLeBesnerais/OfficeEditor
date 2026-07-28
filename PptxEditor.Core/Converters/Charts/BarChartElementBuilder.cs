@@ -118,8 +118,10 @@ public static class BarChartElementBuilder
                     break;
                 case ChartLegendPosition.Bottom:
                     legendX = plotX;
-                    legendY = plotY + plotH - legendBand;
                     plotH -= legendBand;
+                    // The category band is already below the plot.  Put a bottom
+                    // legend after that band instead of on top of category labels.
+                    legendY = plotY + plotH + catBand;
                     break;
                 default: // Right / TopRight
                     plotW -= legendBand;

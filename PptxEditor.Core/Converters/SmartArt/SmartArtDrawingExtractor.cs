@@ -461,6 +461,7 @@ namespace PptxEditor.Core.Converters.SmartArt;
         points ??= PolygonPoints.TryGetValue(geometry.ShapeType, out var pts)
             ? pts
             : new List<(double, double)> { (0, 0), (1, 0), (1, 1), (0, 1) };
+        points = ApplyPointFlips(points, geometry.FlipHorizontal, geometry.FlipVertical);
 
         return new TypstElement
         {
@@ -498,13 +499,12 @@ namespace PptxEditor.Core.Converters.SmartArt;
             return null;
 
         var rotationDeg = ReadRotation(xfrm);
-
-        // NOTE: xfrm flipH/flipV are not applied — mirrored diagram shapes render
-        // unflipped (documented in docs/SMARTART-REPORT.md §4.4 known limitations).
+        var flipH = ReadAttribute(xfrm, "flipH") is "1" or "true";
+        var flipV = ReadAttribute(xfrm, "flipV") is "1" or "true";
 
         var prstGeom = GetChild(spPr, "prstGeom", DrawingmlNs);
         if (prstGeom == null)
-            return ReadCustomGeometry(spPr, offsetX.Value, offsetY.Value, width.Value, height.Value, rotationDeg);
+            return ReadCustomGeometry(spPr, offsetX.Value, offsetY.Value, width.Value, height.Value, rotationDeg, flipH, flipV);
 
         var prstValue = ReadAttribute(prstGeom, "prst");
         if (string.IsNullOrEmpty(prstValue)) return null;
@@ -534,6 +534,8 @@ namespace PptxEditor.Core.Converters.SmartArt;
             Width = width.Value,
             Height = height.Value,
             Rotation = rotationDeg,
+            FlipHorizontal = flipH,
+            FlipVertical = flipV,
             CornerRadius = cornerRadius
         };
     }
@@ -546,8 +548,15 @@ namespace PptxEditor.Core.Converters.SmartArt;
             ? result
             : null;
 
+    private static List<(double X, double Y)> ApplyPointFlips(
+        IEnumerable<(double X, double Y)> points, bool flipH, bool flipV)
+        => points.Select(p => (
+            flipH ? 1.0 - p.X : p.X,
+            flipV ? 1.0 - p.Y : p.Y)).ToList();
+
     private static DiagramGeometry? ReadCustomGeometry(OpenXmlElement spPr,
-        double offsetX, double offsetY, double width, double height, double? rotation)
+        double offsetX, double offsetY, double width, double height, double? rotation,
+        bool flipH, bool flipV)
     {
         var custGeom = GetChild(spPr, "custGeom", DrawingmlNs);
         var pathList = GetChild(custGeom ?? spPr, "pathLst", DrawingmlNs);
@@ -579,7 +588,9 @@ namespace PptxEditor.Core.Converters.SmartArt;
                 OffsetY = offsetY,
                 Width = width,
                 Height = height,
-                Rotation = rotation
+                Rotation = rotation,
+                FlipHorizontal = flipH,
+                FlipVertical = flipV
             }
             : null;
     }
@@ -902,6 +913,8 @@ namespace PptxEditor.Core.Converters.SmartArt;
         public double? Rotation { get; init; }
         public double CornerRadius { get; init; }
         public IReadOnlyList<(double X, double Y)>? CustomPoints { get; init; }
+        public bool FlipHorizontal { get; init; }
+        public bool FlipVertical { get; init; }
     }
 
     private enum ShapeType

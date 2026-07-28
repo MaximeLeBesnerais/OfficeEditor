@@ -922,6 +922,8 @@ public sealed partial class PptxToTypstConverter : IDisposable
 
         // Extract stroke (outline) properties
         var (strokeColor, strokeWidth) = ExtractShapeStroke(shapeProperties, styleResolver, groupFill);
+        var flipH = IsTransformFlagSet(shapeProperties.Transform2D, "flipH");
+        var flipV = IsTransformFlagSet(shapeProperties.Transform2D, "flipV");
 
         // Helper to build TypstShapeElement with common fill+stroke properties
         TypstShapeElement CreateElement(string shapeType, List<(double X, double Y)>? points = null) => new()
@@ -931,7 +933,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
             FillGradient = fillGradient,
             StrokeColor = strokeColor,
             StrokeWidth = strokeWidth,
-            Points = points ?? new List<(double X, double Y)>()
+            Points = ApplyPointFlips(points ?? new List<(double X, double Y)>(), flipH, flipV)
         };
 
         // Check for preset geometry
@@ -1009,7 +1011,8 @@ public sealed partial class PptxToTypstConverter : IDisposable
                         FillGradient = fillGradient,
                         StrokeColor = strokeColor,
                         StrokeWidth = strokeWidth,
-                        Subpaths = subpaths.Where(s => s.Count > 2).ToList()
+                        Subpaths = subpaths.Where(s => s.Count > 2)
+                            .Select(s => ApplyPointFlips(s, flipH, flipV)).ToList()
                     };
                 }
 
@@ -1029,7 +1032,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
                         FillGradient = fillGradient,
                         StrokeColor = strokeColor,
                         StrokeWidth = strokeWidth,
-                        Points = points
+                         Points = ApplyPointFlips(points, flipH, flipV)
                     };
                 }
             }
@@ -5105,6 +5108,18 @@ public sealed partial class PptxToTypstConverter : IDisposable
 
         return match.Success ? match.Groups[1].Value : null;
     }
+
+    private static bool IsTransformFlagSet(Drawing.Transform2D? transform, string attributeName)
+    {
+        var value = GetAttributeValue(transform, attributeName);
+        return value is "1" or "true";
+    }
+
+    private static List<(double X, double Y)> ApplyPointFlips(
+        IEnumerable<(double X, double Y)> points, bool flipH, bool flipV)
+        => points.Select(p => (
+            flipH ? 1.0 - p.X : p.X,
+            flipV ? 1.0 - p.Y : p.Y)).ToList();
 
     private string ResolveThemeFont(string? fontRef)
     {
