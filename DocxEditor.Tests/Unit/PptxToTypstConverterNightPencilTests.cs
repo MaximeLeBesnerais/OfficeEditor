@@ -134,9 +134,11 @@ public sealed class PptxToTypstConverterNightTests : IDisposable
 
         using var opened = PresentationDocument.Open(path, false);
         using var converter = new PptxToTypstConverter(opened);
-        var text = Assert.Single(converter.Convert().Slides[0].Elements, e => e.Type == "Text").Text!;
+        var presentation = converter.Convert();
+        var text = Assert.Single(presentation.Slides[0].Elements, e => e.Type == "Text").Text!;
         var run = Assert.Single(text.Paragraphs.SelectMany(p => p.Runs));
         Assert.True(run.Formatting.Underline);
+        Assert.Contains("#underline[", converter.GenerateTypstSource(presentation));
     }
 
     private static PresentationPart CreatePresentation(PresentationDocument document)

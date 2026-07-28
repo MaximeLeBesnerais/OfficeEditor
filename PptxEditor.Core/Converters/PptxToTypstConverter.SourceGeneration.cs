@@ -738,6 +738,7 @@ public sealed partial class PptxToTypstConverter
             && a.Bold == b.Bold
             && a.Italic == b.Italic
             && a.Color == b.Color
+            && a.Underline == b.Underline
             && a.FontFamily == b.FontFamily
             && a.Caps == b.Caps;
     }
@@ -835,7 +836,8 @@ public sealed partial class PptxToTypstConverter
         // Hyperlink runs render in the theme hlink color with an underline —
         // the reference renderer (and LibreOffice) applies this even over an
         // explicit solidFill on the run.
-        if (runProps.Elements<Drawing.HyperlinkOnClick>().Any())
+        if (runProps.Elements<Drawing.HyperlinkOnClick>().Any()
+            || Regex.IsMatch(runProps.OuterXml, @"<[^>]*hlinkClick\b"))
         {
             var hlinkColor = styleResolver?.ResolveSchemeColor("hlink");
             if (!string.IsNullOrEmpty(hlinkColor))
@@ -914,24 +916,33 @@ public sealed partial class PptxToTypstConverter
             var paramStr = BuildTextParameters(paragraph.Formatting, availableFonts);
             var content = overrideContent ?? paragraph.Content;
             var capsOpen = CapsOpenTag(paragraph.Formatting.Caps);
+            var underline = paragraph.Formatting.Underline;
 
             if (!string.IsNullOrEmpty(paramStr))
             {
                 sb.Append(paramStr);
                 sb.Append("[");
+                if (underline)
+                    sb.Append("#underline[");
                 if (capsOpen != null)
                     sb.Append(capsOpen);
                 AppendEscapedContentWithBreaks(sb, content);
                 if (capsOpen != null)
                     sb.Append("]");
+                if (underline)
+                    sb.Append("]");
                 sb.Append("]");
             }
             else
             {
+                if (underline)
+                    sb.Append("#underline[");
                 if (capsOpen != null)
                     sb.Append(capsOpen);
                 AppendEscapedContentWithBreaks(sb, content);
                 if (capsOpen != null)
+                    sb.Append("]");
+                if (underline)
                     sb.Append("]");
             }
         }
@@ -948,24 +959,33 @@ public sealed partial class PptxToTypstConverter
                 var paramStr = BuildTextParameters(run.Formatting, availableFonts);
                 var escapedContent = EscapeTypstText(run.Content);
                 var capsOpen = CapsOpenTag(run.Formatting.Caps);
+                var underline = run.Formatting.Underline;
 
                 if (!string.IsNullOrEmpty(paramStr))
                 {
                     sb.Append(paramStr);
                     sb.Append("[");
+                    if (underline)
+                        sb.Append("#underline[");
                     if (capsOpen != null)
                         sb.Append(capsOpen);
                     sb.Append(escapedContent);
                     if (capsOpen != null)
                         sb.Append("]");
+                    if (underline)
+                        sb.Append("]");
                     sb.Append("]");
                 }
                 else
                 {
+                    if (underline)
+                        sb.Append("#underline[");
                     if (capsOpen != null)
                         sb.Append(capsOpen);
                     sb.Append(escapedContent);
                     if (capsOpen != null)
+                        sb.Append("]");
+                    if (underline)
                         sb.Append("]");
                 }
             }
