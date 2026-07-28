@@ -32,7 +32,14 @@ public static class BarChartElementBuilder
         if (chart.Series.Count == 0 || chart.Categories.Count == 0 || width < 20 || height < 20)
             return elements;
 
-        var values = chart.Series.SelectMany(s => s.Values).OfType<double>().ToList();
+        var isStacked = chart.Grouping is BarGrouping.Stacked or BarGrouping.PercentStacked;
+        var values = isStacked
+            ? chart.Categories.Select((_, i) =>
+                chart.Grouping == BarGrouping.PercentStacked
+                    ? 100.0
+                    : chart.Series.Select(s => i < s.Values.Count ? s.Values[i] ?? 0 : 0)
+                        .Where(v => v > 0).Sum()).ToList()
+            : chart.Series.SelectMany(s => s.Values).OfType<double>().ToList();
         if (values.Count == 0)
             return elements;
 
@@ -179,8 +186,9 @@ public static class BarChartElementBuilder
         var gap = chart.GapWidthPercent / 100.0;
         var overlap = Math.Clamp(chart.OverlapPercent / 100.0, -1.0, 1.0);
         // slot = n·bar − (n−1)·overlap·bar + gap·bar  ⇒  bar thickness per category slot.
-        var barThickness = slot / (seriesCount - (seriesCount - 1) * overlap + gap);
-        var clusterThickness = barThickness * (seriesCount - (seriesCount - 1) * overlap);
+        var barsInCluster = isStacked ? 1 : seriesCount;
+        var barThickness = slot / (barsInCluster - (barsInCluster - 1) * overlap + gap);
+        var clusterThickness = barThickness * (barsInCluster - (barsInCluster - 1) * overlap);
 
         if (chart.CategoryAxis?.Deleted != true)
         {
@@ -211,25 +219,43 @@ public static class BarChartElementBuilder
                     continue;
 
                 var color = series.FillColor ?? DefaultPalette[j % DefaultPalette.Length];
+                var plottedValue = value;
+                var stackStart = 0.0;
+                if (isStacked)
+                {
+                    var categoryTotal = chart.Series.Select(s => i < s.Values.Count ? s.Values[i] ?? 0 : 0)
+                        .Where(v => v > 0).Sum();
+                    if (chart.Grouping == BarGrouping.PercentStacked)
+                        plottedValue = categoryTotal > 0 ? value / categoryTotal * 100.0 : 0;
+                    stackStart = chart.Series.Take(j)
+                        .Select(s => i < s.Values.Count ? s.Values[i] ?? 0 : 0)
+                        .Where(v => v > 0)
+                        .Sum();
+                    if (chart.Grouping == BarGrouping.PercentStacked && categoryTotal > 0)
+                        stackStart = stackStart / categoryTotal * 100.0;
+                }
                 double barX, barY, barW, barH;
                 if (isHorizontal)
                 {
                     var slotTop = plotY + plotH - (i + 1) * slot;
                     // Horizontal bars plot categories and series bottom-to-top.
                     var clusterBottom = slotTop + slot - (slot - clusterThickness) / 2;
-                    barY = clusterBottom - j * barThickness * (1 - overlap) - barThickness;
+                    barY = clusterBottom - (isStacked ? 0 : j * (1 - overlap)) * barThickness - barThickness;
                     barH = barThickness;
-                    var baseline = XOf(Math.Clamp(0.0, min, max));
-                    barX = Math.Min(baseline, XOf(value));
-                    barW = Math.Abs(XOf(value) - baseline);
+                    var startValue = stackStart;
+                    var endValue = stackStart + plottedValue;
+                    barX = Math.Min(XOf(startValue), XOf(endValue));
+                    barW = Math.Abs(XOf(endValue) - XOf(startValue));
                 }
                 else
                 {
                     var slotLeft = plotX + i * slot;
-                    barX = slotLeft + (slot - clusterThickness) / 2 + j * barThickness * (1 - overlap);
                     barW = barThickness;
-                    barY = YOf(Math.Max(value, 0.0));
-                    barH = YOf(Math.Min(value, 0.0)) - barY;
+                    var barSlot = slotLeft + (slot - clusterThickness) / 2;
+                    barX = isStacked ? barSlot : barSlot + j * barThickness * (1 - overlap);
+                    var endValue = stackStart + plottedValue;
+                    barY = Math.Min(YOf(stackStart), YOf(endValue));
+                    barH = Math.Abs(YOf(endValue) - YOf(stackStart));
                 }
 
                 if (barW > 0.2 && barH > 0.2)
@@ -250,7 +276,7 @@ public static class BarChartElementBuilder
                     }
                     else
                     {
-                        var labelY = value >= 0 ? barY - h - 1 : barY + barH + 1;
+                        var labelY = plottedValue >= 0 ? barY - h - 1 : barY + barH + 1;
                         elements.Add(Text(text, barX + barW / 2 - w / 2, labelY, w, h, style, "center"));
                     }
                 }
