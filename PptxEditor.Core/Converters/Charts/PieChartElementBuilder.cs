@@ -18,6 +18,9 @@ public static class PieChartElementBuilder
     /// PowerPoint's auto layout leaves a margin around the pie: the circle's diameter is
     /// ~78% of the smaller plot dimension (measured on the  reference render).
     /// </summary>
+    // Small chart frames in editable infographic pins/panels include title/legend
+    // space; using the full frame made the pie cover its surrounding marker. Larger
+    // standalone pie frames retain the established Office-like 78% sizing.
     private const double PieDiameterFactor = 0.78;
 
     /// <summary>Maximum arc degrees per polygon segment (smoothness of the wedge rim).</summary>
@@ -45,7 +48,8 @@ public static class PieChartElementBuilder
         if (total <= 0)
             return elements;
 
-        var diameter = Math.Min(width, height) * PieDiameterFactor;
+        var diameterFactor = width < 200 && height < 200 ? 0.52 : PieDiameterFactor;
+        var diameter = Math.Min(width, height) * diameterFactor;
         var radius = diameter / 2.0;
         var innerRadius = radius * Math.Clamp(chart.HoleSizePercent ?? 0, 0, 100) / 100.0;
         var cx = width / 2.0;
