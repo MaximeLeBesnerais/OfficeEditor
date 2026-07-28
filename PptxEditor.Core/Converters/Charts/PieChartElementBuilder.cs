@@ -47,6 +47,7 @@ public static class PieChartElementBuilder
 
         var diameter = Math.Min(width, height) * PieDiameterFactor;
         var radius = diameter / 2.0;
+        var innerRadius = radius * Math.Clamp(chart.HoleSizePercent ?? 0, 0, 100) / 100.0;
         var cx = width / 2.0;
         var cy = height / 2.0;
 
@@ -55,8 +56,9 @@ public static class PieChartElementBuilder
                 ? series.PointFillColors[pointIndex]!
                 : series.FillColor ?? DefaultPalette[pointIndex % DefaultPalette.Length];
 
-        // A single 100% slice is a plain ellipse (a polygon arc cannot close on itself).
-        if (slices.Count == 1)
+        // A single 100% slice is a plain ellipse unless this is a doughnut.  A
+        // doughnut uses two even-odd contours so the hole remains transparent.
+        if (slices.Count == 1 && innerRadius <= 0)
         {
             elements.Add(new TypstElement
             {
@@ -81,13 +83,29 @@ public static class PieChartElementBuilder
         foreach (var (value, pointIndex) in slices)
         {
             var sweep = value / total * 360.0;
-            var points = new List<(double X, double Y)> { Norm(cx, cy) };
+            var points = innerRadius > 0
+                ? new List<(double X, double Y)>()
+                : new List<(double X, double Y)> { Norm(cx, cy) };
 
             var steps = Math.Max(1, (int)Math.Ceiling(sweep / ArcStepDegrees));
             for (var i = 0; i <= steps; i++)
             {
                 var a = (angle + sweep * i / steps) * Math.PI / 180.0;
                 points.Add(Norm(cx + radius * Math.Sin(a), cy - radius * Math.Cos(a)));
+            }
+
+            List<List<(double X, double Y)>>? subpaths = null;
+            if (innerRadius > 0)
+            {
+                var outer = points.ToList();
+                var inner = new List<(double X, double Y)>();
+                for (var i = steps; i >= 0; i--)
+                {
+                    var a = (angle + sweep * i / steps) * Math.PI / 180.0;
+                    inner.Add(Norm(cx + innerRadius * Math.Sin(a), cy - innerRadius * Math.Cos(a)));
+                }
+                points = outer;
+                subpaths = new List<List<(double X, double Y)>> { outer, inner };
             }
 
             elements.Add(new TypstElement
@@ -104,7 +122,8 @@ public static class PieChartElementBuilder
                     FillColor = Fill(pointIndex),
                     StrokeColor = series.PointLineColor ?? string.Empty,
                     StrokeWidth = series.PointLineWidthPt,
-                    Points = points
+                    Points = points,
+                    Subpaths = subpaths ?? []
                 }
             });
 
