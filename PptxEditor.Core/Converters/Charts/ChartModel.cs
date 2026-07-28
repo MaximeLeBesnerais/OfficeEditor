@@ -59,6 +59,8 @@ public sealed class ChartModel
     /// <summary>Pie/doughnut only: <c>c:firstSliceAng</c> — angle of the first slice in
     /// degrees, clockwise from 12 o'clock. Defaults to 0 when absent.</summary>
     public double FirstSliceAngleDegrees { get; init; }
+    /// <summary>Doughnut only: inner-hole diameter as a percentage of the outer diameter.</summary>
+    public double? HoleSizePercent { get; init; }
 }
 
 public sealed class ChartSeries
