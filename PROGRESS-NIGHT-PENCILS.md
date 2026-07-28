@@ -35,4 +35,8 @@ inspected in both twins.
 - Targeted night-pencil tests: 3 passed.
 - Direct Standard render visibly matches the reference footer link color and underline.
 - `PptxEditor.Core` build: 0 warnings, 0 errors.
-- Full build/test and post-fix 44-slide RMSE remain to be run before final.
+- Full solution build: 0 warnings, 0 errors.
+- Full solution tests: 1924 passed, 0 failed, 0 skipped.
+- Final RMSE: Standard mean 5.4% (s22 10.7%); Wide mean 6.0% (s22 12.9%).
+- Final visual sweep of all 44 slides found no non-font structural mismatch;
+  slide 22 footer link now matches the PDF reference in teal and underlined.
