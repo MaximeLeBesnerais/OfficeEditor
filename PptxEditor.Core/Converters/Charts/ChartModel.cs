@@ -54,6 +54,8 @@ public sealed class ChartModel
     /// <summary>Chart-level data label settings; per-series settings override these.</summary>
     public ChartDataLabels? DataLabels { get; init; }
     public ChartLegend? Legend { get; init; }
+    /// <summary>Optional chart title text from <c>c:title</c>.</summary>
+    public string? Title { get; init; }
     public ChartAxis? CategoryAxis { get; init; }
     public ChartValueAxis? ValueAxis { get; init; }
     /// <summary>Pie/doughnut only: <c>c:firstSliceAng</c> — angle of the first slice in
