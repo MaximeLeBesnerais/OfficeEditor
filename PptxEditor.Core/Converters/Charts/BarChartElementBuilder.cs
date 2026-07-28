@@ -86,6 +86,13 @@ public static class BarChartElementBuilder
         }
 
         double plotX = x, plotY = y, plotW = width, plotH = height;
+        if (!string.IsNullOrWhiteSpace(chart.Title))
+        {
+            elements.Add(Text(chart.Title!, x, y, width, 16,
+                new LabelStyle(10.0, "#FFFFFF", "Arial"), "center"));
+            plotY += 18;
+            plotH -= 18;
+        }
         if (isHorizontal)
         {
             plotX += catBand;

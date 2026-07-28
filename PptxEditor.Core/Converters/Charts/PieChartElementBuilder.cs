@@ -48,12 +48,32 @@ public static class PieChartElementBuilder
         if (total <= 0)
             return elements;
 
-        var diameterFactor = width < 200 && height < 200 ? 0.52 : PieDiameterFactor;
-        var diameter = Math.Min(width, height) * diameterFactor;
+        var titleHeight = string.IsNullOrWhiteSpace(chart.Title) ? 0.0 : 18.0;
+        if (titleHeight > 0)
+        {
+            var formatting = new TypstTextFormatting { FontSize = 10, Color = "#FFFFFF", Align = "center" };
+            elements.Add(new TypstElement
+            {
+                Type = "Text", X = x, Y = y, Width = width, Height = titleHeight,
+                Text = new TypstTextElement
+                {
+                    Paragraphs = [new TypstParagraph
+                    {
+                        Content = chart.Title!,
+                        Runs = [new TypstTextRun { Content = chart.Title!, Formatting = formatting }],
+                        Formatting = formatting
+                    }],
+                    VerticalAlign = "center", ParagraphCount = 1
+                }
+            });
+        }
+        var plotHeight = height - titleHeight;
+        var diameterFactor = width < 200 && plotHeight < 200 ? 0.52 : PieDiameterFactor;
+        var diameter = Math.Min(width, plotHeight) * diameterFactor;
         var radius = diameter / 2.0;
         var innerRadius = radius * Math.Clamp(chart.HoleSizePercent ?? 0, 0, 100) / 100.0;
         var cx = width / 2.0;
-        var cy = height / 2.0;
+        var cy = titleHeight + plotHeight / 2.0;
 
         string Fill(int pointIndex)
             => pointIndex < series.PointFillColors.Count && series.PointFillColors[pointIndex] != null
