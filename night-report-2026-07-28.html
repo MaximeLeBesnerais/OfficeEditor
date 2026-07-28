@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OfficeEditor — Night Fidelity Handoff</title>
+<style>
+:root{--bg:#f4f6f8;--card:#fff;--ink:#17212b;--muted:#607080;--line:#dce3e9;--blue:#2457d6;--green:#147a56;--amber:#a35d00;--red:#b42318}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}header{background:#102033;color:white;padding:34px max(22px,calc((100vw - 1160px)/2))}h1{margin:0 0 6px;font-size:30px}header p{margin:0;color:#c8d4df}main{max-width:1160px;margin:24px auto 60px;padding:0 22px}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:13px}.card,.phase{background:var(--card);border:1px solid var(--line);border-radius:13px;box-shadow:0 2px 8px #1020330b}.card{padding:17px}.card h2{margin:0 0 5px;font-size:15px}.metric{font-size:25px;font-weight:750}.muted{color:var(--muted)}.phase{margin-top:16px;padding:20px}.phase h2{margin:0 0 12px;font-size:20px}.phase h3{font-size:16px;margin:16px 0 4px}.phase p{margin:4px 0;color:var(--muted)}table{border-collapse:collapse;width:100%;margin-top:10px}th,td{text-align:left;padding:8px;border-bottom:1px solid var(--line)}th{color:var(--muted);font-size:13px}.ok{color:var(--green);font-weight:700}.warn{color:var(--amber);font-weight:700}.bad{color:var(--red);font-weight:700}code{background:#edf1f4;padding:1px 4px;border-radius:4px}@media(max-width:800px){.grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:500px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header><h1>Overnight fidelity handoff</h1><p>OfficeEditor local-reference deck campaign · cutoff checkpoint: 2026-07-28 12:06 CEST</p></header>
+<main>
+<div class="grid">
+<div class="card"><h2>Slides measured</h2><div class="metric">300</div><div class="muted">8 decks, fresh RMSE baseline</div></div>
+<div class="card"><h2>Global mean</h2><div class="metric">8.6%</div><div class="muted">median 8.5% · P90 11.4%</div></div>
+<div class="card"><h2>Under 15%</h2><div class="metric">299/300</div><div class="muted">font-only noise excluded from fixes</div></div>
+<div class="card"><h2>Implementation</h2><div class="metric">3/4</div><div class="muted">lead branches completed; 1 checkpointed WIP</div></div>
+</div>
+
+<section class="phase"><h2>What was confirmed</h2>
+<h3>Global connector loss is four separate bugs</h3>
+<p><strong>Regular connectors:</strong> <code>p:cxnSp</code> with <code>prst="line"</code> falls into a filled-rectangle fallback instead of rendering its stroke. This explains France slide 3.</p>
+<p><strong>SmartArt custom connectors:</strong> SmartArt shapes with <code>custGeom</code> but no <code>prstGeom</code> return null from geometry reading and disappear. This explains SmartArt slides 83 and 105.</p>
+<p><strong>Unsupported connector variants:</strong> <code>prst="none"</code> and unknown presets are silently skipped.</p>
+<p><strong>Color-resolution interaction:</strong> some connector/arrow groups collapse to monochrome through ColorsDef resolution, notably SmartArt slide 143.</p>
+
+<h3>Color and effect gaps</h3>
+<p>Chart fills drop transforms; shadows drop lum/tint chains; GradientFillReader misses hue/saturation/luminance/alpha offsets; style and gradient color transforms are inconsistent; some SmartArt solid fills ignore saturation modifiers.</p>
+
+<h3>Text gap</h3>
+<p>The decorative <code>- 05 -</code> string is incorrectly treated as a bullet marker by SourceGeneration, consuming its first dash. Text rotation for slides 115/117/118 needs further visual verification; the rotation precedence itself was not proven wrong, but rotated no-wrap sizing and anchor inheritance remain suspects.</p>
+</section>
+
+<section class="phase"><h2>Branch results at cutoff</h2>
+<table><tr><th>Branch</th><th>Decks</th><th>Result</th><th>State</th></tr>
+<tr><td><code>wip/night-pencils</code></td><td>Pencil Standard + Wide</td><td class="ok">5.4% / 6.0%, all 44 slides inspected</td><td>Committed WIP</td></tr>
+<tr><td><code>wip/night-fish-france</code></td><td>Fishbone + France</td><td class="ok">8.6% / 8.5%, all 29 slides inspected</td><td>Committed WIP</td></tr>
+<tr><td><code>wip/night-opposites-logistics</code></td><td>Opposites + Logistics</td><td class="warn">8.5% / 8.7%, visual sweep done; final RMSE pending</td><td>Committed WIP</td></tr>
+<tr><td><code>wip/night-smart-space</code></td><td>SmartArts + Space</td><td class="warn">Lead was interrupted; source changes checkpointed, not fully verified</td><td>WIP checkpoint commits</td></tr>
+</table>
+<p class="muted">None of these branches were merged into <code>dev</code>. Local reference decks were never staged.</p>
+</section>
+
+<section class="phase"><h2>Committed fixes from the completed leads</h2>
+<ul>
+<li>Layouts now scope picture relationships correctly and preserve placeholder frames.</li>
+<li>Connectors emit as stroked lines instead of invisible zero-size rectangles.</li>
+<li>Master/layout content, hyperlinks, inherited colors, flips, group transforms, and shadow subpaths are preserved.</li>
+<li>Fishbone geometry flips, France charts/titles, and chart spacing were addressed.</li>
+<li>Freeform curves use more samples and default line widths are retained.</li>
+</ul>
+</section>
+
+<section class="phase"><h2>Next implementation order</h2>
+<ol><li>Merge-review or continue the global connector fixes: regular <code>cxnSp</code> and SmartArt <code>custGeom</code>.</li><li>Apply the P0 color/effect fixes and verify SmartArt 143, France shadows, and chart colors.</li><li>Fix the decorative-dash bullet false positive and rotated-text sizing/anchor behavior.</li><li>Re-run the all-deck RMSE tool and visually inspect every non-font difference above 5%.</li></ol>
+<p class="warn">Do not merge unfinished branches to <code>dev</code> without review. Preserve any incomplete branch as WIP.</p>
+</section>
+
+<section class="phase"><h2>Artifacts</h2><p>Baseline: <code>/tmp/night-baseline-all.md</code> and <code>/tmp/night-baseline-all.json</code>.</p><p>Investigations: <code>/tmp/night-investigation-lines.md</code>, <code>/tmp/night-investigation-colors.md</code>, <code>/tmp/night-investigation-text.md</code>.</p><p>All work stopped at the noon cutoff. No new task was launched after it.</p></section>
+</main></body></html>
