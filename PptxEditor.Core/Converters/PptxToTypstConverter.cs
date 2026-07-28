@@ -2751,6 +2751,18 @@ public sealed partial class PptxToTypstConverter : IDisposable
             // Resolve formatting through full cascade
             // When mixed formatting is present, don't let firstRun dictate paragraph defaults
             var formatting = ResolveParagraphFormatting(hasMixedFormatting ? null : firstRun, pPr, bodyLstStyle, level, styleResolver, placeholderIdx, placeholderType);
+            var paragraphHasHyperlink = pPr?.Descendants<Drawing.HyperlinkOnClick>().Any() == true
+                || Regex.IsMatch(pPr?.OuterXml ?? string.Empty, @"<[^>]*hlinkClick\b")
+                || textRuns.Any(item => item.Run.RunProperties != null
+                    && (item.Run.RunProperties.Elements<Drawing.HyperlinkOnClick>().Any()
+                        || Regex.IsMatch(item.Run.RunProperties.OuterXml, @"<[^>]*hlinkClick\b")));
+            if (paragraphHasHyperlink)
+            {
+                var hlinkColor = styleResolver?.ResolveSchemeColor("hlink");
+                if (!string.IsNullOrEmpty(hlinkColor))
+                    formatting = formatting with { Color = hlinkColor };
+                formatting = formatting with { Underline = true };
+            }
             if (align != null)
             {
                 formatting = formatting with { Align = align };
@@ -3186,7 +3198,8 @@ public sealed partial class PptxToTypstConverter : IDisposable
         // Hyperlink runs render in the theme's hlink color — PowerPoint overrides
         // the explicit run fill (Space slide 19's showeet.com link: explicit
         // white-50% fill, rendered in teal hlink color).
-        if (runProps.Elements<Drawing.HyperlinkOnClick>().FirstOrDefault() != null)
+        if (runProps.Elements<Drawing.HyperlinkOnClick>().FirstOrDefault() != null
+            || Regex.IsMatch(runProps.OuterXml, @"<[^>]*hlinkClick\b"))
         {
             var hlinkColor = styleResolver?.ResolveSchemeColor("hlink");
             if (!string.IsNullOrEmpty(hlinkColor))
