@@ -858,6 +858,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
         var shapeElement = ExtractShapeGeometry(shape.ShapeProperties, styleResolver, finalW, finalH, groupFill);
         shapeElement = ApplyPlaceholderShapeStyleInheritance(shape, shapeElement, styleResolver);
         shapeElement = ApplyStyleReferenceFillAndStroke(shape, shapeElement, styleResolver);
+        shapeElement = ApplyShapeFlips(shape.ShapeProperties, shapeElement);
         if (shapeElement != null && (!string.IsNullOrEmpty(shapeElement.FillColor)
             || shapeElement.FillGradient != null
             || (!string.IsNullOrEmpty(shapeElement.StrokeColor) && shapeElement.StrokeWidth > 0)))
@@ -1253,7 +1254,12 @@ public sealed partial class PptxToTypstConverter : IDisposable
         if (noFill != null)
             return (string.Empty, 0);
 
-        var strokeWidth = outline.Width?.Value / 12700.0 ?? 0;
+        // DrawingML defaults an omitted line width to 1pt. This matters for the
+        // straight connector rules used as column dividers in the Opposites deck:
+        // they carry a solid fill but omit @w.
+        var strokeWidth = outline.Width?.Value > 0
+            ? outline.Width.Value / 12700.0
+            : 1.0;
         if (strokeWidth <= 0)
             return (string.Empty, 0);
 
@@ -1437,10 +1443,11 @@ public sealed partial class PptxToTypstConverter : IDisposable
                         var (c2x, c2y) = GetPoint(bezPoints[1], width, height);
                         var (ex, ey) = GetPoint(bezPoints[2], width, height);
 
-                        // Sample 8 points along the bezier curve
-                        for (int i = 1; i <= 8; i++)
+                        // Flatten cubic curves finely enough that icon-sized freeforms do not
+                        // become visibly faceted after the 150 PPI render.
+                        for (int i = 1; i <= 24; i++)
                         {
-                            double t = i / 9.0;
+                            double t = i / 25.0;
                             double mt = 1 - t;
                             double mt2 = mt * mt;
                             double mt3 = mt2 * mt;
@@ -1480,6 +1487,42 @@ public sealed partial class PptxToTypstConverter : IDisposable
         var y = double.TryParse(yStr, NumberStyles.Any, CultureInfo.InvariantCulture, out var yp) ? yp : 0;
         // Normalize to 0-1 range
         return (x / width, y / height);
+    }
+
+    /// <summary>
+    /// Applies the local horizontal/vertical reflection recorded on a regular
+    /// shape transform. The polygon points are normalized to the shape box, so
+    /// reflection is performed before the element-level rotation is emitted.
+    /// </summary>
+    private static TypstShapeElement? ApplyShapeFlips(ShapeProperties? shapeProperties, TypstShapeElement? shape)
+    {
+        if (shape == null)
+            return null;
+
+        var xfrm = shapeProperties?.Elements<Drawing.Transform2D>().FirstOrDefault();
+        if (xfrm == null)
+            return shape;
+
+        var flipH = Regex.IsMatch(xfrm.OuterXml, @"\bflipH\s*=\s*""(?:1|true)""", RegexOptions.IgnoreCase);
+        var flipV = Regex.IsMatch(xfrm.OuterXml, @"\bflipV\s*=\s*""(?:1|true)""", RegexOptions.IgnoreCase);
+        if (!flipH && !flipV)
+            return shape;
+
+        static List<(double X, double Y)> FlipPoints(List<(double X, double Y)> points, bool flipH, bool flipV)
+            => points.Select(p => (flipH ? 1.0 - p.X : p.X, flipV ? 1.0 - p.Y : p.Y)).ToList();
+
+        return new TypstShapeElement
+        {
+            ShapeType = shape.ShapeType,
+            FillColor = shape.FillColor,
+            FillGradient = shape.FillGradient,
+            StrokeColor = shape.StrokeColor,
+            StrokeWidth = shape.StrokeWidth,
+            NoStroke = shape.NoStroke,
+            CornerRadius = shape.CornerRadius,
+            Points = FlipPoints(shape.Points, flipH, flipV),
+            Subpaths = shape.Subpaths.Select(path => FlipPoints(path, flipH, flipV)).ToList()
+        };
     }
 
     private bool IsRectanglePath(List<(double X, double Y)> points)
@@ -2471,6 +2514,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
         var finalH = position.Height * scaleY;
 
         var shapeElement = ExtractShapeGeometry(connectionShape.ShapeProperties, styleResolver, finalW, finalH, groupFill);
+        shapeElement = ApplyShapeFlips(connectionShape.ShapeProperties, shapeElement);
         if (shapeElement == null || (string.IsNullOrEmpty(shapeElement.FillColor)
             && shapeElement.FillGradient == null
             && (string.IsNullOrEmpty(shapeElement.StrokeColor) || shapeElement.StrokeWidth <= 0)))
