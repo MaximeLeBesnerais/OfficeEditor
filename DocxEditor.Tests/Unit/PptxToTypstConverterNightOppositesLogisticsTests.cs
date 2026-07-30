@@ -44,7 +44,7 @@ public sealed class PptxToTypstConverterNightOppositesLogisticsTests : IDisposab
             new Drawing.LineTo(new Drawing.Point { X = "1000000", Y = "0" }),
             new Drawing.LineTo(new Drawing.Point { X = "0", Y = "1000000" }),
             new Drawing.CloseShapePath());
-        shape.ShapeProperties!.Transform2D!.SetAttribute(new OpenXmlAttribute("flipH", string.Empty, "1"));
+        shape.ShapeProperties!.Transform2D!.HorizontalFlip = true;
 
         var element = ConvertSingleShape(CreateDeck(shape));
 
