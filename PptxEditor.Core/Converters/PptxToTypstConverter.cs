@@ -736,7 +736,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
             P.Picture picture => ConvertPicture(slidePart, picture, offX, offY, scaleX, scaleY, imageRelScope),
             P.GraphicFrame graphicFrame => ConvertGraphicFrame(slidePart, graphicFrame, styleResolver, offX, offY, scaleX, scaleY),
             P.GroupShape groupShape => ConvertGroupShape(slidePart, groupShape, styleResolver, slideIndex, offX, offY, scaleX, scaleY, imageRelScope, groupFill),
-            P.ConnectionShape connectionShape => ConvertConnectionShape(connectionShape, styleResolver, offX, offY, scaleX, scaleY),
+            P.ConnectionShape connectionShape => ConvertConnectionShape(connectionShape, styleResolver, offX, offY, scaleX, scaleY, groupFill),
             _ => Array.Empty<TypstElement>()
         };
     }
@@ -942,7 +942,9 @@ public sealed partial class PptxToTypstConverter : IDisposable
             : null;
 
         // Extract stroke (outline) properties
-        var (strokeColor, strokeWidth) = ExtractShapeStroke(shapeProperties, styleResolver);
+        var (strokeColor, strokeWidth) = ExtractShapeStroke(shapeProperties, styleResolver, groupFill);
+        var flipH = IsTransformFlagSet(shapeProperties.Transform2D, "flipH");
+        var flipV = IsTransformFlagSet(shapeProperties.Transform2D, "flipV");
 
         // Helper to build TypstShapeElement with common fill+stroke properties
         TypstShapeElement CreateElement(string shapeType, List<(double X, double Y)>? points = null) => new()
@@ -952,7 +954,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
             FillGradient = fillGradient,
             StrokeColor = strokeColor,
             StrokeWidth = strokeWidth,
-            Points = points ?? new List<(double X, double Y)>()
+            Points = ApplyPointFlips(points ?? new List<(double X, double Y)>(), flipH, flipV)
         };
 
         // Check for preset geometry
@@ -991,6 +993,16 @@ public sealed partial class PptxToTypstConverter : IDisposable
             {
                 return CreateElement("polygon", BuildDiagStripePoints(prstGeom));
             }
+            if (prst == Drawing.ShapeTypeValues.Line)
+            {
+                // A line is a stroke-only geometry.  Treating it as the generic
+                // rectangle fallback loses zero-width/zero-height connectors.
+                return CreateElement("line");
+            }
+            if (prst == Drawing.ShapeTypeValues.Teardrop)
+            {
+                return CreateElement("polygon", TeardropPoints);
+            }
         }
 
         // Check for custom geometry (path-based shapes)
@@ -1020,7 +1032,8 @@ public sealed partial class PptxToTypstConverter : IDisposable
                         FillGradient = fillGradient,
                         StrokeColor = strokeColor,
                         StrokeWidth = strokeWidth,
-                        Subpaths = subpaths.Where(s => s.Count > 2).ToList()
+                        Subpaths = subpaths.Where(s => s.Count > 2)
+                            .Select(s => ApplyPointFlips(s, flipH, flipV)).ToList()
                     };
                 }
 
@@ -1040,7 +1053,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
                         FillGradient = fillGradient,
                         StrokeColor = strokeColor,
                         StrokeWidth = strokeWidth,
-                        Points = points
+                         Points = ApplyPointFlips(points, flipH, flipV)
                     };
                 }
             }
@@ -1229,7 +1242,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
     /// Extracts stroke (outline) properties from a shape's &lt;a:ln&gt; element.
     /// Returns the stroke color (hex with # prefix) and width in points (EMU / 12700).
     /// </summary>
-    private (string StrokeColor, double StrokeWidth) ExtractShapeStroke(ShapeProperties shapeProperties, StyleResolver? styleResolver = null)
+    private (string StrokeColor, double StrokeWidth) ExtractShapeStroke(ShapeProperties shapeProperties, StyleResolver? styleResolver = null, string? groupFill = null)
     {
         var outline = shapeProperties.Elements<Drawing.Outline>().FirstOrDefault();
         if (outline == null)
@@ -1252,6 +1265,9 @@ public sealed partial class PptxToTypstConverter : IDisposable
                 return (color, strokeWidth);
         }
 
+        if (groupFill != null && outline.Elements<Drawing.GroupFill>().Any())
+            return (groupFill, strokeWidth);
+
         return (string.Empty, strokeWidth);
     }
 
@@ -1262,6 +1278,14 @@ public sealed partial class PptxToTypstConverter : IDisposable
     private static readonly List<(double X, double Y)> DiamondPoints = new()
     {
         (0.5, 0), (1, 0.5), (0.5, 1), (0, 0.5)
+    };
+
+    /// <summary>Normalised polygon approximation for the OOXML teardrop preset.</summary>
+    private static readonly List<(double X, double Y)> TeardropPoints = new()
+    {
+        (0.50, 0.00), (0.69, 0.08), (0.84, 0.23), (0.92, 0.42),
+        (0.88, 0.62), (0.73, 0.82), (0.50, 1.00),
+        (0.27, 0.82), (0.12, 0.62), (0.08, 0.42), (0.16, 0.23), (0.31, 0.08)
     };
 
     /// <summary>
@@ -2436,7 +2460,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
     /// list-glyph lines inside SmartArt-style groups) to a stroked shape element.
     /// Zero-height/zero-width connectors render via their stroke only.
     /// </summary>
-    private IEnumerable<TypstElement> ConvertConnectionShape(P.ConnectionShape connectionShape, StyleResolver styleResolver, double offX, double offY, double scaleX, double scaleY)
+    private IEnumerable<TypstElement> ConvertConnectionShape(P.ConnectionShape connectionShape, StyleResolver styleResolver, double offX, double offY, double scaleX, double scaleY, string? groupFill = null)
     {
         var (id, name) = GetElementIdAndName(connectionShape.NonVisualConnectionShapeProperties);
         var position = GetElementPosition(connectionShape.ShapeProperties);
@@ -2446,8 +2470,10 @@ public sealed partial class PptxToTypstConverter : IDisposable
         var finalW = position.Width * scaleX;
         var finalH = position.Height * scaleY;
 
-        var shapeElement = ExtractShapeGeometry(connectionShape.ShapeProperties, styleResolver, finalW, finalH);
-        if (shapeElement == null || string.IsNullOrEmpty(shapeElement.StrokeColor) || shapeElement.StrokeWidth <= 0)
+        var shapeElement = ExtractShapeGeometry(connectionShape.ShapeProperties, styleResolver, finalW, finalH, groupFill);
+        if (shapeElement == null || (string.IsNullOrEmpty(shapeElement.FillColor)
+            && shapeElement.FillGradient == null
+            && (string.IsNullOrEmpty(shapeElement.StrokeColor) || shapeElement.StrokeWidth <= 0)))
         {
             yield break;
         }
@@ -5136,6 +5162,18 @@ public sealed partial class PptxToTypstConverter : IDisposable
         return match.Success ? match.Groups[1].Value : null;
     }
 
+    private static bool IsTransformFlagSet(Drawing.Transform2D? transform, string attributeName)
+    {
+        var value = GetAttributeValue(transform, attributeName);
+        return value is "1" or "true";
+    }
+
+    private static List<(double X, double Y)> ApplyPointFlips(
+        IEnumerable<(double X, double Y)> points, bool flipH, bool flipV)
+        => points.Select(p => (
+            flipH ? 1.0 - p.X : p.X,
+            flipV ? 1.0 - p.Y : p.Y)).ToList();
+
     private string ResolveThemeFont(string? fontRef)
     {
         if (string.IsNullOrEmpty(fontRef))
@@ -5215,14 +5253,11 @@ public sealed partial class PptxToTypstConverter : IDisposable
 
         if (rgb == null) return null;
 
-        var alphaVal = colorElement?.Elements<Drawing.Alpha>().FirstOrDefault()?.Val?.Value;
-        if (alphaVal is not int alpha)
-        {
-            return $"#{rgb}";
-        }
-
-        var alphaByte = Math.Clamp((int)Math.Round(alpha / 100000.0 * 255), 0, 255);
-        return alphaByte >= 255 ? $"#{rgb}" : $"#{rgb}{alphaByte:X2}";
+        // Shadow colors can carry the same tint/shade/luminance/alpha chain as
+        // ordinary fills.  Reading only the first alpha previously made themed
+        // shadows render with the wrong shade (or fully opaque).
+        return GradientFillReader.ApplyColorModifiers(
+            GradientFillReader.ParseHexColor(rgb), colorElement?.ChildElements ?? []);
     }
 
     private static string SubstituteUnavailableFont(string fontFamily, HashSet<string> availableFonts)
