@@ -64,9 +64,13 @@ public static class ChartPartParser
             OverlapPercent = ParseDoubleAttribute(chartTypeElement.Element(C + "overlap")) ?? 0.0,
             DataLabels = ParseDataLabels(chartTypeElement.Element(C + "dLbls"), schemeColorResolver),
             Legend = ParseLegend(chart.Element(C + "legend"), schemeColorResolver),
+            Title = chart.Element(C + "title")?.Descendants(A + "t").FirstOrDefault()?.Value,
             CategoryAxis = ParseCategoryAxis(plotArea.Element(C + "catAx"), schemeColorResolver),
             ValueAxis = ParseValueAxis(plotArea.Element(C + "valAx"), schemeColorResolver),
-            FirstSliceAngleDegrees = ParseDoubleAttribute(chartTypeElement.Element(C + "firstSliceAng")) ?? 0.0
+            FirstSliceAngleDegrees = ParseDoubleAttribute(chartTypeElement.Element(C + "firstSliceAng")) ?? 0.0,
+            HoleSizePercent = chartTypeElement.Name.LocalName == "doughnutChart"
+                ? ParseDoubleAttribute(chartTypeElement.Element(C + "holeSize")) ?? 50.0
+                : null
         };
 
         var series = new List<ChartSeries>();
@@ -86,9 +90,11 @@ public static class ChartPartParser
             OverlapPercent = model.OverlapPercent,
             DataLabels = model.DataLabels,
             Legend = model.Legend,
+            Title = model.Title,
             CategoryAxis = model.CategoryAxis,
             ValueAxis = model.ValueAxis,
             FirstSliceAngleDegrees = model.FirstSliceAngleDegrees,
+            HoleSizePercent = model.HoleSizePercent,
             Series = series,
             Categories = categories ?? []
         };
@@ -309,15 +315,58 @@ public static class ChartPartParser
         if (solidFill == null)
             return null;
 
-        var srgb = solidFill.Element(A + "srgbClr")?.Attribute("val")?.Value;
+        var srgbElement = solidFill.Element(A + "srgbClr");
+        var srgb = srgbElement?.Attribute("val")?.Value;
         if (!string.IsNullOrWhiteSpace(srgb))
-            return "#" + srgb.ToUpperInvariant();
+            return ApplyColorModifiers(srgb, srgbElement!);
 
-        var scheme = solidFill.Element(A + "schemeClr")?.Attribute("val")?.Value;
+        var schemeElement = solidFill.Element(A + "schemeClr");
+        var scheme = schemeElement?.Attribute("val")?.Value;
         if (!string.IsNullOrWhiteSpace(scheme) && schemeColorResolver != null)
-            return schemeColorResolver(scheme);
+        {
+            var resolved = schemeColorResolver(scheme);
+            return resolved == null ? null : ApplyColorModifiers(resolved, schemeElement!);
+        }
 
         return null;
+    }
+
+    private static string ApplyColorModifiers(string color, XElement colorElement)
+    {
+        var hex = color.TrimStart('#');
+        if (hex.Length < 6)
+            return color;
+
+        var r = Convert.ToInt32(hex.Substring(0, 2), 16);
+        var g = Convert.ToInt32(hex.Substring(2, 2), 16);
+        var b = Convert.ToInt32(hex.Substring(4, 2), 16);
+        var alpha = 255;
+        foreach (var modifier in colorElement.Elements())
+        {
+            if (!int.TryParse(modifier.Attribute("val")?.Value, NumberStyles.Integer,
+                    CultureInfo.InvariantCulture, out var value))
+                continue;
+            switch (modifier.Name.LocalName)
+            {
+                case "lumMod":
+                case "shade":
+                    r = Math.Clamp((int)Math.Round(r * value / 100000.0), 0, 255);
+                    g = Math.Clamp((int)Math.Round(g * value / 100000.0), 0, 255);
+                    b = Math.Clamp((int)Math.Round(b * value / 100000.0), 0, 255);
+                    break;
+                case "lumOff":
+                    r = Math.Clamp((int)Math.Round(r + 255 * value / 100000.0), 0, 255);
+                    g = Math.Clamp((int)Math.Round(g + 255 * value / 100000.0), 0, 255);
+                    b = Math.Clamp((int)Math.Round(b + 255 * value / 100000.0), 0, 255);
+                    break;
+                case "alpha":
+                    alpha = Math.Clamp((int)Math.Round(value / 100000.0 * 255), 0, 255);
+                    break;
+            }
+        }
+        return alpha == 255
+            ? $"#{r:X2}{g:X2}{b:X2}"
+            : $"#{r:X2}{g:X2}{b:X2}{alpha:X2}";
     }
 
     private static string? Val(XElement? element) => element?.Attribute("val")?.Value;

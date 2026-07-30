@@ -181,7 +181,10 @@ namespace PptxEditor.Core.Converters.SmartArt;
             // fit-scaled the whole diagram to 0.63).
             var prstGeom = GetChild(spPr, "prstGeom", DrawingmlNs);
             var prstValue = prstGeom == null ? null : ReadAttribute(prstGeom, "prst");
-            if (string.IsNullOrEmpty(prstValue) || !PresetGeometryMap.ContainsKey(prstValue))
+            var customGeom = GetChild(spPr, "custGeom", DrawingmlNs);
+            if (string.IsNullOrEmpty(prstValue)
+                ? !HasRenderableCustomGeometry(customGeom)
+                : !PresetGeometryMap.ContainsKey(prstValue))
                 continue;
 
             // A stroke-only connector arc (noFill blockArc) is clipped to the frame
@@ -445,7 +448,11 @@ namespace PptxEditor.Core.Converters.SmartArt;
         // definition per shape so a:avLst adjustments (and the shape aspect ratio)
         // are honored; everything else uses the static normalized polygon table.
         List<(double, double)>? points = null;
-        if (UsesPerShapeGeometry(geometry.ShapeType))
+        if (geometry.ShapeType == ShapeType.Custom)
+        {
+            points = geometry.CustomPoints?.ToList();
+        }
+        else if (UsesPerShapeGeometry(geometry.ShapeType))
         {
             points = SmartArtPresetGeometry.TryBuildNormalizedPoints(
                 geometry.PrstName, geometry.Width, geometry.Height, geometry.Adjustments);
@@ -454,6 +461,7 @@ namespace PptxEditor.Core.Converters.SmartArt;
         points ??= PolygonPoints.TryGetValue(geometry.ShapeType, out var pts)
             ? pts
             : new List<(double, double)> { (0, 0), (1, 0), (1, 1), (0, 1) };
+        points = ApplyPointFlips(points, geometry.FlipHorizontal, geometry.FlipVertical);
 
         return new TypstElement
         {
@@ -491,12 +499,12 @@ namespace PptxEditor.Core.Converters.SmartArt;
             return null;
 
         var rotationDeg = ReadRotation(xfrm);
-
-        // NOTE: xfrm flipH/flipV are not applied — mirrored diagram shapes render
-        // unflipped (documented in docs/SMARTART-REPORT.md §4.4 known limitations).
+        var flipH = ReadAttribute(xfrm, "flipH") is "1" or "true";
+        var flipV = ReadAttribute(xfrm, "flipV") is "1" or "true";
 
         var prstGeom = GetChild(spPr, "prstGeom", DrawingmlNs);
-        if (prstGeom == null) return null;
+        if (prstGeom == null)
+            return ReadCustomGeometry(spPr, offsetX.Value, offsetY.Value, width.Value, height.Value, rotationDeg, flipH, flipV);
 
         var prstValue = ReadAttribute(prstGeom, "prst");
         if (string.IsNullOrEmpty(prstValue)) return null;
@@ -526,8 +534,65 @@ namespace PptxEditor.Core.Converters.SmartArt;
             Width = width.Value,
             Height = height.Value,
             Rotation = rotationDeg,
+            FlipHorizontal = flipH,
+            FlipVertical = flipV,
             CornerRadius = cornerRadius
         };
+    }
+
+    private static bool HasRenderableCustomGeometry(OpenXmlElement? custGeom)
+        => custGeom?.Descendants().Any(e => e.LocalName is "moveTo" or "lnTo") == true;
+
+    private static double? ParseDouble(string? value)
+        => double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var result)
+            ? result
+            : null;
+
+    private static List<(double X, double Y)> ApplyPointFlips(
+        IEnumerable<(double X, double Y)> points, bool flipH, bool flipV)
+        => points.Select(p => (
+            flipH ? 1.0 - p.X : p.X,
+            flipV ? 1.0 - p.Y : p.Y)).ToList();
+
+    private static DiagramGeometry? ReadCustomGeometry(OpenXmlElement spPr,
+        double offsetX, double offsetY, double width, double height, double? rotation,
+        bool flipH, bool flipV)
+    {
+        var custGeom = GetChild(spPr, "custGeom", DrawingmlNs);
+        var pathList = GetChild(custGeom ?? spPr, "pathLst", DrawingmlNs);
+        var path = pathList?.Elements().FirstOrDefault(e => e.LocalName == "path");
+        if (path == null)
+            return null;
+
+        var pathWidth = ParseDouble(ReadAttribute(path, "w")) ?? 1;
+        var pathHeight = ParseDouble(ReadAttribute(path, "h")) ?? 1;
+        var points = new List<(double X, double Y)>();
+        foreach (var command in path.ChildElements)
+        {
+            if (command.LocalName is not ("moveTo" or "lnTo"))
+                continue;
+            var point = command.ChildElements.FirstOrDefault(e => e.LocalName == "pt");
+            if (point == null)
+                continue;
+            var px = ParseDouble(ReadAttribute(point, "x")) ?? 0;
+            var py = ParseDouble(ReadAttribute(point, "y")) ?? 0;
+            points.Add((Math.Clamp(px / pathWidth, 0, 1), Math.Clamp(py / pathHeight, 0, 1)));
+        }
+        return points.Count >= 2
+            ? new DiagramGeometry
+            {
+                ShapeType = ShapeType.Custom,
+                PrstName = "custGeom",
+                CustomPoints = points,
+                OffsetX = offsetX,
+                OffsetY = offsetY,
+                Width = width,
+                Height = height,
+                Rotation = rotation,
+                FlipHorizontal = flipH,
+                FlipVertical = flipV
+            }
+            : null;
     }
 
     /// <summary>
@@ -847,6 +912,9 @@ namespace PptxEditor.Core.Converters.SmartArt;
         public double Height { get; init; }
         public double? Rotation { get; init; }
         public double CornerRadius { get; init; }
+        public IReadOnlyList<(double X, double Y)>? CustomPoints { get; init; }
+        public bool FlipHorizontal { get; init; }
+        public bool FlipVertical { get; init; }
     }
 
     private enum ShapeType
@@ -879,6 +947,7 @@ namespace PptxEditor.Core.Converters.SmartArt;
         UpArrowCallout,
         Pie,
         PieWedge,
-        Round2DiagRect
+        Round2DiagRect,
+        Custom
     }
 }
