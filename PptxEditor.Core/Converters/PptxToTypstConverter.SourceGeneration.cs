@@ -1197,13 +1197,6 @@ public sealed partial class PptxToTypstConverter
 
         switch (shape.ShapeType)
         {
-            case "line":
-                var lineLength = Math.Sqrt(width * width + height * height);
-                var lineAngle = Math.Atan2(height, width) * 180.0 / Math.PI;
-                sb.Append($"#line(length: {FormatPt(lineLength)}, angle: {lineAngle.ToString("F2", CultureInfo.InvariantCulture)}deg");
-                if (!string.IsNullOrEmpty(stroke)) sb.Append($", {stroke}");
-                sb.Append(")");
-                break;
             case "rect":
                 sb.Append($"#rect(width: {widthStr}, height: {heightStr}");
                 if (!string.IsNullOrEmpty(fill)) sb.Append($", {fill}");
