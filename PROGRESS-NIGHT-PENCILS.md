@@ -1,0 +1,42 @@
+# Night Pencils — Progress
+
+Branch: `wip/night-pencils` · 2026-07-28
+
+## Baseline
+
+Measured with `scripts/rmse.py --force` against the supplied PDF renders:
+
+| Deck | Slides | Mean | Worst |
+|---|---:|---:|---:|
+| Pencil-Standard (4:3) | 22 | 5.4% | s22 10.7% |
+| Pencil-Wide (16:9) | 22 | 6.0% | s22 12.9% |
+
+All 44 slides were enumerated. Slides 1–21 are in the expected 4–7% raster/font
+noise band; slide 22 is the only recurring structural outlier and was visually
+inspected in both twins.
+
+## Fix batch 1
+
+- Layout/master override matching now scopes bounds across shapes, pictures,
+  connectors, graphic frames, and groups instead of only `p:sp` shapes.
+- Zero-width/zero-height `p:cxnSp` connectors now emit Typst `line` primitives
+  with their stroke, preserving vertical and horizontal rules.
+- Paragraph-level `a:hlinkClick` is applied to every paragraph run (theme link
+  color when available plus underline), with an OuterXml fallback for SDK
+  child-model differences.
+- Run-level hyperlink detection also has an OuterXml fallback; hyperlink emission
+  now wraps the text in Typst `#underline[...]` as well as applying the theme color.
+- Shadow copies preserve multi-subpath geometry, so holes remain holes.
+- Added synthetic regression coverage in
+  `DocxEditor.Tests/Unit/PptxToTypstConverterNightPencilTests.cs`.
+
+## Verification
+
+- Targeted night-pencil tests: 3 passed.
+- Direct Standard render visibly matches the reference footer link color and underline.
+- `PptxEditor.Core` build: 0 warnings, 0 errors.
+- Full solution build: 0 warnings, 0 errors.
+- Full solution tests: 1924 passed, 0 failed, 0 skipped.
+- Final RMSE: Standard mean 5.4% (s22 10.7%); Wide mean 6.0% (s22 12.9%).
+- Final visual sweep of all 44 slides found no non-font structural mismatch;
+  slide 22 footer link now matches the PDF reference in teal and underlined.
