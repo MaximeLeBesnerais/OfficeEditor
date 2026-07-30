@@ -858,7 +858,6 @@ public sealed partial class PptxToTypstConverter : IDisposable
         var shapeElement = ExtractShapeGeometry(shape.ShapeProperties, styleResolver, finalW, finalH, groupFill);
         shapeElement = ApplyPlaceholderShapeStyleInheritance(shape, shapeElement, styleResolver);
         shapeElement = ApplyStyleReferenceFillAndStroke(shape, shapeElement, styleResolver);
-        shapeElement = ApplyShapeFlips(shape.ShapeProperties, shapeElement);
         if (shapeElement != null && (!string.IsNullOrEmpty(shapeElement.FillColor)
             || shapeElement.FillGradient != null
             || (!string.IsNullOrEmpty(shapeElement.StrokeColor) && shapeElement.StrokeWidth > 0)))
@@ -1503,8 +1502,10 @@ public sealed partial class PptxToTypstConverter : IDisposable
         if (xfrm == null)
             return shape;
 
-        var flipH = Regex.IsMatch(xfrm.OuterXml, @"\bflipH\s*=\s*""(?:1|true)""", RegexOptions.IgnoreCase);
-        var flipV = Regex.IsMatch(xfrm.OuterXml, @"\bflipV\s*=\s*""(?:1|true)""", RegexOptions.IgnoreCase);
+        var flipH = xfrm.HorizontalFlip?.Value == true
+            || Regex.IsMatch(xfrm.OuterXml, @"\bflipH\s*=\s*""(?:1|true)""", RegexOptions.IgnoreCase);
+        var flipV = xfrm.VerticalFlip?.Value == true
+            || Regex.IsMatch(xfrm.OuterXml, @"\bflipV\s*=\s*""(?:1|true)""", RegexOptions.IgnoreCase);
         if (!flipH && !flipV)
             return shape;
 
@@ -2514,7 +2515,6 @@ public sealed partial class PptxToTypstConverter : IDisposable
         var finalH = position.Height * scaleY;
 
         var shapeElement = ExtractShapeGeometry(connectionShape.ShapeProperties, styleResolver, finalW, finalH, groupFill);
-        shapeElement = ApplyShapeFlips(connectionShape.ShapeProperties, shapeElement);
         if (shapeElement == null || (string.IsNullOrEmpty(shapeElement.FillColor)
             && shapeElement.FillGradient == null
             && (string.IsNullOrEmpty(shapeElement.StrokeColor) || shapeElement.StrokeWidth <= 0)))

@@ -110,7 +110,7 @@ public sealed class PptxToTypstConverterNightTests : IDisposable
         var presentation = converter.Convert();
         var shape = Assert.Single(presentation.Slides[0].Elements, e => e.Type == "Shape");
         Assert.Equal("line", shape.Shape!.ShapeType);
-        Assert.Contains("#line(length:", converter.GenerateTypstSource(presentation));
+        Assert.Contains("#line(start:", converter.GenerateTypstSource(presentation));
     }
 
     [Fact]
