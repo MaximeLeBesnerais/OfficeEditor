@@ -922,7 +922,7 @@ public sealed class SmartArtDrawingExtractorTests
     }
 
     [Fact]
-    public void Extract_LinePreset_ReturnsRectShape()
+    public void Extract_LinePreset_ReturnsLineShape()
     {
         var xml = $@"
 <dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
@@ -938,6 +938,7 @@ public sealed class SmartArtDrawingExtractorTests
       <a:solidFill>
         <a:srgbClr val=""C00000""/>
       </a:solidFill>
+      <a:tailEnd type=""triangle""/>
     </a:ln>
   </dsp:spPr>
 </dsp:sp>";
@@ -950,9 +951,65 @@ public sealed class SmartArtDrawingExtractorTests
 
         Assert.NotNull(result);
         Assert.NotNull(result.Shape);
-        Assert.Equal("rect", result.Shape.ShapeType);
+        Assert.Equal("line", result.Shape.ShapeType);
+        Assert.Equal((0.0, 0.0), result.Shape.Points[0]);
+        Assert.Equal((1.0, 1.0), result.Shape.Points[1]);
         Assert.Equal("#C00000", result.Shape.StrokeColor);
         Assert.True(result.Shape.StrokeWidth > 0);
+        Assert.True(result.Shape.ArrowAtEnd);
+    }
+
+    [Theory]
+    [InlineData(0, 1270000, 0.5, 0.0, 0.5, 1.0)]
+    [InlineData(1270000, 0, 0.0, 0.5, 1.0, 0.5)]
+    public void Extract_LinePreset_UsesZeroExtentAsAxis(
+        long cx, long cy, double startX, double startY, double endX, double endY)
+    {
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}""><dsp:spPr>
+  <a:xfrm><a:off x=""0"" y=""0""/><a:ext cx=""{cx}"" cy=""{cy}""/></a:xfrm>
+  <a:prstGeom prst=""line""><a:avLst/></a:prstGeom>
+  <a:ln><a:solidFill><a:srgbClr val=""000000""/></a:solidFill></a:ln>
+</dsp:spPr></dsp:sp>";
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            ParseXml(xml), offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 100, shapeH: 100);
+
+        Assert.NotNull(result?.Shape);
+        Assert.Equal((startX, startY), result!.Shape!.Points[0]);
+        Assert.Equal((endX, endY), result.Shape.Points[1]);
+    }
+
+    [Fact]
+    public void Extract_CustomGeometry_UsesPathCoordinateSpaceAndKeepsContours()
+    {
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}""><dsp:spPr>
+  <a:xfrm><a:off x=""0"" y=""0""/><a:ext cx=""1270000"" cy=""1270000""/></a:xfrm>
+  <a:custGeom>
+    <a:avLst/><a:gdLst/><a:ahLst/><a:cxnLst/><a:rect l=""0"" t=""0"" r=""0"" b=""0""/>
+    <a:pathLst><a:path w=""200"" h=""100""><a:moveTo><a:pt x=""0"" y=""0""/></a:moveTo>
+      <a:lnTo><a:pt x=""200"" y=""100""/></a:lnTo><a:close/>
+      <a:moveTo><a:pt x=""50"" y=""25""/></a:moveTo>
+      <a:lnTo><a:pt x=""150"" y=""25""/></a:lnTo>
+    </a:path></a:pathLst>
+  </a:custGeom>
+  <a:solidFill><a:srgbClr val=""123456""/></a:solidFill>
+</dsp:spPr></dsp:sp>";
+
+        var result = SmartArtDrawingExtractor.TryExtractShape(
+            ParseXml(xml), offX: 0, offY: 0, scaleX: 1.0, scaleY: 1.0,
+            frameX: 0, frameY: 0, shapeW: 100, shapeH: 100);
+
+        Assert.NotNull(result?.Shape);
+        Assert.Equal("path", result!.Shape!.ShapeType);
+        Assert.Equal(2, result.Shape.Subpaths.Count);
+        Assert.Equal((0.0, 0.0), result.Shape.Subpaths[0][0]);
+        Assert.Equal((1.0, 1.0), result.Shape.Subpaths[0][1]);
+        Assert.Equal((0.25, 0.25), result.Shape.Subpaths[1][0]);
+        Assert.Equal((0.75, 0.25), result.Shape.Subpaths[1][1]);
+        Assert.Equal([true, false], result.Shape.ClosedSubpaths);
     }
 
     [Fact]

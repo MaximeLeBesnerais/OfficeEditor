@@ -1213,12 +1213,47 @@ public sealed partial class PptxToTypstConverter
             case "line":
                 // OOXML cxnSp/prst=line often has a zero extent on one axis;
                 // #line preserves the stroke even when a rect would have no area.
-                var endX = FormatPt(width);
-                var endY = FormatPt(height);
+                var linePoints = shape.Points.Count >= 2
+                    ? shape.Points
+                    : new List<(double X, double Y)> { (0, 0), (1, 1) };
+                var (lineStartX, lineStartY) = linePoints[0];
+                var (lineEndX, lineEndY) = linePoints[^1];
                 var lineStroke = !string.IsNullOrEmpty(stroke)
                     ? stroke
-                    : "stroke: 1pt + rgb(\"#000000\")";
-                sb.Append($"#line(start: (0pt, 0pt), end: ({endX}, {endY}), {lineStroke})");
+                    : shape.NoStroke ? "stroke: none" : "stroke: 1pt + rgb(\"#000000\")";
+                sb.Append($"#line(start: ({FormatPt(lineStartX * width)}, {FormatPt(lineStartY * height)}), end: ({FormatPt(lineEndX * width)}, {FormatPt(lineEndY * height)}), {lineStroke})");
+                if (shape.ArrowAtEnd)
+                    AppendArrowHead(sb, linePoints, width, height, shape.StrokeColor, shape.StrokeWidth);
+                break;
+            case "path":
+                var pathSubpaths = shape.Subpaths.Count > 0
+                    ? shape.Subpaths
+                    : new List<List<(double X, double Y)>> { shape.Points };
+                var renderablePaths = pathSubpaths.Where(path => path.Count >= 2).ToList();
+                if (renderablePaths.Count > 0)
+                {
+                    sb.Append("#curve(");
+                    if (!string.IsNullOrEmpty(fill)) sb.Append(fill);
+                    if (!string.IsNullOrEmpty(stroke)) sb.Append(string.IsNullOrEmpty(fill) ? stroke : $", {stroke}");
+                    if (string.IsNullOrEmpty(fill) && string.IsNullOrEmpty(stroke))
+                        sb.Append(shape.NoStroke ? "stroke: none" : "fill: none");
+                    for (var pathIndex = 0; pathIndex < renderablePaths.Count; pathIndex++)
+                    {
+                        var path = renderablePaths[pathIndex];
+                        for (var pointIndex = 0; pointIndex < path.Count; pointIndex++)
+                        {
+                            var (px, py) = path[pointIndex];
+                            sb.Append($", curve.{(pointIndex == 0 ? "move" : "line")}(({FormatPt(px * width)}, {FormatPt(py * height)}))");
+                        }
+
+                        var closed = pathIndex < shape.ClosedSubpaths.Count && shape.ClosedSubpaths[pathIndex];
+                        if (closed)
+                            sb.Append(", curve.close(mode: \"straight\")");
+                    }
+                    sb.Append(")");
+                    if (shape.ArrowAtEnd)
+                        AppendArrowHead(sb, renderablePaths[^1], width, height, shape.StrokeColor, shape.StrokeWidth);
+                }
                 break;
             case "polygon":
                 // Typst rejects a leading empty argument ("#polygon(, ...)"), so the
@@ -1295,6 +1330,29 @@ public sealed partial class PptxToTypstConverter
                     sb.Append("]");
                 break;
         }
+    }
+
+    private static void AppendArrowHead(StringBuilder sb, List<(double X, double Y)> points,
+        double width, double height, string color, double strokeWidth)
+    {
+        if (points.Count < 2) return;
+        color = string.IsNullOrEmpty(color) ? "#000000" : color;
+        var (x1, y1) = points[^2];
+        var (x2, y2) = points[^1];
+        var dx = x2 * width - x1 * width;
+        var dy = y2 * height - y1 * height;
+        var length = Math.Sqrt(dx * dx + dy * dy);
+        if (length < 0.01) return;
+        dx /= length;
+        dy /= length;
+        var size = Math.Max(3.5, Math.Max(strokeWidth, 1.0) * 4);
+        var baseX = x2 * width - dx * size;
+        var baseY = y2 * height - dy * size;
+        var perpX = -dy * size * 0.45;
+        var perpY = dx * size * 0.45;
+        var tipX = x2 * width;
+        var tipY = y2 * height;
+        sb.Append($"#place(dx: {FormatPt(tipX)}, dy: {FormatPt(tipY)})[#polygon(fill: rgb(\"{color}\"), (0pt, 0pt), ({FormatPt(baseX + perpX - tipX)}, {FormatPt(baseY + perpY - tipY)}), ({FormatPt(baseX - perpX - tipX)}, {FormatPt(baseY - perpY - tipY)}))]");
     }
 
     private static string FormatGradient(TypstGradientFill gradient)
