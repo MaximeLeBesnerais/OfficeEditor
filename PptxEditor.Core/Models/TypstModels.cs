@@ -220,8 +220,12 @@ public sealed class TypstShapeElement
     /// converter does not resolve, so the previous emission is preserved.
     /// </summary>
     public bool NoStroke { get; init; }
+    /// <summary>Whether the source line/path carries an arrowhead at its end.</summary>
+    public bool ArrowAtEnd { get; init; }
     public double CornerRadius { get; init; }
     public List<(double X, double Y)> Points { get; init; } = new();
+    /// <summary>Whether each custom-path contour is explicitly closed in DrawingML.</summary>
+    public List<bool> ClosedSubpaths { get; init; } = new();
     /// <summary>
     /// Multi-contour polygon (custGeom with several moveTo subpaths, e.g. a ring whose
     /// hole must stay transparent). When more than one subpath is present the shape is
