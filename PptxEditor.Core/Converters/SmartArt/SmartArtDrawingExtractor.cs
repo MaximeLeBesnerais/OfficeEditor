@@ -34,7 +34,7 @@ namespace PptxEditor.Core.Converters.SmartArt;
         ["diamond"] = (ShapeType.Diamond, null),
         ["pentagon"] = (ShapeType.Pentagon, null),
         ["hexagon"] = (ShapeType.Hexagon, null),
-        ["line"] = (ShapeType.Rect, null),
+        ["line"] = (ShapeType.Line, null),
         ["downArrow"] = (ShapeType.DownArrow, null),
         ["upArrow"] = (ShapeType.UpArrow, null),
         ["leftArrow"] = (ShapeType.LeftArrow, null),
@@ -384,6 +384,7 @@ namespace PptxEditor.Core.Converters.SmartArt;
             }
         }
         var (strokeColor, strokeWidth) = ReadStroke(spPr, schemeColors);
+        var arrowAtEnd = ReadArrowAtEnd(spPr);
         // Cached drawing shapes carry their styling inline; a missing or fill-less
         // a:ln means "no border" in PowerPoint. Flag it so the Typst emitter writes
         // an explicit stroke: none instead of inheriting Typst's 1pt black default
@@ -412,11 +413,66 @@ namespace PptxEditor.Core.Converters.SmartArt;
                     FillGradient = fillGradient,
                     StrokeColor = strokeColor ?? string.Empty,
                     StrokeWidth = strokeWidth,
-                    NoStroke = noStroke
+                    NoStroke = noStroke,
+                    ArrowAtEnd = arrowAtEnd
                 }
             },
 
+            ShapeType.Line => BuildLine(x, y, w, h, rotation, fillColor, fillGradient, strokeColor, strokeWidth, noStroke, arrowAtEnd, modelId),
+
+            ShapeType.Custom => BuildCustomPath(x, y, w, h, rotation, fillColor, fillGradient, strokeColor, strokeWidth, noStroke, arrowAtEnd, geometry, modelId),
+
             _ => BuildPolygon(x, y, w, h, rotation, fillColor, fillGradient, strokeColor, strokeWidth, noStroke, geometry, modelId)
+        };
+    }
+
+    private static TypstElement BuildLine(double x, double y, double w, double h, double rotation,
+        string? fillColor, TypstGradientFill? fillGradient, string? strokeColor, double strokeWidth,
+        bool noStroke, bool arrowAtEnd, string? modelId)
+    {
+        var points = w <= 0.01
+            ? new List<(double, double)> { (0.5, 0), (0.5, 1) }
+            : h <= 0.01
+                ? new List<(double, double)> { (0, 0.5), (1, 0.5) }
+                : new List<(double, double)> { (0, 0), (1, 1) };
+        return new TypstElement
+        {
+            Type = "Shape", X = x, Y = y, Width = w, Height = h, Rotation = rotation, ModelId = modelId,
+            Shape = new TypstShapeElement
+            {
+                ShapeType = "line", FillColor = fillColor ?? string.Empty, FillGradient = fillGradient,
+                StrokeColor = strokeColor ?? string.Empty, StrokeWidth = strokeWidth, NoStroke = noStroke,
+                Points = points, ArrowAtEnd = arrowAtEnd
+            }
+        };
+    }
+
+    private static TypstElement BuildCustomPath(double x, double y, double w, double h, double rotation,
+        string? fillColor, TypstGradientFill? fillGradient, string? strokeColor, double strokeWidth,
+        bool noStroke, bool arrowAtEnd, DiagramGeometry geometry, string? modelId)
+    {
+        var paths = geometry.CustomPaths.Count > 0
+            ? geometry.CustomPaths
+                .Select(path => ApplyPointFlips(path, geometry.FlipHorizontal, geometry.FlipVertical))
+                .ToList()
+            : geometry.CustomPoints is null
+                ? []
+                : new List<List<(double X, double Y)>>
+                {
+                    ApplyPointFlips(geometry.CustomPoints, geometry.FlipHorizontal, geometry.FlipVertical)
+                };
+
+        return new TypstElement
+        {
+            Type = "Shape", X = x, Y = y, Width = w, Height = h, Rotation = rotation, ModelId = modelId,
+            Shape = new TypstShapeElement
+            {
+                ShapeType = "path", FillColor = fillColor ?? string.Empty, FillGradient = fillGradient,
+                StrokeColor = strokeColor ?? string.Empty, StrokeWidth = strokeWidth, NoStroke = noStroke,
+                Points = paths.FirstOrDefault() ?? [], Subpaths = paths,
+                ClosedSubpaths = geometry.ClosedSubpaths,
+                ArrowAtEnd = arrowAtEnd
+            }
         };
     }
 
@@ -541,7 +597,7 @@ namespace PptxEditor.Core.Converters.SmartArt;
     }
 
     private static bool HasRenderableCustomGeometry(OpenXmlElement? custGeom)
-        => custGeom?.Descendants().Any(e => e.LocalName is "moveTo" or "lnTo") == true;
+        => custGeom?.Descendants().Any(e => e.LocalName is "moveTo" or "lnTo" or "cubicBezTo" or "quadBezTo" or "arcTo") == true;
 
     private static double? ParseDouble(string? value)
         => double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var result)
@@ -560,30 +616,149 @@ namespace PptxEditor.Core.Converters.SmartArt;
     {
         var custGeom = GetChild(spPr, "custGeom", DrawingmlNs);
         var pathList = GetChild(custGeom ?? spPr, "pathLst", DrawingmlNs);
-        var path = pathList?.Elements().FirstOrDefault(e => e.LocalName == "path");
-        if (path == null)
+        if (pathList == null)
             return null;
 
-        var pathWidth = ParseDouble(ReadAttribute(path, "w")) ?? 1;
-        var pathHeight = ParseDouble(ReadAttribute(path, "h")) ?? 1;
-        var points = new List<(double X, double Y)>();
-        foreach (var command in path.ChildElements)
+        var paths = new List<List<(double X, double Y)>>();
+        var closedSubpaths = new List<bool>();
+        foreach (var path in pathList.Elements().Where(e => e.LocalName == "path" && e.NamespaceUri == DrawingmlNs))
         {
-            if (command.LocalName is not ("moveTo" or "lnTo"))
-                continue;
-            var point = command.ChildElements.FirstOrDefault(e => e.LocalName == "pt");
-            if (point == null)
-                continue;
-            var px = ParseDouble(ReadAttribute(point, "x")) ?? 0;
-            var py = ParseDouble(ReadAttribute(point, "y")) ?? 0;
-            points.Add((Math.Clamp(px / pathWidth, 0, 1), Math.Clamp(py / pathHeight, 0, 1)));
+            var pathWidth = ParseDouble(ReadAttribute(path, "w")) is > 0
+                ? ParseDouble(ReadAttribute(path, "w"))!.Value
+                : Math.Max(width, 1);
+            var pathHeight = ParseDouble(ReadAttribute(path, "h")) is > 0
+                ? ParseDouble(ReadAttribute(path, "h"))!.Value
+                : Math.Max(height, 1);
+            var points = new List<(double X, double Y)>();
+            double currentX = 0, currentY = 0;
+            var isClosed = false;
+
+            void AddPoint(double pointX, double pointY)
+                => points.Add((Math.Clamp(pointX / pathWidth, 0, 1), Math.Clamp(pointY / pathHeight, 0, 1)));
+
+            void FlushSubpath()
+            {
+                if (points.Count >= 2)
+                {
+                    paths.Add(points);
+                    closedSubpaths.Add(isClosed);
+                }
+
+                points = new List<(double X, double Y)>();
+                isClosed = false;
+            }
+
+            foreach (var command in path.ChildElements)
+            {
+                switch (command.LocalName)
+                {
+                    case "moveTo":
+                    {
+                        FlushSubpath();
+                        var point = GetPathPoint(command);
+                        if (point == null) continue;
+                        currentX = point.Value.X;
+                        currentY = point.Value.Y;
+                        AddPoint(currentX, currentY);
+                        break;
+                    }
+                    case "lnTo":
+                    {
+                        var point = GetPathPoint(command);
+                        if (point == null) continue;
+                        currentX = point.Value.X;
+                        currentY = point.Value.Y;
+                        AddPoint(currentX, currentY);
+                        break;
+                    }
+                    case "cubicBezTo":
+                    {
+                        var bezierPoints = command.ChildElements
+                            .Where(e => e.LocalName == "pt" && e.NamespaceUri == DrawingmlNs)
+                            .Select(GetPathPoint)
+                            .Where(p => p.HasValue)
+                            .Select(p => p!.Value)
+                            .ToList();
+                        if (bezierPoints.Count < 3) continue;
+                        var (c1x, c1y) = bezierPoints[0];
+                        var (c2x, c2y) = bezierPoints[1];
+                        var (endX, endY) = bezierPoints[2];
+                        for (var i = 1; i <= 8; i++)
+                        {
+                            var t = i / 8.0;
+                            var mt = 1 - t;
+                            var pointX = mt * mt * mt * currentX + 3 * mt * mt * t * c1x
+                                + 3 * mt * t * t * c2x + t * t * t * endX;
+                            var pointY = mt * mt * mt * currentY + 3 * mt * mt * t * c1y
+                                + 3 * mt * t * t * c2y + t * t * t * endY;
+                            AddPoint(pointX, pointY);
+                        }
+                        currentX = endX;
+                        currentY = endY;
+                        break;
+                    }
+                    case "quadBezTo":
+                    {
+                        var bezierPoints = command.ChildElements
+                            .Where(e => e.LocalName == "pt" && e.NamespaceUri == DrawingmlNs)
+                            .Select(GetPathPoint)
+                            .Where(p => p.HasValue)
+                            .Select(p => p!.Value)
+                            .ToList();
+                        if (bezierPoints.Count < 2) continue;
+                        var (controlX, controlY) = bezierPoints[0];
+                        var (endX, endY) = bezierPoints[1];
+                        for (var i = 1; i <= 8; i++)
+                        {
+                            var t = i / 8.0;
+                            var mt = 1 - t;
+                            var pointX = mt * mt * currentX + 2 * mt * t * controlX + t * t * endX;
+                            var pointY = mt * mt * currentY + 2 * mt * t * controlY + t * t * endY;
+                            AddPoint(pointX, pointY);
+                        }
+                        currentX = endX;
+                        currentY = endY;
+                        break;
+                    }
+                    case "arcTo":
+                    {
+                        if (!TryReadDouble(command, "wR", out var radiusX)
+                            || !TryReadDouble(command, "hR", out var radiusY)
+                            || !TryReadDouble(command, "stAng", out var startAngle)
+                            || !TryReadDouble(command, "swAng", out var sweepAngle))
+                            continue;
+
+                        var startRadians = startAngle / 60000.0 * Math.PI / 180.0;
+                        var sweepRadians = sweepAngle / 60000.0 * Math.PI / 180.0;
+                        var centreX = currentX - radiusX * Math.Cos(startRadians);
+                        var centreY = currentY - radiusY * Math.Sin(startRadians);
+                        var segments = Math.Max(2, (int)Math.Ceiling(Math.Abs(sweepRadians) / (Math.PI / 18)));
+                        for (var i = 1; i <= segments; i++)
+                        {
+                            var angle = startRadians + sweepRadians * i / segments;
+                            AddPoint(centreX + radiusX * Math.Cos(angle), centreY + radiusY * Math.Sin(angle));
+                        }
+                        currentX = centreX + radiusX * Math.Cos(startRadians + sweepRadians);
+                        currentY = centreY + radiusY * Math.Sin(startRadians + sweepRadians);
+                        break;
+                    }
+                    case "close":
+                        isClosed = true;
+                        break;
+                }
+            }
+
+            FlushSubpath();
         }
-        return points.Count >= 2
+
+        return paths.Count > 0
             ? new DiagramGeometry
             {
                 ShapeType = ShapeType.Custom,
                 PrstName = "custGeom",
-                CustomPoints = points,
+                CustomPoints = paths[0],
+                CustomPaths = paths,
+                ClosedSubpaths = closedSubpaths,
                 OffsetX = offsetX,
                 OffsetY = offsetY,
                 Width = width,
@@ -593,6 +768,22 @@ namespace PptxEditor.Core.Converters.SmartArt;
                 FlipVertical = flipV
             }
             : null;
+    }
+
+    private static (double X, double Y)? GetPathPoint(OpenXmlElement command)
+    {
+        var point = command.LocalName == "pt"
+            ? command
+            : command.Elements().FirstOrDefault(e => e.LocalName == "pt" && e.NamespaceUri == DrawingmlNs);
+        if (point == null || !TryReadDouble(point, "x", out var x) || !TryReadDouble(point, "y", out var y))
+            return null;
+        return (x, y);
+    }
+
+    private static bool TryReadDouble(OpenXmlElement element, string attributeName, out double value)
+    {
+        var text = ReadAttribute(element, attributeName);
+        return double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
     }
 
     /// <summary>
@@ -755,6 +946,15 @@ namespace PptxEditor.Core.Converters.SmartArt;
         return (null, strokeWidth);
     }
 
+    private static bool ReadArrowAtEnd(OpenXmlElement spPr)
+    {
+        var ln = GetChild(spPr, "ln", DrawingmlNs);
+        if (ln == null) return false;
+        var end = GetChild(ln, "tailEnd", DrawingmlNs) ?? GetChild(ln, "headEnd", DrawingmlNs);
+        var type = end == null ? null : ReadAttribute(end, "type");
+        return !string.IsNullOrEmpty(type) && !type.Equals("none", StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>
     /// Applies OOXML colour transforms (<c>a:tint</c>, <c>a:shade</c>, <c>a:lumMod</c>,
     /// <c>a:lumOff</c>, <c>a:alpha</c>) in document order. <c>a:tint</c> delegates to
@@ -913,6 +1113,8 @@ namespace PptxEditor.Core.Converters.SmartArt;
         public double? Rotation { get; init; }
         public double CornerRadius { get; init; }
         public IReadOnlyList<(double X, double Y)>? CustomPoints { get; init; }
+        public List<List<(double X, double Y)>> CustomPaths { get; init; } = [];
+        public List<bool> ClosedSubpaths { get; init; } = [];
         public bool FlipHorizontal { get; init; }
         public bool FlipVertical { get; init; }
     }
@@ -948,6 +1150,7 @@ namespace PptxEditor.Core.Converters.SmartArt;
         Pie,
         PieWedge,
         Round2DiagRect,
+        Line,
         Custom
     }
 }

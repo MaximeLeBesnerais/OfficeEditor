@@ -139,6 +139,125 @@ public sealed class PptxToTypstConverterShapeGeometryTests : IDisposable
         Assert.Contains("#polygon(fill: none, ", source);
     }
 
+    [Fact]
+    public void GenerateTypstSource_LineShape_PreservesEndpointsAndNoStroke()
+    {
+        var path = CreateDeck();
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = new TypstPresentation
+        {
+            Slides =
+            {
+                new TypstSlide
+                {
+                    Layout = new PptxEditor.Core.Models.SlideLayout { Width = 200, Height = 100 },
+                    Elements =
+                    {
+                        new TypstElement
+                        {
+                            Type = "Shape", Width = 100, Height = 50,
+                            Shape = new TypstShapeElement
+                            {
+                                ShapeType = "line",
+                                NoStroke = true,
+                                Points = { (0, 0), (1, 1) }
+                            }
+                        }
+                    }
+                }
+            }
+        };
+
+        var source = converter.GenerateTypstSource(presentation);
+
+        Assert.Contains("#line(start: (0.00pt, 0.00pt), end: (100.00pt, 50.00pt), stroke: none)", source);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_LineShape_PlacesArrowheadAtEndpoint()
+    {
+        var path = CreateDeck();
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = new TypstPresentation
+        {
+            Slides =
+            {
+                new TypstSlide
+                {
+                    Layout = new PptxEditor.Core.Models.SlideLayout { Width = 200, Height = 100 },
+                    Elements =
+                    {
+                        new TypstElement
+                        {
+                            Type = "Shape", Width = 100, Height = 50,
+                            Shape = new TypstShapeElement
+                            {
+                                ShapeType = "line",
+                                StrokeColor = "#123456",
+                                StrokeWidth = 2,
+                                Points = { (0, 0.5), (1, 0.5) },
+                                ArrowAtEnd = true
+                            }
+                        }
+                    }
+                }
+            }
+        };
+
+        var source = converter.GenerateTypstSource(presentation);
+
+        Assert.Contains("#place(dx: 100.00pt, dy: 25.00pt)[#polygon(fill: rgb(\"#123456\"), (0pt, 0pt)", source);
+    }
+
+    [Fact]
+    public void GenerateTypstSource_CustomPath_EmitsEveryContourAndClosure()
+    {
+        var path = CreateDeck();
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var presentation = new TypstPresentation
+        {
+            Slides =
+            {
+                new TypstSlide
+                {
+                    Layout = new PptxEditor.Core.Models.SlideLayout { Width = 200, Height = 100 },
+                    Elements =
+                    {
+                        new TypstElement
+                        {
+                            Type = "Shape", Width = 100, Height = 50,
+                            Shape = new TypstShapeElement
+                            {
+                                ShapeType = "path",
+                                FillColor = "#123456",
+                                NoStroke = true,
+                                Subpaths =
+                                {
+                                    new() { (0, 0), (1, 0), (1, 1) },
+                                    new() { (0.25, 0.25), (0.75, 0.25) }
+                                },
+                                ClosedSubpaths = { true, false }
+                            }
+                        }
+                    }
+                }
+            }
+        };
+
+        var source = converter.GenerateTypstSource(presentation);
+
+        Assert.Contains("curve.move((0.00pt, 0.00pt))", source);
+        Assert.Contains("curve.move((25.00pt, 12.50pt))", source);
+        Assert.Contains("curve.close(mode: \"straight\")", source);
+        Assert.Contains("stroke: none", source);
+    }
+
     private static P.Shape PresetShape(uint id, Drawing.ShapeTypeValues preset, long cx, long cy, int? rot = null, int? adj = null)
     {
         var transform = rot.HasValue
