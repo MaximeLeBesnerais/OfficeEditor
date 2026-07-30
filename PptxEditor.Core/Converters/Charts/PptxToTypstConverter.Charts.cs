@@ -60,7 +60,7 @@ public sealed partial class PptxToTypstConverter
                 $"Chart '{name}' could not be parsed and was replaced by a placeholder.");
         }
 
-        if (model.Kind == ChartKind.Bar && model.Grouping == BarGrouping.Clustered)
+        if (model.Kind == ChartKind.Bar)
         {
             var elements = BarChartElementBuilder.Build(model,
                 offX + position.X * scaleX, offY + position.Y * scaleY,

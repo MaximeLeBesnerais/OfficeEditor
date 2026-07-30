@@ -18,6 +18,9 @@ public static class PieChartElementBuilder
     /// PowerPoint's auto layout leaves a margin around the pie: the circle's diameter is
     /// ~78% of the smaller plot dimension (measured on the Space deck reference render).
     /// </summary>
+    // Small chart frames in editable infographic pins/panels include title/legend
+    // space; using the full frame made the pie cover its surrounding marker. Larger
+    // standalone pie frames retain the established Office-like 78% sizing.
     private const double PieDiameterFactor = 0.78;
 
     /// <summary>Maximum arc degrees per polygon segment (smoothness of the wedge rim).</summary>
@@ -45,18 +48,41 @@ public static class PieChartElementBuilder
         if (total <= 0)
             return elements;
 
-        var diameter = Math.Min(width, height) * PieDiameterFactor;
+        var titleHeight = string.IsNullOrWhiteSpace(chart.Title) ? 0.0 : 18.0;
+        if (titleHeight > 0)
+        {
+            var formatting = new TypstTextFormatting { FontSize = 10, Color = "#FFFFFF", Align = "center" };
+            elements.Add(new TypstElement
+            {
+                Type = "Text", X = x, Y = y, Width = width, Height = titleHeight,
+                Text = new TypstTextElement
+                {
+                    Paragraphs = [new TypstParagraph
+                    {
+                        Content = chart.Title!,
+                        Runs = [new TypstTextRun { Content = chart.Title!, Formatting = formatting }],
+                        Formatting = formatting
+                    }],
+                    VerticalAlign = "center", ParagraphCount = 1
+                }
+            });
+        }
+        var plotHeight = height - titleHeight;
+        var diameterFactor = width < 200 && plotHeight < 200 ? 0.52 : PieDiameterFactor;
+        var diameter = Math.Min(width, plotHeight) * diameterFactor;
         var radius = diameter / 2.0;
+        var innerRadius = radius * Math.Clamp(chart.HoleSizePercent ?? 0, 0, 100) / 100.0;
         var cx = width / 2.0;
-        var cy = height / 2.0;
+        var cy = titleHeight + plotHeight / 2.0;
 
         string Fill(int pointIndex)
             => pointIndex < series.PointFillColors.Count && series.PointFillColors[pointIndex] != null
                 ? series.PointFillColors[pointIndex]!
                 : series.FillColor ?? DefaultPalette[pointIndex % DefaultPalette.Length];
 
-        // A single 100% slice is a plain ellipse (a polygon arc cannot close on itself).
-        if (slices.Count == 1)
+        // A single 100% slice is a plain ellipse unless this is a doughnut.  A
+        // doughnut uses two even-odd contours so the hole remains transparent.
+        if (slices.Count == 1 && innerRadius <= 0)
         {
             elements.Add(new TypstElement
             {
@@ -81,13 +107,29 @@ public static class PieChartElementBuilder
         foreach (var (value, pointIndex) in slices)
         {
             var sweep = value / total * 360.0;
-            var points = new List<(double X, double Y)> { Norm(cx, cy) };
+            var points = innerRadius > 0
+                ? new List<(double X, double Y)>()
+                : new List<(double X, double Y)> { Norm(cx, cy) };
 
             var steps = Math.Max(1, (int)Math.Ceiling(sweep / ArcStepDegrees));
             for (var i = 0; i <= steps; i++)
             {
                 var a = (angle + sweep * i / steps) * Math.PI / 180.0;
                 points.Add(Norm(cx + radius * Math.Sin(a), cy - radius * Math.Cos(a)));
+            }
+
+            List<List<(double X, double Y)>>? subpaths = null;
+            if (innerRadius > 0)
+            {
+                var outer = points.ToList();
+                var inner = new List<(double X, double Y)>();
+                for (var i = steps; i >= 0; i--)
+                {
+                    var a = (angle + sweep * i / steps) * Math.PI / 180.0;
+                    inner.Add(Norm(cx + innerRadius * Math.Sin(a), cy - innerRadius * Math.Cos(a)));
+                }
+                points = outer;
+                subpaths = new List<List<(double X, double Y)>> { outer, inner };
             }
 
             elements.Add(new TypstElement
@@ -104,7 +146,8 @@ public static class PieChartElementBuilder
                     FillColor = Fill(pointIndex),
                     StrokeColor = series.PointLineColor ?? string.Empty,
                     StrokeWidth = series.PointLineWidthPt,
-                    Points = points
+                    Points = points,
+                    Subpaths = subpaths ?? []
                 }
             });
 

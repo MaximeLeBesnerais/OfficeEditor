@@ -1217,6 +1217,16 @@ public sealed partial class PptxToTypstConverter
                 if (!string.IsNullOrEmpty(stroke)) sb.Append($", {stroke}");
                 sb.Append(")");
                 break;
+            case "line":
+                // OOXML cxnSp/prst=line often has a zero extent on one axis;
+                // #line preserves the stroke even when a rect would have no area.
+                var endX = FormatPt(width);
+                var endY = FormatPt(height);
+                var lineStroke = !string.IsNullOrEmpty(stroke)
+                    ? stroke
+                    : "stroke: 1pt + rgb(\"#000000\")";
+                sb.Append($"#line(start: (0pt, 0pt), end: ({endX}, {endY}), {lineStroke})");
+                break;
             case "polygon":
                 // Typst rejects a leading empty argument ("#polygon(, ...)"), so the
                 // first emitted argument must not be preceded by a comma. Shapes with
