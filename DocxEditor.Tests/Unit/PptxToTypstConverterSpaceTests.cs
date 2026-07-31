@@ -498,6 +498,59 @@ public sealed class PptxToTypstConverterSpaceTests : IDisposable
     // ------------------------------------------------------------------
 
     [Fact]
+    public void Convert_GroupMissingChildExtents_UsesIdentityMappingForRotatedGroup()
+    {
+        var deckPath = Path.Combine(_tempDir, $"{Guid.NewGuid():N}.pptx");
+        using (var document = PresentationDocument.Create(deckPath, PresentationDocumentType.Presentation))
+        {
+            var (presentationPart, slideLayoutPart) = CreateShell(document);
+            slideLayoutPart.SlideLayout = new P.SlideLayout(new CommonSlideData(CreateShapeTree()));
+            var slidePart = presentationPart.AddNewPart<SlidePart>();
+            var child = new P.Shape(
+                new NonVisualShapeProperties(
+                    new NonVisualDrawingProperties { Id = 3, Name = "Illustration" },
+                    new NonVisualShapeDrawingProperties(),
+                    new ApplicationNonVisualDrawingProperties()),
+                new ShapeProperties(
+                    new Drawing.Transform2D(
+                        new Drawing.Offset { X = 1000000, Y = 500000 },
+                        new Drawing.Extents { Cx = 500000, Cy = 500000 }),
+                    new Drawing.PresetGeometry(new Drawing.AdjustValueList())
+                    { Preset = Drawing.ShapeTypeValues.Rectangle },
+                    new Drawing.SolidFill(new Drawing.RgbColorModelHex { Val = "FF0000" })));
+            var group = new P.GroupShape(
+                new P.NonVisualGroupShapeProperties(
+                    new NonVisualDrawingProperties { Id = 2, Name = "Illustration Group" },
+                    new P.NonVisualGroupShapeDrawingProperties(),
+                    new ApplicationNonVisualDrawingProperties()),
+                new P.GroupShapeProperties(
+                    new Drawing.TransformGroup(
+                        new Drawing.Offset { X = 1000000, Y = 1000000 },
+                        new Drawing.Extents { Cx = 2000000, Cy = 2000000 },
+                        new Drawing.ChildOffset { X = 0, Y = 0 })
+                    { Rotation = 90 * 60000 }),
+                child);
+            slidePart.Slide = new Slide(new CommonSlideData(CreateShapeTree(group)));
+            slidePart.AddPart(slideLayoutPart);
+            presentationPart.Presentation!.SlideIdList!.Append(new SlideId
+            {
+                Id = 256,
+                RelationshipId = presentationPart.GetIdOfPart(slidePart)
+            });
+        }
+
+        using var doc = PresentationDocument.Open(deckPath, false);
+        using var converter = new PptxToTypstConverter(doc);
+        var element = Assert.Single(converter.Convert().Slides[0].Elements, e => e.Type == "Shape");
+
+        Assert.Equal(2000000 / 12700.0, element.X, 2);
+        Assert.Equal(2000000 / 12700.0, element.Y, 2);
+        Assert.Equal(500000 / 12700.0, element.Width, 2);
+        Assert.Equal(500000 / 12700.0, element.Height, 2);
+        Assert.Equal(90.0, element.Rotation, 3);
+    }
+
+    [Fact]
     public void Convert_MasterUserDrawnShapes_RenderBeneathLayoutAndSlide()
     {
         var deckPath = Path.Combine(_tempDir, $"{Guid.NewGuid():N}.pptx");

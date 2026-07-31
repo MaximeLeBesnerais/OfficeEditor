@@ -804,6 +804,11 @@ public sealed partial class PptxToTypstConverter : IDisposable
                 if (shape.ShapeProperties != null)
                 {
                     imageElement.CornerRadius = ExtractShapeCornerRadius(shape.ShapeProperties, finalW, finalH);
+                    if (shape.ShapeProperties.Elements<Drawing.PresetGeometry>().FirstOrDefault()?.Preset?.Value
+                        == Drawing.ShapeTypeValues.Ellipse)
+                    {
+                        imageElement.CornerRadius = Math.Min(finalW, finalH) / 2.0;
+                    }
                 }
 
                 // If shape also has text, we should ideally overlay it
@@ -864,7 +869,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
         {
             // a:effectLst/a:outerShdw — Typst has no native shadow; approximate with an
             // offset copy of the shape geometry in the shadow color, behind the shape.
-            var shadow = ExtractOuterShadow(shape.ShapeProperties, styleResolver);
+            var shadow = ExtractOuterShadow(shape.ShapeProperties, styleResolver, shape.ShapeStyle?.EffectReference);
             if (shadow != null)
             {
                 yield return new TypstElement
@@ -876,7 +881,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
                     Y = finalY + shadow.Value.OffsetY,
                     Width = finalW,
                     Height = finalH,
-                    Rotation = finalRot,
+                    Rotation = shadow.Value.RotateWithShape ? finalRot : 0,
                     Shape = new TypstShapeElement
                     {
                         ShapeType = shapeElement.ShapeType,
@@ -1389,15 +1394,22 @@ public sealed partial class PptxToTypstConverter : IDisposable
         var prstGeom = shapeProperties.Elements<Drawing.PresetGeometry>().FirstOrDefault();
         if (prstGeom == null) return 0;
 
+        // The ECMA default adjustment applies only to the rounded-rectangle
+        // family. Do not infer a radius for ordinary rectangles (or arbitrary
+        // image shapes) merely because their adjustment list is empty.
+        var preset = GetAttributeValue(prstGeom, "prst");
+        if (preset is not ("roundRect" or "round1Rect" or "round2SameRect"))
+            return 0;
+
         // Parse the adjustment value from <a:gd name="adj" fmla="val XXXX"/>
         var match = Regex.Match(prstGeom.OuterXml, @"\bfmla\s*=\s*""val\s+(\d+)""");
         if (match.Success && double.TryParse(match.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var adjValue))
         {
-            return (adjValue / 100000.0) * Math.Min(width, height);
+            return Math.Min((adjValue / 100000.0) * Math.Min(width, height), Math.Min(width, height) * 0.5);
         }
 
-        // Fallback: 5% of the shape's smaller dimension
-        return Math.Min(width, height) * 0.05;
+        // ECMA-376's default roundRect adjustment is 16667 (one sixth).
+        return Math.Min(width, height) * 0.16667;
     }
 
     /// <summary>
@@ -1777,7 +1789,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
             // Dual-fit: the blind and rotated-footprint bboxes are rival
             // approximations of the frame-coordinate cache — the extractor
             // picks whichever fit lands closer to identity (INV-regressions-b1 §4).
-            var fit = SmartArtDrawingExtractor.ComputeFrameFit(blind, aware, framePosition);
+            var fit = SmartArtDrawingExtractor.ComputeCachedDrawingFit(blind, aware, framePosition);
             drawScaleX = fit.ScaleX;
             drawScaleY = fit.ScaleY;
             shapeFrameX = fit.FrameX;
@@ -1812,7 +1824,14 @@ public sealed partial class PptxToTypstConverter : IDisposable
                 modelId);
 
             if (diagramShape != null)
+            {
+                // Keep each shape's shadow immediately behind its own surface.
+                // This preserves the cached sibling z-order while still ensuring
+                // the shadow cannot paint over a later sibling.
+                AppendDiagramShapeEffects(shapeElements, diagramShape, shapeScaleX, shapeScaleY);
                 shapeElements.Add(diagramShape);
+                AppendDiagramBevel(shapeElements, diagramShape);
+            }
 
             var textBounds = GetDiagramTextBounds(shape);
             if (textBounds == null) continue;
@@ -1823,10 +1842,13 @@ public sealed partial class PptxToTypstConverter : IDisposable
 
             var (tx, ty, tw, th) = textBounds.Value;
 
-            // PowerPoint re-lays diagrams out with shrink-on-overflow text semantics,
-            // independent of the autofit flag cached in dsp:drawing. Measurement uses
-            // the unrotated box: text is laid out before the rotation is applied.
-            ShrinkDiagramTextToFit(textElement, tw * shapeScaleX, th * shapeScaleY);
+            // Cached SmartArt drawings normally carry the final run sizes and an
+            // explicit <a:noAutofit/>. Do not infer a second shrink pass from the
+            // cached geometry. Only an explicit <a:normAutofit/> requests local
+            // SmartArt font fitting. Measurement uses the unrotated box: text is
+            // laid out before the rotation is applied.
+            if (HasDiagramNormalAutoFit(shape))
+                ShrinkDiagramTextToFit(textElement, tw * shapeScaleX, th * shapeScaleY);
 
             textElements.Add(new TypstElement
             {
@@ -1841,10 +1863,106 @@ public sealed partial class PptxToTypstConverter : IDisposable
             });
         }
 
+        // Shapes (including their local shadow/bevel effects) retain cached sibling
+        // order; labels remain above all diagram geometry.
         foreach (var element in shapeElements)
             yield return element;
         foreach (var element in textElements)
             yield return element;
+    }
+
+    private static void AppendDiagramShapeEffects(
+        List<TypstElement> elements, TypstElement source, double scaleX, double scaleY)
+    {
+        var shape = source.Shape;
+        var shadow = shape?.Shadow;
+        if (shape == null || shadow == null)
+            return;
+
+        var hasSurface = !string.IsNullOrEmpty(shape.FillColor) || shape.FillGradient != null;
+        var hasStroke = shape.StrokeWidth > 0 &&
+            (!string.IsNullOrEmpty(shape.StrokeColor) || shape.StrokeGradient != null);
+        if (!hasSurface && !hasStroke)
+            return;
+
+        // Typst cannot blur arbitrary polygon geometry. A filled, offset duplicate
+        // is a poor fallback: for SmartArt shapes with rotWithShape="0" it becomes
+        // a large opaque-looking separator band rather than a soft edge shadow.
+        // Use a narrow translucent outline instead; it preserves the shadow paint
+        // without introducing geometry-sized artifacts.
+        var shadowShape = new TypstShapeElement
+        {
+            ShapeType = shape.ShapeType,
+            FillColor = string.Empty,
+            StrokeColor = shadow.Color,
+            StrokeWidth = hasSurface
+                ? Math.Clamp(shadow.BlurRadius / 3.0, 0.5, 1.5)
+                : Math.Max(shape.StrokeWidth, 1),
+            NoStroke = false,
+            CornerRadius = shape.CornerRadius,
+            Points = shape.Points,
+            Subpaths = shape.Subpaths,
+            ClosedSubpaths = shape.ClosedSubpaths,
+            ArrowAtEnd = false
+        };
+
+        elements.Add(new TypstElement
+        {
+            Type = "Shape",
+            Id = source.Id,
+            Name = source.Name + " (shadow)",
+            ModelId = source.ModelId,
+            X = source.X + shadow.OffsetX * scaleX,
+            Y = source.Y + shadow.OffsetY * scaleY,
+            Width = source.Width,
+            Height = source.Height,
+            Rotation = shadow.RotateWithShape ? source.Rotation : 0,
+            Shape = shadowShape
+        });
+    }
+
+    private static void AppendDiagramBevel(List<TypstElement> elements, TypstElement source)
+    {
+        var shape = source.Shape;
+        var bevel = shape?.Bevel;
+        if (shape == null || bevel == null)
+            return;
+
+        var width = Math.Max(bevel.TopWidth, bevel.BottomWidth);
+        if (width <= 0.01 || shape.ShapeType == "line")
+            return;
+
+        elements.Add(new TypstElement
+        {
+            Type = "Shape",
+            Id = source.Id,
+            Name = source.Name + " (bevel)",
+            ModelId = source.ModelId,
+            X = source.X,
+            Y = source.Y,
+            Width = source.Width,
+            Height = source.Height,
+            Rotation = source.Rotation,
+            Shape = new TypstShapeElement
+            {
+                ShapeType = shape.ShapeType,
+                FillColor = string.Empty,
+                StrokeColor = "#FFFFFF40",
+                StrokeWidth = Math.Clamp(width, 0.5, 2.0),
+                CornerRadius = shape.CornerRadius,
+                Points = shape.Points,
+                Subpaths = shape.Subpaths,
+                ClosedSubpaths = shape.ClosedSubpaths
+            }
+        });
+    }
+
+    private static bool HasDiagramNormalAutoFit(OpenXmlElement diagramShape)
+    {
+        var txBody = diagramShape.Elements()
+            .FirstOrDefault(e => e.LocalName == "txBody" && _diagramNamespaces.Contains(e.NamespaceUri));
+        var bodyPr = txBody?.Elements<Drawing.BodyProperties>().FirstOrDefault();
+        return bodyPr?.Elements<Drawing.NormalAutoFit>().Any() == true;
     }
 
     /// <summary>
@@ -2301,28 +2419,28 @@ public sealed partial class PptxToTypstConverter : IDisposable
     }
 
     /// <summary>
-    /// Rotation (degrees, clockwise) applied to diagram text. A
-    /// <c>dsp:txXfrm@rot</c> is a text-only rotation about the txXfrm box centre —
-    /// its off/ext are already in post-rotation drawing space (INV-slide-030), so
-    /// the shape rotation must not be re-applied to the text. A txXfrm WITHOUT rot
-    /// is cached in pre-rotation space (identical to the shape rect, e.g. the
-    /// slide-152 labels): the text box then rides the shape's own
+    /// Rotation (degrees, clockwise) applied to diagram text. The cached SmartArt
+    /// drawing stores the shape rotation in <c>a:xfrm@rot</c> and the text's local
+    /// counter-rotation in <c>dsp:txXfrm@rot</c>. Therefore both rotations compose:
+    /// a shape at 180° with text at -180° renders upright. A txXfrm WITHOUT rot is
+    /// cached in pre-rotation space (identical to the shape rect, e.g. the
+    /// slide-152 labels), so the text box rides the shape's own
     /// <c>a:xfrm@rot</c> about the text-box centre.
     /// </summary>
     private static double GetDiagramTextRotation(OpenXmlElement diagramShape)
     {
         var txXfrm = diagramShape.Elements()
             .FirstOrDefault(e => e.LocalName == "txXfrm" && _diagramNamespaces.Contains(e.NamespaceUri));
-        if (txXfrm != null && ReadDiagramRot(txXfrm) is { } txXfrmRot)
-            return txXfrmRot;
-
         var spPr = diagramShape.Elements()
             .FirstOrDefault(e => e.LocalName == "spPr" && _diagramNamespaces.Contains(e.NamespaceUri));
         var xfrm = spPr?.Elements()
             .FirstOrDefault(e => e.LocalName == "xfrm" &&
                 e.NamespaceUri == "http://schemas.openxmlformats.org/drawingml/2006/main");
 
-        return xfrm == null ? 0.0 : ReadDiagramRot(xfrm) ?? 0.0;
+        var shapeRotation = xfrm == null ? 0.0 : ReadDiagramRot(xfrm) ?? 0.0;
+        var textRotation = txXfrm == null ? 0.0 : ReadDiagramRot(txXfrm) ?? 0.0;
+        var rotation = shapeRotation + textRotation;
+        return Math.Abs(rotation) >= 360.0 ? rotation % 360.0 : rotation;
     }
 
     private static double? ReadDiagramRot(OpenXmlElement xfrm)
@@ -2383,22 +2501,35 @@ public sealed partial class PptxToTypstConverter : IDisposable
         double newOffY = parentOffY;
         double newScaleX = parentScaleX;
         double newScaleY = parentScaleY;
+        double groupExtXForRotation = 0;
+        double groupExtYForRotation = 0;
 
         if (grpXfrm != null)
         {
             var grpOffX = EmuToPt((long)(grpXfrm.Offset?.X?.Value ?? 0));
             var grpOffY = EmuToPt((long)(grpXfrm.Offset?.Y?.Value ?? 0));
-            var grpExtX = (double)(grpXfrm.Extents?.Cx?.Value ?? 1);
-            var grpExtY = (double)(grpXfrm.Extents?.Cy?.Value ?? 1);
             var chOffX = EmuToPt((long)(grpXfrm.ChildOffset?.X?.Value ?? 0));
             var chOffY = EmuToPt((long)(grpXfrm.ChildOffset?.Y?.Value ?? 0));
-            var chExtX = (double)(grpXfrm.ChildExtents?.Cx?.Value ?? 1);
-            var chExtY = (double)(grpXfrm.ChildExtents?.Cy?.Value ?? 1);
+            var rawGrpExtX = (double)(grpXfrm.Extents?.Cx?.Value ?? 0);
+            var rawGrpExtY = (double)(grpXfrm.Extents?.Cy?.Value ?? 0);
+            var rawChExtX = (double)(grpXfrm.ChildExtents?.Cx?.Value ?? 0);
+            var rawChExtY = (double)(grpXfrm.ChildExtents?.Cy?.Value ?? 0);
+
+            // Missing child extents are common in hand-authored/grouped files.
+            // When either side is absent, use the available extent for both sides
+            // so the child coordinate space maps identically instead of dividing by
+            // the old 1-EMU sentinel and exploding the illustration.
+            var grpExtX = rawGrpExtX > 0 ? rawGrpExtX : rawChExtX;
+            var grpExtY = rawGrpExtY > 0 ? rawGrpExtY : rawChExtY;
+            var chExtX = rawChExtX > 0 ? rawChExtX : rawGrpExtX;
+            var chExtY = rawChExtY > 0 ? rawChExtY : rawGrpExtY;
+            groupExtXForRotation = grpExtX;
+            groupExtYForRotation = grpExtY;
 
             // Degenerate groups (e.g. zero-height connector groups) have chExt 0 on an
             // axis; fall back to an unscaled (translate-only) mapping on that axis.
-            var localScaleX = chExtX != 0 ? grpExtX / chExtX : 1;
-            var localScaleY = chExtY != 0 ? grpExtY / chExtY : 1;
+            var localScaleX = grpExtX > 0 && chExtX > 0 ? grpExtX / chExtX : 1;
+            var localScaleY = grpExtY > 0 && chExtY > 0 ? grpExtY / chExtY : 1;
 
             // ECMA-376 §20.1.9.5: child point p maps to
             // grpOff + (p − chOff) × (ext / chExt) — chOff must be scaled too.
@@ -2416,8 +2547,8 @@ public sealed partial class PptxToTypstConverter : IDisposable
         double rotCentreX = 0, rotCentreY = 0;
         if (Math.Abs(groupRotDeg) > 0.001 && grpXfrm != null)
         {
-            var grpExtXPt = EmuToPt((long)(grpXfrm.Extents?.Cx?.Value ?? 0));
-            var grpExtYPt = EmuToPt((long)(grpXfrm.Extents?.Cy?.Value ?? 0));
+            var grpExtXPt = EmuToPt((long)groupExtXForRotation);
+            var grpExtYPt = EmuToPt((long)groupExtYForRotation);
             rotCentreX = parentOffX + (EmuToPt((long)(grpXfrm.Offset?.X?.Value ?? 0)) + grpExtXPt / 2) * parentScaleX;
             rotCentreY = parentOffY + (EmuToPt((long)(grpXfrm.Offset?.Y?.Value ?? 0)) + grpExtYPt / 2) * parentScaleY;
         }
@@ -3384,7 +3515,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
         // 3. Text body list style
         if (bodyLstStyle != null)
         {
-            var bodyStyle = ExtractLstStyleDefRPr(bodyLstStyle, level);
+            var bodyStyle = ExtractLstStyleDefRPr(bodyLstStyle, level, styleResolver);
             fmt = MergeDefaultStyle(fmt, bodyStyle);
         }
 
@@ -3761,7 +3892,8 @@ public sealed partial class PptxToTypstConverter : IDisposable
         return null;
     }
 
-    private static StyleResolver.DefaultTextStyle ExtractLstStyleDefRPr(OpenXmlElement? lstStyle, int level)
+    private static StyleResolver.DefaultTextStyle ExtractLstStyleDefRPr(
+        OpenXmlElement? lstStyle, int level, StyleResolver? styleResolver = null)
     {
         if (lstStyle == null) return new StyleResolver.DefaultTextStyle();
 
@@ -3778,7 +3910,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
             Bold = defRPr.Bold?.Value,
             Italic = defRPr.Italic?.Value,
             Underline = defRPr.Underline?.Value != null && defRPr.Underline.Value != Drawing.TextUnderlineValues.None,
-            Color = ExtractDefRPrColorStatic(defRPr),
+            Color = ExtractDefRPrColorStatic(defRPr, styleResolver),
             Caps = ExtractCapAttribute(defRPr)
         };
 
@@ -3789,10 +3921,11 @@ public sealed partial class PptxToTypstConverter : IDisposable
         return style;
     }
 
-    private static string? ExtractDefRPrColorStatic(Drawing.DefaultRunProperties defRPr)
+    private static string? ExtractDefRPrColorStatic(
+        Drawing.DefaultRunProperties defRPr, StyleResolver? styleResolver = null)
     {
         var solidFill = defRPr.Elements<Drawing.SolidFill>().FirstOrDefault();
-        return solidFill != null ? ExtractSolidFillColorStatic(solidFill, null) : null;
+        return solidFill != null ? ExtractSolidFillColorStatic(solidFill, styleResolver) : null;
     }
 
     private static string? ExtractCapAttribute(OpenXmlElement element)
@@ -4596,40 +4729,8 @@ public sealed partial class PptxToTypstConverter : IDisposable
         => ExtractSolidFillColorStatic(solidFill, styleResolver);
 
     private static string? ExtractSolidFillColorStatic(Drawing.SolidFill solidFill, StyleResolver? styleResolver)
-    {
-        var rgb = solidFill.RgbColorModelHex;
-        if (rgb?.Val != null)
-        {
-            var color = GradientFillReader.ParseHexColor(rgb.Val.Value!);
-            return GradientFillReader.ApplyColorModifiers(color, rgb.ChildElements);
-        }
-
-        var schemeColor = solidFill.SchemeColor;
-        if (schemeColor != null)
-        {
-            string? schemeName = null;
-            // Use regex as primary method — SDK enum parsing is unreliable
-            var match = System.Text.RegularExpressions.Regex.Match(
-                schemeColor.OuterXml,
-                @"val=""([^""]+)""");
-            if (match.Success)
-            {
-                schemeName = match.Groups[1].Value;
-            }
-
-            if (!string.IsNullOrEmpty(schemeName))
-            {
-                var resolved = styleResolver?.ResolveSchemeColor(schemeName);
-                if (!string.IsNullOrEmpty(resolved))
-                {
-                    var color = GradientFillReader.ParseHexColor(resolved);
-                    return GradientFillReader.ApplyColorModifiers(color, schemeColor.ChildElements);
-                }
-            }
-        }
-
-        return null;
-    }
+        => GradientFillReader.ResolveColor(
+            solidFill, styleResolver == null ? null : styleResolver.ResolveSchemeColor);
 
     private static TableStylePart? ResolveCellStylePart(int row, int col, int rowCount, int colCount, TableStyleDefinition? style, bool firstRowFlag, bool bandRowFlag, bool firstColFlag, bool lastColFlag, bool lastRowFlag)
     {
@@ -5238,10 +5339,14 @@ public sealed partial class PptxToTypstConverter : IDisposable
     /// approximation. <c>rotWithShape</c> is honored implicitly: the shadow element carries
     /// the shape rotation, while the offset always stays in slide space.
     /// </summary>
-    private (double OffsetX, double OffsetY, string Color)? ExtractOuterShadow(ShapeProperties? shapeProperties, StyleResolver styleResolver)
+    private (double OffsetX, double OffsetY, string Color, bool RotateWithShape)? ExtractOuterShadow(
+        ShapeProperties? shapeProperties,
+        StyleResolver styleResolver,
+        Drawing.EffectReference? styleReference = null)
     {
-        var outerShadow = shapeProperties?.Elements<Drawing.EffectList>().FirstOrDefault()
-            ?.Elements<Drawing.OuterShadow>().FirstOrDefault();
+        var explicitEffects = shapeProperties?.Elements<Drawing.EffectList>().FirstOrDefault();
+        var effectList = explicitEffects ?? styleResolver.ResolveStyleEffectReference(styleReference);
+        var outerShadow = effectList?.Elements<Drawing.OuterShadow>().FirstOrDefault();
         if (outerShadow == null) return null;
 
         var distancePt = (outerShadow.Distance?.Value ?? 0) / 12700.0;
@@ -5252,57 +5357,12 @@ public sealed partial class PptxToTypstConverter : IDisposable
         var color = ExtractShadowColor(outerShadow, styleResolver);
         if (color == null) return null;
 
-        return (offsetX, offsetY, color);
+        var rotateWithShape = GetAttributeValue(outerShadow, "rotWithShape") is not ("0" or "false");
+        return (offsetX, offsetY, color, rotateWithShape);
     }
 
     private string? ExtractShadowColor(Drawing.OuterShadow outerShadow, StyleResolver styleResolver)
-    {
-        string? rgb = null;
-        OpenXmlElement? colorElement = null;
-
-        var srgb = outerShadow.Elements<Drawing.RgbColorModelHex>().FirstOrDefault();
-        if (srgb?.Val?.Value != null)
-        {
-            rgb = srgb.Val.Value;
-            colorElement = srgb;
-        }
-        else
-        {
-            var scheme = outerShadow.Elements<Drawing.SchemeColor>().FirstOrDefault();
-            if (scheme != null)
-            {
-                var schemeName = GetAttributeValue(scheme, "val");
-                var resolved = string.IsNullOrEmpty(schemeName) ? null : styleResolver.ResolveSchemeColor(schemeName);
-                if (resolved != null)
-                {
-                    rgb = resolved.TrimStart('#');
-                    colorElement = scheme;
-                }
-            }
-            else
-            {
-                var preset = outerShadow.Elements<Drawing.PresetColor>().FirstOrDefault();
-                if (preset != null)
-                {
-                    rgb = GetAttributeValue(preset, "val") switch
-                    {
-                        "black" => "000000",
-                        "white" => "FFFFFF",
-                        _ => null
-                    };
-                    colorElement = preset;
-                }
-            }
-        }
-
-        if (rgb == null) return null;
-
-        // Shadow colors can carry the same tint/shade/luminance/alpha chain as
-        // ordinary fills.  Reading only the first alpha previously made themed
-        // shadows render with the wrong shade (or fully opaque).
-        return GradientFillReader.ApplyColorModifiers(
-            GradientFillReader.ParseHexColor(rgb), colorElement?.ChildElements ?? []);
-    }
+        => GradientFillReader.ResolveColor(outerShadow, styleResolver.ResolveSchemeColor);
 
     private static string SubstituteUnavailableFont(string fontFamily, HashSet<string> availableFonts)
     {
@@ -5333,8 +5393,8 @@ public sealed partial class PptxToTypstConverter : IDisposable
     private static string EscapeTypstText(string text)
     {
         if (string.IsNullOrEmpty(text)) return "";
-        
-        return text
+
+        var escaped = text
             .Replace("\\", "\\\\")
             .Replace("[", "\\[")
             .Replace("]", "\\]")
@@ -5353,6 +5413,12 @@ public sealed partial class PptxToTypstConverter : IDisposable
             .Replace("/", "\\/")
             .Replace("{", "\\{")
             .Replace("}", "\\}");
+
+        // Typst collapses consecutive source spaces. PowerPoint uses runs of
+        // spaces as meaningful positioning in small branding strings; preserve
+        // the first space and turn the remaining ones into explicit advances.
+        return Regex.Replace(escaped, " {2,}", match =>
+            " " + string.Concat(Enumerable.Repeat("#h(0.25em)", match.Length - 1)));
     }
 
     public void Dispose()

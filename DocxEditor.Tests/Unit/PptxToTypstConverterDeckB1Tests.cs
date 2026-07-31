@@ -145,6 +145,7 @@ public class PptxToTypstConverterDeckB1Tests : IDisposable
         var shape = Assert.Single(presentation.Slides[0].Elements, e => e.Type == "Shape");
         Assert.NotNull(shape.Shape?.FillGradient);
         Assert.Equal(2, shape.Shape!.FillGradient!.Stops.Count);
+        Assert.Equal("#C10000", shape.Shape.FillGradient.Stops[0].Color);
     }
 
     [Fact]
@@ -162,6 +163,36 @@ public class PptxToTypstConverterDeckB1Tests : IDisposable
 
         var shape = Assert.Single(presentation.Slides[0].Elements, e => e.Type == "Shape");
         Assert.Equal("#0000FF", shape.Shape?.FillColor);
+    }
+
+    [Fact]
+    public void Convert_EmptyRoundRectAdjustment_UsesEcmaDefaultRadius()
+    {
+        var group = GroupShape(10, transformGroup: null,
+            StyledRoundRect(11, fillRefIdx: 1, lnRefIdx: 1, schemeColorName: "accent1"));
+        var path = CreateDeck("roundrect-default-radius.pptx", withTheme: true, group);
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var shape = Assert.Single(converter.Convert().Slides[0].Elements, e => e.Type == "Shape");
+        Assert.Equal(16.667, shape.Shape?.CornerRadius ?? 0, precision: 3);
+    }
+
+    [Fact]
+    public void Convert_StyleEffectReference_EmitsThemeShadowBehindShape()
+    {
+        var group = GroupShape(10, transformGroup: null,
+            StyledRoundRect(11, fillRefIdx: 1, lnRefIdx: 1, schemeColorName: "accent1", effectRefIdx: 2));
+        var path = CreateDeck("styleref-shadow.pptx", withTheme: true, group);
+
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var shapes = converter.Convert().Slides[0].Elements.Where(e => e.Type == "Shape").ToList();
+        Assert.Equal(2, shapes.Count);
+        Assert.Contains("shadow", shapes[0].Name, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("#FF0000", shapes[0].Shape?.FillColor);
     }
 
     #endregion
@@ -444,7 +475,12 @@ public class PptxToTypstConverterDeckB1Tests : IDisposable
                         new Drawing.Outline(new Drawing.SolidFill(PhClr())) { Width = 38100 }),
                     new Drawing.EffectStyleList(
                         new Drawing.EffectStyle(),
-                        new Drawing.EffectStyle(),
+                        new Drawing.EffectStyle(new Drawing.EffectList(
+                            new Drawing.OuterShadow(PhClr())
+                            {
+                                Distance = Pt(4),
+                                Direction = 5400000
+                            })),
                         new Drawing.EffectStyle()),
                     new Drawing.BackgroundFillStyleList(
                         new Drawing.SolidFill(PhClr()),
@@ -476,7 +512,8 @@ public class PptxToTypstConverterDeckB1Tests : IDisposable
     /// format scheme) — the Opposites slide 5 Group 10/11 child pattern: no fill marker
     /// and no a:ln in spPr.
     /// </summary>
-    private static P.Shape StyledRoundRect(uint id, int fillRefIdx, int lnRefIdx, string schemeColorName)
+    private static P.Shape StyledRoundRect(
+        uint id, int fillRefIdx, int lnRefIdx, string schemeColorName, uint effectRefIdx = 0)
     {
         var fontReference = new Drawing.FontReference(SchemeColorRef(schemeColorName));
         fontReference.SetAttribute(new OpenXmlAttribute("idx", string.Empty, "minor"));
@@ -494,7 +531,7 @@ public class PptxToTypstConverterDeckB1Tests : IDisposable
             new P.ShapeStyle(
                 new Drawing.LineReference(SchemeColorRef(schemeColorName)) { Index = (uint)lnRefIdx },
                 new Drawing.FillReference(SchemeColorRef(schemeColorName)) { Index = (uint)fillRefIdx },
-                new Drawing.EffectReference(SchemeColorRef(schemeColorName)) { Index = 0U },
+                new Drawing.EffectReference(SchemeColorRef(schemeColorName)) { Index = effectRefIdx },
                 fontReference));
     }
 
