@@ -140,7 +140,7 @@ public sealed class PptxToTypstConverterShapeGeometryTests : IDisposable
     }
 
     [Fact]
-    public void GenerateTypstSource_LineShape_PreservesEndpointsAndNoStroke()
+    public void GenerateTypstSource_InvisibleLine_OmitsInvalidNoStrokeDecorator()
     {
         var path = CreateDeck();
         using var document = PresentationDocument.Open(path, false);
@@ -172,7 +172,8 @@ public sealed class PptxToTypstConverterShapeGeometryTests : IDisposable
 
         var source = converter.GenerateTypstSource(presentation);
 
-        Assert.Contains("#line(start: (0.00pt, 0.00pt), end: (100.00pt, 50.00pt), stroke: none)", source);
+        Assert.DoesNotContain("#line(", source);
+        Assert.DoesNotContain("stroke: none", source);
     }
 
     [Fact]
@@ -255,7 +256,66 @@ public sealed class PptxToTypstConverterShapeGeometryTests : IDisposable
         Assert.Contains("curve.move((0.00pt, 0.00pt))", source);
         Assert.Contains("curve.move((25.00pt, 12.50pt))", source);
         Assert.Contains("curve.close(mode: \"straight\")", source);
-        Assert.Contains("stroke: none", source);
+        Assert.Contains("#curve(fill: rgb(\"#123456\")", source);
+        Assert.DoesNotContain("stroke: none", source);
+    }
+
+    [Fact]
+    public void Convert_SystemColorLastClr_UsesValidatedWhiteFallback()
+    {
+        var shape = PresetShape(2, Drawing.ShapeTypeValues.Rectangle, 1270000, 1270000);
+        var fill = shape.ShapeProperties!.Elements<Drawing.SolidFill>().Single();
+        fill.Remove();
+        shape.ShapeProperties.AppendChild(new Drawing.SolidFill(new Drawing.SystemColor
+        {
+            Val = Drawing.SystemColorValues.Window,
+            LastColor = "FFFFFF"
+        }));
+
+        var (converted, _) = ConvertSingleShape(CreateDeck(shape));
+
+        Assert.Equal("#FFFFFF", converted.FillColor);
+    }
+
+    [Fact]
+    public void Convert_InvalidSystemColorLastClr_DoesNotBecomeBlackFill()
+    {
+        var shape = PresetShape(2, Drawing.ShapeTypeValues.Rectangle, 1270000, 1270000);
+        var fill = shape.ShapeProperties!.Elements<Drawing.SolidFill>().Single();
+        fill.Remove();
+        shape.ShapeProperties.AppendChild(new Drawing.SolidFill(new Drawing.SystemColor
+        {
+            Val = Drawing.SystemColorValues.Window,
+            LastColor = "FFFF"
+        }));
+
+        using var document = PresentationDocument.Open(CreateDeck(shape), false);
+        using var converter = new PptxToTypstConverter(document);
+
+        Assert.Empty(converter.Convert().Slides[0].Elements);
+    }
+
+    [Fact]
+    public void Convert_PresetWhiteFill_ResolvesToWhite()
+    {
+        var shape = PresetShape(2, Drawing.ShapeTypeValues.Rectangle, 1270000, 1270000);
+        var fill = shape.ShapeProperties!.Elements<Drawing.SolidFill>().Single();
+        fill.Remove();
+        shape.ShapeProperties.AppendChild(new Drawing.SolidFill(
+            new Drawing.PresetColor { Val = Drawing.PresetColorValues.White }));
+
+        var (converted, _) = ConvertSingleShape(CreateDeck(shape));
+
+        Assert.Equal("#FFFFFF", converted.FillColor);
+    }
+
+    [Fact]
+    public void Convert_PlainRectangleWithEmptyAdjustments_HasNoCornerRadius()
+    {
+        var (converted, _) = ConvertSingleShape(CreateDeck(
+            PresetShape(2, Drawing.ShapeTypeValues.Rectangle, 1270000, 1270000)));
+
+        Assert.Equal(0.0, converted.CornerRadius);
     }
 
     private static P.Shape PresetShape(uint id, Drawing.ShapeTypeValues preset, long cx, long cy, int? rot = null, int? adj = null)

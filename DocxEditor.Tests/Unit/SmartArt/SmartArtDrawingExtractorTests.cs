@@ -2822,6 +2822,174 @@ public sealed class SmartArtDrawingExtractorTests
         Assert.Contains(points, p => Math.Abs(p.X - 0.83333) < 1e-4 && Math.Abs(p.Y - 1) < 1e-6);
     }
 
+    [Fact]
+    public void Extract_Donut_PreservesTransparentInnerContour()
+    {
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}""><dsp:spPr>
+  <a:xfrm><a:off x=""0"" y=""0""/><a:ext cx=""1270000"" cy=""1270000""/></a:xfrm>
+  <a:prstGeom prst=""donut""><a:avLst><a:gd name=""adj"" fmla=""val 10000""/></a:avLst></a:prstGeom>
+  <a:solidFill><a:srgbClr val=""16A085""/></a:solidFill>
+</dsp:spPr></dsp:sp>";
+        var result = SmartArtDrawingExtractor.TryExtractShape(ParseXml(xml), 0, 0, 1, 1, 0, 0, 100, 100);
+        Assert.NotNull(result?.Shape);
+        Assert.Equal("polygon", result.Shape!.ShapeType);
+        Assert.Equal(2, result.Shape.Subpaths.Count);
+        Assert.Equal(64, result.Shape.Subpaths[0].Count);
+        Assert.Equal(64, result.Shape.Subpaths[1].Count);
+        Assert.Equal(0.9, result.Shape.Subpaths[1].Max(p => p.X), precision: 6);
+    }
+
+    [Fact]
+    public void Extract_Funnel_ReturnsTaperedSilhouette()
+    {
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}""><dsp:spPr>
+  <a:xfrm><a:off x=""0"" y=""0""/><a:ext cx=""2540000"" cy=""3810000""/></a:xfrm>
+  <a:prstGeom prst=""funnel""><a:avLst/></a:prstGeom>
+  <a:solidFill><a:srgbClr val=""D9E2F3""/></a:solidFill>
+</dsp:spPr></dsp:sp>";
+        var result = SmartArtDrawingExtractor.TryExtractShape(ParseXml(xml), 0, 0, 1, 1, 0, 0, 200, 300);
+        Assert.NotNull(result?.Shape);
+        Assert.Equal("polygon", result.Shape!.ShapeType);
+        Assert.True(result.Shape.Points.Count > 50);
+        Assert.Equal(0.0, result.Shape.Points.Min(p => p.X), precision: 6);
+        Assert.Equal(1.0, result.Shape.Points.Max(p => p.X), precision: 6);
+        Assert.Contains(result.Shape.Points, p => p.X is > 0.3 and < 0.7 && p.Y > 0.85);
+    }
+
+    [Fact]
+    public void Extract_Arc_PreservesOpenCurvedConnectorPath()
+    {
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}""><dsp:spPr>
+  <a:xfrm><a:off x=""0"" y=""0""/><a:ext cx=""1270000"" cy=""1270000""/></a:xfrm>
+  <a:prstGeom prst=""arc""><a:avLst><a:gd name=""adj1"" fmla=""val 0""/><a:gd name=""adj2"" fmla=""val 9000000""/></a:avLst></a:prstGeom>
+  <a:noFill/><a:ln w=""9525""><a:solidFill><a:srgbClr val=""16A085""/></a:solidFill></a:ln>
+</dsp:spPr></dsp:sp>";
+        var result = SmartArtDrawingExtractor.TryExtractShape(ParseXml(xml), 0, 0, 1, 1, 0, 0, 100, 100);
+        Assert.NotNull(result?.Shape);
+        Assert.Equal("path", result.Shape!.ShapeType);
+        Assert.Single(result.Shape.Subpaths);
+        Assert.True(result.Shape.Subpaths[0].Count > 15);
+        Assert.DoesNotContain(true, result.Shape.ClosedSubpaths);
+    }
+
+    [Fact]
+    public void Extract_ExplicitNoFill_WinsOverSiblingGradient()
+    {
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}""><dsp:spPr>
+  <a:xfrm><a:off x=""0"" y=""0""/><a:ext cx=""1270000"" cy=""1270000""/></a:xfrm>
+  <a:prstGeom prst=""rect""><a:avLst/></a:prstGeom><a:noFill/>
+  <a:gradFill><a:gsLst><a:gs pos=""0""><a:srgbClr val=""000000""/></a:gs><a:gs pos=""100000""><a:srgbClr val=""FFFFFF""/></a:gs></a:gsLst><a:lin ang=""0""/></a:gradFill>
+</dsp:spPr></dsp:sp>";
+        var result = SmartArtDrawingExtractor.TryExtractShape(ParseXml(xml), 0, 0, 1, 1, 0, 0, 100, 100);
+        Assert.NotNull(result?.Shape);
+        Assert.Null(result.Shape!.FillGradient);
+        Assert.True(string.IsNullOrEmpty(result.Shape.FillColor));
+    }
+
+    [Fact]
+    public void Extract_AlphaModifiers_AreAppliedInDocumentOrder()
+    {
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}""><dsp:spPr>
+  <a:xfrm><a:off x=""0"" y=""0""/><a:ext cx=""1270000"" cy=""1270000""/></a:xfrm>
+  <a:prstGeom prst=""rect""><a:avLst/></a:prstGeom>
+  <a:solidFill><a:srgbClr val=""FFFFFF""><a:alpha val=""50000""/><a:alphaMod val=""50000""/><a:alphaOff val=""10000""/></a:srgbClr></a:solidFill>
+</dsp:spPr></dsp:sp>";
+        var result = SmartArtDrawingExtractor.TryExtractShape(ParseXml(xml), 0, 0, 1, 1, 0, 0, 100, 100);
+        Assert.Equal("#FFFFFF59", result?.Shape?.FillColor);
+    }
+
+    [Fact]
+    public void Extract_SystemColorLastClr_UsesPortableSixDigitFallback()
+    {
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}""><dsp:spPr>
+  <a:xfrm><a:off x=""0"" y=""0""/><a:ext cx=""1270000"" cy=""1270000""/></a:xfrm>
+  <a:prstGeom prst=""rect""><a:avLst/></a:prstGeom>
+  <a:solidFill><a:sysClr val=""window"" lastClr=""FFFFFF""/></a:solidFill>
+</dsp:spPr></dsp:sp>";
+        var result = SmartArtDrawingExtractor.TryExtractShape(ParseXml(xml), 0, 0, 1, 1, 0, 0, 100, 100);
+        Assert.Equal("#FFFFFF", result?.Shape?.FillColor);
+    }
+
+    [Theory]
+    [InlineData("<a:scrgbClr r=\"100000\" g=\"50000\" b=\"0\"/>", "#FF8000")]
+    [InlineData("<a:hslClr hue=\"0\" sat=\"100000\" lum=\"50000\"/>", "#FF0000")]
+    [InlineData("<a:prstClr val=\"tomato\"/>", "#FF6347")]
+    public void Extract_AdditionalDrawingMlColorForms_ResolveSolidFill(string colorXml, string expected)
+    {
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}""><dsp:spPr>
+  <a:xfrm><a:off x=""0"" y=""0""/><a:ext cx=""1270000"" cy=""1270000""/></a:xfrm>
+  <a:prstGeom prst=""rect""><a:avLst/></a:prstGeom><a:solidFill>{colorXml}</a:solidFill>
+</dsp:spPr></dsp:sp>";
+        var result = SmartArtDrawingExtractor.TryExtractShape(ParseXml(xml), 0, 0, 1, 1, 0, 0, 100, 100);
+        Assert.Equal(expected, result?.Shape?.FillColor);
+    }
+
+    [Fact]
+    public void Extract_GradientWithScrgbAndHslStops_PreservesBothStops()
+    {
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}""><dsp:spPr>
+  <a:xfrm><a:off x=""0"" y=""0""/><a:ext cx=""1270000"" cy=""1270000""/></a:xfrm>
+  <a:prstGeom prst=""rect""><a:avLst/></a:prstGeom>
+  <a:gradFill><a:gsLst>
+    <a:gs pos=""0""><a:scrgbClr r=""100000"" g=""0"" b=""0""/></a:gs>
+    <a:gs pos=""100000""><a:hslClr hue=""7200000"" sat=""100000"" lum=""50000""/></a:gs>
+  </a:gsLst><a:lin ang=""0""/></a:gradFill>
+</dsp:spPr></dsp:sp>";
+        var result = SmartArtDrawingExtractor.TryExtractShape(ParseXml(xml), 0, 0, 1, 1, 0, 0, 100, 100);
+        var gradient = Assert.IsType<TypstGradientFill>(result?.Shape?.FillGradient);
+        Assert.Equal("#FF0000", gradient.Stops[0].Color);
+        Assert.Equal("#00FF00", gradient.Stops[1].Color);
+    }
+
+    [Fact]
+    public void Extract_OuterShadowAndBevel_PreservesEffectValues()
+    {
+        var xml = $@"
+<dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}""><dsp:spPr>
+  <a:xfrm><a:off x=""0"" y=""0""/><a:ext cx=""1270000"" cy=""1270000""/></a:xfrm>
+  <a:prstGeom prst=""rect""><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val=""16A085""/></a:solidFill>
+  <a:ln w=""12700""><a:solidFill><a:srgbClr val=""FFFFFF""><a:alpha val=""50000""/></a:srgbClr></a:solidFill></a:ln>
+  <a:effectLst><a:outerShdw blurRad=""40000"" dist=""23000"" dir=""5400000"" rotWithShape=""0""><a:srgbClr val=""000000""><a:alpha val=""35000""/></a:srgbClr></a:outerShdw></a:effectLst>
+  <a:sp3d><a:bevelT w=""63500"" h=""25400""/></a:sp3d>
+</dsp:spPr></dsp:sp>";
+        var result = SmartArtDrawingExtractor.TryExtractShape(ParseXml(xml), 0, 0, 1, 1, 0, 0, 100, 100);
+        Assert.NotNull(result?.Shape);
+        Assert.Equal("#FFFFFF7F", result.Shape!.StrokeColor);
+        Assert.Equal("#00000059", result.Shape.Shadow!.Color);
+        Assert.False(result.Shape.Shadow.RotateWithShape);
+        Assert.Equal(63500 / 12700.0, result.Shape.Bevel!.TopWidth, precision: 3);
+    }
+
+    [Fact]
+    public void ComputeCachedDrawingFit_UnrelatedCoordinateSpaceUsesUniformFallback()
+    {
+        var blind = (MinX: -2500.0, MinY: -1500.0, Width: 5000.0, Height: 3000.0);
+        var frame = (X: 100.0, Y: 50.0, Width: 640.0, Height: 335.9);
+        var fit = SmartArtDrawingExtractor.ComputeCachedDrawingFit(blind, blind, frame);
+        Assert.Equal(Math.Min(frame.Width / blind.Width, frame.Height / blind.Height), fit.ScaleX, precision: 9);
+        Assert.Equal(fit.ScaleX, fit.ScaleY, precision: 9);
+    }
+
+    [Fact]
+    public void ComputeCachedDrawingFit_FrameSpaceCachePreservesNativeTransform()
+    {
+        var bounds = (MinX: 17.98, MinY: 8.95, Width: 604.03, Height: 318.01);
+        var frame = (X: 235.75, Y: 122.58, Width: 640.0, Height: 335.9);
+        var fit = SmartArtDrawingExtractor.ComputeCachedDrawingFit(bounds, bounds, frame);
+        Assert.Equal(1.0, fit.ScaleX, precision: 9);
+        Assert.Equal(1.0, fit.ScaleY, precision: 9);
+        Assert.Equal(frame.X, fit.FrameX, precision: 9);
+        Assert.Equal(frame.Y, fit.FrameY, precision: 9);
+    }
+
     private static OpenXmlElement ParseXml(string xml)
     {
         var xElement = XElement.Parse(xml);

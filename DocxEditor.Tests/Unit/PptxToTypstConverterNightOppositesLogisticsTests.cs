@@ -74,6 +74,40 @@ public sealed class PptxToTypstConverterNightTests : IDisposable
         Assert.Equal("#FFFFFF", element.StrokeColor);
     }
 
+    [Fact]
+    public void GenerateTypstSource_PreservesIntentionalBrandingSpacing()
+    {
+        var path = CreateDeck();
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var source = converter.GenerateTypstSource(new TypstPresentation
+        {
+            Slides =
+            {
+                new TypstSlide
+                {
+                    Layout = new PptxEditor.Core.Models.SlideLayout { Width = 200, Height = 100 },
+                    Elements =
+                    {
+                        new TypstElement
+                        {
+                            Type = "Text",
+                            Width = 200,
+                            Height = 20,
+                            Text = new TypstTextElement
+                            {
+                                Paragraphs = { new TypstParagraph { Content = "Made with       by" } }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        Assert.Contains("Made with #h(0.25em)#h(0.25em)", source);
+    }
+
     private static TypstShapeElement ConvertSingleShape(string path)
     {
         using var document = PresentationDocument.Open(path, false);

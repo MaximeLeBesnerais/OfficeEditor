@@ -56,6 +56,10 @@ namespace PptxEditor.Core.Converters.SmartArt;
         ["pie"] = (ShapeType.Pie, null),
         ["pieWedge"] = (ShapeType.PieWedge, null),
         ["round2DiagRect"] = (ShapeType.Round2DiagRect, null),
+        ["donut"] = (ShapeType.Donut, null),
+        ["funnel"] = (ShapeType.Funnel, null),
+        ["arc"] = (ShapeType.Arc, null),
+        ["flowChartConnector"] = (ShapeType.Ellipse, null),
     };
 
     /// <summary>
@@ -308,6 +312,63 @@ namespace PptxEditor.Core.Converters.SmartArt;
         return (chosen.Scale, chosen.Scale, chosen.FrameX, chosen.FrameY);
     }
 
+    /// <summary>
+    /// Selects the transform for a cached SmartArt drawing. Office normally writes
+    /// the cache in graphic-frame coordinates, including intentional internal
+    /// margins. In that case preserve the native transform; malformed or clearly
+    /// unrelated coordinate spaces retain the uniform fit fallback.
+    /// </summary>
+    internal static (double ScaleX, double ScaleY, double FrameX, double FrameY)
+        ComputeCachedDrawingFit(
+            (double MinX, double MinY, double Width, double Height) blindBounds,
+            (double MinX, double MinY, double Width, double Height) awareBounds,
+            (double X, double Y, double Width, double Height) frame)
+    {
+        return LooksLikeFrameCoordinates(blindBounds, awareBounds, frame)
+            ? (1.0, 1.0, frame.X, frame.Y)
+            : ComputeFrameFit(blindBounds, awareBounds, frame);
+    }
+
+    private static bool LooksLikeFrameCoordinates(
+        (double MinX, double MinY, double Width, double Height) blindBounds,
+        (double MinX, double MinY, double Width, double Height) awareBounds,
+        (double X, double Y, double Width, double Height) frame)
+    {
+        if (frame.Width <= 0 || frame.Height <= 0
+            || blindBounds.Width <= 0 || blindBounds.Height <= 0
+            || awareBounds.Width <= 0 || awareBounds.Height <= 0)
+            return false;
+
+        if (new[] { blindBounds.MinX, blindBounds.MinY, blindBounds.Width, blindBounds.Height,
+                    awareBounds.MinX, awareBounds.MinY, awareBounds.Width, awareBounds.Height }
+            .Any(value => double.IsNaN(value) || double.IsInfinity(value)))
+            return false;
+
+        // Cached connectors may extend beyond the frame. A two-frame envelope is
+        // permissive for those, while rejecting caches whose coordinates are in a
+        // wholly unrelated EMU-like space (the old source of giant SmartArt fits).
+        var envelope = 2.0 * Math.Max(frame.Width, frame.Height);
+        static bool InEnvelope(double min, double width, double limit)
+            => Math.Abs(min) <= limit && Math.Abs(min + width) <= limit;
+
+        if (!InEnvelope(blindBounds.MinX, blindBounds.Width, envelope)
+            || !InEnvelope(blindBounds.MinY, blindBounds.Height, envelope)
+            || !InEnvelope(awareBounds.MinX, awareBounds.Width, envelope)
+            || !InEnvelope(awareBounds.MinY, awareBounds.Height, envelope))
+            return false;
+
+        // A frame-space cache should not be orders of magnitude larger/smaller
+        // than its target frame. Allow generous aspect differences for connectors.
+        var widthRatio = blindBounds.Width / frame.Width;
+        var heightRatio = blindBounds.Height / frame.Height;
+        var awareWidthRatio = awareBounds.Width / frame.Width;
+        var awareHeightRatio = awareBounds.Height / frame.Height;
+        return widthRatio is >= 0.05 and <= 20.0
+            && heightRatio is >= 0.05 and <= 20.0
+            && awareWidthRatio is >= 0.05 and <= 20.0
+            && awareHeightRatio is >= 0.05 and <= 20.0;
+    }
+
     private static (double Scale, double FrameX, double FrameY, double IdentityOffset) FitCandidate(
         (double MinX, double MinY, double Width, double Height) bounds,
         (double X, double Y, double Width, double Height) frame)
@@ -359,11 +420,13 @@ namespace PptxEditor.Core.Converters.SmartArt;
         var geometry = ReadGeometry(spPr, shapeW, shapeH);
         if (geometry == null) return null;
 
-        var fillColor = ReadFillColor(spPr, schemeColors);
+        var hasNoFill = GetChild(spPr, "noFill", DrawingmlNs) != null;
+        var hasSolidFill = GetChild(spPr, "solidFill", DrawingmlNs) != null;
+        var fillColor = hasNoFill ? null : ReadFillColor(spPr, schemeColors);
         // Many SmartArt drawing parts carry their colors as a:gradFill on the shape
         //  rather than a:solidFill — read gradients through the same
         // shared reader the main slide-shape path uses.
-        var fillGradient = fillColor == null
+        var fillGradient = !hasNoFill && !hasSolidFill && fillColor == null
             ? GradientFillReader.TryReadLinearGradient(
                 spPr, name => ResolveSchemeColor(name, schemeColors))
             : null;
@@ -383,13 +446,15 @@ namespace PptxEditor.Core.Converters.SmartArt;
                 fillGradient = null;
             }
         }
-        var (strokeColor, strokeWidth) = ReadStroke(spPr, schemeColors);
+        var (strokeColor, strokeGradient, strokeWidth) = ReadStroke(spPr, schemeColors);
+        var shadow = ReadOuterShadow(spPr, schemeColors);
+        var bevel = ReadBevel(spPr);
         var arrowAtEnd = ReadArrowAtEnd(spPr);
         // Cached drawing shapes carry their styling inline; a missing or fill-less
         // a:ln means "no border" in PowerPoint. Flag it so the Typst emitter writes
         // an explicit stroke: none instead of inheriting Typst's 1pt black default
         // (which drew a visible black box around text-container shapes).
-        var noStroke = string.IsNullOrEmpty(strokeColor) || strokeWidth <= 0;
+        var noStroke = (string.IsNullOrEmpty(strokeColor) && strokeGradient == null) || strokeWidth <= 0;
 
         var x = offX + (frameX + geometry.OffsetX) * scaleX;
         var y = offY + (frameY + geometry.OffsetY) * scaleY;
@@ -399,7 +464,7 @@ namespace PptxEditor.Core.Converters.SmartArt;
 
         return geometry.ShapeType switch
         {
-            ShapeType.Rect => BuildRect(x, y, w, h, rotation, fillColor, fillGradient, strokeColor, strokeWidth, noStroke, geometry.CornerRadius, modelId),
+            ShapeType.Rect => BuildRect(x, y, w, h, rotation, fillColor, fillGradient, strokeColor, strokeGradient, strokeWidth, noStroke, geometry.CornerRadius, modelId, shadow, bevel),
 
             ShapeType.Ellipse => new TypstElement
             {
@@ -412,23 +477,27 @@ namespace PptxEditor.Core.Converters.SmartArt;
                     FillColor = fillColor ?? string.Empty,
                     FillGradient = fillGradient,
                     StrokeColor = strokeColor ?? string.Empty,
+                    StrokeGradient = strokeGradient,
                     StrokeWidth = strokeWidth,
                     NoStroke = noStroke,
-                    ArrowAtEnd = arrowAtEnd
+                    ArrowAtEnd = arrowAtEnd,
+                    Shadow = shadow,
+                    Bevel = bevel
                 }
             },
 
-            ShapeType.Line => BuildLine(x, y, w, h, rotation, fillColor, fillGradient, strokeColor, strokeWidth, noStroke, arrowAtEnd, modelId),
+            ShapeType.Line => BuildLine(x, y, w, h, rotation, fillColor, fillGradient, strokeColor, strokeGradient, strokeWidth, noStroke, arrowAtEnd, modelId, shadow, bevel),
 
-            ShapeType.Custom => BuildCustomPath(x, y, w, h, rotation, fillColor, fillGradient, strokeColor, strokeWidth, noStroke, arrowAtEnd, geometry, modelId),
+            ShapeType.Custom or ShapeType.Arc => BuildCustomPath(x, y, w, h, rotation, fillColor, fillGradient, strokeColor, strokeGradient, strokeWidth, noStroke, arrowAtEnd, geometry, modelId, shadow, bevel),
 
-            _ => BuildPolygon(x, y, w, h, rotation, fillColor, fillGradient, strokeColor, strokeWidth, noStroke, geometry, modelId)
+            _ => BuildPolygon(x, y, w, h, rotation, fillColor, fillGradient, strokeColor, strokeGradient, strokeWidth, noStroke, geometry, modelId, shadow, bevel)
         };
     }
 
     private static TypstElement BuildLine(double x, double y, double w, double h, double rotation,
-        string? fillColor, TypstGradientFill? fillGradient, string? strokeColor, double strokeWidth,
-        bool noStroke, bool arrowAtEnd, string? modelId)
+        string? fillColor, TypstGradientFill? fillGradient, string? strokeColor, TypstGradientFill? strokeGradient,
+        double strokeWidth, bool noStroke, bool arrowAtEnd, string? modelId,
+        TypstShadowSpec? shadow, TypstBevelSpec? bevel)
     {
         var points = w <= 0.01
             ? new List<(double, double)> { (0.5, 0), (0.5, 1) }
@@ -441,15 +510,17 @@ namespace PptxEditor.Core.Converters.SmartArt;
             Shape = new TypstShapeElement
             {
                 ShapeType = "line", FillColor = fillColor ?? string.Empty, FillGradient = fillGradient,
-                StrokeColor = strokeColor ?? string.Empty, StrokeWidth = strokeWidth, NoStroke = noStroke,
-                Points = points, ArrowAtEnd = arrowAtEnd
+                StrokeColor = strokeColor ?? string.Empty, StrokeGradient = strokeGradient,
+                StrokeWidth = strokeWidth, NoStroke = noStroke,
+                Points = points, ArrowAtEnd = arrowAtEnd, Shadow = shadow, Bevel = bevel
             }
         };
     }
 
     private static TypstElement BuildCustomPath(double x, double y, double w, double h, double rotation,
-        string? fillColor, TypstGradientFill? fillGradient, string? strokeColor, double strokeWidth,
-        bool noStroke, bool arrowAtEnd, DiagramGeometry geometry, string? modelId)
+        string? fillColor, TypstGradientFill? fillGradient, string? strokeColor, TypstGradientFill? strokeGradient,
+        double strokeWidth, bool noStroke, bool arrowAtEnd, DiagramGeometry geometry, string? modelId,
+        TypstShadowSpec? shadow, TypstBevelSpec? bevel)
     {
         var paths = geometry.CustomPaths.Count > 0
             ? geometry.CustomPaths
@@ -468,16 +539,19 @@ namespace PptxEditor.Core.Converters.SmartArt;
             Shape = new TypstShapeElement
             {
                 ShapeType = "path", FillColor = fillColor ?? string.Empty, FillGradient = fillGradient,
-                StrokeColor = strokeColor ?? string.Empty, StrokeWidth = strokeWidth, NoStroke = noStroke,
+                StrokeColor = strokeColor ?? string.Empty, StrokeGradient = strokeGradient,
+                StrokeWidth = strokeWidth, NoStroke = noStroke,
                 Points = paths.FirstOrDefault() ?? [], Subpaths = paths,
                 ClosedSubpaths = geometry.ClosedSubpaths,
-                ArrowAtEnd = arrowAtEnd
+                ArrowAtEnd = arrowAtEnd, Shadow = shadow, Bevel = bevel
             }
         };
     }
 
     private static TypstElement BuildRect(double x, double y, double w, double h, double rotation,
-        string? fillColor, TypstGradientFill? fillGradient, string? strokeColor, double strokeWidth, bool noStroke, double cornerRadius, string? modelId)
+        string? fillColor, TypstGradientFill? fillGradient, string? strokeColor, TypstGradientFill? strokeGradient,
+        double strokeWidth, bool noStroke, double cornerRadius, string? modelId,
+        TypstShadowSpec? shadow, TypstBevelSpec? bevel)
     {
         return new TypstElement
         {
@@ -490,21 +564,34 @@ namespace PptxEditor.Core.Converters.SmartArt;
                 FillColor = fillColor ?? string.Empty,
                 FillGradient = fillGradient,
                 StrokeColor = strokeColor ?? string.Empty,
+                StrokeGradient = strokeGradient,
                 StrokeWidth = strokeWidth,
                 NoStroke = noStroke,
-                CornerRadius = cornerRadius
+                CornerRadius = cornerRadius, Shadow = shadow, Bevel = bevel
             }
         };
     }
 
     private static TypstElement BuildPolygon(double x, double y, double w, double h, double rotation,
-        string? fillColor, TypstGradientFill? fillGradient, string? strokeColor, double strokeWidth, bool noStroke, DiagramGeometry geometry, string? modelId)
+        string? fillColor, TypstGradientFill? fillGradient, string? strokeColor, TypstGradientFill? strokeGradient,
+        double strokeWidth, bool noStroke, DiagramGeometry geometry, string? modelId,
+        TypstShadowSpec? shadow, TypstBevelSpec? bevel)
     {
         // Arc-based and aspect-dependent presets evaluate their ECMA-376 preset
         // definition per shape so a:avLst adjustments (and the shape aspect ratio)
         // are honored; everything else uses the static normalized polygon table.
         List<(double, double)>? points = null;
-        if (geometry.ShapeType == ShapeType.Custom)
+        List<List<(double, double)>>? subpaths = null;
+        if (geometry.CustomPaths.Count > 0)
+        {
+            // Apply xfrm flips exactly once. ReadCustomGeometry and the preset
+            // builders retain source-space coordinates for this purpose.
+            subpaths = geometry.CustomPaths
+                .Select(path => ApplyPointFlips(path, geometry.FlipHorizontal, geometry.FlipVertical))
+                .ToList();
+            points = subpaths[0];
+        }
+        else if (geometry.ShapeType == ShapeType.Custom)
         {
             points = geometry.CustomPoints?.ToList();
         }
@@ -530,9 +617,12 @@ namespace PptxEditor.Core.Converters.SmartArt;
                 FillColor = fillColor ?? string.Empty,
                 FillGradient = fillGradient,
                 StrokeColor = strokeColor ?? string.Empty,
+                StrokeGradient = strokeGradient,
                 StrokeWidth = strokeWidth,
                 NoStroke = noStroke,
-                Points = points
+                Points = points,
+                Subpaths = subpaths is { Count: > 1 } ? subpaths : [],
+                Shadow = shadow, Bevel = bevel
             }
         };
     }
@@ -592,8 +682,78 @@ namespace PptxEditor.Core.Converters.SmartArt;
             Rotation = rotationDeg,
             FlipHorizontal = flipH,
             FlipVertical = flipV,
-            CornerRadius = cornerRadius
+            CornerRadius = cornerRadius,
+            CustomPaths = BuildPresetSubpaths(
+                prstValue, width.Value, height.Value, ReadAdjustments(prstGeom))
         };
+    }
+
+    private static List<List<(double X, double Y)>> BuildPresetSubpaths(
+        string preset, double width, double height,
+        IReadOnlyDictionary<string, double> adjustments)
+    {
+        if (preset == "donut")
+        {
+            var thickness = adjustments.TryGetValue("adj", out var adjustment)
+                ? Math.Clamp(adjustment / 100000.0, 0.0, 0.5)
+                : 0.25;
+            var innerX = Math.Max(0.0, 0.5 - thickness * Math.Min(width, height) / width);
+            var innerY = Math.Max(0.0, 0.5 - thickness * Math.Min(width, height) / height);
+            var outer = new List<(double X, double Y)>();
+            var inner = new List<(double X, double Y)>();
+            const int segments = 64;
+            for (var i = 0; i < segments; i++)
+            {
+                var angle = 2 * Math.PI * i / segments;
+                outer.Add((0.5 + 0.5 * Math.Cos(angle), 0.5 + 0.5 * Math.Sin(angle)));
+                inner.Add((0.5 + innerX * Math.Cos(angle), 0.5 + innerY * Math.Sin(angle)));
+            }
+
+            return [outer, inner];
+        }
+
+        if (preset == "funnel")
+        {
+            var points = new List<(double X, double Y)>();
+            const double mouthCenterY = 0.30;
+            const double mouthRadiusY = 0.30;
+            for (var i = 0; i <= 36; i++)
+            {
+                var angle = Math.PI - Math.PI * i / 36.0;
+                points.Add((0.5 + 0.5 * Math.Cos(angle), mouthCenterY - mouthRadiusY * Math.Sin(angle)));
+            }
+
+            points.Add((0.64, 0.88));
+            for (var i = 0; i <= 18; i++)
+            {
+                var angle = Math.PI * i / 18.0;
+                points.Add((0.5 + 0.14 * Math.Cos(angle), 0.88 + 0.12 * Math.Sin(angle)));
+            }
+
+            points.Add((0.36, 0.88));
+            return [points];
+        }
+
+        if (preset == "arc")
+        {
+            var start = adjustments.TryGetValue("adj1", out var startAngle) ? startAngle : 0.0;
+            var end = adjustments.TryGetValue("adj2", out var endAngle) ? endAngle : 5400000.0;
+            var sweep = end - start;
+            if (sweep <= 0)
+                sweep += 21600000.0;
+
+            var points = new List<(double X, double Y)>();
+            var segments = Math.Max(8, (int)Math.Ceiling(sweep / 60000.0 / 5.0));
+            for (var i = 0; i <= segments; i++)
+            {
+                var radians = (start + sweep * i / segments) / 60000.0 * Math.PI / 180.0;
+                points.Add((0.5 + 0.5 * Math.Cos(radians), 0.5 + 0.5 * Math.Sin(radians)));
+            }
+
+            return [points];
+        }
+
+        return [];
     }
 
     private static bool HasRenderableCustomGeometry(OpenXmlElement? custGeom)
@@ -885,33 +1045,15 @@ namespace PptxEditor.Core.Converters.SmartArt;
     {
         var solidFill = GetChild(spPr, "solidFill", DrawingmlNs);
         if (solidFill == null) return null;
-
-        var srgbClr = GetChild(solidFill, "srgbClr", DrawingmlNs);
-        if (srgbClr != null)
-        {
-            var val = ReadAttribute(srgbClr, "val");
-            if (!string.IsNullOrEmpty(val))
-                return ApplyColorTransforms(NormalizeHexColor(val), srgbClr);
-        }
-
-        var schemeClr = GetChild(solidFill, "schemeClr", DrawingmlNs);
-        if (schemeClr != null)
-        {
-            var val = ReadAttribute(schemeClr, "val");
-            if (!string.IsNullOrEmpty(val))
-            {
-                var resolved = ResolveSchemeColor(val, schemeColors);
-                return resolved == null ? null : ApplyColorTransforms(resolved, schemeClr);
-            }
-        }
-
-        return null;
+        return GradientFillReader.ResolveColor(
+            solidFill, name => ResolveSchemeColor(name, schemeColors));
     }
 
-    private static (string? color, double width) ReadStroke(OpenXmlElement spPr, IReadOnlyDictionary<string, string>? schemeColors)
+    private static (string? color, TypstGradientFill? gradient, double width) ReadStroke(
+        OpenXmlElement spPr, IReadOnlyDictionary<string, string>? schemeColors)
     {
         var ln = GetChild(spPr, "ln", DrawingmlNs);
-        if (ln == null) return (null, 0);
+        if (ln == null) return (null, null, 0);
 
         var wStr = ReadAttribute(ln, "w");
         var strokeWidth = 0.0;
@@ -921,29 +1063,17 @@ namespace PptxEditor.Core.Converters.SmartArt;
             strokeWidth = EmuToPt(wEmu);
         }
 
+        if (GetChild(ln, "noFill", DrawingmlNs) != null)
+            return (null, null, strokeWidth);
+
         var solidFill = GetChild(ln, "solidFill", DrawingmlNs);
-        if (solidFill == null) return (null, strokeWidth);
+        if (solidFill != null)
+            return (GradientFillReader.ResolveColor(
+                solidFill, name => ResolveSchemeColor(name, schemeColors)), null, strokeWidth);
 
-        var srgbClr = GetChild(solidFill, "srgbClr", DrawingmlNs);
-        if (srgbClr != null)
-        {
-            var val = ReadAttribute(srgbClr, "val");
-            if (!string.IsNullOrEmpty(val))
-                return (ApplyColorTransforms(NormalizeHexColor(val), srgbClr), strokeWidth);
-        }
-
-        var schemeClr = GetChild(solidFill, "schemeClr", DrawingmlNs);
-        if (schemeClr != null)
-        {
-            var val = ReadAttribute(schemeClr, "val");
-            if (!string.IsNullOrEmpty(val))
-            {
-                var resolved = ResolveSchemeColor(val, schemeColors);
-                return (resolved == null ? null : ApplyColorTransforms(resolved, schemeClr), strokeWidth);
-            }
-        }
-
-        return (null, strokeWidth);
+        var gradient = GradientFillReader.TryReadLinearGradient(
+            ln, name => ResolveSchemeColor(name, schemeColors));
+        return (null, gradient, strokeWidth);
     }
 
     private static bool ReadArrowAtEnd(OpenXmlElement spPr)
@@ -955,66 +1085,50 @@ namespace PptxEditor.Core.Converters.SmartArt;
         return !string.IsNullOrEmpty(type) && !type.Equals("none", StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>
-    /// Applies OOXML colour transforms (<c>a:tint</c>, <c>a:shade</c>, <c>a:lumMod</c>,
-    /// <c>a:lumOff</c>, <c>a:alpha</c>) in document order. <c>a:tint</c> delegates to
-    /// <see cref="GradientFillReader.ApplyTint"/> (gamma-linear blend, matching
-    /// PowerPoint's pale tints); the remaining transforms use per-channel arithmetic —
-    /// a close approximation of the HSL-space spec (ECMA-376).
-    /// <c>a:alpha</c> yields an 8-digit <c>#RRGGBBAA</c> hex (Typst <c>rgb()</c> accepts it).
-    /// Saturation transforms are not applied (unused in diagram drawing-part solid fills).
-    /// </summary>
-    private static string ApplyColorTransforms(string hex, OpenXmlElement colorElement)
+    private static TypstShadowSpec? ReadOuterShadow(
+        OpenXmlElement spPr, IReadOnlyDictionary<string, string>? schemeColors)
     {
-        var hexValue = hex.TrimStart('#');
-        if (hexValue.Length != 6)
-            return NormalizeHexColor(hex);
+        var effectList = GetChild(spPr, "effectLst", DrawingmlNs);
+        var shadow = effectList?.Elements()
+            .FirstOrDefault(e => e.LocalName == "outerShdw" && e.NamespaceUri == DrawingmlNs);
+        if (shadow == null)
+            return null;
 
-        double r = Convert.ToInt32(hexValue[..2], 16);
-        double g = Convert.ToInt32(hexValue[2..4], 16);
-        double b = Convert.ToInt32(hexValue[4..6], 16);
-        double alpha = 1.0;
+        var distance = ReadLongAttribute(shadow, "dist") is { } dist ? EmuToPt(dist) : 0;
+        var direction = ReadLongAttribute(shadow, "dir") is { } dir
+            ? dir / 60000.0 * Math.PI / 180.0
+            : 0;
+        var blur = ReadLongAttribute(shadow, "blurRad") is { } blurRad ? EmuToPt(blurRad) : 0;
+        var colorElement = shadow.Elements().FirstOrDefault(e => e.NamespaceUri == DrawingmlNs
+            && e.LocalName is "srgbClr" or "schemeClr" or "sysClr" or "prstClr");
+        var color = colorElement == null
+            ? null
+            : GradientFillReader.ResolveColor(
+                colorElement, name => ResolveSchemeColor(name, schemeColors));
+        if (color == null)
+            return null;
 
-        foreach (var child in colorElement.ChildElements)
-        {
-            var valAttr = ReadAttribute(child, "val");
-            if (string.IsNullOrEmpty(valAttr) ||
-                !double.TryParse(valAttr, NumberStyles.Float, CultureInfo.InvariantCulture, out var rawVal))
-                continue;
-
-            var f = rawVal / 100000.0;
-            switch (child.LocalName)
-            {
-                case "tint": // mix toward white in linear light (matches PowerPoint's pale tints)
-                    var tinted = GradientFillReader.ApplyTint(
-                        ((byte)ClampChannel(r), (byte)ClampChannel(g), (byte)ClampChannel(b)),
-                        (int)Math.Round(rawVal));
-                    r = tinted.R; g = tinted.G; b = tinted.B;
-                    break;
-                case "shade": // mix toward black
-                case "lumMod": // luminance multiply (per-channel approximation)
-                    r *= f; g *= f; b *= f;
-                    break;
-                case "lumOff": // luminance offset (per-channel approximation)
-                    r += 255 * f; g += 255 * f; b += 255 * f;
-                    break;
-                case "alpha": // opacity multiplier
-                    alpha = f;
-                    break;
-            }
-        }
-
-        var rgbOut = $"#{ClampChannel(r):X2}{ClampChannel(g):X2}{ClampChannel(b):X2}";
-        if (alpha < 1.0)
-        {
-            rgbOut += $"{ClampChannel(alpha * 255):X2}";
-        }
-        return rgbOut;
+        var rotateWithShape = ReadAttribute(shadow, "rotWithShape") is not ("0" or "false");
+        return new TypstShadowSpec(
+            distance * Math.Cos(direction), distance * Math.Sin(direction), blur, color, rotateWithShape);
     }
 
-    private static int ClampChannel(double v)
+    private static TypstBevelSpec? ReadBevel(OpenXmlElement spPr)
     {
-        return (int)Math.Round(Math.Clamp(v, 0, 255), MidpointRounding.AwayFromZero);
+        var sp3d = GetChild(spPr, "sp3d", DrawingmlNs);
+        if (sp3d == null)
+            return null;
+
+        var top = GetChild(sp3d, "bevelT", DrawingmlNs);
+        var bottom = GetChild(sp3d, "bevelB", DrawingmlNs);
+        if (top == null && bottom == null)
+            return null;
+
+        return new TypstBevelSpec(
+            ReadLongAttribute(top, "w") is { } topW ? EmuToPt(topW) : 0,
+            ReadLongAttribute(top, "h") is { } topH ? EmuToPt(topH) : 0,
+            ReadLongAttribute(bottom, "w") is { } bottomW ? EmuToPt(bottomW) : 0,
+            ReadLongAttribute(bottom, "h") is { } bottomH ? EmuToPt(bottomH) : 0);
     }
 
     /// <summary>
@@ -1088,6 +1202,14 @@ namespace PptxEditor.Core.Converters.SmartArt;
         return match.Success ? match.Groups[1].Value : null;
     }
 
+    private static long? ReadLongAttribute(OpenXmlElement? element, string attributeName)
+    {
+        var raw = element == null ? null : ReadAttribute(element, attributeName);
+        return long.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value)
+            ? value
+            : null;
+    }
+
     private static OpenXmlElement? GetChild(OpenXmlElement parent, string localName, HashSet<string> namespaces)
     {
         return parent.Elements()
@@ -1150,6 +1272,9 @@ namespace PptxEditor.Core.Converters.SmartArt;
         Pie,
         PieWedge,
         Round2DiagRect,
+        Donut,
+        Funnel,
+        Arc,
         Line,
         Custom
     }

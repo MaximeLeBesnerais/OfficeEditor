@@ -209,6 +209,8 @@ public sealed class TypstShapeElement
     /// </summary>
     public TypstGradientFill? FillGradient { get; init; }
     public string StrokeColor { get; init; } = string.Empty;
+    /// <summary>Linear gradient outline from an OOXML <c>a:ln/a:gradFill</c>.</summary>
+    public TypstGradientFill? StrokeGradient { get; init; }
     public double StrokeWidth { get; init; }
     /// <summary>
     /// When true and no stroke color/width was resolved, emit an explicit
@@ -220,6 +222,10 @@ public sealed class TypstShapeElement
     /// converter does not resolve, so the previous emission is preserved.
     /// </summary>
     public bool NoStroke { get; init; }
+    /// <summary>Cached SmartArt outer shadow; emitted as an offset edge outline.</summary>
+    public TypstShadowSpec? Shadow { get; init; }
+    /// <summary>Cached SmartArt 3-D bevel dimensions.</summary>
+    public TypstBevelSpec? Bevel { get; init; }
     /// <summary>Whether the source line/path carries an arrowhead at its end.</summary>
     public bool ArrowAtEnd { get; init; }
     public double CornerRadius { get; init; }
@@ -245,6 +251,21 @@ public sealed record TypstGradientFill(double Angle, IReadOnlyList<TypstGradient
 
 /// <summary>One gradient color stop: <c>#RRGGBB</c>/<c>#RRGGBBAA</c> hex color + offset in [0, 1].</summary>
 public sealed record TypstGradientStop(string Color, double Offset);
+
+/// <summary>DrawingML outer-shadow values in points and a resolved paint color.</summary>
+public sealed record TypstShadowSpec(
+    double OffsetX,
+    double OffsetY,
+    double BlurRadius,
+    string Color,
+    bool RotateWithShape = true);
+
+/// <summary>DrawingML 3-D bevel dimensions in points.</summary>
+public sealed record TypstBevelSpec(
+    double TopWidth,
+    double TopHeight,
+    double BottomWidth,
+    double BottomHeight);
 
 public sealed class TableStyleDefinition
 {

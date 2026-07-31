@@ -81,7 +81,21 @@ public sealed class PptxToTypstConverterRoundedImageTests : IDisposable
         Assert.NotEmpty(result.Pages);
     }
 
+    [Fact]
+    public void Convert_PlainRectanglePicture_DoesNotReceiveDefaultCornerRadius()
+    {
+        var path = CreateDeckWithImage(Drawing.ShapeTypeValues.Rectangle);
+        using var document = PresentationDocument.Open(path, false);
+        using var converter = new PptxToTypstConverter(document);
+
+        var element = Assert.Single(converter.Convert().Slides[0].Elements, e => e.Type == "Image");
+        Assert.Equal(0.0, element.Image!.CornerRadius);
+    }
+
     private string CreateDeckWithRoundedImage()
+        => CreateDeckWithImage(Drawing.ShapeTypeValues.Round2SameRectangle);
+
+    private string CreateDeckWithImage(Drawing.ShapeTypeValues preset)
     {
         var deckPath = Path.Combine(_tempDir, $"{Guid.NewGuid():N}.pptx");
         var pngPath = SlideOpsTestHelpers.WriteMinimalPng(_tempDir);
@@ -139,7 +153,7 @@ public sealed class PptxToTypstConverterRoundedImageTests : IDisposable
             }
 
             var embedId = slidePart.GetIdOfPart(imagePart);
-            slidePart.Slide = new Slide(new CommonSlideData(CreateShapeTree(RoundedImageShape(embedId))));
+            slidePart.Slide = new Slide(new CommonSlideData(CreateShapeTree(RoundedImageShape(embedId, preset))));
             slidePart.AddPart(slideLayoutPart);
 
             presentationPart.Presentation.SlideIdList.Append(new SlideId
@@ -156,7 +170,7 @@ public sealed class PptxToTypstConverterRoundedImageTests : IDisposable
     /// A blip-filled rounded-rect shape: the converter turns shape-with-picture-fill
     /// into an Image element whose CornerRadius comes from the preset geometry.
     /// </summary>
-    private static P.Shape RoundedImageShape(string embedId)
+    private static P.Shape RoundedImageShape(string embedId, Drawing.ShapeTypeValues preset)
     {
         return new P.Shape(
             new NonVisualShapeProperties(
@@ -169,7 +183,7 @@ public sealed class PptxToTypstConverterRoundedImageTests : IDisposable
                     new Drawing.Extents { Cx = 2540000, Cy = 1270000 }),
                 new Drawing.PresetGeometry(new Drawing.AdjustValueList())
                 {
-                    Preset = Drawing.ShapeTypeValues.Round2SameRectangle
+                    Preset = preset
                 },
                 new Drawing.BlipFill(
                     new Drawing.Blip { Embed = embedId },
