@@ -10,10 +10,9 @@ using Xunit;
 namespace DocxEditor.Tests.Unit;
 
 /// <summary>
-/// Rotated diagram text: a SmartArt <c>dsp:sp</c> whose text is rotated either by the
-/// shape's own <c>a:xfrm@rot</c> (text rides the shape) or by a <c>dsp:txXfrm@rot</c>
-/// (text-only rotation; the txXfrm box is already in post-rotation drawing space) must
-/// emit the text rotated about the text-box centre in the Typst source.
+/// Rotated diagram text: a SmartArt <c>dsp:sp</c> combines the shape's own
+/// <c>a:xfrm@rot</c> with any local <c>dsp:txXfrm@rot</c> counter-rotation and emits
+/// the resulting text rotation about the text-box centre in the Typst source.
 /// </summary>
 public class PptxToTypstConverterRotatedDiagramTextTests : IDisposable
 {
@@ -86,11 +85,11 @@ public class PptxToTypstConverterRotatedDiagramTextTests : IDisposable
     }
 
     [Fact]
-    public void Convert_DiagramShapeRotAndTxXfrmRot_TextUsesTxXfrmRotationOnly()
+    public void Convert_DiagramShapeRotAndTxXfrmRot_TextComposesBothRotations()
     {
         // Slide-30 pattern: shape rot=16200000 (270°) AND txXfrm rot=5400000 (90°).
-        // The txXfrm box is already in post-rotation drawing space, so the shape
-        // rotation must not be re-applied to the text — text rotation is 90° only.
+        // The cached text transform counter-rotates the shape, so both rotations
+        // compose to an upright text box.
         var path = CreateDiagramPptx("both-rot.pptx", @"<dsp:sp modelId=""{11111111-1111-1111-1111-111111111111}"">
       <dsp:spPr><a:xfrm rot=""16200000""><a:off x=""0"" y=""0""/><a:ext cx=""1270000"" cy=""508000""/></a:xfrm><a:prstGeom prst=""rect""><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val=""DDDDDD""/></a:solidFill></dsp:spPr>
       <dsp:txBody>
@@ -104,8 +103,26 @@ public class PptxToTypstConverterRotatedDiagramTextTests : IDisposable
         var (presentation, source) = Convert(path);
 
         var text = Assert.Single(presentation.Slides[0].Elements, e => e.Type == "Text");
-        Assert.Equal(90.0, text.Rotation, 3);
-        Assert.Contains("#rotate(90.0deg, origin: center)[#block(", source);
+        Assert.Equal(0.0, text.Rotation, 3);
+        Assert.DoesNotContain("#rotate(90.0deg, origin: center)[#block(", source);
+    }
+
+    [Fact]
+    public void Convert_DiagramShapeHalfTurnWithCounterRotation_TextRemainsUpright()
+    {
+        // Slide-67 pattern: the shape is flipped by 180° and its cached text
+        // transform cancels that flip with -180°.
+        var path = CreateDiagramPptx("counter-rotated-text.pptx", @"<dsp:sp modelId=""{11111111-1111-1111-1111-111111111111}""><dsp:spPr><a:xfrm rot=""10800000""><a:off x=""0"" y=""0""/><a:ext cx=""5080000"" cy=""1270000""/></a:xfrm><a:prstGeom prst=""rect""><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val=""DDDDDD""/></a:solidFill></dsp:spPr>
+      <dsp:txBody><a:bodyPr lIns=""12700"" tIns=""12700"" rIns=""12700"" bIns=""12700""><a:noAutofit/></a:bodyPr><a:lstStyle/>
+        <a:p><a:r><a:rPr lang=""en-US"" sz=""1500""/><a:t>Label</a:t></a:r></a:p>
+      </dsp:txBody>
+      <dsp:txXfrm rot=""-10800000""><a:off x=""0"" y=""0""/><a:ext cx=""5080000"" cy=""1270000""/></dsp:txXfrm></dsp:sp>");
+
+        var (presentation, source) = Convert(path);
+        var text = Assert.Single(presentation.Slides[0].Elements, e => e.Type == "Text");
+
+        Assert.Equal(0.0, text.Rotation, 3);
+        Assert.DoesNotContain("#rotate(-180.0deg, origin: center)[#block(", source);
     }
 
     [Fact]
@@ -148,6 +165,62 @@ public class PptxToTypstConverterRotatedDiagramTextTests : IDisposable
         var text = Assert.Single(presentation.Slides[0].Elements, e => e.Type == "Text");
         Assert.Equal(0.0, text.Rotation, 3);
         Assert.DoesNotContain("#rotate(", source);
+    }
+
+    [Fact]
+    public void Convert_DiagramNoAutoFit_PreservesCachedFontSizeWhenTextOverflows()
+    {
+        var paragraphs = string.Concat(Enumerable.Repeat(
+            "<a:p><a:pPr algn=\"l\"/><a:r><a:rPr lang=\"en-US\" sz=\"1500\"/><a:t>Long cached label</a:t></a:r></a:p>", 4));
+        var path = CreateDiagramPptx("no-autofit-overflow.pptx", $@"<dsp:sp modelId=""{{11111111-1111-1111-1111-111111111111}}""><dsp:spPr><a:xfrm><a:off x=""0"" y=""0""/><a:ext cx=""5080000"" cy=""1270000""/></a:xfrm><a:prstGeom prst=""rect""><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val=""DDDDDD""/></a:solidFill></dsp:spPr>
+      <dsp:txBody><a:bodyPr lIns=""12700"" tIns=""12700"" rIns=""12700"" bIns=""12700""><a:noAutofit/></a:bodyPr><a:lstStyle/>{paragraphs}</dsp:txBody>
+      <dsp:txXfrm><a:off x=""0"" y=""0""/><a:ext cx=""254000"" cy=""254000""/></dsp:txXfrm></dsp:sp>");
+        var (presentation, _) = Convert(path);
+        var text = Assert.Single(presentation.Slides[0].Elements, e => e.Type == "Text");
+        Assert.Equal(15.0, text.Text!.Formatting.FontSize, 3);
+    }
+
+    [Fact]
+    public void Convert_DiagramNormalAutoFit_ShrinksOnlyWhenExplicitlyPersisted()
+    {
+        var paragraphs = string.Concat(Enumerable.Repeat(
+            "<a:p><a:pPr algn=\"l\"/><a:r><a:rPr lang=\"en-US\" sz=\"1500\"/><a:t>Long cached label</a:t></a:r></a:p>", 4));
+        var path = CreateDiagramPptx("normal-autofit-overflow.pptx", $@"<dsp:sp modelId=""{{11111111-1111-1111-1111-111111111111}}""><dsp:spPr><a:xfrm><a:off x=""0"" y=""0""/><a:ext cx=""5080000"" cy=""1270000""/></a:xfrm><a:prstGeom prst=""rect""><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val=""DDDDDD""/></a:solidFill></dsp:spPr>
+      <dsp:txBody><a:bodyPr lIns=""12700"" tIns=""12700"" rIns=""12700"" bIns=""12700""><a:normAutofit/></a:bodyPr><a:lstStyle/>{paragraphs}</dsp:txBody>
+      <dsp:txXfrm><a:off x=""0"" y=""0""/><a:ext cx=""254000"" cy=""254000""/></dsp:txXfrm></dsp:sp>");
+        var (presentation, _) = Convert(path);
+        var text = Assert.Single(presentation.Slides[0].Elements, e => e.Type == "Text");
+        Assert.InRange(text.Text!.Formatting.FontSize, 7.5, 14.99);
+    }
+
+    [Fact]
+    public void Convert_DiagramShadow_PreservesSiblingOrderAndRotWithShape()
+    {
+        var path = CreateDiagramPptx("shadow-order.pptx", @"
+      <dsp:sp modelId=""{11111111-1111-1111-1111-111111111111}""><dsp:spPr>
+        <a:xfrm rot=""5400000""><a:off x=""0"" y=""0""/><a:ext cx=""1270000"" cy=""1270000""/></a:xfrm>
+        <a:prstGeom prst=""rect""><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val=""FF0000""/></a:solidFill>
+        <a:effectLst><a:outerShdw dist=""12700"" dir=""0"" rotWithShape=""0""><a:srgbClr val=""000000""/></a:outerShdw></a:effectLst>
+      </dsp:spPr></dsp:sp>
+      <dsp:sp modelId=""{22222222-2222-2222-2222-222222222222}""><dsp:spPr>
+        <a:xfrm><a:off x=""1270000"" y=""0""/><a:ext cx=""1270000"" cy=""1270000""/></a:xfrm>
+        <a:prstGeom prst=""rect""><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val=""0000FF""/></a:solidFill>
+      </dsp:spPr></dsp:sp>");
+
+        var (presentation, _) = Convert(path);
+        var shapes = presentation.Slides[0].Elements.Where(e => e.Type == "Shape").ToList();
+        var shadowIndex = shapes.FindIndex(e => e.Name.Contains("shadow", StringComparison.OrdinalIgnoreCase));
+        var redIndex = shapes.FindIndex(e => e.Shape?.FillColor == "#FF0000");
+        var blueIndex = shapes.FindIndex(e => e.Shape?.FillColor == "#0000FF");
+
+        Assert.True(shadowIndex >= 0 && shadowIndex < redIndex && redIndex < blueIndex);
+        Assert.Equal(0.0, shapes[shadowIndex].Rotation, 3);
+        var shadowShape = shapes[shadowIndex].Shape;
+        Assert.NotNull(shadowShape);
+        Assert.Empty(shadowShape.FillColor);
+        Assert.Equal("#000000", shadowShape.StrokeColor);
+        Assert.InRange(shadowShape.StrokeWidth, 0.5, 1.5);
+        Assert.Equal(90.0, shapes[redIndex].Rotation, 3);
     }
 
     private (TypstPresentation Presentation, string Source) Convert(string path)

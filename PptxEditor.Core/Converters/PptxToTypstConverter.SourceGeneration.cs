@@ -1189,7 +1189,11 @@ public sealed partial class PptxToTypstConverter
         var fill = shape.FillGradient != null
             ? $"fill: {FormatGradient(shape.FillGradient)}"
             : !string.IsNullOrEmpty(shape.FillColor) ? $"fill: rgb(\"{shape.FillColor}\")" : "";
-        var stroke = shape.StrokeWidth > 0 && !string.IsNullOrEmpty(shape.StrokeColor)
+        var hasVisibleStroke = shape.StrokeWidth > 0 &&
+            (shape.StrokeGradient != null || !string.IsNullOrEmpty(shape.StrokeColor));
+        var stroke = shape.StrokeWidth > 0 && shape.StrokeGradient != null
+            ? $"stroke: {FormatPt(shape.StrokeWidth)} + {FormatGradient(shape.StrokeGradient)}"
+            : shape.StrokeWidth > 0 && !string.IsNullOrEmpty(shape.StrokeColor)
             ? $"stroke: {FormatPt(shape.StrokeWidth)} + rgb(\"{shape.StrokeColor}\")"
             // SmartArt-extracted shapes with no resolved stroke must suppress Typst's
             // default 1pt black stroke (PowerPoint "no border" semantics).
@@ -1218,9 +1222,14 @@ public sealed partial class PptxToTypstConverter
                     : new List<(double X, double Y)> { (0, 0), (1, 1) };
                 var (lineStartX, lineStartY) = linePoints[0];
                 var (lineEndX, lineEndY) = linePoints[^1];
-                var lineStroke = !string.IsNullOrEmpty(stroke)
+                // Typst's line() does not accept the shape-style `stroke: none`
+                // decorator. An explicitly invisible line is omitted entirely;
+                // visible lines retain their paint and legacy fallback behavior.
+                if (shape.NoStroke && !hasVisibleStroke)
+                    break;
+                var lineStroke = hasVisibleStroke
                     ? stroke
-                    : shape.NoStroke ? "stroke: none" : "stroke: 1pt + rgb(\"#000000\")";
+                    : "stroke: 1pt + rgb(\"#000000\")";
                 sb.Append($"#line(start: ({FormatPt(lineStartX * width)}, {FormatPt(lineStartY * height)}), end: ({FormatPt(lineEndX * width)}, {FormatPt(lineEndY * height)}), {lineStroke})");
                 if (shape.ArrowAtEnd)
                     AppendArrowHead(sb, linePoints, width, height, shape.StrokeColor, shape.StrokeWidth);
@@ -1232,11 +1241,16 @@ public sealed partial class PptxToTypstConverter
                 var renderablePaths = pathSubpaths.Where(path => path.Count >= 2).ToList();
                 if (renderablePaths.Count > 0)
                 {
+                    // As with line(), omit an explicitly invisible path instead
+                    // of emitting the invalid `stroke: none` paint decorator.
+                    var pathStroke = hasVisibleStroke ? stroke : "";
+                    if (shape.NoStroke && string.IsNullOrEmpty(fill) && string.IsNullOrEmpty(pathStroke))
+                        break;
                     sb.Append("#curve(");
                     if (!string.IsNullOrEmpty(fill)) sb.Append(fill);
-                    if (!string.IsNullOrEmpty(stroke)) sb.Append(string.IsNullOrEmpty(fill) ? stroke : $", {stroke}");
-                    if (string.IsNullOrEmpty(fill) && string.IsNullOrEmpty(stroke))
-                        sb.Append(shape.NoStroke ? "stroke: none" : "fill: none");
+                    if (!string.IsNullOrEmpty(pathStroke)) sb.Append(string.IsNullOrEmpty(fill) ? pathStroke : $", {pathStroke}");
+                    if (string.IsNullOrEmpty(fill) && string.IsNullOrEmpty(pathStroke))
+                        sb.Append("fill: none");
                     for (var pathIndex = 0; pathIndex < renderablePaths.Count; pathIndex++)
                     {
                         var path = renderablePaths[pathIndex];

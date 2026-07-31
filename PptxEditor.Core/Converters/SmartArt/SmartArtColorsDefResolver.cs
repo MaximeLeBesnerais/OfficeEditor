@@ -205,10 +205,12 @@ internal static class SmartArtColorsDefResolver
                 }
                 else
                 {
-                    // Other colour kinds (hslClr/prstClr/sysClr/scrgbClr) are outside
-                    // the clear-conflict case — keep an always-failing sentinel so
-                    // repeat indices stay aligned and the entry resolves to null.
-                    entries.Add(new FillEntry(null, null, true));
+                    // Resolve the non-scheme DrawingML forms through the canonical
+                    // color reader. Keeping the entry in the repeat list preserves
+                    // colorsDef indexing while allowing scrgbClr/hslClr/sysClr and
+                    // preset colors to participate in the flat-fill conflict rule.
+                    var resolved = GradientFillReader.ResolveColor(entry);
+                    entries.Add(new FillEntry(null, resolved, entry.HasChildren || resolved == null));
                 }
             }
 

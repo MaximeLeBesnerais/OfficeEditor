@@ -5470,7 +5470,7 @@ public class PptxToTypstConverterTests : IDisposable
     <dsp:sp modelId=""{11111111-1111-1111-1111-111111111111}"">
       <dsp:spPr><a:xfrm><a:off x=""0"" y=""0""/><a:ext cx=""1270000"" cy=""508000""/></a:xfrm><a:prstGeom prst=""roundRect""><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val=""DDDDDD""/></a:solidFill></dsp:spPr>
       <dsp:txBody>
-        <a:bodyPr lIns=""12700"" tIns=""12700"" rIns=""12700"" bIns=""12700""><a:noAutofit/></a:bodyPr>
+        <a:bodyPr lIns=""12700"" tIns=""12700"" rIns=""12700"" bIns=""12700""><a:normAutofit/></a:bodyPr>
         <a:lstStyle/>
         <a:p><a:r><a:rPr lang=""en-US"" sz=""1500""/><a:t>Some fairly long text that wraps</a:t></a:r></a:p>
         <a:p><a:r><a:rPr lang=""en-US"" sz=""1500""/><a:t>Some fairly long text that wraps</a:t></a:r></a:p>

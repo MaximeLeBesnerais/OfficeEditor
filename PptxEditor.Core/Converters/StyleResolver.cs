@@ -1196,22 +1196,7 @@ public sealed class StyleResolver
     /// per ECMA-376). Returns null when no usable color is present.
     /// </summary>
     public string? ResolveSolidFillColor(Drawing.SolidFill solidFill)
-    {
-        var rgb = solidFill.RgbColorModelHex;
-        if (rgb?.Val != null)
-            return $"#{rgb.Val.Value}";
-
-        var schemeClr = solidFill.SchemeColor;
-        if (schemeClr == null)
-            return null;
-
-        var schemeName = GetAttributeValue(schemeClr, "val");
-        if (string.IsNullOrEmpty(schemeName))
-            return null;
-
-        var resolved = ResolveSchemeColor(schemeName);
-        return resolved == null ? null : ApplyLumTransforms(schemeClr, resolved);
-    }
+        => GradientFillReader.ResolveColor(solidFill, ResolveSchemeColor);
 
     #endregion
 
@@ -1274,7 +1259,25 @@ public sealed class StyleResolver
         // GradientFillReader matches children by local name, so any container works.
         var wrapper = new ShapeProperties();
         wrapper.Append(gradientFill);
-        return GradientFillReader.TryReadLinearGradient(wrapper, ResolveSchemeColor);
+        return GradientFillReader.TryReadLinearGradient(wrapper, ResolveSchemeColor, themeStyleCompatibility: true);
+    }
+
+    /// <summary>
+    /// Resolves a <c>p:style</c> <c>a:effectRef</c> to the theme effect list. The
+    /// style reference color replaces any <c>phClr</c> entries before callers read
+    /// shadow colors, matching the fill/line reference substitution rules.
+    /// </summary>
+    public Drawing.EffectList? ResolveStyleEffectReference(Drawing.EffectReference? effectReference)
+    {
+        if (effectReference?.Index?.Value is not uint idx || idx < 1 || idx > 3)
+            return null;
+
+        var effectStyle = _themePart?.Theme?.ThemeElements?.FormatScheme?.EffectStyleList?
+            .Elements<Drawing.EffectStyle>().ElementAtOrDefault((int)idx - 1);
+        var effectList = effectStyle?.Elements<Drawing.EffectList>().FirstOrDefault();
+        return effectList == null
+            ? null
+            : SubstitutePlaceholderColor(effectList, effectReference) as Drawing.EffectList;
     }
 
     /// <summary>
@@ -1283,23 +1286,7 @@ public sealed class StyleResolver
     /// whose phClr entries carry the transform chain.
     /// </summary>
     private string? ResolveSolidFillColorWithModifiers(Drawing.SolidFill solidFill)
-    {
-        var rgb = solidFill.RgbColorModelHex;
-        if (rgb?.Val != null)
-            return GradientFillReader.ApplyColorModifiers(
-                GradientFillReader.ParseHexColor(rgb.Val.Value!), rgb.ChildElements);
-
-        var schemeClr = solidFill.SchemeColor;
-        if (schemeClr == null)
-            return null;
-
-        var schemeName = GetAttributeValue(schemeClr, "val");
-        var resolved = string.IsNullOrEmpty(schemeName) ? null : ResolveSchemeColor(schemeName);
-        return resolved == null
-            ? null
-            : GradientFillReader.ApplyColorModifiers(
-                GradientFillReader.ParseHexColor(resolved), schemeClr.ChildElements);
-    }
+        => GradientFillReader.ResolveColor(solidFill, ResolveSchemeColor);
 
     /// <summary>
     /// Replaces every phClr placeholder color inside a cloned theme fill/line style
@@ -1380,28 +1367,9 @@ public sealed class StyleResolver
         if (colorType == null)
             return;
 
-        // Check for sRGB
-        var rgb = colorType.Elements<Drawing.RgbColorModelHex>().FirstOrDefault();
-        if (rgb?.Val != null)
-        {
-            colors[name] = $"#{rgb.Val.Value}";
-            return;
-        }
-
-        // Check for system color
-        var sysClr = colorType.Elements<Drawing.SystemColor>().FirstOrDefault();
-        if (sysClr?.LastColor?.Value != null)
-        {
-            colors[name] = $"#{sysClr.LastColor.Value}";
-            return;
-        }
-
-        // Check for scheme color reference (rare but possible)
-        var schemeClr = colorType.Elements<Drawing.SchemeColor>().FirstOrDefault();
-        if (schemeClr?.Val != null)
-        {
-            colors[name] = "#000000";
-        }
+        var resolved = GradientFillReader.ResolveColor(colorType);
+        if (resolved != null)
+            colors[name] = resolved;
     }
 
     #endregion
