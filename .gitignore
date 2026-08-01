@@ -6,6 +6,7 @@ obj/
 .vs/
 .vscode/
 .opencode/bg-agents
+.opencode/plans/
 *.user
 *.suo
 
