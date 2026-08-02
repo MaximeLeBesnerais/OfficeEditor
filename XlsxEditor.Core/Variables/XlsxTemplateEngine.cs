@@ -25,6 +25,12 @@ public class XlsxTemplateEngine
 
     public void Process(SpreadsheetDocument document, Dictionary<string, object> data)
     {
+        // Reject null arguments up front so behavior is not marker-dependent: a null data
+        // dictionary was previously only touched when a cell actually contained a '{{…}}'
+        // marker (NRE/ANE deep in evaluation), while a document without markers "worked".
+        ArgumentNullException.ThrowIfNull(document);
+        ArgumentNullException.ThrowIfNull(data);
+
         var workbookPart = document.WorkbookPart;
         if (workbookPart == null) return;
 

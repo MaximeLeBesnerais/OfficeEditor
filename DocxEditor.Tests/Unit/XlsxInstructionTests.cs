@@ -554,6 +554,52 @@ public class XlsxInstructionTests : IDisposable
         Assert.Contains("empty", ex.Message.ToLowerInvariant());
     }
 
+    [Fact]
+    public void Validate_ShouldRejectNullVariableValue()
+    {
+        // A null replacement value would crash mid-execution with a raw ArgumentNullException
+        // from string.Replace — after sheets had already been added — or silently write the
+        // literal key. Reject it at validation instead.
+        var json = """
+        {
+            "version": "1.0",
+            "worksheets": [{"name": "S", "rows": [["1"]]}],
+            "variables": {"name": null}
+        }
+        """;
+
+        var ex = Assert.Throws<XlsxException>(() => XlsxInstructionParser.Parse(json));
+        Assert.Contains("null value", ex.Message);
+        Assert.Contains("name", ex.Message);
+    }
+
+    [Fact]
+    public void Execute_ShouldRejectNullVariableValue_BeforeAnyMutation_WhenSetBuiltProgrammatically()
+    {
+        // Programmatic sets bypass the parser, so the executor must reject a null variable
+        // value itself — and it must do so BEFORE adding any worksheet, so a failed run
+        // leaves the builder untouched.
+        var set = new XlsxInstructionSet
+        {
+            Version = "1.0",
+            Worksheets =
+            [
+                new WorksheetInstruction
+                {
+                    Name = "S",
+                    Rows = [["{{name}}"]]
+                }
+            ],
+            Variables = new Dictionary<string, string> { ["name"] = null! }
+        };
+
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var ex = Assert.Throws<XlsxException>(() => XlsxInstructionExecutor.Execute(set, builder));
+        Assert.Contains("null value", ex.Message);
+        Assert.Contains("name", ex.Message);
+        Assert.Empty(builder.GetWorksheetNames());
+    }
+
     // ─── Executor ──────────────────────────────────────────────────
 
     [Fact]

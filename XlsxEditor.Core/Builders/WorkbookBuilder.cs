@@ -105,10 +105,7 @@ public class WorkbookBuilder : IWorkbookBuilder
         // A package that opens as a SpreadsheetDocument but has no workbook main part
         // (e.g. an empty stream, a wrong-format package, or a missing /xl/workbook.xml)
         // must fail here at the Open boundary instead of surfacing as a null-deref later.
-        _workbookPart = document.WorkbookPart
-            ?? throw new XlsxException(
-                "This file is not a valid XLSX workbook: it has no workbook main part. " +
-                "Expected a package whose workbook part resolves to /xl/workbook.xml.");
+        _workbookPart = GetRequiredWorkbookPart(document);
 
         if (isNew)
         {
@@ -118,8 +115,11 @@ public class WorkbookBuilder : IWorkbookBuilder
         {
             // Accessing Workbook loads/parses the part, so a corrupt or wrong-typed root
             // (XmlException / InvalidDataException) is raised here and normalized by the
-            // Open boundary. A part that parses but has no root element yields null.
-            if (_workbookPart.Workbook is null)
+            // Open boundary, and a relationship targeting a missing part surfaces as the
+            // SDK's InvalidOperationException (converted at this structural site). A part
+            // that parses but has no root element yields null.
+            var workbook = GetWorkbookRoot(_workbookPart);
+            if (workbook is null)
             {
                 throw new XlsxException(
                     "This file is not a valid XLSX workbook: the workbook part has no " +
@@ -130,12 +130,98 @@ public class WorkbookBuilder : IWorkbookBuilder
         }
     }
 
+    /// <summary>
+    /// Returns the workbook part's root element. Loading it parses the part and, in the
+    /// process, the SDK resolves every relationship declared on the workbook part — a
+    /// relationship targeting a part that does not exist in the package surfaces as the
+    /// SDK's <see cref="InvalidOperationException"/>. That structural failure is converted to
+    /// <see cref="XlsxException"/> here, at the exact call site that triggers it (preserving
+    /// the original as the inner exception), instead of being classified as malformed input at
+    /// the Open boundary — which would also swallow genuine programmer errors of the broad
+    /// <see cref="InvalidOperationException"/> family. An <see cref="ObjectDisposedException"/>
+    /// (an <see cref="InvalidOperationException"/> subclass) always propagates unchanged.
+    /// </summary>
+    private static Workbook? GetWorkbookRoot(WorkbookPart workbookPart)
+    {
+        try
+        {
+            return workbookPart.Workbook;
+        }
+        catch (InvalidOperationException ex) when (ex is not ObjectDisposedException)
+        {
+            throw new XlsxException(
+                "This file is not a valid XLSX workbook: the workbook part references a " +
+                "relationship target that does not exist in the package, so its content " +
+                "cannot be loaded.",
+                ex);
+        }
+    }
+
+    /// <summary>
+    /// Returns the required workbook main part, or a domain exception when it cannot be
+    /// produced. The SDK returns null when the package has no officeDocument relationship,
+    /// and throws <see cref="InvalidOperationException"/> when that relationship targets a
+    /// part that does not exist in the package. Both structural failures surface as
+    /// <see cref="XlsxException"/> (the original SDK failure preserved as the inner
+    /// exception). Converting at this structural site — instead of classifying the broad
+    /// <see cref="InvalidOperationException"/> family at the Open boundary — keeps a genuine
+    /// programmer bug such as an <see cref="ObjectDisposedException"/> (an
+    /// <see cref="InvalidOperationException"/> subclass) from being mislabeled as malformed
+    /// input; it propagates unchanged.
+    /// </summary>
+    private static WorkbookPart GetRequiredWorkbookPart(SpreadsheetDocument document)
+    {
+        try
+        {
+            return document.WorkbookPart
+                ?? throw new XlsxException(
+                    "This file is not a valid XLSX workbook: it has no workbook main part. " +
+                    "Expected a package whose workbook part resolves to /xl/workbook.xml.");
+        }
+        catch (InvalidOperationException ex) when (ex is not ObjectDisposedException)
+        {
+            throw new XlsxException(
+                "This file is not a valid XLSX workbook: the package's workbook relationship " +
+                "targets a part that does not exist. Expected a package whose workbook part " +
+                "resolves to /xl/workbook.xml.",
+                ex);
+        }
+    }
+
+    /// <summary>
+    /// Creates a new XLSX workbook at the given path and returns a builder over it.
+    /// The path must be a non-empty, non-whitespace file path, mirroring
+    /// <see cref="Open(string)"/>; null, empty, or whitespace paths are rejected up front as
+    /// argument exceptions. If creating or initializing the package fails, the opened document
+    /// is disposed so no file handle leaks and no partial file is left behind, and the original
+    /// failure propagates unchanged — ordinary path/permission and IO errors are never
+    /// normalized into the domain exception. On success the returned builder owns the
+    /// document; callers must dispose it.
+    /// </summary>
     public static IWorkbookBuilder Create(string path)
     {
-        var document = SpreadsheetDocument.Create(path, SpreadsheetDocumentType.Workbook);
-        var workbookPart = document.AddWorkbookPart();
-        workbookPart.Workbook = new Workbook();
-        return new WorkbookBuilder(document, path, true);
+        ArgumentNullException.ThrowIfNull(path);
+
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            throw new ArgumentException("Path must not be empty or whitespace.", nameof(path));
+        }
+
+        SpreadsheetDocument? document = null;
+        try
+        {
+            document = SpreadsheetDocument.Create(path, SpreadsheetDocumentType.Workbook);
+            var workbookPart = document.AddWorkbookPart();
+            workbookPart.Workbook = new Workbook();
+            return new WorkbookBuilder(document, path, true);
+        }
+        catch
+        {
+            // A failed create must never leak the partially opened package handle; the
+            // caller-visible failure is preserved and rethrown unchanged.
+            document?.Dispose();
+            throw;
+        }
     }
 
     public static IWorkbookBuilder Open(string path)
@@ -261,21 +347,22 @@ public class WorkbookBuilder : IWorkbookBuilder
 
     /// <summary>
     /// The well-known exception families the OpenXML SDK raises when a package is not a
-    /// valid XLSX workbook (corrupt zip, wrong root element, malformed XML, missing parts,
-    /// unresolvable relationships). These are parse failures of malformed input at the
-    /// public Open boundary and are normalized into <see cref="XlsxException"/>. Deliberately
-    /// excludes programmer errors (ArgumentNullException, our own XlsxException, filesystem
-    /// errors) so genuine bugs propagate untouched — those are cleaned up and rethrown by
-    /// the sibling <c>catch (XlsxException)</c> and bare <c>catch</c> clauses of each Open
-    /// overload, which dispose the half-opened document before propagating.
+    /// valid XLSX workbook (corrupt zip, wrong root element, malformed XML, unresolvable
+    /// part content type). These are parse failures of malformed input at the public Open
+    /// boundary and are normalized into <see cref="XlsxException"/>.
+    /// Deliberately excludes the broad programmer exception types — <see cref="InvalidOperationException"/>
+    /// (and its <see cref="ObjectDisposedException"/> subclass) and <see cref="ArgumentOutOfRangeException"/> —
+    /// which the SDK also uses for missing/broken relationships: those are converted to the domain
+    /// exception at the exact structural sites that call into the SDK (see
+    /// <see cref="GetRequiredWorkbookPart"/> and <see cref="ResolveWorksheetPart"/>), so a genuine
+    /// programmer bug can never be mislabeled as malformed input. Filesystem errors are also
+    /// excluded; those propagate untouched.
     /// </summary>
     private static bool IsInvalidPackageFailure(Exception ex) =>
         ex is FileFormatException
             or InvalidDataException
             or XmlException
-            or OpenXmlPackageException
-            or InvalidOperationException
-            or ArgumentOutOfRangeException;
+            or OpenXmlPackageException;
 
     /// <summary>
     /// Best-effort cleanup after a failed open. Only the OpenXML document and the
@@ -716,14 +803,37 @@ public class WorkbookBuilder : IWorkbookBuilder
 
     /// <summary>
     /// Resolves a sheet's relationship id to a <see cref="WorksheetPart"/>, rejecting parts
-    /// of any other type. A missing target part or unresolvable relationship id surfaces as
-    /// the SDK's InvalidOperationException / ArgumentOutOfRangeException, which the Open
-    /// boundary normalizes into <see cref="XlsxException"/> with the original failure as
-    /// the inner exception.
+    /// of any other type. The SDK's failure modes for a broken sheet relationship — a missing
+    /// target part (<see cref="InvalidOperationException"/>) or an undeclared relationship id
+    /// (<see cref="ArgumentOutOfRangeException"/>) — are converted to <see cref="XlsxException"/>
+    /// here, at the exact call site that triggers them, with the original failure preserved as
+    /// the inner exception. Converting at the structural site (rather than at the Open boundary)
+    /// keeps the boundary from misclassifying genuine programmer errors of the same broad types;
+    /// an <see cref="ObjectDisposedException"/> (an <see cref="InvalidOperationException"/> subclass)
+    /// always propagates unchanged.
     /// </summary>
     private WorksheetPart ResolveWorksheetPart(string relationshipId, string sheetName)
     {
-        var part = _workbookPart.GetPartById(relationshipId);
+        OpenXmlPart part;
+        try
+        {
+            part = _workbookPart.GetPartById(relationshipId);
+        }
+        catch (InvalidOperationException ex) when (ex is not ObjectDisposedException)
+        {
+            throw new XlsxException(
+                $"Sheet '{sheetName}' references relationship '{relationshipId}', which targets " +
+                "a part that does not exist in this workbook, so the worksheet cannot be loaded.",
+                ex);
+        }
+        catch (ArgumentOutOfRangeException ex)
+        {
+            throw new XlsxException(
+                $"Sheet '{sheetName}' references relationship '{relationshipId}', which is not " +
+                "declared in this workbook's relationships, so the worksheet cannot be loaded.",
+                ex);
+        }
+
         if (part is not WorksheetPart worksheetPart)
         {
             throw new XlsxException(
