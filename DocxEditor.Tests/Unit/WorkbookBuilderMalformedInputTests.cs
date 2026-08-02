@@ -179,6 +179,97 @@ public class WorkbookBuilderMalformedInputTests : IDisposable
     }
 
     [Fact]
+    public void Open_ByteArray_StructuralValidationFailure_PropagatesXlsxExceptionUnchanged()
+    {
+        // The package is structurally valid OPC with a readable workbook part, but its
+        // sheet is missing the r:id the SDK needs to resolve the worksheet — our own
+        // structural validation rejects it. The typed exception must propagate unchanged:
+        // not re-wrapped, no invented SDK inner exception, message intact.
+        var payload = BuildOpcPackage(
+            ("[Content_Types].xml", ContentTypesXml),
+            ("_rels/.rels", PackageRelsXml),
+            ("xl/workbook.xml", WorkbookWithSheetWithoutIdXml),
+            ("xl/_rels/workbook.xml.rels", WorkbookRelsXml),
+            ("xl/worksheets/sheet1.xml", WorksheetXml));
+
+        var ex = Assert.Throws<XlsxException>(() => WorkbookBuilder.Open(payload));
+
+        Assert.Null(ex.InnerException);
+        Assert.Contains("relationship id", ex.Message);
+        Assert.Contains("Sheet1", ex.Message);
+    }
+
+    [Fact]
+    public void Open_Stream_StructuralValidationFailure_LeavesCallerStreamUntouched()
+    {
+        var payload = BuildOpcPackage(
+            ("[Content_Types].xml", ContentTypesXml),
+            ("_rels/.rels", PackageRelsXml),
+            ("xl/workbook.xml", WorkbookWithSheetWithoutIdXml),
+            ("xl/_rels/workbook.xml.rels", WorkbookRelsXml),
+            ("xl/worksheets/sheet1.xml", WorksheetXml));
+        using var stream = new MemoryStream(payload);
+
+        var ex = Assert.Throws<XlsxException>(() => WorkbookBuilder.Open(stream));
+
+        Assert.Null(ex.InnerException);
+        Assert.Contains("relationship id", ex.Message);
+
+        // The caller-owned stream survives the failed open unchanged, and the boundary
+        // stays usable afterwards.
+        Assert.True(stream.CanRead, "Open failure must not dispose the caller-owned stream.");
+        Assert.Equal(payload.Length, stream.Length);
+
+        using var builder = WorkbookBuilder.Open(CreateValidWorkbook());
+        Assert.Equal(new List<string> { "Sheet1" }, builder.GetWorksheetNames());
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("\t")]
+    public void Open_Path_EmptyOrWhitespace_ThrowsArgumentException(string path)
+    {
+        var ex = Assert.Throws<ArgumentException>(() => WorkbookBuilder.Open(path));
+        Assert.Equal("path", ex.ParamName);
+
+        // The boundary remains usable after the failed calls.
+        using var builder = WorkbookBuilder.Open(CreateValidWorkbook());
+        Assert.Equal(new List<string> { "Sheet1" }, builder.GetWorksheetNames());
+    }
+
+    [Fact]
+    public void Open_Stream_SourceReadFailure_PropagatesUnexpectedExceptionUnchanged()
+    {
+        // A source stream that throws mid-copy is neither a malformed package nor our
+        // structural validation — it is an unexpected I/O failure and must propagate as
+        // its original type, never be normalized into an XlsxException.
+        using var broken = new ThrowingReadStream();
+
+        var ex = Assert.Throws<IOException>(() => WorkbookBuilder.Open(broken));
+        Assert.Contains("Simulated I/O failure", ex.Message);
+
+        using var builder = WorkbookBuilder.Open(CreateValidWorkbook());
+        Assert.Equal(new List<string> { "Sheet1" }, builder.GetWorksheetNames());
+    }
+
+    [Fact]
+    public void Open_Path_PermissionOrPathError_PropagatesUnchanged()
+    {
+        // A directory is not a readable package: the SDK fails with a filesystem-level
+        // exception. That is a path/permission error, not a malformed package, so the
+        // boundary must clean up and rethrow the original type rather than normalizing it.
+        var directory = Path.GetTempPath();
+
+        var ex = Assert.ThrowsAny<Exception>(() => WorkbookBuilder.Open(directory));
+
+        Assert.IsNotType<XlsxException>(ex);
+        Assert.True(
+            ex is UnauthorizedAccessException or IOException or DirectoryNotFoundException,
+            $"expected a filesystem error, got {ex.GetType().Name}: '{ex.Message}'.");
+    }
+
+    [Fact]
     public void Open_Path_MalformedFile_ThrowsAndLeavesSourceFileIntact()
     {
         var path = CreateTempFile(CreateRandomBytes());
@@ -428,6 +519,31 @@ public class WorkbookBuilderMalformedInputTests : IDisposable
         bytes[0] = 0x00;
         bytes[1] = 0x01;
         return bytes;
+    }
+
+    /// <summary>
+    /// A stream that advertises readability but throws on every read, simulating an
+    /// unexpected I/O failure while the boundary copies the caller's content into its
+    /// internal buffer.
+    /// </summary>
+    private sealed class ThrowingReadStream : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => true;
+        public override bool CanWrite => true;
+        public override long Length => 0;
+        public override long Position { get; set; }
+
+        public override void Flush() { }
+
+        public override int Read(byte[] buffer, int offset, int count)
+            => throw new IOException("Simulated I/O failure during copy.");
+
+        public override long Seek(long offset, SeekOrigin origin) => 0;
+
+        public override void SetLength(long value) { }
+
+        public override void Write(byte[] buffer, int offset, int count) { }
     }
 
     private static byte[] Truncate(byte[] bytes, int length) => bytes.Take(length).ToArray();

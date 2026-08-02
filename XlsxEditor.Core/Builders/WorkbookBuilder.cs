@@ -142,11 +142,24 @@ public class WorkbookBuilder : IWorkbookBuilder
     {
         ArgumentNullException.ThrowIfNull(path);
 
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            throw new ArgumentException("Path cannot be empty or whitespace.", nameof(path));
+        }
+
         SpreadsheetDocument? document = null;
         try
         {
             document = SpreadsheetDocument.Open(path, true);
             return new WorkbookBuilder(document, path, false);
+        }
+        catch (XlsxException)
+        {
+            // Our own structural validation rejected the package after the SDK opened it:
+            // dispose the half-opened document, then let the typed exception propagate
+            // unchanged so callers still see exactly the failure we raised.
+            DisposeFailedOpen(document);
+            throw;
         }
         catch (Exception ex) when (IsInvalidPackageFailure(ex))
         {
@@ -154,6 +167,13 @@ public class WorkbookBuilder : IWorkbookBuilder
             throw new XlsxException(
                 $"Cannot open the XLSX workbook at '{path}': the file is not a valid or " +
                 "readable OpenXML spreadsheet package.", ex);
+        }
+        catch
+        {
+            // Anything else — programmer errors, FileNotFoundException, permission or path
+            // errors — propagates unchanged (after cleanup) instead of being normalized.
+            DisposeFailedOpen(document);
+            throw;
         }
     }
 
@@ -183,12 +203,22 @@ public class WorkbookBuilder : IWorkbookBuilder
             document = SpreadsheetDocument.Open(memoryStream, true);
             return new WorkbookBuilder(document, null, false, memoryStream);
         }
+        catch (XlsxException)
+        {
+            DisposeFailedOpen(document, memoryStream);
+            throw;
+        }
         catch (Exception ex) when (IsInvalidPackageFailure(ex))
         {
             DisposeFailedOpen(document, memoryStream);
             throw new XlsxException(
                 "Cannot open the XLSX workbook: the input stream is not a valid or " +
                 "readable OpenXML spreadsheet package.", ex);
+        }
+        catch
+        {
+            DisposeFailedOpen(document, memoryStream);
+            throw;
         }
     }
 
@@ -210,12 +240,22 @@ public class WorkbookBuilder : IWorkbookBuilder
             document = SpreadsheetDocument.Open(memoryStream, true);
             return new WorkbookBuilder(document, null, false, memoryStream);
         }
+        catch (XlsxException)
+        {
+            DisposeFailedOpen(document, memoryStream);
+            throw;
+        }
         catch (Exception ex) when (IsInvalidPackageFailure(ex))
         {
             DisposeFailedOpen(document, memoryStream);
             throw new XlsxException(
                 "Cannot open the XLSX workbook: the byte array is not a valid or " +
                 "readable OpenXML spreadsheet package.", ex);
+        }
+        catch
+        {
+            DisposeFailedOpen(document, memoryStream);
+            throw;
         }
     }
 
@@ -224,8 +264,10 @@ public class WorkbookBuilder : IWorkbookBuilder
     /// valid XLSX workbook (corrupt zip, wrong root element, malformed XML, missing parts,
     /// unresolvable relationships). These are parse failures of malformed input at the
     /// public Open boundary and are normalized into <see cref="XlsxException"/>. Deliberately
-    /// excludes programmer errors (ArgumentNullException, our own XlsxException) so genuine
-    /// bugs propagate untouched.
+    /// excludes programmer errors (ArgumentNullException, our own XlsxException, filesystem
+    /// errors) so genuine bugs propagate untouched — those are cleaned up and rethrown by
+    /// the sibling <c>catch (XlsxException)</c> and bare <c>catch</c> clauses of each Open
+    /// overload, which dispose the half-opened document before propagating.
     /// </summary>
     private static bool IsInvalidPackageFailure(Exception ex) =>
         ex is FileFormatException

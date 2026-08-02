@@ -428,11 +428,7 @@ public class WorksheetBuilder : IWorksheetBuilder
 
     public RowInfo? GetRow(int rowIndex)
     {
-        if (rowIndex < 1)
-        {
-            throw new XlsxException(
-                $"Row index must be >= 1; Excel rows are 1-based. Got {rowIndex}.");
-        }
+        ValidateRowIndex(rowIndex);
 
         var row = _sheetData.Elements<Row>()
             .FirstOrDefault(r => r.RowIndex?.Value == (uint)rowIndex);
@@ -492,11 +488,7 @@ public class WorksheetBuilder : IWorksheetBuilder
 
     public IWorksheetBuilder DeleteRow(int rowIndex)
     {
-        if (rowIndex < 1)
-        {
-            throw new XlsxException(
-                $"Row index must be >= 1; Excel rows are 1-based. Got {rowIndex}.");
-        }
+        ValidateRowIndex(rowIndex);
 
         var row = _sheetData.Elements<Row>()
             .FirstOrDefault(r => r.RowIndex?.Value == (uint)rowIndex);
@@ -633,11 +625,7 @@ public class WorksheetBuilder : IWorksheetBuilder
 
     private Row GetOrCreateRow(int rowIndex)
     {
-        if (rowIndex < 1)
-        {
-            throw new XlsxException(
-                $"Row index must be >= 1; Excel rows are 1-based. Got {rowIndex}.");
-        }
+        ValidateRowIndex(rowIndex);
 
         var targetIndex = (uint)rowIndex;
         var row = _sheetData.Elements<Row>().FirstOrDefault(r => r.RowIndex?.Value == targetIndex);
@@ -677,6 +665,27 @@ public class WorksheetBuilder : IWorksheetBuilder
         _sheetData.Append(newRow);
     }
 
+    /// <summary>
+    /// Row indexes are 1-based and bounded by Excel's real sheet limit (1-1,048,576).
+    /// Shared by every row-facing entry point so GetRow, DeleteRow, GetOrCreateRow and
+    /// GetCellReference can never disagree about what a legal row index is.
+    /// </summary>
+    private static void ValidateRowIndex(int rowIndex)
+    {
+        if (rowIndex < 1)
+        {
+            throw new XlsxException(
+                $"Row index must be >= 1; Excel rows are 1-based. Got {rowIndex}.");
+        }
+
+        if (rowIndex > MaxRowNumber)
+        {
+            throw new XlsxException(
+                $"Row index must be between 1 and {MaxRowNumber:N0}; Excel rows are 1-based. " +
+                $"Got {rowIndex:N0}.");
+        }
+    }
+
     internal static string GetCellReference(int columnIndex, int rowIndex)
     {
         if (columnIndex < 0 || columnIndex >= MaxColumnNumber)
@@ -686,12 +695,7 @@ public class WorksheetBuilder : IWorksheetBuilder
                 $"(0 = column A, {MaxColumnNumber - 1} = column XFD). Got {columnIndex}.");
         }
 
-        if (rowIndex < 1 || rowIndex > MaxRowNumber)
-        {
-            throw new XlsxException(
-                $"Row index must be between 1 and {MaxRowNumber:N0}; Excel rows are 1-based. " +
-                $"Got {rowIndex:N0}.");
-        }
+        ValidateRowIndex(rowIndex);
 
         var columnName = GetColumnName(columnIndex);
         return $"{columnName}{rowIndex}";

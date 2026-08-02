@@ -669,6 +669,91 @@ public class WorkbookBuilderTests : IDisposable
     }
 
     [Fact]
+    public void AddCell_XFD1048576_LastValidCell_RoundTripsThroughSaveAndOpen()
+    {
+        // XFD1048576 is the last real cell Excel supports. It must be writable AND
+        // readable back through the public builder API after a save/reload round-trip.
+        byte[] bytes;
+        using (var builder = WorkbookBuilder.Create())
+        {
+            builder.AddWorksheet("Sheet1").AddCell("XFD1048576", "edge");
+            bytes = builder.SaveToBytes();
+        }
+
+        using var reader = WorkbookBuilder.Open(bytes);
+        var ws = reader.GetWorksheet("Sheet1");
+        Assert.Equal("edge", ws.GetCellValue("XFD1048576"));
+        Assert.True(ws.CellExists("XFD1048576"));
+        Assert.Equal("XFD1048576", ws.GetCellInfo("XFD1048576")!.Reference);
+        Assert.Equal("XFD1048576", ws.GetRange("XFD1048576", "XFD1048576").Single().Reference);
+
+        var row = ws.GetRow(1_048_576);
+        Assert.NotNull(row);
+        Assert.Equal("edge", row!.Cells.Single().Value);
+    }
+
+    [Fact]
+    public void AddTable_AtXfdBoundary_Works()
+    {
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            var worksheet = builder.AddWorksheet("Sheet1");
+            worksheet.AddCell("XFD1", "H");
+            worksheet.AddDataRow(new List<string> { "v" }, 2);
+            worksheet.AddTable("XFD1", "XFD2", "EdgeTable");
+            builder.Save();
+        }
+
+        using var doc = SpreadsheetDocument.Open(_testFilePath, false);
+        var table = doc.WorkbookPart!.WorksheetParts.First()
+            .TableDefinitionParts.Single().Table!;
+        Assert.Equal("XFD1:XFD2", table.Reference?.Value);
+        OpenXmlAssert.NoValidationErrors(doc);
+    }
+
+    [Fact]
+    public void AddHeaderRow_SpansFullAXfdWidth()
+    {
+        // A header row covering the entire A-XFD column range is the strongest
+        // coordinate test through a public builder operation: it forces
+        // GetCellReference(16383, row) to resolve to XFD on the write path.
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            var worksheet = builder.AddWorksheet("Sheet1");
+            var headers = Enumerable.Range(0, 16384).Select(i => $"H{i}").ToList();
+            worksheet.AddHeaderRow(headers, 1);
+            builder.Save();
+        }
+
+        using var reader = WorkbookBuilder.Open(_testFilePath);
+        var ws = reader.GetWorksheet("Sheet1");
+        Assert.Equal("H0", ws.GetCellValue("A1"));
+        Assert.Equal("H16383", ws.GetCellValue("XFD1"));
+        Assert.Equal(16384, ws.GetRow(1)!.Cells.Count);
+        Assert.Throws<XlsxException>(() => ws.AddCell("XFE1", "value"));
+    }
+
+    [Theory]
+    [InlineData("XFE1")]
+    [InlineData("XFE1048576")]
+    public void PublicOperations_ColumnBeyondXFD_ThrowXlsxException(string reference)
+    {
+        // XFE is the first invalid column. Every public operation that parses a cell
+        // reference must reject it uniformly — not just the write path.
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var worksheet = builder.AddWorksheet("Sheet1");
+
+        Assert.Throws<XlsxException>(() => worksheet.AddCell(reference, "value"));
+        Assert.Throws<XlsxException>(() => worksheet.GetCellValue(reference));
+        Assert.Throws<XlsxException>(() => worksheet.CellExists(reference));
+        Assert.Throws<XlsxException>(() => worksheet.GetCellInfo(reference));
+        Assert.Throws<XlsxException>(() => worksheet.DeleteCell(reference));
+        Assert.Throws<XlsxException>(() => worksheet.GetRange(reference, reference));
+        Assert.Throws<XlsxException>(() => worksheet.ClearRange(reference, reference));
+        Assert.Throws<XlsxException>(() => worksheet.AddTable(reference, reference, "T"));
+    }
+
+    [Fact]
     public void GetCellReference_MaxExcelIndexes_ShouldReturnXFD1048576()
     {
         var reference = XlsxEditor.Core.Builders.WorksheetBuilder.GetCellReference(16383, 1048576);
@@ -801,6 +886,61 @@ public class WorkbookBuilderTests : IDisposable
         Assert.Throws<XlsxException>(() => worksheet.AddHeaderRow(new List<string> { "x" }, rowIndex));
         Assert.Throws<XlsxException>(() => worksheet.GetRow(rowIndex));
         Assert.Throws<XlsxException>(() => worksheet.DeleteRow(rowIndex));
+    }
+
+    [Fact]
+    public void RowOperations_MaxValidRow_EmptySheet_ReturnsNullOrNoOp()
+    {
+        // 1,048,576 is Excel's last valid row: reads of an absent row stay null,
+        // deletes of an absent row stay no-ops.
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var worksheet = builder.AddWorksheet("Sheet1");
+
+        Assert.Null(worksheet.GetRow(1_048_576));
+        Assert.Same(worksheet, worksheet.DeleteRow(1_048_576));
+    }
+
+    [Fact]
+    public void RowOperations_FirstInvalidRow_ThrowsXlsxException()
+    {
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var worksheet = builder.AddWorksheet("Sheet1");
+
+        var getEx = Assert.Throws<XlsxException>(() => worksheet.GetRow(1_048_577));
+        Assert.Contains("1,048,576", getEx.Message);
+
+        var deleteEx = Assert.Throws<XlsxException>(() => worksheet.DeleteRow(1_048_577));
+        Assert.Contains("1,048,576", deleteEx.Message);
+    }
+
+    [Fact]
+    public void RowOperations_FirstInvalidRow_Writes_ThrowXlsxException()
+    {
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var worksheet = builder.AddWorksheet("Sheet1");
+
+        // An empty row/list exercises GetOrCreateRow's own row bound: with no cells the
+        // per-cell GetCellReference bound can never fire, so the row check must.
+        Assert.Throws<XlsxException>(() => worksheet.AddDataRow(new List<string>(), 1_048_577));
+        Assert.Throws<XlsxException>(() => worksheet.AddHeaderRow(new List<string>(), 1_048_577));
+        Assert.Throws<XlsxException>(() => worksheet.AddFormulaRow(new List<string>(), 1_048_577));
+    }
+
+    [Fact]
+    public void RowOperations_MaxValidRow_HoldsData_RoundTrips()
+    {
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            builder.AddWorksheet("Sheet1").AddDataRow(new List<string> { "edge" }, 1_048_576);
+            builder.Save();
+        }
+
+        using var reader = WorkbookBuilder.Open(_testFilePath);
+        var ws = reader.GetWorksheet("Sheet1");
+        Assert.Equal("edge", ws.GetCellValue("A1048576"));
+        Assert.Equal(1_048_576, ws.GetRow(1_048_576)!.RowIndex);
+        Assert.Throws<XlsxException>(() => ws.GetRow(1_048_577));
+        Assert.Throws<XlsxException>(() => ws.DeleteRow(1_048_577));
     }
 
     [Fact]
