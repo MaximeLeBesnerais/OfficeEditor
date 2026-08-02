@@ -4,12 +4,12 @@ using DocxEditor.Core.Generation.Assets;
 namespace DocxEditor.Core.Generation.Emit.Ooxml.Images;
 
 /// <summary>
-/// Adds and deduplicates image parts on a main document, header, or footer part. Images are keyed
-/// by SHA-256 content hash: registering the same payload twice returns the same
-/// <see cref="RegisteredImagePart"/> (and relationship id), so the package embeds one part
-/// per unique image for this relationship owner. Relationship ids, part names and docPr ids
-/// are deterministic given the same input, and payload bytes are fed from the asset-owned
-/// read-only buffer without temp files.
+/// Adds and deduplicates image parts within one main document, header, or footer relationship
+/// owner. Images are keyed by SHA-256 content hash: registering the same payload twice returns
+/// the same <see cref="RegisteredImagePart"/> (and relationship id), so that owner embeds one
+/// part per unique image. Relationship ids, part names and docPr ids are deterministic given the
+/// same input, and payload bytes are fed from the asset-owned immutable buffer through an internal
+/// read stream without temp files or caller-buffer mutation.
 /// </summary>
 public sealed class DocxImagePartManager
 {
