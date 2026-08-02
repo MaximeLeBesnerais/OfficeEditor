@@ -346,6 +346,74 @@ public class ContentBlockTests : IDisposable
     }
 
     [Fact]
+    public void AddRichContent_WithMultipleLists_ShouldReuseAbstractDefinitionsPerKind()
+    {
+        var blocks = new ContentBlockBuilder()
+            .AddList(false, ["Bullet A1", "Bullet A2"])
+            .AddList(true, ["Ordered B1", "Ordered B2"])
+            .AddList(false, ["Bullet C1"])
+            .AddList(true, ["Ordered D1", "Ordered D2"])
+            .Build();
+
+        using (var builder = DocumentBuilder.Create(_testFilePath))
+        {
+            builder.AddRichContent(blocks);
+            builder.Save();
+        }
+
+        using (var doc = WordprocessingDocument.Open(_testFilePath, false))
+        {
+            var numbering = doc.MainDocumentPart!.NumberingDefinitionsPart!.Numbering;
+            Assert.NotNull(numbering);
+            var instances = numbering.Elements<NumberingInstance>().ToList();
+            var abstractNums = numbering.Elements<AbstractNum>().ToList();
+
+            // Every list got its own instance so its counter restarts at 1.
+            Assert.Equal(4, instances.Count);
+            Assert.Equal(4, instances.Select(i => i.NumberID?.Value).Distinct().Count());
+
+            // Same-kind lists share one generated abstract definition instead of
+            // duplicating it: one bullet definition, one ordered definition.
+            Assert.Equal(2, abstractNums.Count);
+            var instanceAbstractIds = instances.Select(i => i.AbstractNumId?.Val?.Value).ToList();
+            Assert.Equal(2, instanceAbstractIds.Distinct().Count());
+
+            // Every list paragraph's numbering id resolves to a real instance that
+            // resolves to a real abstract definition of the matching format.
+            var paragraphs = doc.MainDocumentPart.Document!.Body!.Elements<Paragraph>().ToList();
+            Assert.Equal(7, paragraphs.Count);
+            var listIds = new[] { 0, 2, 4, 5 }
+                .Select(i => paragraphs[i].ParagraphProperties?.NumberingProperties?.NumberingId?.Val?.Value)
+                .ToList();
+            Assert.All(listIds, id => Assert.NotNull(id));
+
+            for (int i = 0; i < listIds.Count; i++)
+            {
+                var listId = listIds[i]!.Value;
+                var instance = instances.Single(x => x.NumberID?.Value == listId);
+                var abstractNum = abstractNums.Single(a => a.AbstractNumberId?.Value == instance.AbstractNumId?.Val?.Value);
+                var expected = i % 2 == 0 ? NumberFormatValues.Bullet : NumberFormatValues.Decimal;
+                Assert.Equal(expected, abstractNum.Elements<Level>().First().NumberingFormat?.Val?.Value);
+            }
+
+            // Bullet lists (paragraphs 0, 4) share one definition; ordered lists (2, 5) share the other.
+            var bulletIds = new[] { 0, 4 }
+                .Select(i => instances.Single(x => x.NumberID?.Value == paragraphs[i].ParagraphProperties!.NumberingProperties!.NumberingId!.Val!.Value).AbstractNumId!.Val!.Value)
+                .Distinct()
+                .ToList();
+            var orderedIds = new[] { 2, 5 }
+                .Select(i => instances.Single(x => x.NumberID?.Value == paragraphs[i].ParagraphProperties!.NumberingProperties!.NumberingId!.Val!.Value).AbstractNumId!.Val!.Value)
+                .Distinct()
+                .ToList();
+            Assert.Single(bulletIds);
+            Assert.Single(orderedIds);
+            Assert.NotEqual(bulletIds[0], orderedIds[0]);
+        }
+
+        OpenXmlAssert.NoDocxValidationErrors(_testFilePath);
+    }
+
+    [Fact]
     public void AddRichContent_WithPreExistingNumbering_ShouldAllocateCollisionFreeIdsAndRestart()
     {
         // Fixture: document already has a decimal list (abstractNumId 5, numId 7).
@@ -399,12 +467,14 @@ public class ContentBlockTests : IDisposable
             Assert.Equal(2, newInstances.Count);
             Assert.All(newInstances, i => Assert.True(i.AbstractNumId?.Val?.Value > 5));
 
-            // The two new lists are independent: distinct instances and abstracts,
-            // each starting at 1 so both lists restart instead of continuing 1,2,3,4.
+            // The two new lists are independent: distinct instances, sharing one generated
+            // abstract definition (same semantics = same definition, reused not duplicated),
+            // each list restarting at 1 instead of continuing 1,2,3,4.
             var newAbstractIds = newInstances.Select(i => i.AbstractNumId?.Val?.Value).ToList();
             Assert.All(newAbstractIds, id => Assert.NotNull(id));
-            Assert.Equal(2, newAbstractIds.Distinct().Count());
-            foreach (var abstractId in newAbstractIds)
+            Assert.Single(newAbstractIds.Distinct());
+            Assert.Equal(2, newInstances.Select(i => i.NumberID?.Value).Distinct().Count());
+            foreach (var abstractId in newAbstractIds.Distinct())
             {
                 var abstractNum = abstractNums.Single(a => a.AbstractNumberId?.Value == abstractId);
                 Assert.Equal(1, abstractNum.Elements<Level>().First().StartNumberingValue?.Val?.Value);

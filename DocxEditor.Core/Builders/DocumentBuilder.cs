@@ -52,6 +52,7 @@ public class DocumentBuilder : IDocumentBuilder
     private readonly Body _body;
     private readonly bool _isNewDocument;
     private readonly Dictionary<string, Style> _cachedStyles;
+    private readonly Dictionary<bool, int> _generatedAbstractNumberingIds;
     private readonly string? _filePath;
     private readonly MemoryStream? _documentStream;
 
@@ -70,6 +71,7 @@ public class DocumentBuilder : IDocumentBuilder
             ?? throw new OfficeEditorException(
                 "The document does not contain a <w:body> element, so it cannot be edited.");
         _cachedStyles = LoadStyles();
+        _generatedAbstractNumberingIds = new Dictionary<bool, int>();
     }
 
     /// <summary>
@@ -581,13 +583,16 @@ public class DocumentBuilder : IDocumentBuilder
     }
 
     /// <summary>
-    /// Allocates a fresh abstract numbering definition and numbering instance for a single
-    /// list and returns the new numbering instance id. Ids are allocated as
-    /// max(existing) + 1 so they can never collide with numbering already present in the
-    /// document; each list gets its own instance so its counter restarts at 1 and bullets
-    /// can never bind to a decimal (or vice versa) definition from the host document.
-    /// The abstractNum is inserted before the first numbering instance because CT_Numbering
-    /// requires all abstractNum elements to precede all num elements.
+    /// Allocates a fresh numbering instance for a single list and returns its id. Each list
+    /// gets its own instance so its counter restarts at 1 and bullets can never bind to a
+    /// decimal (or vice versa) definition from the host document. The abstract numbering
+    /// definition behind the instance is reused across lists with matching semantics: one
+    /// generated definition per kind (ordered / bullet) is created on demand and shared by
+    /// every later list of the same kind instead of duplicating identical definitions.
+    /// Existing numbering in the document is never touched or reused (its formatting and
+    /// levels may differ); ids are allocated as max(existing) + 1 so they can never collide,
+    /// and the abstractNum is inserted before the first numbering instance because
+    /// CT_Numbering requires all abstractNum elements to precede all num elements.
     /// </summary>
     private int AllocateNumberingInstance(bool ordered)
     {
@@ -605,28 +610,36 @@ public class DocumentBuilder : IDocumentBuilder
             numberingPart.Numbering = numbering;
         }
 
-        int abstractNumId = numbering.Elements<AbstractNum>()
-            .Select(n => n.AbstractNumberId?.Value ?? -1)
-            .DefaultIfEmpty(-1)
-            .Max() + 1;
+        // Reuse the abstract definition this builder generated for the same list semantics
+        // (ordered vs bullet); create a fresh one only on first use of that kind.
+        if (!_generatedAbstractNumberingIds.TryGetValue(ordered, out int abstractNumId))
+        {
+            abstractNumId = numbering.Elements<AbstractNum>()
+                .Select(n => n.AbstractNumberId?.Value ?? -1)
+                .DefaultIfEmpty(-1)
+                .Max() + 1;
+
+            var abstractNum = ordered
+                ? CreateOrderedAbstractNum(abstractNumId)
+                : CreateBulletAbstractNum(abstractNumId);
+
+            var firstInstance = numbering.Elements<NumberingInstance>().FirstOrDefault();
+            if (firstInstance != null)
+            {
+                numbering.InsertBefore(abstractNum, firstInstance);
+            }
+            else
+            {
+                numbering.Append(abstractNum);
+            }
+
+            _generatedAbstractNumberingIds[ordered] = abstractNumId;
+        }
+
         int numberingId = numbering.Elements<NumberingInstance>()
             .Select(n => n.NumberID?.Value ?? 0)
             .DefaultIfEmpty(0)
             .Max() + 1;
-
-        var abstractNum = ordered
-            ? CreateOrderedAbstractNum(abstractNumId)
-            : CreateBulletAbstractNum(abstractNumId);
-
-        var firstInstance = numbering.Elements<NumberingInstance>().FirstOrDefault();
-        if (firstInstance != null)
-        {
-            numbering.InsertBefore(abstractNum, firstInstance);
-        }
-        else
-        {
-            numbering.Append(abstractNum);
-        }
 
         numbering.Append(new NumberingInstance(
             new AbstractNumId { Val = abstractNumId }
