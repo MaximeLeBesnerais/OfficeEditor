@@ -321,6 +321,16 @@ public class WorkbookBuilder : IWorkbookBuilder
                 $"(: \\ / ? * [ ]). Remove them and try again.");
         }
 
+        // Excel forbids sheet names that begin or end with an apostrophe (a leading
+        // apostrophe in particular is Excel's escape character for the R1C1-style
+        // and would corrupt the workbook).
+        if (name[0] == '\'' || name[^1] == '\'')
+        {
+            throw new XlsxException(
+                $"Worksheet name '{name}' begins or ends with an apostrophe ('), " +
+                "which Excel does not allow. Remove the leading or trailing apostrophe.");
+        }
+
         if (_worksheets.ContainsKey(name))
         {
             throw new XlsxException(
