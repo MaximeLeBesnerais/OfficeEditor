@@ -265,6 +265,116 @@ public class InstructionEngineTests : IDisposable
         Assert.Equal("ReplaceWithRichContent:old:1", builder.Calls[4]);
     }
 
+    // ---------------------------------------------------------------- null-boundary prevalidation
+
+    [Fact]
+    public void Execute_WithNullBuilder_ThrowsArgumentNullException()
+    {
+        var engine = new InstructionEngine();
+        var instructions = new DocumentInstructions { Operations = [new CreateDocumentInstruction()] };
+
+        Assert.Throws<ArgumentNullException>(() => engine.Execute(null!, instructions));
+    }
+
+    [Fact]
+    public void Execute_WithNullInstructions_ThrowsArgumentNullException()
+    {
+        var engine = new InstructionEngine();
+        var builder = new RecordingDocumentBuilder();
+
+        Assert.Throws<ArgumentNullException>(() => engine.Execute(builder, null!));
+    }
+
+    [Fact]
+    public void Execute_WithNullOperations_ThrowsArgumentNullException()
+    {
+        var engine = new InstructionEngine();
+        var builder = new RecordingDocumentBuilder();
+        var instructions = new DocumentInstructions { Operations = null! };
+
+        Assert.Throws<ArgumentNullException>(() => engine.Execute(builder, instructions));
+    }
+
+    [Fact]
+    public void Execute_WithNullOperationEntry_ThrowsBeforeAnyMutation()
+    {
+        var builder = new RecordingDocumentBuilder();
+        var instructions = new DocumentInstructions
+        {
+            Operations = [new AddParagraphInstruction { Text = "ok" }, null!]
+        };
+        var engine = new InstructionEngine();
+
+        var ex = Assert.Throws<ArgumentException>(() => engine.Execute(builder, instructions));
+        Assert.Contains("operations[1]", ex.Message);
+        Assert.Empty(builder.Calls);
+    }
+
+    [Fact]
+    public void Execute_WithNullInsertAfterContent_ThrowsBeforeAnyMutation()
+    {
+        var builder = new RecordingDocumentBuilder();
+        var instructions = new DocumentInstructions
+        {
+            Operations =
+            [
+                new AddParagraphInstruction { Text = "ok" },
+                new InsertAfterInstruction { Target = "ok", Content = null! }
+            ]
+        };
+        var engine = new InstructionEngine();
+
+        Assert.Throws<ArgumentNullException>(() => engine.Execute(builder, instructions));
+        Assert.Empty(builder.Calls);
+    }
+
+    [Fact]
+    public void Execute_WithMalformedTrailingOperation_ThrowsBeforeAnyMutation()
+    {
+        var builder = new RecordingDocumentBuilder();
+        var instructions = new DocumentInstructions
+        {
+            Operations =
+            [
+                new AddParagraphInstruction { Text = "ok" },
+                new ReplaceTextInstruction { Find = "", Replace = "x" }
+            ]
+        };
+        var engine = new InstructionEngine();
+
+        var ex = Assert.Throws<ArgumentException>(() => engine.Execute(builder, instructions));
+        Assert.Contains("non-empty", ex.Message);
+        Assert.Empty(builder.Calls);
+    }
+
+    [Fact]
+    public void Execute_WithValidBatch_StillAppliesEveryOperation()
+    {
+        var builder = new RecordingDocumentBuilder();
+        var instructions = new DocumentInstructions
+        {
+            Operations =
+            [
+                new AddParagraphInstruction { Text = "Para" },
+                new ReplaceTextInstruction { Find = "{{x}}", Replace = "y" },
+                new InsertAfterInstruction { Target = "Para", Content = new ParagraphContent { Text = "After" } },
+                new AddRichContentInstruction { Blocks = [new ParagraphBlock { Text = "Rich" }] },
+                new ReplaceWithRichContentInstruction { Target = "old", Blocks = [new ParagraphBlock { Text = "New" }] },
+                new CreateDocumentInstruction()
+            ]
+        };
+        var engine = new InstructionEngine();
+
+        engine.Execute(builder, instructions);
+
+        Assert.Equal(5, builder.Calls.Count);
+        Assert.Equal("AddParagraph:Para:", builder.Calls[0]);
+        Assert.Equal("ReplaceText:{{x}}:y", builder.Calls[1]);
+        Assert.Equal("InsertAfter:Para:After:", builder.Calls[2]);
+        Assert.Equal("AddRichContent:1", builder.Calls[3]);
+        Assert.Equal("ReplaceWithRichContent:old:1", builder.Calls[4]);
+    }
+
     private sealed record UnsupportedInstruction : Instruction;
 
     private sealed class RecordingDocumentBuilder : IDocumentBuilder
