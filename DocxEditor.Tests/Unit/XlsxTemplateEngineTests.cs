@@ -240,6 +240,24 @@ public sealed class XlsxTemplateEngineTests : IDisposable
     }
 
     [Fact]
+    public void Process_WithNullDocument_ThrowsArgumentNullException()
+    {
+        Assert.Throws<ArgumentNullException>(() => new XlsxTemplateEngine().Process(null!, []));
+    }
+
+    [Fact]
+    public void Process_WithNullData_ThrowsArgumentNullException_EvenWithoutAnyMarkers()
+    {
+        // A null data dictionary must fail up front regardless of whether any cell contains a
+        // '{{…}}' marker; previously it only failed (with an ANE/NRE deep in evaluation) when
+        // a marker was actually present, making behavior marker-dependent.
+        var path = CreateWorkbook(sheetData => AddInlineCell(sheetData, "Plain text", CellValues.String));
+
+        using var document = SpreadsheetDocument.Open(path, true);
+        Assert.Throws<ArgumentNullException>(() => new XlsxTemplateEngine().Process(document, null!));
+    }
+
+    [Fact]
     public void Process_ReturnsSafely_WhenWorkbookIsMissing()
     {
         // Arrange

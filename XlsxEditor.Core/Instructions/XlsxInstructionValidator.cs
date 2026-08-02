@@ -51,6 +51,29 @@ public static class XlsxInstructionValidator
         {
             throw new XlsxException("'variables' block is present but empty. Either remove it or provide values.");
         }
+
+        // Null values would crash mid-execution with a raw ArgumentNullException from
+        // string.Replace, AFTER sheets have already been added to the builder; and a null
+        // replacement silently writes the literal key. Reject both up front so a malformed
+        // variables block fails before any workbook mutation.
+        if (instructions.Variables != null)
+        {
+            foreach (var pair in instructions.Variables)
+            {
+                if (pair.Key is null)
+                {
+                    throw new XlsxException(
+                        "'variables' block contains a null variable name; variable names must be non-null strings.");
+                }
+
+                if (pair.Value is null)
+                {
+                    throw new XlsxException(
+                        $"Variable '{pair.Key}' has a null value; variable values must be strings. " +
+                        "Use an empty string to clear a value.");
+                }
+            }
+        }
     }
 
     private static void ValidateWorksheet(WorksheetInstruction ws, HashSet<string> seenNames)
