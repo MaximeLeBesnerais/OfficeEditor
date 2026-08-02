@@ -68,8 +68,11 @@ public sealed class DocxGenerator
     public DocxGenerationResult Generate(
         DocxGenerationDocument document,
         string outputPath,
-        DocxGeneratorOptions? options = null) =>
-        GenerateToFile(ValidateModel(document), outputPath, options, []);
+        DocxGeneratorOptions? options = null)
+    {
+        var validation = ValidateModel(document);
+        return GenerateToFile(validation.Document!, outputPath, options, validation.Warnings);
+    }
 
     /// <summary>
     /// Validates declarative JSON, writes the complete package to <paramref name="output"/>,
@@ -88,8 +91,11 @@ public sealed class DocxGenerator
     public DocxGenerationResult Generate(
         DocxGenerationDocument document,
         Stream output,
-        DocxGeneratorOptions? options = null) =>
-        GenerateToStream(ValidateModel(document), output, options, []);
+        DocxGeneratorOptions? options = null)
+    {
+        var validation = ValidateModel(document);
+        return GenerateToStream(validation.Document!, output, options, validation.Warnings);
+    }
 
     /// <summary>Validates declarative JSON and returns the complete DOCX package in memory.</summary>
     public GeneratedDocx GenerateToBytes(string json, DocxGeneratorOptions? options = null)
@@ -101,8 +107,11 @@ public sealed class DocxGenerator
     /// <summary>Validates a parsed model and returns the complete DOCX package in memory.</summary>
     public GeneratedDocx GenerateToBytes(
         DocxGenerationDocument document,
-        DocxGeneratorOptions? options = null) =>
-        GenerateBytes(ValidateModel(document), options, []);
+        DocxGeneratorOptions? options = null)
+    {
+        var validation = ValidateModel(document);
+        return GenerateBytes(validation.Document!, options, validation.Warnings);
+    }
 
     private DocxGenerationValidationResult ValidateJson(string json)
     {
@@ -110,27 +119,10 @@ public sealed class DocxGenerator
         return _parser.Validate(json).ThrowIfInvalid();
     }
 
-    private static DocxGenerationDocument ValidateModel(DocxGenerationDocument document)
+    private static DocxGenerationValidationResult ValidateModel(DocxGenerationDocument document)
     {
         ArgumentNullException.ThrowIfNull(document);
-        List<DocxGenerationIssue> issues = [];
-        if (!string.Equals(document.Version, DocxGenerationDocument.SupportedVersion, StringComparison.Ordinal))
-        {
-            issues.Add(Error("$.version", $"unsupported version '{document.Version}'; expected \"{DocxGenerationDocument.SupportedVersion}\"."));
-        }
-        if (document.Sections is null || document.Sections.Count == 0)
-        {
-            issues.Add(Error("$.sections", "at least one section is required."));
-        }
-        if (document.TemplatePath is not null && string.IsNullOrWhiteSpace(document.TemplatePath))
-        {
-            issues.Add(Error("$.template", "must not be empty or whitespace (omit it to generate from a blank document)."));
-        }
-        if (issues.Count > 0)
-        {
-            throw new DocxGenerationValidationException(issues);
-        }
-        return document;
+        return DocxGenerationModelValidator.Validate(document).ThrowIfInvalid();
     }
 
     private DocxGenerationResult GenerateToFile(
@@ -206,6 +198,4 @@ public sealed class DocxGenerator
             ? result
             : result with { Warnings = [.. parserWarnings, .. result.Warnings] };
 
-    private static DocxGenerationIssue Error(string path, string message) =>
-        new(path, message, null, DocxGenerationIssueSeverity.Error);
 }

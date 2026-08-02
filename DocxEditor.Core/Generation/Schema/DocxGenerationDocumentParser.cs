@@ -243,6 +243,12 @@ public sealed class DocxGenerationDocumentParser : IDocxGenerationParser
                 }
 
                 var parsed = ParseDocument(root);
+                if (_errors.Count == 0)
+                {
+                    var semantic = DocxGenerationModelValidator.Validate(parsed);
+                    AddDistinct(_errors, semantic.Errors);
+                    AddDistinct(_warnings, semantic.Warnings);
+                }
                 return Result(_errors.Count == 0 ? parsed : null);
             }
         }
@@ -255,6 +261,19 @@ public sealed class DocxGenerationDocumentParser : IDocxGenerationParser
 
         private void Warn(string path, string message) =>
             _warnings.Add(new DocxGenerationIssue(path, message, null, DocxGenerationIssueSeverity.Warning));
+
+        private static void AddDistinct(
+            List<DocxGenerationIssue> target,
+            IReadOnlyList<DocxGenerationIssue> additions)
+        {
+            foreach (var issue in additions)
+            {
+                if (!target.Contains(issue))
+                {
+                    target.Add(issue);
+                }
+            }
+        }
 
         private DocxGenerationDocument ParseDocument(JsonElement root)
         {
@@ -283,7 +302,10 @@ public sealed class DocxGenerationDocumentParser : IDocxGenerationParser
             if (TryGet(root, "design", out var designEl))
             {
                 _design = ParseDesign(designEl, "$.design");
-                _palette = _design.Palette;
+                if (_design is not null)
+                {
+                    _palette = _design.Palette;
+                }
             }
 
             string? template = null;
@@ -352,8 +374,13 @@ public sealed class DocxGenerationDocumentParser : IDocxGenerationParser
             };
         }
 
-        private DesignTokens ParseDesign(JsonElement el, string path)
+        private DesignTokens? ParseDesign(JsonElement el, string path)
         {
+            if (el.ValueKind != JsonValueKind.Object)
+            {
+                Error(path, "must be an object ({\"palette\":…,\"fonts\":…,\"typography\":…,\"spacing\":…,\"shapes\":…,\"page\":…}).");
+                return null;
+            }
             CheckUnknownProps(el, path, "design", DesignProps);
 
             var palette = new Dictionary<string, string>(StringComparer.Ordinal);
