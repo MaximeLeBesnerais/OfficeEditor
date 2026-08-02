@@ -1,4 +1,5 @@
 using System.Text.Json;
+using DocumentFormat.OpenXml.Spreadsheet;
 using XlsxEditor.Core.Builders;
 using XlsxEditor.Core.Instructions;
 using XlsxEditor.Core.Exceptions;
@@ -391,10 +392,10 @@ public class XlsxInstructionTests : IDisposable
     }
 
     [Fact]
-    public void Execute_ShouldRejectTypeField_WhenSetBuiltProgrammatically()
+    public void Execute_ShouldApplyTypedCell_WhenSetBuiltProgrammatically()
     {
-        // Defense in depth: instruction sets constructed in code bypass the
-        // parser, so the executor must reject unsupported fields itself.
+        // 'type' was previously rejected loudly as "Phase 2, not yet supported"; the
+        // integrated executor now applies typed cells from programmatic sets too.
         var set = new XlsxInstructionSet
         {
             Version = "1.0",
@@ -403,15 +404,27 @@ public class XlsxInstructionTests : IDisposable
                 new WorksheetInstruction
                 {
                     Name = "S",
-                    Cells = [new CellInstruction { Address = "A1", Value = "x", Type = "date" }]
+                    Cells = [new CellInstruction { Address = "A1", Value = "2024-01-15", Type = "date" }]
                 }
             ]
         };
 
-        using var builder = WorkbookBuilder.Create(_testFilePath);
-        var ex = Assert.Throws<XlsxException>(() => XlsxInstructionExecutor.Execute(set, builder));
-        Assert.Contains("'type'", ex.Message);
-        Assert.Contains("Phase 2", ex.Message);
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            XlsxInstructionExecutor.Execute(set, builder);
+            builder.Save();
+        }
+
+        CellInfo? info;
+        using (var reader = WorkbookBuilder.Open(_testFilePath))
+        {
+            info = reader.GetWorksheet("S").GetCellInfo("A1");
+        }
+
+        Assert.NotNull(info);
+        Assert.Equal(CellValues.Number, info!.DataType);
+        Assert.Null(info.Formula);
+        OpenXmlAssert.NoValidationErrors(_testFilePath);
     }
 
     // ─── Programmatically built sets (bypass the parser) ──────────

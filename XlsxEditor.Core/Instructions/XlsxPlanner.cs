@@ -302,6 +302,7 @@ public static class XlsxPlanner
         {
             Name = sheetName,
             StartRow = startRow,
+            HeaderStyle = ws.HeaderStyle,
             Columns = columns,
             Headers = headers,
             Rows = planRows,
