@@ -3,6 +3,7 @@ using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using DocxEditor.Core.Content;
 using DocxEditor.Core.Models;
+using OfficeEditor.Core.Exceptions;
 using OfficeEditor.Core.Models;
 
 namespace DocxEditor.Core.Builders;
@@ -59,7 +60,16 @@ public class DocumentBuilder : IDocumentBuilder
         _isNewDocument = isNew;
         _filePath = filePath;
         _documentStream = documentStream;
-        _body = document.MainDocumentPart!.Document!.Body!;
+
+        var mainPart = document.MainDocumentPart
+            ?? throw new OfficeEditorException(
+                "The package does not contain a WordprocessingML main document part, so it is not a valid DOCX document.");
+        var documentRoot = mainPart.Document
+            ?? throw new OfficeEditorException(
+                "The main document part does not contain a <w:document> root element.");
+        _body = documentRoot.Body
+            ?? throw new OfficeEditorException(
+                "The document does not contain a <w:body> element, so it cannot be edited.");
         _cachedStyles = LoadStyles();
     }
 
@@ -90,8 +100,23 @@ public class DocumentBuilder : IDocumentBuilder
 
     public static IDocumentBuilder Open(string path)
     {
-        var document = WordprocessingDocument.Open(path, true);
-        return new DocumentBuilder(document, false, path);
+        ArgumentNullException.ThrowIfNull(path);
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            throw new ArgumentException("Path must not be empty or whitespace.", nameof(path));
+        }
+
+        WordprocessingDocument? document = null;
+        try
+        {
+            document = WordprocessingDocument.Open(path, true);
+            return new DocumentBuilder(document, false, path);
+        }
+        catch (Exception ex)
+        {
+            document?.Dispose();
+            throw NormalizeOpenFailure(ex, $"the file '{path}'");
+        }
     }
 
     /// <summary>
@@ -100,11 +125,24 @@ public class DocumentBuilder : IDocumentBuilder
     /// </summary>
     public static IDocumentBuilder Open(Stream stream)
     {
-        var memoryStream = new MemoryStream();
-        stream.CopyTo(memoryStream);
-        memoryStream.Position = 0;
-        var document = WordprocessingDocument.Open(memoryStream, true);
-        return new DocumentBuilder(document, false, null, memoryStream);
+        ArgumentNullException.ThrowIfNull(stream);
+
+        MemoryStream? buffer = null;
+        WordprocessingDocument? document = null;
+        try
+        {
+            buffer = new MemoryStream();
+            stream.CopyTo(buffer);
+            buffer.Position = 0;
+            document = WordprocessingDocument.Open(buffer, true);
+            return new DocumentBuilder(document, false, null, buffer);
+        }
+        catch (Exception ex)
+        {
+            document?.Dispose();
+            buffer?.Dispose();
+            throw NormalizeOpenFailure(ex, "the supplied stream");
+        }
     }
 
     /// <summary>
@@ -112,11 +150,38 @@ public class DocumentBuilder : IDocumentBuilder
     /// </summary>
     public static IDocumentBuilder Open(byte[] bytes)
     {
-        var memoryStream = new MemoryStream(bytes.Length);
-        memoryStream.Write(bytes, 0, bytes.Length);
-        memoryStream.Position = 0;
-        var document = WordprocessingDocument.Open(memoryStream, true);
-        return new DocumentBuilder(document, false, null, memoryStream);
+        ArgumentNullException.ThrowIfNull(bytes);
+
+        MemoryStream? buffer = null;
+        WordprocessingDocument? document = null;
+        try
+        {
+            buffer = new MemoryStream(bytes.Length);
+            buffer.Write(bytes, 0, bytes.Length);
+            buffer.Position = 0;
+            document = WordprocessingDocument.Open(buffer, true);
+            return new DocumentBuilder(document, false, null, buffer);
+        }
+        catch (Exception ex)
+        {
+            document?.Dispose();
+            buffer?.Dispose();
+            throw NormalizeOpenFailure(ex, "the supplied byte array");
+        }
+    }
+
+    /// <summary>
+    /// Maps any failure inside the public open boundary to the DOCX domain exception, preserving
+    /// the original SDK/package failure as the inner exception. Constructor validation already
+    /// raises <see cref="OfficeEditorException"/> directly; those pass through unwrapped.
+    /// </summary>
+    private static Exception NormalizeOpenFailure(Exception failure, string source)
+    {
+        return failure is OfficeEditorException
+            ? failure
+            : new OfficeEditorException(
+                $"Could not open a valid DOCX document from {source}. The content is missing, corrupt, or not a WordprocessingML package.",
+                failure);
     }
 
     public IDocumentBuilder AddParagraph(string text, string? style = null)
@@ -576,7 +641,7 @@ public class DocumentBuilder : IDocumentBuilder
     {
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
         {
-            throw new OfficeEditor.Core.Exceptions.OfficeEditorException(
+            throw new OfficeEditorException(
                 $"Invalid hyperlink URL '{url}'. Hyperlink URLs must be absolute (e.g. https://example.com/page).");
         }
 
