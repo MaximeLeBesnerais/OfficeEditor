@@ -273,6 +273,19 @@ public class XlsxInstructionTests : IDisposable
         Assert.Contains("illegal", ex.Message.ToLowerInvariant());
     }
 
+    [Theory]
+    [InlineData("'Sheet")]
+    [InlineData("Sheet'")]
+    public void Validate_ShouldRejectSheetNameWithLeadingOrTrailingApostrophe(string name)
+    {
+        // Same rule as the fluent AddWorksheet: Excel rejects sheet names that begin
+        // or end with an apostrophe, so the instruction vocabulary must too.
+        var json = $$"""{"version":"1.0","worksheets":[{"name":"{{name}}","rows":[["1"]]}]}""";
+
+        var ex = Assert.Throws<XlsxException>(() => XlsxInstructionParser.Parse(json));
+        Assert.Contains("apostrophe", ex.Message);
+    }
+
     [Fact]
     public void Validate_ShouldRejectCellWithBothValueAndFormula()
     {
@@ -386,6 +399,7 @@ public class XlsxInstructionTests : IDisposable
         // parser, so the executor must reject unsupported fields itself.
         var set = new XlsxInstructionSet
         {
+            Version = "1.0",
             Worksheets =
             [
                 new WorksheetInstruction
@@ -400,6 +414,129 @@ public class XlsxInstructionTests : IDisposable
         var ex = Assert.Throws<XlsxException>(() => XlsxInstructionExecutor.Execute(set, builder));
         Assert.Contains("'type'", ex.Message);
         Assert.Contains("Phase 2", ex.Message);
+    }
+
+    // ─── Programmatically built sets (bypass the parser) ──────────
+    //
+    // Execute now runs the shared validator, so sets constructed in code must be held
+    // to the same rules as parsed JSON instead of surfacing raw NullReferenceException
+    // from deep in the builder or silently ignoring malformed cells.
+
+    [Fact]
+    public void Execute_ShouldRejectSetWithoutVersion_WhenSetBuiltProgrammatically()
+    {
+        var set = new XlsxInstructionSet
+        {
+            Worksheets = [new WorksheetInstruction { Name = "S", Rows = [["1"]] }]
+        };
+
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var ex = Assert.Throws<XlsxException>(() => XlsxInstructionExecutor.Execute(set, builder));
+        Assert.Contains("version", ex.Message);
+    }
+
+    [Fact]
+    public void Execute_ShouldRejectNullWorksheetName_WhenSetBuiltProgrammatically()
+    {
+        var set = new XlsxInstructionSet
+        {
+            Version = "1.0",
+            Worksheets = [new WorksheetInstruction { Name = "   " }]
+        };
+
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var ex = Assert.Throws<XlsxException>(() => XlsxInstructionExecutor.Execute(set, builder));
+        Assert.Contains("name", ex.Message);
+    }
+
+    [Fact]
+    public void Execute_ShouldRejectNullHeader_WhenSetBuiltProgrammatically()
+    {
+        var set = new XlsxInstructionSet
+        {
+            Version = "1.0",
+            Worksheets =
+            [
+                new WorksheetInstruction { Name = "S", Headers = new List<string> { null! } }
+            ]
+        };
+
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var ex = Assert.Throws<XlsxException>(() => XlsxInstructionExecutor.Execute(set, builder));
+        Assert.Contains("Header 1", ex.Message);
+        Assert.Contains("null", ex.Message);
+    }
+
+    [Fact]
+    public void Execute_ShouldRejectNullRow_WhenSetBuiltProgrammatically()
+    {
+        var set = new XlsxInstructionSet
+        {
+            Version = "1.0",
+            Worksheets = [new WorksheetInstruction { Name = "S", Rows = [null!] }]
+        };
+
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var ex = Assert.Throws<XlsxException>(() => XlsxInstructionExecutor.Execute(set, builder));
+        Assert.Contains("Row 1", ex.Message);
+        Assert.Contains("null", ex.Message);
+    }
+
+    [Fact]
+    public void Execute_ShouldRejectNullCell_WhenSetBuiltProgrammatically()
+    {
+        var set = new XlsxInstructionSet
+        {
+            Version = "1.0",
+            Worksheets = [new WorksheetInstruction { Name = "S", Cells = [null!] }]
+        };
+
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var ex = Assert.Throws<XlsxException>(() => XlsxInstructionExecutor.Execute(set, builder));
+        Assert.Contains("cell", ex.Message);
+    }
+
+    [Fact]
+    public void Execute_ShouldRejectCellWithNeitherValueNorFormula_WhenSetBuiltProgrammatically()
+    {
+        // Previously this wrote nothing silently; now it is rejected like parsed JSON.
+        var set = new XlsxInstructionSet
+        {
+            Version = "1.0",
+            Worksheets =
+            [
+                new WorksheetInstruction
+                {
+                    Name = "S",
+                    Cells = [new CellInstruction { Address = "A1" }]
+                }
+            ]
+        };
+
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var ex = Assert.Throws<XlsxException>(() => XlsxInstructionExecutor.Execute(set, builder));
+        Assert.Contains("neither", ex.Message);
+    }
+
+    [Fact]
+    public void Execute_ShouldRejectCellAddressBeyondExcelLimits_WhenSetBuiltProgrammatically()
+    {
+        var set = new XlsxInstructionSet
+        {
+            Version = "1.0",
+            Worksheets =
+            [
+                new WorksheetInstruction
+                {
+                    Name = "S",
+                    Cells = [new CellInstruction { Address = "XFE1", Value = "x" }]
+                }
+            ]
+        };
+
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var ex = Assert.Throws<XlsxException>(() => XlsxInstructionExecutor.Execute(set, builder));
+        Assert.Contains("XFD", ex.Message);
     }
 
     [Fact]

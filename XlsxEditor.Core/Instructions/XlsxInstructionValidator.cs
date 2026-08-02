@@ -77,6 +77,13 @@ public static class XlsxInstructionValidator
                 $"Worksheet name '{ws.Name}' contains illegal characters (: \\ / ? * [ ]).");
         }
 
+        if (ws.Name[0] == '\'' || ws.Name[^1] == '\'')
+        {
+            throw new XlsxException(
+                $"Worksheet name '{ws.Name}' begins or ends with an apostrophe ('), " +
+                "which Excel does not allow. Remove the leading or trailing apostrophe.");
+        }
+
         if (!seenNames.Add(ws.Name))
         {
             throw new XlsxException(

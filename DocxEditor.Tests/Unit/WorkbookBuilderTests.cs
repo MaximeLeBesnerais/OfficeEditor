@@ -1221,6 +1221,31 @@ public class WorkbookBuilderTests : IDisposable
     }
 
     [Theory]
+    [InlineData("'Sheet")]
+    [InlineData("Sheet'")]
+    public void AddWorksheet_ShouldThrowForLeadingOrTrailingApostrophe(string name)
+    {
+        // Excel rejects sheet names that begin or end with an apostrophe (a leading
+        // apostrophe is its R1C1-escape character), so they must fail loudly rather
+        // than produce a workbook Excel refuses to open cleanly.
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+
+        var ex = Assert.Throws<XlsxException>(() => builder.AddWorksheet(name));
+        Assert.Contains("apostrophe", ex.Message);
+    }
+
+    [Fact]
+    public void AddWorksheet_ShouldAllowApostropheInsideName()
+    {
+        // Positive control: apostrophes are legal anywhere except the first/last char.
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+
+        var ws = builder.AddWorksheet("Sheet's");
+
+        Assert.Equal("Sheet's", builder.GetWorksheetNames().Single());
+    }
+
+    [Theory]
     [InlineData(0, "A")]
     [InlineData(25, "Z")]
     [InlineData(26, "AA")]
