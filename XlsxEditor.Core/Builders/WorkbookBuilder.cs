@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using System.Xml;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Spreadsheet;
@@ -100,7 +101,14 @@ public class WorkbookBuilder : IWorkbookBuilder
         _path = path;
         _documentStream = documentStream;
         _isNewDocument = isNew;
-        _workbookPart = document.WorkbookPart!;
+
+        // A package that opens as a SpreadsheetDocument but has no workbook main part
+        // (e.g. an empty stream, a wrong-format package, or a missing /xl/workbook.xml)
+        // must fail here at the Open boundary instead of surfacing as a null-deref later.
+        _workbookPart = document.WorkbookPart
+            ?? throw new XlsxException(
+                "This file is not a valid XLSX workbook: it has no workbook main part. " +
+                "Expected a package whose workbook part resolves to /xl/workbook.xml.");
 
         if (isNew)
         {
@@ -108,6 +116,16 @@ public class WorkbookBuilder : IWorkbookBuilder
         }
         else
         {
+            // Accessing Workbook loads/parses the part, so a corrupt or wrong-typed root
+            // (XmlException / InvalidDataException) is raised here and normalized by the
+            // Open boundary. A part that parses but has no root element yields null.
+            if (_workbookPart.Workbook is null)
+            {
+                throw new XlsxException(
+                    "This file is not a valid XLSX workbook: the workbook part has no " +
+                    "workbook root element.");
+            }
+
             LoadExistingWorksheets();
         }
     }
@@ -122,8 +140,41 @@ public class WorkbookBuilder : IWorkbookBuilder
 
     public static IWorkbookBuilder Open(string path)
     {
-        var document = SpreadsheetDocument.Open(path, true);
-        return new WorkbookBuilder(document, path, false);
+        ArgumentNullException.ThrowIfNull(path);
+
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            throw new ArgumentException("Path cannot be empty or whitespace.", nameof(path));
+        }
+
+        SpreadsheetDocument? document = null;
+        try
+        {
+            document = SpreadsheetDocument.Open(path, true);
+            return new WorkbookBuilder(document, path, false);
+        }
+        catch (XlsxException)
+        {
+            // Our own structural validation rejected the package after the SDK opened it:
+            // dispose the half-opened document, then let the typed exception propagate
+            // unchanged so callers still see exactly the failure we raised.
+            DisposeFailedOpen(document);
+            throw;
+        }
+        catch (Exception ex) when (IsInvalidPackageFailure(ex))
+        {
+            DisposeFailedOpen(document);
+            throw new XlsxException(
+                $"Cannot open the XLSX workbook at '{path}': the file is not a valid or " +
+                "readable OpenXML spreadsheet package.", ex);
+        }
+        catch
+        {
+            // Anything else — programmer errors, FileNotFoundException, permission or path
+            // errors — propagates unchanged (after cleanup) instead of being normalized.
+            DisposeFailedOpen(document);
+            throw;
+        }
     }
 
     public static IWorkbookBuilder Create()
@@ -140,11 +191,35 @@ public class WorkbookBuilder : IWorkbookBuilder
     /// </summary>
     public static IWorkbookBuilder Open(Stream stream)
     {
-        var memoryStream = new MemoryStream();
-        stream.CopyTo(memoryStream);
-        memoryStream.Position = 0;
-        var document = SpreadsheetDocument.Open(memoryStream, true);
-        return new WorkbookBuilder(document, null, false, memoryStream);
+        ArgumentNullException.ThrowIfNull(stream);
+
+        SpreadsheetDocument? document = null;
+        MemoryStream? memoryStream = null;
+        try
+        {
+            memoryStream = new MemoryStream();
+            stream.CopyTo(memoryStream);
+            memoryStream.Position = 0;
+            document = SpreadsheetDocument.Open(memoryStream, true);
+            return new WorkbookBuilder(document, null, false, memoryStream);
+        }
+        catch (XlsxException)
+        {
+            DisposeFailedOpen(document, memoryStream);
+            throw;
+        }
+        catch (Exception ex) when (IsInvalidPackageFailure(ex))
+        {
+            DisposeFailedOpen(document, memoryStream);
+            throw new XlsxException(
+                "Cannot open the XLSX workbook: the input stream is not a valid or " +
+                "readable OpenXML spreadsheet package.", ex);
+        }
+        catch
+        {
+            DisposeFailedOpen(document, memoryStream);
+            throw;
+        }
     }
 
     /// <summary>
@@ -153,11 +228,72 @@ public class WorkbookBuilder : IWorkbookBuilder
     /// </summary>
     public static IWorkbookBuilder Open(byte[] bytes)
     {
-        var memoryStream = new MemoryStream(bytes.Length);
-        memoryStream.Write(bytes, 0, bytes.Length);
-        memoryStream.Position = 0;
-        var document = SpreadsheetDocument.Open(memoryStream, true);
-        return new WorkbookBuilder(document, null, false, memoryStream);
+        ArgumentNullException.ThrowIfNull(bytes);
+
+        SpreadsheetDocument? document = null;
+        MemoryStream? memoryStream = null;
+        try
+        {
+            memoryStream = new MemoryStream(bytes.Length);
+            memoryStream.Write(bytes, 0, bytes.Length);
+            memoryStream.Position = 0;
+            document = SpreadsheetDocument.Open(memoryStream, true);
+            return new WorkbookBuilder(document, null, false, memoryStream);
+        }
+        catch (XlsxException)
+        {
+            DisposeFailedOpen(document, memoryStream);
+            throw;
+        }
+        catch (Exception ex) when (IsInvalidPackageFailure(ex))
+        {
+            DisposeFailedOpen(document, memoryStream);
+            throw new XlsxException(
+                "Cannot open the XLSX workbook: the byte array is not a valid or " +
+                "readable OpenXML spreadsheet package.", ex);
+        }
+        catch
+        {
+            DisposeFailedOpen(document, memoryStream);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// The well-known exception families the OpenXML SDK raises when a package is not a
+    /// valid XLSX workbook (corrupt zip, wrong root element, malformed XML, missing parts,
+    /// unresolvable relationships). These are parse failures of malformed input at the
+    /// public Open boundary and are normalized into <see cref="XlsxException"/>. Deliberately
+    /// excludes programmer errors (ArgumentNullException, our own XlsxException, filesystem
+    /// errors) so genuine bugs propagate untouched — those are cleaned up and rethrown by
+    /// the sibling <c>catch (XlsxException)</c> and bare <c>catch</c> clauses of each Open
+    /// overload, which dispose the half-opened document before propagating.
+    /// </summary>
+    private static bool IsInvalidPackageFailure(Exception ex) =>
+        ex is FileFormatException
+            or InvalidDataException
+            or XmlException
+            or OpenXmlPackageException
+            or InvalidOperationException
+            or ArgumentOutOfRangeException;
+
+    /// <summary>
+    /// Best-effort cleanup after a failed open. Only the OpenXML document and the
+    /// internally-owned buffer are disposed; the caller's source stream is never touched.
+    /// Cleanup exceptions are deliberately ignored so they cannot mask the primary failure.
+    /// </summary>
+    private static void DisposeFailedOpen(SpreadsheetDocument? document, MemoryStream? ownedStream = null)
+    {
+        try
+        {
+            document?.Dispose();
+        }
+        catch
+        {
+            // The primary open failure is rethrown by the caller; a dispose error here must not replace it.
+        }
+
+        ownedStream?.Dispose();
     }
 
     /// <summary>
@@ -507,8 +643,21 @@ public class WorkbookBuilder : IWorkbookBuilder
             var name = sheet.Name?.Value;
             if (name == null) continue;
 
-            var worksheetPart = (WorksheetPart)_workbookPart.GetPartById(sheet.Id!);
-            var worksheetBuilder = new WorksheetBuilder(worksheetPart, worksheetPart.Worksheet!, this);
+            var relationshipId = sheet.Id?.Value
+                ?? throw new XlsxException(
+                    $"Sheet '{name}' is missing its relationship id (r:id), so its worksheet " +
+                    "part cannot be located.");
+
+            var worksheetPart = ResolveWorksheetPart(relationshipId, name);
+
+            // Load the worksheet root now: a corrupt or wrong-typed root surfaces here
+            // (normalized by the Open boundary) instead of on first worksheet use.
+            var worksheet = worksheetPart.Worksheet
+                ?? throw new XlsxException(
+                    $"The worksheet part for sheet '{name}' (relationship '{relationshipId}') " +
+                    "has no worksheet root element.");
+
+            var worksheetBuilder = new WorksheetBuilder(worksheetPart, worksheet, this);
             _worksheets[name] = worksheetBuilder;
 
             if (sheet.SheetId?.Value >= _nextSheetId)
@@ -539,5 +688,25 @@ public class WorkbookBuilder : IWorkbookBuilder
             }
         }
         _nextTableId = maxTableId + 1;
+    }
+
+    /// <summary>
+    /// Resolves a sheet's relationship id to a <see cref="WorksheetPart"/>, rejecting parts
+    /// of any other type. A missing target part or unresolvable relationship id surfaces as
+    /// the SDK's InvalidOperationException / ArgumentOutOfRangeException, which the Open
+    /// boundary normalizes into <see cref="XlsxException"/> with the original failure as
+    /// the inner exception.
+    /// </summary>
+    private WorksheetPart ResolveWorksheetPart(string relationshipId, string sheetName)
+    {
+        var part = _workbookPart.GetPartById(relationshipId);
+        if (part is not WorksheetPart worksheetPart)
+        {
+            throw new XlsxException(
+                $"Sheet '{sheetName}' references relationship '{relationshipId}', which " +
+                $"resolves to a {part.GetType().Name} part instead of a worksheet part.");
+        }
+
+        return worksheetPart;
     }
 }

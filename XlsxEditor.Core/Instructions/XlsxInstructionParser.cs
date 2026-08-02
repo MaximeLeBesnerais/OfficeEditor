@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using XlsxEditor.Core.Exceptions;
 
 namespace XlsxEditor.Core.Instructions;
@@ -8,6 +9,16 @@ namespace XlsxEditor.Core.Instructions;
 /// </summary>
 public static class XlsxInstructionParser
 {
+    /// <summary>
+    /// Unknown properties anywhere in the instruction set are a typo or a future
+    /// vocabulary leaking in early; both must fail loudly instead of being silently
+    /// dropped (the pre-hardening behavior).
+    /// </summary>
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow
+    };
+
     public static XlsxInstructionSet Parse(string json)
     {
         if (string.IsNullOrWhiteSpace(json))
@@ -18,7 +29,7 @@ public static class XlsxInstructionParser
         XlsxInstructionSet instructionSet;
         try
         {
-            instructionSet = JsonSerializer.Deserialize<XlsxInstructionSet>(json)
+            instructionSet = JsonSerializer.Deserialize<XlsxInstructionSet>(json, JsonOptions)
                 ?? throw new XlsxException("Instruction JSON deserialized to null. Check that the document is valid JSON and starts with a JSON object.");
         }
         catch (JsonException ex)

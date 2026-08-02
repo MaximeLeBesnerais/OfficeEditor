@@ -17,6 +17,11 @@ public class WorksheetBuilder : IWorksheetBuilder
     private static readonly Regex CellReferencePattern =
         new(@"^[A-Za-z]{1,3}[1-9][0-9]*$", RegexOptions.Compiled);
 
+    // Excel's real sheet limits: columns A-XFD (1-based column 16384) and rows
+    // 1-1,048,576. References past these corrupt nothing but are impossible to open.
+    private const int MaxColumnNumber = 16384;
+    private const int MaxRowNumber = 1_048_576;
+
     public WorksheetPart WorksheetPart => _worksheetPart;
 
     public WorksheetBuilder(WorksheetPart worksheetPart, Worksheet worksheet, WorkbookBuilder workbookBuilder)
@@ -381,6 +386,13 @@ public class WorksheetBuilder : IWorksheetBuilder
         var endCol = GetColumnIndex(end);
         var endRow = GetRowIndex(end);
 
+        if (endRow < startRow || endCol < startCol)
+        {
+            throw new XlsxException(
+                $"Range '{start}:{end}' is reversed: the start cell must be the top-left " +
+                "corner and the end cell the bottom-right corner of the range.");
+        }
+
         var results = new List<CellInfo>();
         for (int r = startRow; r <= endRow; r++)
         {
@@ -416,11 +428,7 @@ public class WorksheetBuilder : IWorksheetBuilder
 
     public RowInfo? GetRow(int rowIndex)
     {
-        if (rowIndex < 1)
-        {
-            throw new XlsxException(
-                $"Row index must be >= 1; Excel rows are 1-based. Got {rowIndex}.");
-        }
+        ValidateRowIndex(rowIndex);
 
         var row = _sheetData.Elements<Row>()
             .FirstOrDefault(r => r.RowIndex?.Value == (uint)rowIndex);
@@ -480,11 +488,7 @@ public class WorksheetBuilder : IWorksheetBuilder
 
     public IWorksheetBuilder DeleteRow(int rowIndex)
     {
-        if (rowIndex < 1)
-        {
-            throw new XlsxException(
-                $"Row index must be >= 1; Excel rows are 1-based. Got {rowIndex}.");
-        }
+        ValidateRowIndex(rowIndex);
 
         var row = _sheetData.Elements<Row>()
             .FirstOrDefault(r => r.RowIndex?.Value == (uint)rowIndex);
@@ -498,6 +502,13 @@ public class WorksheetBuilder : IWorksheetBuilder
         var startRow = GetRowIndex(start);
         var endCol = GetColumnIndex(end);
         var endRow = GetRowIndex(end);
+
+        if (endRow < startRow || endCol < startCol)
+        {
+            throw new XlsxException(
+                $"Range '{start}:{end}' is reversed: the start cell must be the top-left " +
+                "corner and the end cell the bottom-right corner of the range.");
+        }
 
         for (int r = startRow; r <= endRow; r++)
         {
@@ -614,11 +625,7 @@ public class WorksheetBuilder : IWorksheetBuilder
 
     private Row GetOrCreateRow(int rowIndex)
     {
-        if (rowIndex < 1)
-        {
-            throw new XlsxException(
-                $"Row index must be >= 1; Excel rows are 1-based. Got {rowIndex}.");
-        }
+        ValidateRowIndex(rowIndex);
 
         var targetIndex = (uint)rowIndex;
         var row = _sheetData.Elements<Row>().FirstOrDefault(r => r.RowIndex?.Value == targetIndex);
@@ -658,19 +665,37 @@ public class WorksheetBuilder : IWorksheetBuilder
         _sheetData.Append(newRow);
     }
 
-    internal static string GetCellReference(int columnIndex, int rowIndex)
+    /// <summary>
+    /// Row indexes are 1-based and bounded by Excel's real sheet limit (1-1,048,576).
+    /// Shared by every row-facing entry point so GetRow, DeleteRow, GetOrCreateRow and
+    /// GetCellReference can never disagree about what a legal row index is.
+    /// </summary>
+    private static void ValidateRowIndex(int rowIndex)
     {
-        if (columnIndex < 0)
-        {
-            throw new XlsxException(
-                $"Column index must be >= 0 (0 = column A). Got {columnIndex}.");
-        }
-
         if (rowIndex < 1)
         {
             throw new XlsxException(
                 $"Row index must be >= 1; Excel rows are 1-based. Got {rowIndex}.");
         }
+
+        if (rowIndex > MaxRowNumber)
+        {
+            throw new XlsxException(
+                $"Row index must be between 1 and {MaxRowNumber:N0}; Excel rows are 1-based. " +
+                $"Got {rowIndex:N0}.");
+        }
+    }
+
+    internal static string GetCellReference(int columnIndex, int rowIndex)
+    {
+        if (columnIndex < 0 || columnIndex >= MaxColumnNumber)
+        {
+            throw new XlsxException(
+                $"Column index must be between 0 and {MaxColumnNumber - 1} " +
+                $"(0 = column A, {MaxColumnNumber - 1} = column XFD). Got {columnIndex}.");
+        }
+
+        ValidateRowIndex(rowIndex);
 
         var columnName = GetColumnName(columnIndex);
         return $"{columnName}{rowIndex}";
@@ -696,7 +721,10 @@ public class WorksheetBuilder : IWorksheetBuilder
     /// Excel cell references are case-insensitive; normalizing prevents 'a1' and 'A1'
     /// from becoming two distinct cells in the same row. Malformed references throw
     /// an <see cref="XlsxException"/> naming the offending reference (instead of a
-    /// raw <see cref="FormatException"/> from deep in the parser).
+    /// raw <see cref="FormatException"/> from deep in the parser). References are also
+    /// bounded to Excel's real limits (columns A-XFD, rows 1-1,048,576); the row is
+    /// parsed as <see cref="long"/> so absurdly large row strings fail with a clear
+    /// <see cref="XlsxException"/> instead of an integer <see cref="OverflowException"/>.
     /// </summary>
     internal static string NormalizeCellReference(string cellReference)
     {
@@ -708,7 +736,28 @@ public class WorksheetBuilder : IWorksheetBuilder
                 "(1-3 letters, then a row number >= 1).");
         }
 
-        return cellReference.ToUpperInvariant();
+        var normalized = cellReference.ToUpperInvariant();
+        var letterCount = CountLeadingLetters(normalized);
+
+        var columnIndex = ColumnIndexFromLetters(normalized.AsSpan(0, letterCount));
+        if (columnIndex > MaxColumnNumber)
+        {
+            throw new XlsxException(
+                $"Cell reference '{cellReference}' uses column '{normalized[..letterCount]}', " +
+                "which is beyond Excel's maximum column 'XFD'.");
+        }
+
+        var rowText = normalized.AsSpan(letterCount);
+        if (!long.TryParse(rowText, NumberStyles.None, CultureInfo.InvariantCulture, out var rowIndex)
+            || rowIndex < 1
+            || rowIndex > MaxRowNumber)
+        {
+            throw new XlsxException(
+                $"Cell reference '{cellReference}' uses row '{rowText}', which is outside " +
+                $"Excel's valid row range 1-{MaxRowNumber:N0}.");
+        }
+
+        return normalized;
     }
 
     internal static int GetRowIndex(string cellReference)
@@ -721,14 +770,14 @@ public class WorksheetBuilder : IWorksheetBuilder
     internal static int GetColumnIndex(string cellReference)
     {
         var normalized = NormalizeCellReference(cellReference);
-        var result = 0;
-        foreach (var c in normalized)
-        {
-            if (!char.IsLetter(c))
-            {
-                break;
-            }
+        return ColumnIndexFromLetters(normalized.AsSpan(0, CountLeadingLetters(normalized)));
+    }
 
+    private static int ColumnIndexFromLetters(ReadOnlySpan<char> letters)
+    {
+        var result = 0;
+        foreach (var c in letters)
+        {
             result = result * 26 + c - 'A' + 1;
         }
 
