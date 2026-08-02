@@ -40,6 +40,27 @@ public interface IWorksheetBuilder
     IWorksheetBuilder AddTable(string startCell, string endCell, string tableName);
     IWorksheetBuilder AddChart(ChartType type, string dataRange);
 
+    /// <summary>
+    /// Sets the explicit width of a single column, in Excel column-width units (the
+    /// number of characters of the workbook's default font that fit across the column).
+    /// <paramref name="column"/> is an A1-style column letter such as 'A', 'AB' or 'XFD'
+    /// (case-insensitive). Width must be finite and between 0 (exclusive) and 255
+    /// (inclusive) — Excel's maximum column width. Repeated
+    /// calls for the same column update it in place; columns inside an existing
+    /// multi-column definition are split out so no overlapping &lt;col&gt; ranges are
+    /// ever produced and unrelated column definitions are preserved.
+    /// </summary>
+    IWorksheetBuilder SetColumnWidth(string column, double width);
+
+    /// <summary>
+    /// Sets the explicit height of a row, in points. <paramref name="rowIndex"/> is
+    /// 1-based and bounded by Excel's sheet limits (1-1,048,576). Height must be finite
+    /// and between 0 (exclusive) and 409.5 points (inclusive) — Excel's maximum row
+    /// height. Repeated calls for the same row update it in place; existing cells and
+    /// their styles are preserved.
+    /// </summary>
+    IWorksheetBuilder SetRowHeight(int rowIndex, double height);
+
     // Read
     string? GetCellValue(string cellReference);
     string? GetCellFormula(string cellReference);
@@ -49,6 +70,19 @@ public interface IWorksheetBuilder
     List<RowInfo> GetRows();
     RowInfo? GetRow(int rowIndex);
     (int firstRow, int lastRow, int firstCol, int lastCol) GetDimensions();
+
+    /// <summary>
+    /// Returns the effective width of the column (Excel column-width units), or null when
+    /// no width is defined for it. A column covered by a multi-column definition reports
+    /// that definition's width.
+    /// </summary>
+    double? GetColumnWidth(string column);
+
+    /// <summary>
+    /// Returns the explicit height of the row in points, or null when the row has no
+    /// height defined (or does not exist).
+    /// </summary>
+    double? GetRowHeight(int rowIndex);
 
     // Edit
     IWorksheetBuilder DeleteCell(string cellReference);
