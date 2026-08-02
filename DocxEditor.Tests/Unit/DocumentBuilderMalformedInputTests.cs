@@ -445,6 +445,28 @@ public class DocumentBuilderMalformedInputTests : IDisposable
         Assert.Contains(body.Elements<Paragraph>(), p => p.InnerText == "after failure");
     }
 
+    [Fact]
+    public void MergeBatch_WithMalformedTemplatePath_ThrowsDomainExceptionAndWritesNoOutput()
+    {
+        // Gap fixed: the template now routes through the hardened open contract before any output
+        // is written, so a corrupt template fails up front with the domain exception instead of
+        // being copied to the output path and failing mid-loop with a raw SDK exception that left
+        // a corrupt partial output on disk.
+        var templatePath = Path.Combine(Path.GetTempPath(), $"malformed_template_{Guid.NewGuid():N}.docx");
+        _tempFiles.Add(templatePath);
+        File.WriteAllBytes(templatePath, CreateRandomBytes(1024));
+
+        var outputPattern = Path.Combine(Path.GetTempPath(), $"batch_{Guid.NewGuid():N}_{{index}}.docx");
+        var expectedA = outputPattern.Replace("{index}", "0");
+        _tempFiles.Add(expectedA);
+
+        using var builder = DocumentBuilder.Create();
+        var ex = Assert.Throws<OfficeEditorException>(() => builder.MergeBatch(
+            new List<Dictionary<string, string>> { new() { ["name"] = "Ada" } }, outputPattern, templatePath));
+        Assert.False(string.IsNullOrWhiteSpace(ex.Message));
+        Assert.False(File.Exists(expectedA), "A malformed template must not produce any output file.");
+    }
+
     // ---------------------------------------------------------------- theory data
 
     public static IEnumerable<object[]> TruncatedDocxCases()

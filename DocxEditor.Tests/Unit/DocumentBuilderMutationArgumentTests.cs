@@ -225,6 +225,22 @@ public class DocumentBuilderMutationArgumentTests : IDisposable
         }
     }
 
+    [Fact]
+    public void MergeBatch_WithWhitespaceTemplatePath_ThrowsArgumentExceptionAndWritesNoFiles()
+    {
+        // Matches the Open/Create path contract: a whitespace-only template path is rejected up
+        // front as an argument error instead of being resolved and copied to output paths.
+        var outputPattern = Path.Combine(Path.GetTempPath(), $"batch_{Guid.NewGuid():N}_{{index}}.docx");
+        var expectedA = outputPattern.Replace("{index}", "0");
+        _tempFiles.Add(expectedA);
+        using var builder = DocumentBuilder.Create();
+
+        var ex = Assert.Throws<ArgumentException>(() => builder.MergeBatch(
+            new List<Dictionary<string, string>> { new() { ["name"] = "Ada" } }, outputPattern, "   "));
+        Assert.Contains("Template path", ex.Message);
+        Assert.False(File.Exists(expectedA));
+    }
+
     public void Dispose()
     {
         foreach (var file in _tempFiles)
