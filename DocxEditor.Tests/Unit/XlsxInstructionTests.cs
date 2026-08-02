@@ -355,27 +355,26 @@ public class XlsxInstructionTests : IDisposable
     }
 
     [Fact]
-    public void Validate_ShouldRejectTypeField_AsNotYetSupported()
+    public void Validate_ShouldAcceptTypeField_NowSupported()
     {
-        // 'type' was previously validated then silently dropped by the executor;
-        // it is now rejected loudly until typed cells land (Phase 2 roadmap).
+        // 'type' was previously rejected loudly as "Phase 2, not yet supported"; the rich
+        // model, validator and planner now accept typed cells.
         var json = """
         {
             "version": "1.0",
             "worksheets": [{
                 "name": "S",
-                "cells": [{"address": "A1", "value": "x", "type": "number"}]
+                "cells": [{"address": "A1", "value": "42", "type": "number"}]
             }]
         }
         """;
 
-        var ex = Assert.Throws<XlsxException>(() => XlsxInstructionParser.Parse(json));
-        Assert.Contains("'type'", ex.Message);
-        Assert.Contains("Phase 2", ex.Message);
+        var set = XlsxInstructionParser.Parse(json);
+        Assert.Equal("number", set.Worksheets[0].Cells![0].Type);
     }
 
     [Fact]
-    public void Validate_ShouldRejectNumberFormat_AsNotYetSupported()
+    public void Validate_ShouldAcceptNumberFormat_NowSupported()
     {
         var json = """
         {
@@ -387,9 +386,8 @@ public class XlsxInstructionTests : IDisposable
         }
         """;
 
-        var ex = Assert.Throws<XlsxException>(() => XlsxInstructionParser.Parse(json));
-        Assert.Contains("'numberFormat'", ex.Message);
-        Assert.Contains("Phase 2", ex.Message);
+        var set = XlsxInstructionParser.Parse(json);
+        Assert.Equal("0.00", set.Worksheets[0].Cells![0].NumberFormat);
     }
 
     [Fact]
