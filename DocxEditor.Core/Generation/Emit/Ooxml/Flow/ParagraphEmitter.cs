@@ -1,5 +1,6 @@
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Wordprocessing;
+using DocxEditor.Core.Generation.Emit.Ooxml.Design;
 using DocxEditor.Core.Generation.Model;
 
 namespace DocxEditor.Core.Generation.Emit.Ooxml.Flow;
@@ -27,8 +28,7 @@ internal static class ParagraphEmitter
     public static void EmitHeading(OoxmlEmitContext context, OpenXmlCompositeElement container, HeadingBlock heading, string path)
     {
         var content = heading.Content;
-        var styleId = heading.Style ?? $"Heading{heading.Level}";
-        container.Append(BuildParagraph(context, content, styleId, heading.Level, path));
+        container.Append(BuildParagraph(context, content, heading.Style, heading.Level, path));
     }
 
     /// <summary>
@@ -45,9 +45,12 @@ internal static class ParagraphEmitter
         var paragraph = new Paragraph();
         var paragraphProperties = new ParagraphProperties();
 
-        if (styleId is not null && context.TryEnsureStyle(styleId, StyleValues.Paragraph, path))
+        var fallbackStyle = headingLevel is { } headingStyleLevel
+            ? BaselineStyleKindExtensions.ForHeading(headingStyleLevel)
+            : BaselineStyleKind.Body;
+        if (context.ResolveStyle(styleId, StyleValues.Paragraph, path, fallbackStyle) is { } resolvedStyleId)
         {
-            paragraphProperties.ParagraphStyleId = new ParagraphStyleId { Val = styleId };
+            paragraphProperties.ParagraphStyleId = new ParagraphStyleId { Val = resolvedStyleId };
         }
 
         if (headingLevel is { } level)

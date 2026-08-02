@@ -1,5 +1,9 @@
+using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
+using DocxEditor.Core.Generation.Design;
+using DocxEditor.Core.Generation.Emit.Ooxml.Design;
+using DocxEditor.Core.Generation.Emit.Ooxml.Positioned;
 using DocxEditor.Core.Generation.Model;
 using DocxEditor.Core.Generation.Schema;
 
@@ -13,9 +17,8 @@ namespace DocxEditor.Core.Generation.Emit.Ooxml.Flow;
 /// </summary>
 internal sealed class OoxmlEmitContext
 {
-    private readonly Dictionary<string, Style> _styleCache = new(StringComparer.Ordinal);
+    private readonly Dictionary<OpenXmlCompositeElement, OpenXmlPart> _containerParts = [];
     private readonly NumberingAllocator _numberingAllocator;
-    private int _nextDrawingId;
 
     /// <summary>The package being built.</summary>
     public required WordprocessingDocument Document { get; init; }
@@ -23,17 +26,20 @@ internal sealed class OoxmlEmitContext
     /// <summary>The main document part (styles, headers/footers, numbering, images).</summary>
     public required MainDocumentPart MainPart { get; init; }
 
-    /// <summary>Resolved design tokens, or null when the document carries none.</summary>
-    public DesignTokens? Design { get; init; }
+    /// <summary>Canonical per-document design resolver.</summary>
+    public required DocxDesignResolver DesignResolver { get; init; }
+
+    /// <summary>Style cache/manager; existing definitions remain untouched.</summary>
+    public required DocxStyleManager StyleManager { get; init; }
+
+    /// <summary>Asset loader + relationship manager shared by inline and positioned images.</summary>
+    public required DocxImagePipeline Images { get; init; }
+
+    /// <summary>Positioned drawing emitter configured with this document's design and assets.</summary>
+    public required PositionedElementEmitter PositionedEmitter { get; init; }
 
     /// <summary>True when the package was opened from a template (styles must never be written).</summary>
     public bool FromTemplate { get; init; }
-
-    /// <summary>Optional image-content seam; null = placeholder emission for inline images.</summary>
-    public IImageContentResolver? ImageResolver { get; init; }
-
-    /// <summary>Optional positioned-tier seam; null = warn-and-skip for positioned elements.</summary>
-    public IPositionedTierEmitter? PositionedTierEmitter { get; init; }
 
     /// <summary>Warning sink; findings are appended in emit order.</summary>
     public required List<DocxGenerationIssue> Warnings { get; init; }
@@ -43,66 +49,43 @@ internal sealed class OoxmlEmitContext
         _numberingAllocator = new NumberingAllocator();
     }
 
-    /// <summary>Loads template styles into the cache (called once, only for templates).</summary>
-    public void LoadTemplateStyles()
+    /// <summary>Associates a header/footer root with the part that owns its relationships.</summary>
+    public void RegisterPartContainer(OpenXmlCompositeElement container, OpenXmlPart part)
     {
-        if (!FromTemplate)
-        {
-            return;
-        }
-
-        var stylesPart = MainPart.StyleDefinitionsPart;
-        if (stylesPart?.Styles is null)
-        {
-            return;
-        }
-
-        foreach (var style in stylesPart.Styles.Elements<Style>())
-        {
-            if (style.StyleId?.Value is { } id)
-            {
-                _styleCache[id] = style;
-            }
-        }
+        _containerParts[container] = part;
     }
 
-    /// <summary>Registers a style (used for the blank-document default Normal style).</summary>
-    public void RegisterStyle(Style style)
-    {
-        if (style.StyleId?.Value is { } id)
-        {
-            _styleCache[id] = style;
-        }
-    }
+    /// <summary>Returns the relationship-owning part for a flow container.</summary>
+    public OpenXmlPart GetOwningPart(OpenXmlCompositeElement container) =>
+        _containerParts.GetValueOrDefault(container) ?? MainPart;
 
     /// <summary>
-    /// Resolves a style reference. Template styles are referenced by ID and never mutated; an
-    /// unknown template style warns and is skipped. Blank documents get a default style of the
-    /// requested kind created on demand.
+    /// Resolves a style reference. Existing styles are referenced by ID and never mutated;
+    /// unknown references warn and use the requested baseline fallback, which is generated
+    /// lazily with a collision-free ID when absent.
     /// </summary>
-    public bool TryEnsureStyle(string styleId, StyleValues kind, string path)
+    public string? ResolveStyle(
+        string? styleId,
+        StyleValues kind,
+        string path,
+        BaselineStyleKind? fallbackKind = null)
     {
-        if (_styleCache.ContainsKey(styleId))
+        if (!string.IsNullOrWhiteSpace(styleId) && StyleManager.HasExistingStyle(styleId))
         {
-            return true;
+            return styleId;
         }
 
-        if (FromTemplate)
+        var fallback = fallbackKind;
+        if (fallback is null && kind == StyleValues.Paragraph)
         {
-            Warnings.Add(new DocxGenerationIssue(
-                path,
-                $"style '{styleId}' is not defined in the template; the style reference was skipped (existing template styles are never mutated).",
-                null,
-                DocxGenerationIssueSeverity.Warning));
-            return false;
+            fallback = BaselineStyleKind.Body;
+        }
+        else if (fallback is null && kind == StyleValues.Table)
+        {
+            fallback = BaselineStyleKind.Table;
         }
 
-        var stylesPart = MainPart.StyleDefinitionsPart ?? MainPart.AddNewPart<StyleDefinitionsPart>();
-        stylesPart.Styles ??= new Styles();
-        var style = FormattingHelpers.BuildDefaultStyle(styleId, kind);
-        stylesPart.Styles.Append(style);
-        _styleCache[styleId] = style;
-        return true;
+        return StyleManager.ResolveStyleReference(styleId, path, fallback);
     }
 
     /// <summary>
@@ -112,9 +95,6 @@ internal sealed class OoxmlEmitContext
     /// </summary>
     public int AllocateNumbering(bool ordered, int start) =>
         _numberingAllocator.Allocate(MainPart, ordered, start);
-
-    /// <summary>Allocates a fresh drawing id (unique within this emit run).</summary>
-    public int NextDrawingId() => _nextDrawingId++;
 
     /// <summary>Adds a warning for a resolved block/cell path.</summary>
     public void Warn(string path, string message) =>

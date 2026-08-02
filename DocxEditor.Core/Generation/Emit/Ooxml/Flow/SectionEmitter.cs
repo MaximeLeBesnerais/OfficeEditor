@@ -2,8 +2,8 @@ using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using DocxEditor.Core.Generation.Model;
+using DocxEditor.Core.Generation.Schema;
 using OfficeEditor.Core.Exceptions;
-using Model = DocxEditor.Core.Generation.Model;
 
 namespace DocxEditor.Core.Generation.Emit.Ooxml.Flow;
 
@@ -83,10 +83,25 @@ internal static class SectionEmitter
             return;
         }
 
-        var emitter = context.PositionedTierEmitter ?? UnsupportedPositionedTierEmitter.Instance;
         for (var i = 0; i < section.Positioned.Count; i++)
         {
-            emitter.EmitPositionedElement(section.Positioned[i], body, $"{sectionPath}.positioned[{i}]", context.Warnings);
+            if (section.Positioned[i] is PositionedImage image)
+            {
+                _ = context.Images.Resolve(
+                    context.MainPart,
+                    image.Source,
+                    $"$.{sectionPath}.positioned[{i}].src");
+            }
+        }
+
+        var result = context.PositionedEmitter.Emit(context.MainPart, body, section.Positioned);
+        foreach (var warning in result.Warnings)
+        {
+            context.Warnings.Add(new DocxGenerationIssue(
+                $"$.{sectionPath}.positioned[{warning.Index}]",
+                $"[{warning.ElementType}] {warning.Message}",
+                null,
+                DocxGenerationIssueSeverity.Warning));
         }
     }
 
@@ -99,6 +114,7 @@ internal static class SectionEmitter
 
         var headerPart = context.MainPart.AddNewPart<HeaderPart>();
         var header = new Header();
+        context.RegisterPartContainer(header, headerPart);
         FlowBlockEmitter.EmitBlocks(context, header, section.Header, $"{path}.header");
         headerPart.Header = header;
         return [context.MainPart.GetIdOfPart(headerPart)];
@@ -113,6 +129,7 @@ internal static class SectionEmitter
 
         var footerPart = context.MainPart.AddNewPart<FooterPart>();
         var footer = new Footer();
+        context.RegisterPartContainer(footer, footerPart);
         FlowBlockEmitter.EmitBlocks(context, footer, section.Footer, $"{path}.footer");
         footerPart.Footer = footer;
         return [context.MainPart.GetIdOfPart(footerPart)];
@@ -146,13 +163,12 @@ internal static class SectionEmitter
             sectionProperties.Append(new SectionType { Val = SectionMarkValue(breakType) });
         }
 
-        var pageSetup = ResolvePageSetup(context, section);
-        var (width, height) = pageSetup.Size.EffectiveSize(pageSetup.Orientation);
+        var pageSetup = context.DesignResolver.ResolvePage(section.PageSetup, path);
 
         sectionProperties.Append(new DocumentFormat.OpenXml.Wordprocessing.PageSize
         {
-            Width = (uint)FormattingHelpers.TwipsInt(width),
-            Height = (uint)FormattingHelpers.TwipsInt(height),
+            Width = (uint)FormattingHelpers.TwipsInt(pageSetup.WidthPt),
+            Height = (uint)FormattingHelpers.TwipsInt(pageSetup.HeightPt),
             Orient = pageSetup.Orientation == PageOrientation.Landscape
                 ? PageOrientationValues.Landscape
                 : PageOrientationValues.Portrait
@@ -207,18 +223,4 @@ internal static class SectionEmitter
         _ => SectionMarkValues.NextPage
     };
 
-    private sealed record ResolvedPageSetup(Model.PageSize Size, PageOrientation Orientation, Margins Margins, PageColumns? Columns);
-
-    private static ResolvedPageSetup ResolvePageSetup(OoxmlEmitContext context, Section section)
-    {
-        var pageSetup = section.PageSetup;
-        var design = context.Design;
-
-        var orientation = pageSetup?.Orientation ?? design?.Page.Orientation ?? PageOrientation.Portrait;
-        var margins = pageSetup?.Margins ?? design?.Page.Margins ?? Margins.Defaults;
-        var size = pageSetup?.PageSize ?? (design?.Page.PageSize is { } named ? Model.PageSize.Named(named) : Model.PageSize.Default);
-        var columns = pageSetup?.Columns;
-
-        return new ResolvedPageSetup(size, orientation, margins, columns);
-    }
 }

@@ -143,14 +143,18 @@ public sealed class DocxStyleManager
     /// <summary>
     /// Resolves an author-supplied style reference (from a block's <c>style</c> field) against the
     /// template's styles by ID or by name. When the reference is unknown it records a deterministic
-    /// warning on the resolver and falls back to the body style. Never generates a style named after
-    /// the reference.
+    /// warning on the resolver and falls back to the requested baseline style (body by default),
+    /// or skips the reference when <paramref name="fallbackKind"/> is null. Never generates a style
+    /// named after the reference.
     /// </summary>
-    public string ResolveStyleReference(string? styleReference, string? context = null)
+    public string? ResolveStyleReference(
+        string? styleReference,
+        string? context = null,
+        BaselineStyleKind? fallbackKind = BaselineStyleKind.Body)
     {
         if (string.IsNullOrWhiteSpace(styleReference))
         {
-            return GetOrCreateBodyStyle();
+            return fallbackKind is { } kind ? GetOrCreateStyle(kind) : null;
         }
         if (_existingById.ContainsKey(styleReference))
         {
@@ -162,9 +166,11 @@ public sealed class DocxStyleManager
         }
         _resolver.RecordWarning(
             "UnknownStyleReference",
-            $"style reference '{styleReference}' is not defined in the template; falling back to the body style.",
+            fallbackKind is { } fallback
+                ? $"style reference '{styleReference}' is not defined in the document; falling back to the '{Conventional(fallback).Name}' style."
+                : $"style reference '{styleReference}' is not defined in the document; the style reference was skipped.",
             context);
-        return GetOrCreateBodyStyle();
+        return fallbackKind is { } fallbackKindValue ? GetOrCreateStyle(fallbackKindValue) : null;
     }
 
     // ---- internals ----

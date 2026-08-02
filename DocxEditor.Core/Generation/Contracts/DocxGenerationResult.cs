@@ -18,10 +18,9 @@ public sealed record DocxGenerationResult
     public IReadOnlyList<EmittedOutput> Outputs { get; init; } = [];
 
     /// <summary>
-    /// Non-fatal findings produced while emitting (e.g. a style referenced but not present
-    /// in the template, an inline image emitted as a placeholder because no image resolver
-    /// is wired, or positioned-tier elements skipped until the positioned workstream merges).
-    /// Empty when emission was clean.
+    /// Non-fatal findings produced while parsing, resolving design/assets, or emitting
+    /// (e.g. an unknown style reference or an approximated positioned wrap mode). Empty when
+    /// generation was clean.
     /// </summary>
     public IReadOnlyList<DocxGenerationIssue> Warnings { get; init; } = [];
 }

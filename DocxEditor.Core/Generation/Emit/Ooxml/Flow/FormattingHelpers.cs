@@ -31,8 +31,6 @@ internal static class FormattingHelpers
     public const int HalfPointsPerPoint = 2;
     public const long EmusPerPoint = 12700;
 
-    private static readonly Regex HexColorPattern = new(@"^#[0-9a-fA-F]{6}$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
-
     // Plain "RRGGBB" (no '#') only ever comes from a previous resolution step inside the
     // emitter (token/hex are resolved once, then carried as hex on ResolvedTextFormat).
     private static readonly Regex BareHexPattern = new(@"^[0-9a-fA-F]{6}$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
@@ -87,24 +85,14 @@ internal static class FormattingHelpers
             return null;
         }
 
-        if (context.Design?.Palette is { Count: > 0 } palette && palette.TryGetValue(color, out var hex))
-        {
-            return StripHash(hex);
-        }
-
-        if (HexColorPattern.IsMatch(color))
-        {
-            return StripHash(color);
-        }
-
         if (BareHexPattern.IsMatch(color))
         {
             // Already resolved to hex by an earlier step; accept silently.
             return color;
         }
-
-        context.Warn(path, $"color '{color}' could not be resolved (not a palette token and not #RRGGBB); the color was skipped.");
-        return null;
+        return context.DesignResolver.TryResolveColor(color, path) is { } resolved
+            ? StripHash(resolved)
+            : null;
     }
 
     /// <summary>
@@ -118,27 +106,7 @@ internal static class FormattingHelpers
             return null;
         }
 
-        if (string.Equals(font, "display", StringComparison.OrdinalIgnoreCase))
-        {
-            if (context.Design?.Fonts.Display is { } display)
-            {
-                return display;
-            }
-            context.Warn(path, "font slot 'display' is not defined in the design tokens; the font was skipped.");
-            return null;
-        }
-
-        if (string.Equals(font, "body", StringComparison.OrdinalIgnoreCase))
-        {
-            if (context.Design?.Fonts.Body is { } body)
-            {
-                return body;
-            }
-            context.Warn(path, "font slot 'body' is not defined in the design tokens; the font was skipped.");
-            return null;
-        }
-
-        return font;
+        return context.DesignResolver.TryResolveFontFamily(font, path);
     }
 
     /// <summary>
@@ -153,18 +121,16 @@ internal static class FormattingHelpers
             return null;
         }
 
-        if (context.Design?.Typography is { Count: > 0 } typography && typography.TryGetValue(token, out var resolved))
+        if (context.DesignResolver.TryResolveTypography(token, path) is { } resolved)
         {
             return new ResolvedTextFormat(
-                ResolveFontFamily(context, resolved.FontFamily, path),
-                resolved.SizePt,
-                ResolveColor(context, resolved.Color, path),
-                resolved.Bold,
-                resolved.Italic,
-                resolved.Underline);
+                resolved.FontFamily,
+                resolved.FontSizePt,
+                resolved.ColorHex is { } color ? StripHash(color) : null,
+                resolved.Bold is true,
+                resolved.Italic is true,
+                resolved.Underline is true);
         }
-
-        context.Warn(path, $"typography token '{token}' is not defined in the design tokens; its formatting was skipped.");
         return null;
     }
 
@@ -175,10 +141,11 @@ internal static class FormattingHelpers
     public static ResolvedTextFormat HeadingDefaults(OoxmlEmitContext context, int level)
     {
         var size = Math.Max(24 - (level - 1) * 2, 12);
+        var design = context.DesignResolver.ResolveAll();
         return new ResolvedTextFormat(
-            ResolveFontFamily(context, context.Design?.Fonts.Display, null, silent: true),
+            design.DisplayFontFamilyOrDefault,
             size,
-            ResolveColor(context, context.Design?.Page.DefaultTextColor, null, silent: true),
+            design.Page.DefaultTextColorHex is { } color ? StripHash(color) : null,
             Bold: true,
             Italic: false,
             Underline: false);
@@ -193,9 +160,9 @@ internal static class FormattingHelpers
     {
         var runProperties = new RunProperties();
 
-        if (run.Style is not null && context.TryEnsureStyle(run.Style, StyleValues.Character, path))
+        if (context.ResolveStyle(run.Style, StyleValues.Character, path) is { } runStyleId)
         {
-            runProperties.RunStyle = new RunStyle { Val = run.Style };
+            runProperties.RunStyle = new RunStyle { Val = runStyleId };
         }
 
         var font = ResolveFontFamily(context, run.FontFamily ?? defaults?.FontFamily, path);
@@ -309,141 +276,6 @@ internal static class FormattingHelpers
         }
     }
 
-    /// <summary>
-    /// The blank-document default "Normal" paragraph style, seeded from the design page
-    /// defaults (font slot/family + text color) when present.
-    /// </summary>
-    public static Style BuildNormalDefaultStyle(DesignTokens? design)
-    {
-        var runProperties = new StyleRunProperties();
-
-        var fontSlot = design?.Page.DefaultFontFamily;
-        var family = fontSlot switch
-        {
-            null => null,
-            "display" => design?.Fonts.Display,
-            "body" => design?.Fonts.Body,
-            _ => fontSlot
-        };
-        if (family is not null)
-        {
-            runProperties.RunFonts = new RunFonts { Ascii = family, HighAnsi = family, EastAsia = family };
-        }
-
-        if (design?.Page.DefaultTextColor is { } colorToken && ResolveColorSilently(design, colorToken) is { } hex)
-        {
-            runProperties.Color = new Color { Val = hex };
-        }
-
-        // CT_Style child order: name, aliases, basedOn, …, pPr, rPr, ….
-        return new Style(
-            new StyleName { Val = "Normal" },
-            runProperties)
-        {
-            Type = StyleValues.Paragraph,
-            StyleId = "Normal",
-            Default = true
-        };
-    }
-
-    /// <summary>
-    /// On-demand default style for a blank document when an explicitly referenced style ID
-    /// does not exist. Templates never reach this path (unknown template styles warn + skip).
-    /// </summary>
-    public static Style BuildDefaultStyle(string styleId, StyleValues kind)
-    {
-        if (styleId.StartsWith("Heading", StringComparison.Ordinal) &&
-            int.TryParse(styleId.AsSpan("Heading".Length), out var level) && level is >= 1 and <= 6)
-        {
-            var before = (240 - (level - 1) * 30).ToString(CultureInfo.InvariantCulture);
-            var size = Math.Max(32 - (level - 1) * 4, 18).ToString(CultureInfo.InvariantCulture);
-            return new Style(
-                new StyleName { Val = $"heading {level}" },
-                new BasedOn { Val = "Normal" },
-                new StyleParagraphProperties(
-                    new KeepNext(),
-                    new SpacingBetweenLines { Before = before, After = "60" },
-                    new OutlineLevel { Val = level - 1 }),
-                new StyleRunProperties(
-                    new Bold(),
-                    new BoldComplexScript(),
-                    new FontSize { Val = size },
-                    new FontSizeComplexScript { Val = size }))
-            {
-                Type = StyleValues.Paragraph,
-                StyleId = styleId
-            };
-        }
-
-        if (kind == StyleValues.Table)
-        {
-            return new Style(
-                new StyleName { Val = styleId },
-                new StyleTableProperties(
-                    new TableBorders(
-                        new TopBorder { Val = BorderValues.Single, Size = 4 },
-                        new LeftBorder { Val = BorderValues.Single, Size = 4 },
-                        new BottomBorder { Val = BorderValues.Single, Size = 4 },
-                        new RightBorder { Val = BorderValues.Single, Size = 4 },
-                        new InsideHorizontalBorder { Val = BorderValues.Single, Size = 4 },
-                        new InsideVerticalBorder { Val = BorderValues.Single, Size = 4 })))
-            {
-                Type = StyleValues.Table,
-                StyleId = styleId
-            };
-        }
-
-        if (kind == StyleValues.Character)
-        {
-            return new Style(
-                new StyleName { Val = styleId })
-            {
-                Type = StyleValues.Character,
-                StyleId = styleId
-            };
-        }
-
-        return new Style(
-            new StyleName { Val = styleId },
-            new BasedOn { Val = "Normal" })
-        {
-            Type = StyleValues.Paragraph,
-            StyleId = styleId
-        };
-    }
-
     private static string StripHash(string hex) => hex[0] == '#' ? hex[1..] : hex;
 
-    private static string? ResolveColorSilently(DesignTokens design, string color)
-    {
-        if (design.Palette.TryGetValue(color, out var hex))
-        {
-            return StripHash(hex);
-        }
-        return HexColorPattern.IsMatch(color) ? StripHash(color) : null;
-    }
-
-    private static string? ResolveFontFamily(OoxmlEmitContext context, string? font, string? path, bool silent)
-    {
-        return silent ? ResolveFontFamilySilently(context, font) : ResolveFontFamily(context, font, path ?? string.Empty);
-    }
-
-    private static string? ResolveFontFamilySilently(OoxmlEmitContext context, string? font)
-    {
-        if (font is null)
-        {
-            return null;
-        }
-        return font.ToLowerInvariant() switch
-        {
-            "display" => context.Design?.Fonts.Display,
-            "body" => context.Design?.Fonts.Body,
-            _ => font
-        };
-    }
-
-    private static string? ResolveColor(OoxmlEmitContext context, string? color, string? path, bool silent)
-    {
-        return silent ? ResolveColorSilently(context.Design ?? new DesignTokens(), color ?? string.Empty) : ResolveColor(context, color, path ?? string.Empty);
-    }
 }

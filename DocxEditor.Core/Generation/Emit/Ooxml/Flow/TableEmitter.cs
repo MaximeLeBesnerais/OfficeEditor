@@ -33,9 +33,9 @@ internal static class TableEmitter
             new InsideHorizontalBorder { Val = BorderValues.Single, Size = 4 },
             new InsideVerticalBorder { Val = BorderValues.Single, Size = 4 });
 
-        if (table.Style is not null && context.TryEnsureStyle(table.Style, StyleValues.Table, path))
+        if (context.ResolveStyle(table.Style, StyleValues.Table, path) is { } tableStyleId)
         {
-            tableProperties.TableStyle = new TableStyle { Val = table.Style };
+            tableProperties.TableStyle = new TableStyle { Val = tableStyleId };
         }
 
         tableProperties.TableWidth = widths is not null

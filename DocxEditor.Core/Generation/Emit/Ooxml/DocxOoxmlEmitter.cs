@@ -2,8 +2,12 @@ using System.Xml;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
+using DocxEditor.Core.Generation.Assets;
 using DocxEditor.Core.Generation.Contracts;
+using DocxEditor.Core.Generation.Design;
+using DocxEditor.Core.Generation.Emit.Ooxml.Design;
 using DocxEditor.Core.Generation.Emit.Ooxml.Flow;
+using DocxEditor.Core.Generation.Emit.Ooxml.Positioned;
 using DocxEditor.Core.Generation.Model;
 using DocxEditor.Core.Generation.Schema;
 using OfficeEditor.Core.Exceptions;
@@ -12,7 +16,8 @@ namespace DocxEditor.Core.Generation.Emit.Ooxml;
 
 /// <summary>
 /// Emit options for the flow-first OOXML emitter. <see cref="OutputPath"/> is the final
-/// destination of the generated package; when omitted the emitter writes to a temporary
+/// destination of the generated package; when omitted and <see cref="WriteOutput"/> is true,
+/// the emitter writes to a temporary
 /// file (reported through <see cref="DocxGenerationResult.Outputs"/>) and still exposes the
 /// package via <see cref="DocxOoxmlEmitter.SaveToBytes"/> / <see cref="DocxOoxmlEmitter.Save"/>.
 /// </summary>
@@ -20,45 +25,15 @@ public sealed record DocxEmitOptions
 {
     /// <summary>Destination for the generated .docx. Null = a temporary file.</summary>
     public string? OutputPath { get; init; }
-}
 
-/// <summary>
-/// Image-content seam for the OOXML emitter. The image workstream implements this to load
-/// and decode image sources; until a resolver is wired, inline images emit an explicit
-/// placeholder paragraph plus a warning instead of being silently dropped.
-/// </summary>
-public interface IImageContentResolver
-{
-    /// <summary>
-    /// Resolves an image source (path, URL or base64 payload) to raw bytes, a file extension
-    /// used to pick the package image part type (e.g. "png", "jpg") and the natural size in
-    /// points used for fit math when the model omits explicit dimensions.
-    /// </summary>
-    bool TryResolveImage(
-        string source,
-        out byte[] content,
-        out string extension,
-        out double naturalWidthPt,
-        out double naturalHeightPt);
-}
+    /// <summary>Whether <see cref="DocxOoxmlEmitter.Emit"/> writes a file artifact.</summary>
+    public bool WriteOutput { get; init; } = true;
 
-/// <summary>
-/// Positioned-tier seam: emits one absolutely anchored primitive (text box, floating picture,
-/// rect, line, callout) into the section's <see cref="Body"/>. The positioned workstream owns
-/// the anchored-emission implementation; until then the flow branch uses a default that warns
-/// and skips so generated documents never silently lose positioned content.
-/// </summary>
-public interface IPositionedTierEmitter
-{
-    /// <summary>
-    /// Emits a single positioned element as anchored drawing content inside
-    /// <paramref name="body"/>. Implementations add warnings for anything they cannot emit.
-    /// </summary>
-    void EmitPositionedElement(
-        PositionedElement element,
-        Body body,
-        string path,
-        IList<DocxGenerationIssue> warnings);
+    /// <summary>Local image source policy. HTTP(S) sources remain unsupported.</summary>
+    public ImageSourceOptions ImageSourceOptions { get; init; } = ImageSourceOptions.Default;
+
+    /// <summary>Image payload and dimension limits.</summary>
+    public ImageAssetOptions ImageAssetOptions { get; init; } = ImageAssetOptions.Default;
 }
 
 /// <summary>
@@ -76,8 +51,7 @@ public interface IPositionedTierEmitter
 public sealed class DocxOoxmlEmitter : IDocxDocumentEmitter, IDisposable
 {
     private readonly DocxEmitOptions _options;
-    private readonly IImageContentResolver? _imageResolver;
-    private readonly IPositionedTierEmitter? _positionedTierEmitter;
+    private readonly ImageAssetLoader _imageAssetLoader;
     private readonly List<DocxGenerationIssue> _warnings = [];
 
     private MemoryStream? _packageStream;
@@ -87,22 +61,13 @@ public sealed class DocxOoxmlEmitter : IDocxDocumentEmitter, IDisposable
     private bool _disposed;
 
     /// <param name="options">Destination options. Null = defaults (temporary output).</param>
-    /// <param name="imageResolver">
-    /// Optional image-content seam. Null = inline images become explicit placeholders with a
-    /// warning (see <see cref="IImageContentResolver"/>).
-    /// </param>
-    /// <param name="positionedTierEmitter">
-    /// Optional positioned-tier seam. Null = positioned elements warn and are skipped until
-    /// the positioned workstream provides an implementation.
-    /// </param>
+    /// <param name="imageAssetLoader">Optional asset loader; null uses the built-in safe loader.</param>
     public DocxOoxmlEmitter(
         DocxEmitOptions? options = null,
-        IImageContentResolver? imageResolver = null,
-        IPositionedTierEmitter? positionedTierEmitter = null)
+        ImageAssetLoader? imageAssetLoader = null)
     {
         _options = options ?? new DocxEmitOptions();
-        _imageResolver = imageResolver;
-        _positionedTierEmitter = positionedTierEmitter;
+        _imageAssetLoader = imageAssetLoader ?? new ImageAssetLoader();
     }
 
     /// <summary>
@@ -124,36 +89,55 @@ public sealed class DocxOoxmlEmitter : IDocxDocumentEmitter, IDisposable
         try
         {
             CreatePackage(document.TemplatePath);
+            var designResolver = new DocxDesignResolver(document.Design);
+            _ = designResolver.ResolveAll();
+            var styleManager = new DocxStyleManager(_document!, designResolver);
+            var images = new DocxImagePipeline(
+                _imageAssetLoader,
+                _options.ImageSourceOptions,
+                _options.ImageAssetOptions,
+                _warnings);
+            var positionedEmitter = new PositionedElementEmitter(new PositionedElementEmitOptions
+            {
+                Design = document.Design,
+                ImageResolver = images
+            });
             var context = new OoxmlEmitContext
             {
                 Document = _document!,
                 MainPart = _mainPart!,
-                Design = document.Design,
+                DesignResolver = designResolver,
+                StyleManager = styleManager,
+                Images = images,
+                PositionedEmitter = positionedEmitter,
                 FromTemplate = document.TemplatePath is not null,
-                ImageResolver = _imageResolver,
-                PositionedTierEmitter = _positionedTierEmitter,
                 Warnings = _warnings
             };
 
-            EnsureStylesPart(context);
             EmitSections(context, document);
             EmitMetadata(document.Metadata);
+            AddDesignWarnings(designResolver.Warnings);
 
-            outputPath = _options.OutputPath ?? DefaultOutputPath();
-            WriteOutput(outputPath);
+            IReadOnlyList<EmittedOutput> outputs = [];
+            if (_options.WriteOutput)
+            {
+                outputPath = _options.OutputPath ?? DefaultOutputPath();
+                WriteOutput(outputPath);
+                outputPath = _outputPath!;
+                outputs = [new EmittedOutput(DocxOutputKind.Document, outputPath)];
+            }
 
             return new DocxGenerationResult
             {
                 Document = document,
-                Outputs = [new EmittedOutput(DocxOutputKind.Document, outputPath)],
+                Outputs = outputs,
                 Warnings = [.. _warnings]
             };
         }
         catch
         {
-            // A failed emit must never leak the open package handle or a partial output file;
-            // the original failure is preserved and rethrown unchanged after best-effort teardown.
-            TryDeleteFile(outputPath);
+            // Output is staged beside the destination and atomically renamed, so a failed emit
+            // never touches an existing destination or leaves a partial final file.
             Dispose();
             throw;
         }
@@ -186,7 +170,7 @@ public sealed class DocxOoxmlEmitter : IDocxDocumentEmitter, IDisposable
     }
 
     /// <summary>The full path the last <see cref="Emit"/> wrote to (null before emit).</summary>
-    public string? OutputPath => _options.OutputPath ?? (_emitted ? _outputPath : null);
+    public string? OutputPath => _outputPath;
 
     private string? _outputPath;
 
@@ -248,31 +232,6 @@ public sealed class DocxOoxmlEmitter : IDocxDocumentEmitter, IDisposable
                 "The template package has no WordprocessingML main document part, so it cannot be used as a template.");
     }
 
-    /// <summary>
-    /// Ensures a styles part exists. For blank documents a minimal default is created so
-    /// direct formatting and style references have a base; template styles are read into the
-    /// cache untouched and never written back.
-    /// </summary>
-    private static void EnsureStylesPart(OoxmlEmitContext context)
-    {
-        if (context.FromTemplate)
-        {
-            context.LoadTemplateStyles();
-            return;
-        }
-
-        var mainPart = context.MainPart;
-        var stylesPart = mainPart.StyleDefinitionsPart ?? mainPart.AddNewPart<StyleDefinitionsPart>();
-        if (stylesPart.Styles is not null)
-        {
-            return;
-        }
-
-        var normal = FormattingHelpers.BuildNormalDefaultStyle(context.Design);
-        stylesPart.Styles = new Styles(normal);
-        context.RegisterStyle(normal);
-    }
-
     private void EmitSections(OoxmlEmitContext context, DocxGenerationDocument document)
     {
         if (document.Sections.Count == 0)
@@ -310,15 +269,47 @@ public sealed class DocxOoxmlEmitter : IDocxDocumentEmitter, IDisposable
 
     private void WriteOutput(string outputPath)
     {
-        var directory = Path.GetDirectoryName(Path.GetFullPath(outputPath));
+        var fullOutputPath = Path.GetFullPath(outputPath);
+        var directory = Path.GetDirectoryName(fullOutputPath);
         if (!string.IsNullOrEmpty(directory))
         {
             Directory.CreateDirectory(directory);
         }
 
-        using var file = File.Create(outputPath);
-        Save(file);
-        _outputPath = outputPath;
+        var tempPath = Path.Combine(
+            directory ?? string.Empty,
+            $".{Path.GetFileName(fullOutputPath)}.{Guid.NewGuid():N}.tmp");
+        try
+        {
+            using (var file = File.Create(tempPath))
+            {
+                Save(file);
+            }
+            File.Move(tempPath, fullOutputPath, overwrite: true);
+            _outputPath = fullOutputPath;
+        }
+        finally
+        {
+            TryDeleteFile(tempPath);
+        }
+    }
+
+    private void AddDesignWarnings(IReadOnlyList<DesignResolutionWarning> warnings)
+    {
+        foreach (var warning in warnings)
+        {
+            var path = warning.Context switch
+            {
+                null or "" => "$.design",
+                var context when context.StartsWith('$') => context,
+                var context => $"$.{context}"
+            };
+            _warnings.Add(new DocxGenerationIssue(
+                path,
+                $"[{warning.Code}] {warning.Message}",
+                null,
+                DocxGenerationIssueSeverity.Warning));
+        }
     }
 
     private static string DefaultOutputPath() =>
