@@ -1102,7 +1102,15 @@ public class WorksheetBuilder : IWorksheetBuilder
             parts.Add(CopyColumnRange(existing, min, (uint)(columnNumber - 1)));
         }
 
-        parts.Add(CreateWidthCol(columnNumber, width));
+        // The override is a copy of the original range too, so it keeps every unrelated
+        // attribute (style, hidden, outline level, collapsed, phonetic…) of the definition
+        // being split — only the width aspects are replaced and bestFit is cleared, since an
+        // explicit width can never be auto-fitted.
+        var target = CopyColumnRange(existing, (uint)columnNumber, (uint)columnNumber);
+        target.Width = width;
+        target.CustomWidth = true;
+        target.BestFit = false;
+        parts.Add(target);
 
         if (columnNumber < max)
         {
@@ -1129,6 +1137,7 @@ public class WorksheetBuilder : IWorksheetBuilder
             BestFit = source.BestFit,
             Hidden = source.Hidden,
             Style = source.Style,
+            Phonetic = source.Phonetic,
             OutlineLevel = source.OutlineLevel,
             Collapsed = source.Collapsed
         };
