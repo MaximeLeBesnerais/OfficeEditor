@@ -762,4 +762,75 @@ public class InstructionParserBranchTests
         Assert.Contains("operations[0].text", ex.Message);
         Assert.IsType<JsonException>(ex.InnerException);
     }
+
+    // ---------------------------------------------------------------- null entries & unknown properties
+
+    [Theory]
+    [InlineData(@"{ ""operations"": [ null ] }", "operations[0]")]
+    [InlineData(@"{ ""operations"": [ null, { ""type"": ""create"" } ] }", "operations[0]")]
+    [InlineData(@"{ ""operations"": [ { ""type"": ""create"" }, null ] }", "operations[1]")]
+    public void JsonParser_WithNullOperationEntry_ShouldThrowArgumentException(string json, string pathHint)
+    {
+        // A null entry in 'operations' must fail descriptively instead of leaking an NRE.
+        var ex = Assert.Throws<ArgumentException>(() => new DocxJsonInstructionParser().Parse(json));
+        Assert.Contains(pathHint, ex.Message);
+    }
+
+    [Theory]
+    [InlineData(@"{ ""operations"": [ { ""type"": ""create"", ""weirdField"": 42 } ] }", "weirdField")]
+    [InlineData(@"{ ""operations"": [ { ""type"": ""addParagraph"", ""text"": ""x"", ""typo"": ""y"" } ] }", "typo")]
+    public void JsonParser_WithUnknownOperationProperty_ShouldThrowDomainExceptionWrappingJsonException(string json, string propertyName)
+    {
+        // Unknown JSON properties must be rejected loudly (System.Text.Json
+        // UnmappedMemberHandling.Disallow), keeping the actionable path in the message and the
+        // original JsonException as the inner exception.
+        var ex = Assert.Throws<OfficeEditorException>(() => new DocxJsonInstructionParser().Parse(json));
+        Assert.Contains("Invalid JSON", ex.Message);
+        Assert.Contains(propertyName, ex.Message);
+        Assert.Contains("operations[0]", ex.Message);
+        Assert.IsType<JsonException>(ex.InnerException);
+    }
+
+    [Fact]
+    public void JsonParser_WithUnknownRootProperty_ShouldThrowDomainExceptionWrappingJsonException()
+    {
+        // Only the documented root metadata (version/description) is tolerated; any other
+        // unknown root property is rejected loudly.
+        var json = @"{ ""operations"": [], ""extra"": true }";
+
+        var ex = Assert.Throws<OfficeEditorException>(() => new DocxJsonInstructionParser().Parse(json));
+        Assert.Contains("Invalid JSON", ex.Message);
+        Assert.Contains("extra", ex.Message);
+        Assert.IsType<JsonException>(ex.InnerException);
+    }
+
+    [Fact]
+    public void JsonParser_WithRootMetadata_ShouldParse()
+    {
+        // The documented instruction-file metadata (version/description) is accepted.
+        var json = """
+        {
+          "version": "1.0",
+          "description": "Sample instruction set.",
+          "operations": [ { "type": "create" } ]
+        }
+        """;
+
+        var instructions = new DocxJsonInstructionParser().Parse(json);
+
+        Assert.Single(instructions.Operations);
+        Assert.IsType<CreateDocumentInstruction>(instructions.Operations[0]);
+    }
+
+    [Theory]
+    [InlineData("operations:\n  - ")]
+    [InlineData("operations:\n  -\n  - type: create\n")]
+    [InlineData("operations:\n  - ~\n  - type: create\n")]
+    public void YamlParser_WithNullOperationEntry_ShouldThrowArgumentException(string yaml)
+    {
+        // YamlDotNet deserializes a bare '-' / '~' list item into a null DTO; it must fail
+        // descriptively instead of leaking a raw NRE.
+        var ex = Assert.Throws<ArgumentException>(() => new DocxYamlInstructionParser().Parse(yaml));
+        Assert.Contains("operations[0]", ex.Message);
+    }
 }

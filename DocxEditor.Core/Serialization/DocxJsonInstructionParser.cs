@@ -14,7 +14,13 @@ public class DocxJsonInstructionParser
         _options = new JsonSerializerOptions
         {
             PropertyNameCaseInsensitive = true,
-            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+            // Consistent with the validator's loud field checking: a JSON property that maps to
+            // no DTO member (a typo or an unsupported field) must fail loudly instead of being
+            // silently dropped. The resulting JsonException is normalized below with the
+            // actionable Path kept in the message. Root metadata (version/description) is
+            // accepted via the wrapper's own members.
+            UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow
         };
     }
 
@@ -32,11 +38,12 @@ public class DocxJsonInstructionParser
         }
         catch (JsonException ex)
         {
-            // Malformed JSON, empty input, non-object roots, and wrong property value kinds
-            // all surface here from System.Text.Json. Normalize them to the domain exception,
-            // preserving the actionable Path/Position in the message and the original exception
-            // as the inner exception.
-            throw new OfficeEditorException($"Invalid JSON instruction file: {ex.Message}", ex);
+            // Malformed JSON, empty input, non-object roots, wrong property value kinds, and
+            // unknown properties all surface here from System.Text.Json. Normalize them to the
+            // domain exception, preserving the actionable Path (when present) in the message and
+            // the original exception as the inner exception.
+            var path = string.IsNullOrEmpty(ex.Path) ? string.Empty : $" (Path: {ex.Path})";
+            throw new OfficeEditorException($"Invalid JSON instruction file: {ex.Message}{path}", ex);
         }
 
         if (wrapper?.Operations == null)
@@ -45,8 +52,13 @@ public class DocxJsonInstructionParser
         }
 
         var instructions = new List<Instruction>();
-        foreach (var op in wrapper.Operations)
+        for (int i = 0; i < wrapper.Operations.Count; i++)
         {
+            var op = wrapper.Operations[i];
+            if (op is null)
+            {
+                throw new ArgumentException($"operations[{i}]: each operation must be an object.");
+            }
             instructions.Add(ParseInstruction(op));
         }
 
@@ -287,6 +299,10 @@ public class DocxJsonInstructionParser
 
     private class JsonInstructionWrapper
     {
+        // Root metadata is part of the documented instruction file format (see
+        // examples/Docx/instructions/sample.json) and is accepted but unused.
+        public string? Version { get; set; }
+        public string? Description { get; set; }
         public List<JsonInstructionDto>? Operations { get; set; }
     }
 
