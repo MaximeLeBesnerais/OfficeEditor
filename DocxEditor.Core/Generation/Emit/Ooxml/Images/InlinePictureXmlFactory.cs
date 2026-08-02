@@ -13,8 +13,8 @@ public static class InlinePictureXmlFactory
 {
     /// <summary>
     /// Builds an inline picture drawing for a registered part and its resolved geometry.
-    /// <paramref name="docPrId"/> should come from
-    /// <see cref="DocxImagePartManager.NextDocPrId"/> so ids stay unique per document.
+    /// <paramref name="docPrId"/> should come from the document-wide drawing-id allocator so
+    /// ids stay unique across every drawing-bearing part.
     /// </summary>
     public static Drawing BuildInline(
         RegisteredImagePart part,

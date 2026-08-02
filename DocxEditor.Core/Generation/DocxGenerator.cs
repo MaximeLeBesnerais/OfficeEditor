@@ -76,7 +76,9 @@ public sealed class DocxGenerator
 
     /// <summary>
     /// Validates declarative JSON, writes the complete package to <paramref name="output"/>,
-    /// and leaves the caller-owned stream open.
+    /// and leaves the caller-owned stream open at the end of the written bytes. The stream
+    /// is flushed before returning, so the package is immediately readable (e.g. after the
+    /// caller seeks back); its position has advanced by exactly the package length.
     /// </summary>
     public DocxGenerationResult Generate(string json, Stream output, DocxGeneratorOptions? options = null)
     {
@@ -86,7 +88,9 @@ public sealed class DocxGenerator
 
     /// <summary>
     /// Validates a parsed model, writes the complete package to <paramref name="output"/>,
-    /// and leaves the caller-owned stream open.
+    /// and leaves the caller-owned stream open at the end of the written bytes. The stream
+    /// is flushed before returning, so the package is immediately readable (e.g. after the
+    /// caller seeks back); its position has advanced by exactly the package length.
     /// </summary>
     public DocxGenerationResult Generate(
         DocxGenerationDocument document,
@@ -151,6 +155,7 @@ public sealed class DocxGenerator
 
         var generated = GenerateBytes(document, options, parserWarnings);
         output.Write(generated.Content);
+        output.Flush();
         return generated.Result;
     }
 
