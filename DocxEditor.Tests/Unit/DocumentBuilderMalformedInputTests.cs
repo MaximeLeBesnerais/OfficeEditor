@@ -1,64 +1,30 @@
 using System.IO;
 using System.IO.Packaging;
+using System.Xml;
 using DocxEditor.Core.Builders;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Spreadsheet;
 using DocumentFormat.OpenXml.Wordprocessing;
+using OfficeEditor.Core.Exceptions;
 
 namespace DocxEditor.Tests.Unit;
 
 /// <summary>
 /// Deterministic malformed-input suite for the public <see cref="DocumentBuilder"/> open boundary.
-/// Every case asserts a controlled managed failure (a small, curated set of package/format
-/// exceptions with a non-empty message) rather than a process-level abort, without pinning
-/// OS-specific exception text.
+/// The open boundary is the single place malformed DOCX input is rejected: corrupt,
+/// wrong-format, sparse, or structurally-invalid packages fail during <c>Open</c> with a
+/// <see cref="OfficeEditorException"/> (the original SDK/package failure preserved as the inner
+/// exception) — never an uncontrolled NullReferenceException and never deferred to later builder
+/// use. Null and empty arguments are rejected up front as ArgumentNullException/ArgumentException,
+/// a failed open never claims the caller's stream, and ordinary path/permission errors
+/// (<see cref="FileNotFoundException"/>, <see cref="DirectoryNotFoundException"/>, ...) propagate
+/// unchanged instead of being normalized.
 /// </summary>
 public class DocumentBuilderMalformedInputTests : IDisposable
 {
     private const string WordMainContentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml";
     private const string OfficeDocumentRelationship = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument";
-
-    // A valid OPC/ZIP package that is not a valid wordprocessing package fails zip/part reading;
-    // the exact type depends on OpenXml SDK / System.IO.Packaging internals, so accept the family.
-    private static readonly Type[] ZipCorruptionFailures =
-    {
-        typeof(OpenXmlPackageException),
-        typeof(FileFormatException),
-        typeof(InvalidDataException),
-        typeof(IOException),
-        typeof(NullReferenceException),
-    };
-
-    // A structurally valid OPC package without an officeDocument relationship currently surfaces
-    // an uncontrolled NullReferenceException from the DocumentBuilder constructor (no null guard);
-    // other SDK versions may reject at open instead.
-    private static readonly Type[] MissingMainPartFailures =
-    {
-        typeof(NullReferenceException),
-        typeof(OpenXmlPackageException),
-        typeof(InvalidOperationException),
-        typeof(FileFormatException),
-    };
-
-    // A wordprocessing package whose document.xml lacks a <w:body> currently surfaces an
-    // uncontrolled NullReferenceException from the constructor (Body! dereference with no guard).
-    private static readonly Type[] MissingBodyFailures =
-    {
-        typeof(NullReferenceException),
-        typeof(InvalidOperationException),
-    };
-
-    // An officeDocument relationship pointing at a part that does not exist; exact failure point
-    // (open vs. constructor) and type vary by SDK version, so accept the failure family.
-    private static readonly Type[] BrokenRelationshipFailures =
-    {
-        typeof(OpenXmlPackageException),
-        typeof(InvalidOperationException),
-        typeof(FileNotFoundException),
-        typeof(FileFormatException),
-        typeof(NullReferenceException),
-    };
 
     private readonly List<string> _tempFiles = new();
 
@@ -158,78 +124,128 @@ public class DocumentBuilderMalformedInputTests : IDisposable
         return stream.ToArray();
     }
 
-    private static void AssertThrowsManagedFailure(Action action, params Type[] allowedTypes)
+    // OPC package whose main document part contains malformed (non-well-formed) XML.
+    private static byte[] BuildWordPackageWithMalformedXml()
     {
-        var ex = Assert.ThrowsAny<Exception>(action);
-        Assert.False(string.IsNullOrWhiteSpace(ex.Message), "Malformed input must fail with a diagnostic message.");
-        Assert.Contains(allowedTypes, t => t.IsInstanceOfType(ex));
+        using var stream = new MemoryStream();
+        using (var package = Package.Open(stream, FileMode.Create))
+        {
+            var documentPart = package.CreatePart(new Uri("/word/document.xml", UriKind.Relative), WordMainContentType);
+            using (var writer = new StreamWriter(documentPart.GetStream(), new System.Text.UTF8Encoding(false)))
+            {
+                writer.Write(@"<?xml version=""1.0"" encoding=""UTF-8"" standalone=""yes""?>" +
+                             @"<w:document xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main""><w:body></w:document>");
+            }
+
+            package.CreateRelationship(documentPart.Uri, TargetMode.Internal, OfficeDocumentRelationship);
+        }
+
+        return stream.ToArray();
+    }
+
+    /// <summary>
+    /// The public open boundary must reject every malformed input with a domain exception carrying
+    /// a diagnostic message, regardless of which overload or SDK failure mode is hit.
+    /// </summary>
+    private static void AssertOpenFailure(Action action, string scenario)
+    {
+        var ex = Assert.Throws<OfficeEditorException>(() => action());
+        Assert.False(string.IsNullOrWhiteSpace(ex.Message), $"[{scenario}] malformed input must fail with a diagnostic message.");
     }
 
     // ---------------------------------------------------------------- byte[] overload
 
     [Fact]
-    public void Open_EmptyBytes_ThrowsManagedFailure()
+    public void Open_EmptyBytes_ThrowsOfficeEditorException()
     {
-        AssertThrowsManagedFailure(() => DocumentBuilder.Open(Array.Empty<byte>()), ZipCorruptionFailures);
+        AssertOpenFailure(() => DocumentBuilder.Open(Array.Empty<byte>()), "empty byte array");
     }
 
     [Fact]
-    public void Open_RandomBytes_ThrowsManagedFailure()
+    public void Open_RandomBytes_ThrowsOfficeEditorException()
     {
-        AssertThrowsManagedFailure(() => DocumentBuilder.Open(CreateRandomBytes(1024)), ZipCorruptionFailures);
+        AssertOpenFailure(() => DocumentBuilder.Open(CreateRandomBytes(1024)), "random non-archive bytes");
+    }
+
+    [Fact]
+    public void Open_GarbageBytes_ThrowsDomainExceptionWrappingFileFormatException()
+    {
+        // Non-archive input surfaces as System.IO.FileFormatException from the package reader and
+        // must be normalized to the domain exception with the original preserved as the inner.
+        var ex = Assert.Throws<OfficeEditorException>(() => DocumentBuilder.Open(CreateRandomBytes(1024)));
+        Assert.IsType<System.IO.FileFormatException>(ex.InnerException);
     }
 
     [Theory]
     [MemberData(nameof(TruncatedDocxCases))]
-    public void Open_TruncatedDocxBytes_ThrowsManagedFailure(byte[] truncated)
+    public void Open_TruncatedDocxBytes_ThrowsOfficeEditorException(byte[] truncated)
     {
-        AssertThrowsManagedFailure(() => DocumentBuilder.Open(truncated), ZipCorruptionFailures);
+        AssertOpenFailure(() => DocumentBuilder.Open(truncated), "truncated DOCX");
     }
 
     [Theory]
     [MemberData(nameof(WrongFormatOfficeCases))]
-    public void Open_WrongFormatOfficePackage_ThrowsInvalidDataException(byte[] wrongFormat)
+    public void Open_WrongFormatOfficePackage_ThrowsDomainExceptionWrappingInvalidData(byte[] wrongFormat)
     {
         // The OpenXml SDK validates the main part content type against the requested document
-        // type, so a valid XLSX/PPTX package must be rejected by the DOCX opener.
-        Assert.Throws<InvalidDataException>(() => DocumentBuilder.Open(wrongFormat));
+        // type, so a valid XLSX/PPTX package must be rejected by the DOCX opener. The SDK's
+        // InvalidDataException is normalized to the domain exception with the original preserved.
+        var ex = Assert.Throws<OfficeEditorException>(() => DocumentBuilder.Open(wrongFormat));
+        Assert.IsType<InvalidDataException>(ex.InnerException);
     }
 
     [Fact]
-    public void Open_WordPackageMissingBody_FailsWhenBuilderIsUsed()
+    public void Open_WordPackageMissingBody_ThrowsDuringOpen()
     {
-        // Gap: the constructor dereferences MainDocumentPart.Document.Body without a null guard,
-        // so a word package whose document.xml has no <w:body> surfaces an uncontrolled
-        // NullReferenceException instead of a domain-level "invalid package" exception.
+        // Gap fixed: the constructor no longer dereferences Document.Body with a null-forgiving
+        // operator. A word package whose document.xml has no <w:body> is rejected at Open time as
+        // a domain exception — before any builder operation can run.
         var bytes = BuildWordPackageMissingBody();
-        using var builder = DocumentBuilder.Open(bytes);
 
-        AssertThrowsManagedFailure(() => builder.AddParagraph("must fail"), MissingBodyFailures);
+        var ex = Assert.Throws<OfficeEditorException>(() => DocumentBuilder.Open(bytes));
+        Assert.Contains("body", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public void Open_WordPackageMissingMainPart_ThrowsManagedFailure()
+    public void Open_WordPackageMissingMainPart_ThrowsDuringOpen()
     {
-        // Gap: without an officeDocument relationship the package opens but MainDocumentPart is
-        // null, and the constructor dereferences it without a guard (uncontrolled NRE).
+        // Gap fixed: without an officeDocument relationship the package opens but MainDocumentPart
+        // is null; the constructor now rejects it with a domain exception instead of an NRE.
         var bytes = BuildWordPackageMissingMainPart();
-        AssertThrowsManagedFailure(() => DocumentBuilder.Open(bytes), MissingMainPartFailures);
+        AssertOpenFailure(() => DocumentBuilder.Open(bytes), "OPC package without an officeDocument relationship");
     }
 
     [Fact]
-    public void Open_WordPackageWithBrokenMainRelationship_ThrowsManagedFailure()
+    public void Open_WordPackageWithBrokenMainRelationship_ThrowsDuringOpen()
     {
         var bytes = BuildWordPackageWithBrokenMainRelationship();
-        AssertThrowsManagedFailure(() => DocumentBuilder.Open(bytes), BrokenRelationshipFailures);
+        AssertOpenFailure(() => DocumentBuilder.Open(bytes), "OPC package whose main relationship targets a missing part");
+    }
+
+    [Fact]
+    public void Open_WordPackageWithMalformedXml_ThrowsDomainExceptionWrappingXmlException()
+    {
+        // A well-formed OPC package whose main part is not well-formed XML surfaces as
+        // XmlException when the root element is loaded; it must be normalized to the domain
+        // exception with the original preserved as the inner.
+        var bytes = BuildWordPackageWithMalformedXml();
+        var ex = Assert.Throws<OfficeEditorException>(() => DocumentBuilder.Open(bytes));
+        Assert.IsType<XmlException>(ex.InnerException);
+    }
+
+    [Fact]
+    public void Open_NullBytes_ThrowsArgumentNullException()
+    {
+        Assert.Throws<ArgumentNullException>(() => DocumentBuilder.Open((byte[])null!));
     }
 
     // ---------------------------------------------------------------- Stream overload
 
     [Fact]
-    public void Open_EmptyStream_ThrowsManagedFailure()
+    public void Open_EmptyStream_ThrowsOfficeEditorException()
     {
         using var stream = new MemoryStream();
-        AssertThrowsManagedFailure(() => DocumentBuilder.Open(stream), ZipCorruptionFailures);
+        AssertOpenFailure(() => DocumentBuilder.Open(stream), "empty stream");
     }
 
     [Fact]
@@ -238,7 +254,7 @@ public class DocumentBuilderMalformedInputTests : IDisposable
         var bytes = CreateRandomBytes(512);
         using var stream = new MemoryStream(bytes);
 
-        AssertThrowsManagedFailure(() => DocumentBuilder.Open(stream), ZipCorruptionFailures);
+        AssertOpenFailure(() => DocumentBuilder.Open(stream), "garbage stream");
 
         // DocumentBuilder.Open(Stream) copies the source to an internal buffer before opening;
         // the caller retains ownership, so the stream must stay open, readable, and reusable
@@ -254,10 +270,33 @@ public class DocumentBuilderMalformedInputTests : IDisposable
     }
 
     [Fact]
+    public void Open_ValidStream_Success_LeavesCallerStreamOwned()
+    {
+        using var stream = new MemoryStream(CreateValidDocxBytes());
+
+        using (var builder = DocumentBuilder.Open(stream))
+        {
+            builder.AddParagraph("caller owns the stream");
+            Assert.True(stream.CanRead, "Caller stream must stay open while the builder is alive.");
+            Assert.True(stream.CanSeek, "Caller stream must stay seekable while the builder is alive.");
+        }
+
+        // Disposing the builder must not dispose the caller's stream: it can still be read,
+        // seeked, and handed to a fresh open.
+        Assert.True(stream.CanRead, "Disposing the builder must not dispose the caller stream.");
+        Assert.True(stream.CanSeek, "Disposing the builder must not seal the caller stream.");
+
+        stream.Position = 0;
+        using var reopened = WordprocessingDocument.Open(stream, false);
+        var body = reopened.MainDocumentPart!.Document!.Body!;
+        Assert.Contains(body.Elements<Paragraph>(), p => p.InnerText == "Hello from valid docx");
+    }
+
+    [Fact]
     public void Open_InvalidStream_ThenValidStream_StillOpens()
     {
         using var badStream = new MemoryStream(CreateRandomBytes(256));
-        AssertThrowsManagedFailure(() => DocumentBuilder.Open(badStream), ZipCorruptionFailures);
+        AssertOpenFailure(() => DocumentBuilder.Open(badStream), "garbage stream");
 
         using var goodStream = new MemoryStream(CreateValidDocxBytes());
         using var builder = DocumentBuilder.Open(goodStream);
@@ -270,16 +309,55 @@ public class DocumentBuilderMalformedInputTests : IDisposable
         Assert.Contains(body.Elements<Paragraph>(), p => p.InnerText == "recovered");
     }
 
+    [Fact]
+    public void Open_NullStream_ThrowsArgumentNullException()
+    {
+        Assert.Throws<ArgumentNullException>(() => DocumentBuilder.Open((Stream)null!));
+    }
+
     // ---------------------------------------------------------------- path overload
 
     [Fact]
-    public void Open_InvalidFile_ThrowsManagedFailure()
+    public void Open_InvalidFile_ThrowsOfficeEditorException()
     {
         var path = Path.Combine(Path.GetTempPath(), $"malformed_{Guid.NewGuid():N}.docx");
         _tempFiles.Add(path);
         File.WriteAllBytes(path, CreateRandomBytes(1024));
 
-        AssertThrowsManagedFailure(() => DocumentBuilder.Open(path), ZipCorruptionFailures);
+        AssertOpenFailure(() => DocumentBuilder.Open(path), "garbage file on disk");
+    }
+
+    [Fact]
+    public void Open_NullPath_ThrowsArgumentNullException()
+    {
+        Assert.Throws<ArgumentNullException>(() => DocumentBuilder.Open((string)null!));
+    }
+
+    [Fact]
+    public void Open_EmptyPath_ThrowsArgumentException()
+    {
+        Assert.Throws<ArgumentException>(() => DocumentBuilder.Open(string.Empty));
+    }
+
+    [Fact]
+    public void Open_WhitespacePath_ThrowsArgumentException()
+    {
+        Assert.Throws<ArgumentException>(() => DocumentBuilder.Open("   "));
+    }
+
+    [Fact]
+    public void Open_NonexistentPath_ThrowsFileNotFoundException()
+    {
+        // Ordinary path errors are not malformed-package failures and must propagate unchanged.
+        var path = Path.Combine(Path.GetTempPath(), $"missing_{Guid.NewGuid():N}.docx");
+        Assert.Throws<FileNotFoundException>(() => DocumentBuilder.Open(path));
+    }
+
+    [Fact]
+    public void Open_MissingDirectoryPath_ThrowsDirectoryNotFoundException()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"no_such_dir_{Guid.NewGuid():N}", "doc.docx");
+        Assert.Throws<DirectoryNotFoundException>(() => DocumentBuilder.Open(path));
     }
 
     // ---------------------------------------------------------------- recovery
@@ -287,8 +365,8 @@ public class DocumentBuilderMalformedInputTests : IDisposable
     [Fact]
     public void Open_AfterFailedOpen_CanStillOpenValidDocx()
     {
-        AssertThrowsManagedFailure(() => DocumentBuilder.Open(CreateRandomBytes(512)), ZipCorruptionFailures);
-        AssertThrowsManagedFailure(() => DocumentBuilder.Open(Truncate(CreateValidDocxBytes(), 10)), ZipCorruptionFailures);
+        AssertOpenFailure(() => DocumentBuilder.Open(CreateRandomBytes(512)), "random bytes");
+        AssertOpenFailure(() => DocumentBuilder.Open(Truncate(CreateValidDocxBytes(), 10)), "truncated DOCX");
 
         using var builder = DocumentBuilder.Open(CreateValidDocxBytes());
         builder.AddParagraph("after failure");

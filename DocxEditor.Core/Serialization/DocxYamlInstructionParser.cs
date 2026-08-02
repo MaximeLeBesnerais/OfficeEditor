@@ -1,4 +1,5 @@
 using DocxEditor.Core.Models;
+using OfficeEditor.Core.Exceptions;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
 
@@ -17,15 +18,39 @@ public class DocxYamlInstructionParser
 
     public DocumentInstructions Parse(string yaml)
     {
-        var wrapper = _deserializer.Deserialize<YamlInstructionWrapper>(yaml);
+        if (yaml is null)
+        {
+            throw new ArgumentException("Invalid YAML instruction file.");
+        }
+
+        YamlInstructionWrapper? wrapper;
+        try
+        {
+            wrapper = _deserializer.Deserialize<YamlInstructionWrapper>(yaml);
+        }
+        catch (YamlDotNet.Core.YamlException ex)
+        {
+            // Malformed YAML syntax, non-mapping roots, and wrong property value kinds surface
+            // here from YamlDotNet. Normalize them to the domain exception, preserving the
+            // original (including its line/column marks) as the inner exception.
+            throw new OfficeEditorException($"Invalid YAML instruction file: {ex.Message}", ex);
+        }
+
         if (wrapper?.Operations == null)
         {
             throw new ArgumentException("Invalid YAML instruction file.");
         }
 
         var instructions = new List<Instruction>();
-        foreach (var op in wrapper.Operations)
+        for (int i = 0; i < wrapper.Operations.Count; i++)
         {
+            var op = wrapper.Operations[i];
+            // YamlDotNet deserializes a bare '-' / '~' list item into a null DTO; dereferencing
+            // it would leak a raw NullReferenceException, so it must be rejected descriptively.
+            if (op is null)
+            {
+                throw new ArgumentException($"operations[{i}]: each operation must be an object.");
+            }
             instructions.Add(ParseInstruction(op));
         }
 
@@ -82,8 +107,20 @@ public class DocxYamlInstructionParser
                 throw new ArgumentException("Each block must be an object.");
             }
 
-            var typeObj2 = dict.TryGetValue("type", out var typeObj) ? typeObj?.ToString() : null;
-            var type = typeObj2 ?? throw new ArgumentException("Each block must have a 'type' field.");
+            if (!dict.TryGetValue("type", out var typeObj))
+            {
+                throw new ArgumentException("Each block must have a 'type' field.");
+            }
+
+            // A collection-valued 'type' must fail loudly instead of ToString()'ing into a
+            // garbage block type (consistent with GetScalar's kind guards below).
+            if (typeObj is List<object> or Dictionary<object, object>)
+            {
+                throw new ArgumentException("Each block must have a scalar 'type' field.");
+            }
+
+            var type = typeObj?.ToString()
+                ?? throw new ArgumentException("Each block must have a 'type' field.");
 
             blocks.Add(ParseBlock(type, dict));
         }

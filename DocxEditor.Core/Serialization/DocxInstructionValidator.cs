@@ -23,6 +23,14 @@ public class DocxInstructionValidator
     {
         var errors = new List<string>();
 
+        if (json is null)
+        {
+            // The validation contract is result-based: a null argument is an invalid
+            // document, not an argument error, and must never throw.
+            errors.Add("Invalid JSON: input is null.");
+            return errors;
+        }
+
         JsonDocument document;
         try
         {
@@ -77,6 +85,14 @@ public class DocxInstructionValidator
         if (!op.TryGetProperty("type", out var typeProp))
         {
             errors.Add($"{prefix}: missing required field 'type'.");
+            return;
+        }
+
+        // A 'type' that exists but is not a string must be reported as a validation error
+        // instead of throwing InvalidOperationException from GetString().
+        if (typeProp.ValueKind != JsonValueKind.String)
+        {
+            errors.Add($"{prefix}.type: must be a string.");
             return;
         }
 
@@ -164,6 +180,12 @@ public class DocxInstructionValidator
             if (!block.TryGetProperty("type", out var typeProp))
             {
                 errors.Add($"{blockPath}: missing required field 'type'.");
+                continue;
+            }
+
+            if (typeProp.ValueKind != JsonValueKind.String)
+            {
+                errors.Add($"{blockPath}.type: must be a string.");
                 continue;
             }
 
