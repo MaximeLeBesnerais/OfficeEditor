@@ -1,0 +1,430 @@
+{
+  "version": "1.0",
+  "metadata": {
+    "title": "Northwind Operations Brief",
+    "author": "OfficeEditor",
+    "subject": "Declarative DOCX generation example",
+    "keywords": "DOCX, JSON, OfficeEditor",
+    "description": "A self-contained example of the version 1.0 DOCX generation vocabulary.",
+    "language": "en-US"
+  },
+  "design": {
+    "palette": {
+      "ink": "#1F2937",
+      "muted": "#64748B",
+      "navy": "#1F4E79",
+      "blue": "#2563EB",
+      "sky": "#DBEAFE",
+      "paper": "#F8FAFC",
+      "white": "#FFFFFF",
+      "amber": "#D97706"
+    },
+    "fonts": {
+      "display": "Aptos Display",
+      "body": "Aptos"
+    },
+    "typography": {
+      "title": {
+        "font": "display",
+        "size": 26,
+        "color": "navy",
+        "bold": true
+      },
+      "sectionHeading": {
+        "font": "display",
+        "size": 16,
+        "color": "blue",
+        "bold": true
+      },
+      "body": {
+        "font": "body",
+        "size": 10.5,
+        "color": "ink"
+      },
+      "smallLabel": {
+        "font": "body",
+        "size": 8.5,
+        "color": "muted",
+        "bold": true,
+        "underline": true
+      }
+    },
+    "spacing": {
+      "tight": 3,
+      "normal": 8,
+      "section": 18
+    },
+    "shapes": {
+      "cornerRadius": 6,
+      "defaultFill": "paper",
+      "defaultStroke": "blue",
+      "defaultStrokeWidth": 1
+    },
+    "page": {
+      "size": "letter",
+      "orientation": "portrait",
+      "margins": {
+        "top": 54,
+        "right": 54,
+        "bottom": 54,
+        "left": 54
+      },
+      "defaultFont": "body",
+      "defaultTextColor": "ink"
+    }
+  },
+  "sections": [
+    {
+      "pageSetup": {
+        "size": "letter",
+        "orientation": "portrait",
+        "margins": {
+          "top": 54,
+          "right": 54,
+          "bottom": 54,
+          "left": 54
+        },
+        "columns": {
+          "count": 1,
+          "spacing": 0,
+          "separator": false
+        }
+      },
+      "header": [
+        {
+          "type": "paragraph",
+          "text": "NORTHWIND / OPERATIONS",
+          "token": "smallLabel",
+          "alignment": "right"
+        }
+      ],
+      "footer": [
+        {
+          "type": "paragraph",
+          "text": "Confidential · Generated from declarative JSON",
+          "token": "body",
+          "alignment": "center"
+        }
+      ],
+      "blocks": [
+        {
+          "type": "heading",
+          "level": 1,
+          "text": "Operations Brief",
+          "token": "title",
+          "alignment": "center"
+        },
+        {
+          "type": "paragraph",
+          "runs": [
+            {
+              "text": "Status: ",
+              "bold": true,
+              "color": "navy"
+            },
+            {
+              "text": "On plan",
+              "font": "body",
+              "size": 11,
+              "color": "blue",
+              "bold": true,
+              "italic": true,
+              "underline": true
+            },
+            {
+              "text": " — the team is tracking three priorities for the next review."
+            }
+          ],
+          "token": "body",
+          "alignment": "left",
+          "spacing": {
+            "before": "tight",
+            "after": "section",
+            "line": 1.15
+          }
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "Priority actions",
+          "token": "sectionHeading"
+        },
+        {
+          "type": "list",
+          "kind": "ordered",
+          "start": 3,
+          "items": [
+            "Confirm the launch inventory allocation.",
+            {
+              "runs": [
+                { "text": "Review ", "italic": true },
+                { "text": "supplier lead times", "bold": true, "color": "blue" },
+                { "text": " with regional owners." }
+              ],
+              "token": "body",
+              "spacing": {
+                "after": "tight"
+              }
+            },
+            {
+              "text": "Publish the weekly exception report.",
+              "token": "body",
+              "alignment": "left"
+            }
+          ]
+        },
+        {
+          "type": "table",
+          "alignment": "center",
+          "widths": [216, 108, 144],
+          "rows": [
+            {
+              "header": true,
+              "cells": [
+                { "text": "Workstream", "token": "body", "fill": "navy", "alignment": "left" },
+                { "text": "Owner", "token": "body", "fill": "navy", "alignment": "center" },
+                { "text": "Signal", "token": "body", "fill": "navy", "alignment": "center" }
+              ]
+            },
+            {
+              "cells": [
+                { "text": "Inventory readiness", "token": "body", "fill": "paper" },
+                { "text": "M. Chen", "token": "body", "alignment": "center" },
+                {
+                  "runs": [
+                    { "text": "Stable", "bold": true, "color": "blue" }
+                  ],
+                  "token": "body",
+                  "alignment": "center"
+                }
+              ]
+            },
+            {
+              "cells": [
+                { "text": "Supplier lead time", "token": "body", "fill": "paper" },
+                { "text": "R. Singh", "token": "body", "alignment": "center" },
+                { "text": "Watch", "token": "body", "fill": "sky", "alignment": "center" }
+              ]
+            },
+            {
+              "cells": [
+                { "text": "Notes", "token": "body", "fill": "paper" },
+                {},
+                { "text": "No blocker", "token": "body", "alignment": "center" }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "callout",
+          "tone": "warning",
+          "text": "Decision needed: approve the alternate carrier before Friday at 17:00 UTC.",
+          "token": "body"
+        },
+        {
+          "type": "image",
+          "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAGUlEQVR4nGOQ96v8TwlmGDVg1IBRA4aLAQAAOOUQamUc8AAAAABJRU5ErkJggg==",
+          "fit": "contain",
+          "alt": "A small self-contained blue square",
+          "width": 36,
+          "height": 36
+        },
+        {
+          "type": "group",
+          "blocks": [
+            {
+              "type": "heading",
+              "level": 3,
+              "text": "Grouped follow-up",
+              "token": "sectionHeading"
+            },
+            {
+              "type": "paragraph",
+              "text": "This heading and paragraph are nested in a flow group and are flattened into the section.",
+              "token": "body",
+              "spacing": {
+                "after": "normal"
+              }
+            }
+          ]
+        },
+        {
+          "type": "pageBreak"
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "Positioned summary page",
+          "token": "sectionHeading"
+        },
+        {
+          "type": "paragraph",
+          "text": "The floating elements declared for this section are anchored after the flow content.",
+          "token": "body"
+        }
+      ],
+      "positioned": [
+        {
+          "type": "rect",
+          "x": 36,
+          "y": 36,
+          "width": 540,
+          "height": 22,
+          "anchor": "page",
+          "wrap": "behindText",
+          "zOrder": -1,
+          "alt": "Decorative title band",
+          "fill": "sky",
+          "stroke": "blue",
+          "cornerRadius": 4
+        },
+        {
+          "type": "textBox",
+          "x": 270,
+          "y": 90,
+          "width": 220,
+          "height": 72,
+          "rotation": 0,
+          "zOrder": 2,
+          "anchor": "margin",
+          "wrap": "square",
+          "wrapDistances": {
+            "top": 3,
+            "left": 6,
+            "bottom": 3,
+            "right": 6
+          },
+          "alt": "Summary text box",
+          "runs": [
+            { "text": "Next checkpoint\n", "bold": true, "color": "navy" },
+            { "text": "Friday · 17:00 UTC", "italic": true }
+          ],
+          "token": "body",
+          "alignment": "center",
+          "spacing": {
+            "before": 3,
+            "after": 3,
+            "line": 1.1
+          },
+          "fill": "white",
+          "stroke": {
+            "color": "blue",
+            "width": 1.5
+          },
+          "cornerRadius": 8
+        },
+        {
+          "type": "line",
+          "x": 0,
+          "y": 180,
+          "width": 468,
+          "rotation": 0,
+          "zOrder": 1,
+          "anchor": "margin",
+          "wrap": "none",
+          "alt": "Horizontal separator",
+          "orientation": "horizontal",
+          "stroke": {
+            "color": "amber",
+            "width": 2
+          }
+        },
+        {
+          "type": "callout",
+          "x": 270,
+          "y": 210,
+          "width": 220,
+          "height": 84,
+          "zOrder": 3,
+          "anchor": "margin",
+          "wrap": "topAndBottom",
+          "wrapDistances": {
+            "top": 6,
+            "left": 0,
+            "bottom": 6,
+            "right": 0
+          },
+          "alt": "Positioned risk callout",
+          "tone": "tip",
+          "text": "Tip: use data URIs to keep generated-document examples self-contained.",
+          "token": "body",
+          "alignment": "left",
+          "spacing": {
+            "before": "tight",
+            "after": "tight"
+          },
+          "fill": "paper",
+          "stroke": "blue",
+          "cornerRadius": 6
+        },
+        {
+          "type": "image",
+          "x": 420,
+          "y": 330,
+          "width": 36,
+          "height": 36,
+          "zOrder": 4,
+          "anchor": "margin",
+          "wrap": "inFrontOfText",
+          "alt": "A positioned self-contained blue square",
+          "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAGUlEQVR4nGOQ96v8TwlmGDVg1IBRA4aLAQAAOOUQamUc8AAAAABJRU5ErkJggg==",
+          "fit": "crop",
+          "crop": {
+            "left": 0.1,
+            "top": 0.1,
+            "right": 0.1,
+            "bottom": 0.1
+          }
+        }
+      ]
+    },
+    {
+      "pageSetup": {
+        "size": {
+          "width": 612,
+          "height": 792
+        },
+        "orientation": "landscape",
+        "margins": {
+          "top": 45,
+          "right": 45,
+          "bottom": 45,
+          "left": 45
+        },
+        "columns": {
+          "count": 2,
+          "spacing": 24,
+          "separator": true
+        },
+        "breakType": "nextPage"
+      },
+      "blocks": [
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "Two-column appendix",
+          "token": "sectionHeading"
+        },
+        {
+          "type": "paragraph",
+          "text": "This section demonstrates a custom upright page size, landscape orientation, an incoming section break, and equal-width columns.",
+          "token": "body",
+          "alignment": "justify",
+          "spacing": {
+            "after": "normal",
+            "line": 1.2
+          }
+        },
+        {
+          "type": "list",
+          "kind": "bullet",
+          "items": [
+            "All dimensions are points.",
+            "The gutter is 24 points.",
+            "A separator is drawn between columns."
+          ]
+        }
+      ]
+    }
+  ]
+}
