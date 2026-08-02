@@ -12,6 +12,21 @@ public class XlsxVariableReplacer
 
     public void Replace(SpreadsheetDocument document, Dictionary<string, string> data)
     {
+        ArgumentNullException.ThrowIfNull(document);
+        ArgumentNullException.ThrowIfNull(data);
+
+        // Defense in depth for direct callers who bypass MergeVariables: a null value
+        // must never be silently written as an empty string.
+        foreach (var pair in data)
+        {
+            if (pair.Value is null)
+            {
+                throw new ArgumentNullException(
+                    $"data['{pair.Key}']",
+                    $"Value for variable '{pair.Key}' must not be null; use an empty string to clear a value.");
+            }
+        }
+
         var workbookPart = document.WorkbookPart;
         if (workbookPart == null) return;
 

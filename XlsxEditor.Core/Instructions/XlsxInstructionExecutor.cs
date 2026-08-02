@@ -14,20 +14,15 @@ public static class XlsxInstructionExecutor
 
     /// <summary>
     /// Applies all instructions from the set to the given workbook builder.
-    /// Variables in cell values ({{…}}) are resolved at this point.
+    /// The set is fully validated first (via the shared validator), so sets built
+    /// programmatically in code — which bypass the parser — are held to exactly the
+    /// same rules as parsed JSON: a declared '1.0' version, legal worksheet names,
+    /// non-null headers/rows/cells, in-bounds addresses, and cells with a value XOR a
+    /// formula. Variables in cell values ({{…}}) are resolved at this point.
     /// </summary>
     public static void Execute(XlsxInstructionSet instructions, IWorkbookBuilder builder)
     {
-        if (instructions == null)
-        {
-            throw new XlsxException("Instruction set must not be null.");
-        }
-
-        if (instructions.Worksheets is null)
-        {
-            throw new XlsxException(
-                "Instruction set must contain at least one worksheet in 'worksheets'.");
-        }
+        XlsxInstructionValidator.Validate(instructions);
 
         var variables = instructions.Variables ?? new Dictionary<string, string>();
 
