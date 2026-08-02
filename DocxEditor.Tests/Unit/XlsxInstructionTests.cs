@@ -51,8 +51,19 @@ public class XlsxInstructionTests : IDisposable
     [Fact]
     public void Parse_ShouldThrow_ForMissingVersion()
     {
-        var json = """{ "worksheets": [{"name": "S"}] }""";
-        Assert.Throws<XlsxException>(() => XlsxInstructionParser.Parse(json));
+        // Missing 'version' must be rejected outright (it used to fall back to a
+        // default "1.0" and only failed here for an unrelated reason).
+        var json = """{ "worksheets": [{"name": "S", "rows": [["1"]]}] }""";
+        var ex = Assert.Throws<XlsxException>(() => XlsxInstructionParser.Parse(json));
+        Assert.Contains("version", ex.Message);
+    }
+
+    [Fact]
+    public void Parse_ShouldThrow_ForExplicitNullVersion()
+    {
+        var json = """{ "version": null, "worksheets": [{"name": "S", "rows": [["1"]]}] }""";
+        var ex = Assert.Throws<XlsxException>(() => XlsxInstructionParser.Parse(json));
+        Assert.Contains("version", ex.Message);
     }
 
     [Fact]
@@ -68,6 +79,92 @@ public class XlsxInstructionTests : IDisposable
     {
         var json = """{ "version": "1.0", "worksheets": [] }""";
         Assert.Throws<XlsxException>(() => XlsxInstructionParser.Parse(json));
+    }
+
+    [Fact]
+    public void Parse_ShouldThrow_ForNullWorksheets()
+    {
+        var json = """{ "version": "1.0", "worksheets": null }""";
+        var ex = Assert.Throws<XlsxException>(() => XlsxInstructionParser.Parse(json));
+        Assert.Contains("worksheets", ex.Message);
+    }
+
+    [Theory]
+    [InlineData("""[1, 2, 3]""")]
+    [InlineData("""42""")]
+    [InlineData("""{"version":"1.0","worksheets":"not-an-array"}""")]
+    [InlineData("""{"version":123,"worksheets":[{"name":"S","rows":[["1"]]}]}""")]
+    [InlineData("""{"version":"1.0","worksheets":[{"name":"S","rows":"not-an-array"}]}""")]
+    public void Parse_ShouldThrow_ForWrongRootOrPropertyKind(string json)
+    {
+        var ex = Assert.Throws<XlsxException>(() => XlsxInstructionParser.Parse(json));
+        Assert.Contains("Invalid JSON", ex.Message);
+    }
+
+    [Fact]
+    public void Parse_ShouldThrow_ForUnknownRootProperty()
+    {
+        var json = """
+        {
+            "version": "1.0",
+            "worksheets": [{"name": "S", "rows": [["1"]]}],
+            "unknownProperty": true
+        }
+        """;
+
+        var ex = Assert.Throws<XlsxException>(() => XlsxInstructionParser.Parse(json));
+        Assert.Contains("unknownProperty", ex.Message);
+    }
+
+    [Fact]
+    public void Parse_ShouldThrow_ForUnknownWorksheetProperty()
+    {
+        var json = """{"version":"1.0","worksheets":[{"name":"S","rows":[["1"]],"bogus":1}]}""";
+        var ex = Assert.Throws<XlsxException>(() => XlsxInstructionParser.Parse(json));
+        Assert.Contains("bogus", ex.Message);
+    }
+
+    [Fact]
+    public void Parse_ShouldThrow_ForNullWorksheetEntry()
+    {
+        var json = """{"version":"1.0","worksheets":[null]}""";
+        var ex = Assert.Throws<XlsxException>(() => XlsxInstructionParser.Parse(json));
+        Assert.Contains("worksheet", ex.Message);
+    }
+
+    [Fact]
+    public void Parse_ShouldThrow_ForNullCellEntry()
+    {
+        var json = """{"version":"1.0","worksheets":[{"name":"S","cells":[null]}]}""";
+        var ex = Assert.Throws<XlsxException>(() => XlsxInstructionParser.Parse(json));
+        Assert.Contains("cell", ex.Message);
+    }
+
+    [Fact]
+    public void Parse_ShouldThrow_ForNullRowEntry()
+    {
+        var json = """{"version":"1.0","worksheets":[{"name":"S","rows":[null]}]}""";
+        var ex = Assert.Throws<XlsxException>(() => XlsxInstructionParser.Parse(json));
+        Assert.Contains("row", ex.Message);
+    }
+
+    [Fact]
+    public void Parse_ShouldThrow_ForNullRowValue()
+    {
+        var json = """{"version":"1.0","worksheets":[{"name":"S","rows":[[null]]}]}""";
+        var ex = Assert.Throws<XlsxException>(() => XlsxInstructionParser.Parse(json));
+        Assert.Contains("row", ex.Message);
+    }
+
+    [Theory]
+    [InlineData("XFE1")]
+    [InlineData("A1048577")]
+    [InlineData("A99999999999999999999")]
+    public void Parse_ShouldThrow_ForCellAddressBeyondExcelLimits(string address)
+    {
+        var json = $$"""{"version":"1.0","worksheets":[{"name":"S","cells":[{"address":"{{address}}","value":"x"}]}]}""";
+        var ex = Assert.Throws<XlsxException>(() => XlsxInstructionParser.Parse(json));
+        Assert.Contains("Excel", ex.Message);
     }
 
     [Fact]
