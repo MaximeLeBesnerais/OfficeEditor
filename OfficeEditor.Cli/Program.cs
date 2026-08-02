@@ -1,5 +1,8 @@
 using System.Text.Json;
 using DocxEditor.Core.Builders;
+using DocxEditor.Core.Generation;
+using DocxEditor.Core.Generation.Assets;
+using DocxEditor.Core.Generation.Schema;
 using PptxEditor.Core.Builders;
 using PptxEditor.Core.Generation.Archetypes;
 using PptxEditor.Core.Generation.Components;
@@ -61,7 +64,7 @@ class Program
         if (args.Length < 2)
         {
             AnsiConsole.MarkupLine("[red]Input JSON file path is required.[/]");
-            AnsiConsole.MarkupLine("Usage: officeeditor generate <input.json> [--output <output.pptx>]");
+            AnsiConsole.MarkupLine("Usage: officeeditor generate <input.json> [--output <output.pptx|output.docx>]");
             return false;
         }
 
@@ -75,6 +78,10 @@ class Program
         }
 
         var json = File.ReadAllText(inputPath);
+
+        if (Path.GetExtension(outputPath).Equals(".docx", StringComparison.OrdinalIgnoreCase))
+            return GenerateDocx(inputPath, outputPath, json);
+
         var generated = false;
 
         AnsiConsole.Status()
@@ -111,13 +118,74 @@ class Program
         return true;
     }
 
+    static bool GenerateDocx(string inputPath, string outputPath, string json)
+    {
+        var validation = new DocxGenerationDocumentParser().Validate(json);
+        if (!validation.IsValid)
+        {
+            AnsiConsole.MarkupLine("[red]Validation errors:[/]");
+            foreach (var error in validation.Errors)
+                AnsiConsole.MarkupLine($"  [red]{Markup.Escape(error.ToString())}[/]");
+            return false;
+        }
+
+        var inputDirectory = Path.GetDirectoryName(Path.GetFullPath(inputPath))!;
+        var sourceOptions = new ImageSourceOptions { AllowedRoot = inputDirectory };
+        string? templatePath = null;
+        if (validation.Document!.TemplatePath is { } configuredTemplate)
+            templatePath = ResolveTemplatePath(configuredTemplate, sourceOptions, inputDirectory);
+
+        DocxEditor.Core.Generation.Contracts.DocxGenerationResult? result = null;
+        AnsiConsole.Status()
+            .Start("Generating DOCX...", _ =>
+            {
+                result = new DocxGenerator().Generate(
+                    validation.Document,
+                    outputPath,
+                    new DocxGeneratorOptions
+                    {
+                        TemplatePath = templatePath,
+                        ImageSourceOptions = sourceOptions
+                    });
+            });
+
+        var warnings = validation.Warnings.Concat(result!.Warnings).ToList();
+        foreach (var warning in warnings)
+            AnsiConsole.MarkupLine($"[yellow]Warning: {Markup.Escape(warning.ToString())}[/]");
+
+        AnsiConsole.MarkupLine($"[green]{result.Document.Sections.Count} sections[/]  " +
+            (warnings.Count == 0 ? "[green]0 warnings[/]" : $"[yellow]{warnings.Count} warnings[/]"));
+        AnsiConsole.MarkupLine($"[green]Saved: {Markup.Escape(outputPath)}[/]");
+        return true;
+    }
+
+    static string ResolveTemplatePath(
+        string configuredPath,
+        ImageSourceOptions sourceOptions,
+        string inputDirectory)
+    {
+        try
+        {
+            var resolution = DocxEditor.Core.Generation.Assets.ImageSourceResolver.Resolve(configuredPath, sourceOptions);
+            if (resolution.Kind != ImageSourceKind.LocalFile || resolution.FilePath is null)
+                throw new ArgumentException("Template must be a local .docx file path.");
+            return resolution.FilePath;
+        }
+        catch (ImageSourceException ex)
+        {
+            throw new ArgumentException(
+                $"Invalid template path '{configuredPath}'. Templates must be local files inside the input JSON directory '{inputDirectory}'. {ex.Message}",
+                ex);
+        }
+    }
+
     static void ShowHelp()
     {
         AnsiConsole.WriteLine("OfficeEditor CLI - Unified Office Document Editor");
         AnsiConsole.WriteLine();
         AnsiConsole.WriteLine("Usage:");
         AnsiConsole.WriteLine("  officeeditor create <output.file> [--type docx|pptx|xlsx] [--text \"content\"] [--title \"title\"] [--sheet \"name\"]");
-        AnsiConsole.WriteLine("  officeeditor generate <input.json> [--output <output.pptx>]");
+        AnsiConsole.WriteLine("  officeeditor generate <input.json> [--output <output.pptx|output.docx>]");
         AnsiConsole.WriteLine("  officeeditor detect <template.file>");
         AnsiConsole.WriteLine("  officeeditor merge <template.file> <data.json> <output.file>");
         AnsiConsole.WriteLine();
