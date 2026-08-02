@@ -126,8 +126,9 @@ public class DocumentBuilder : IDocumentBuilder
         catch
         {
             // A failed create must never leak the partially opened package handle; the
-            // caller-visible failure is preserved and rethrown unchanged.
-            document?.Dispose();
+            // caller-visible failure is preserved and rethrown unchanged, and teardown is
+            // best-effort so it can never mask that primary failure.
+            TryDispose(document);
             throw;
         }
     }
@@ -161,7 +162,7 @@ public class DocumentBuilder : IDocumentBuilder
         }
         catch (Exception ex)
         {
-            document?.Dispose();
+            TryDispose(document);
             if (IsMalformedPackageFailure(ex))
             {
                 throw new OfficeEditorException(
@@ -192,8 +193,8 @@ public class DocumentBuilder : IDocumentBuilder
         }
         catch (Exception ex)
         {
-            document?.Dispose();
-            buffer?.Dispose();
+            TryDispose(document);
+            TryDispose(buffer);
             if (IsMalformedPackageFailure(ex))
             {
                 throw new OfficeEditorException(
@@ -223,8 +224,8 @@ public class DocumentBuilder : IDocumentBuilder
         }
         catch (Exception ex)
         {
-            document?.Dispose();
-            buffer?.Dispose();
+            TryDispose(document);
+            TryDispose(buffer);
             if (IsMalformedPackageFailure(ex))
             {
                 throw new OfficeEditorException(
@@ -248,6 +249,50 @@ public class DocumentBuilder : IDocumentBuilder
             or FileFormatException
             or InvalidDataException
             or XmlException;
+    }
+
+    /// <summary>
+    /// Best-effort teardown of a partially opened package or internal buffer after an open/create
+    /// failure. Teardown is never allowed to replace the primary open/validation exception: a
+    /// dispose failure here is deliberately swallowed (the GC reclaims the handle) so the original
+    /// failure — normalized or raw — propagates unchanged and the caller-stream ownership contract
+    /// is unaffected.
+    /// </summary>
+    private static void TryDispose(IDisposable? disposable)
+    {
+        if (disposable is null)
+        {
+            return;
+        }
+
+        try
+        {
+            disposable.Dispose();
+        }
+        catch
+        {
+            // Swallowed: a teardown failure must not mask the primary open/validation exception.
+        }
+    }
+
+    /// <summary>
+    /// Best-effort removal of a record's temporary output after a failed write. A deletion failure
+    /// is deliberately swallowed so it can never mask the record's primary failure; the OS temp
+    /// cleaner is the backstop for any survivor.
+    /// </summary>
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch
+        {
+            // Swallowed: best-effort cleanup must not mask the primary failure.
+        }
     }
 
     public IDocumentBuilder AddParagraph(string text, string? style = null)
@@ -802,6 +847,16 @@ public class DocumentBuilder : IDocumentBuilder
         return this;
     }
 
+    /// <summary>
+    /// Publipostage: generates one document per record by merging the record's variables into the
+    /// template. Every record is produced with per-record atomicity: it is fully written to a
+    /// temporary file in the destination directory, opened/edited/saved/closed there, and only then
+    /// atomically moved onto the final output path. A record that fails leaves no corrupt partial
+    /// output and no temp artifact behind, and any pre-existing final file for that record survives;
+    /// records already completed before the failure remain on disk (this is per-record, not
+    /// whole-batch, atomicity). All records are prevalidated — non-null records, keys, and values —
+    /// before any output is written so a malformed batch fails before touching disk.
+    /// </summary>
     public void MergeBatch(List<Dictionary<string, string>> records, string outputPattern, string? templatePath = null)
     {
         ArgumentNullException.ThrowIfNull(records);
@@ -815,6 +870,18 @@ public class DocumentBuilder : IDocumentBuilder
             if (records[i] is null)
             {
                 throw new ArgumentException($"records[{i}]: each record must be non-null.", nameof(records));
+            }
+
+            foreach (var entry in records[i])
+            {
+                // Dictionary<string,string> permits null values (and rejects null keys), but both
+                // are rejected here so a malformed record fails up front instead of silently
+                // dropping the variable from the generated file name.
+                if (entry.Key is null || entry.Value is null)
+                {
+                    throw new ArgumentException(
+                        $"records[{i}]: each record key and value must be non-null.", nameof(records));
+                }
             }
         }
 
@@ -844,19 +911,37 @@ public class DocumentBuilder : IDocumentBuilder
         
         for (int i = 0; i < records.Count; i++)
         {
-            // Create a copy of the original document
+            // Resolve the final output path for this record from the pattern.
             var outputPath = outputPattern.Replace("{index}", i.ToString());
             foreach (var kvp in records[i])
             {
                 outputPath = outputPath.Replace($"{{{kvp.Key}}}", kvp.Value);
             }
-            
-            File.Copy(originalPath, outputPath, true);
-            
-            using var doc = WordprocessingDocument.Open(outputPath, true);
-            var replacer = new Variables.DocxVariableReplacer();
-            replacer.Replace(doc, records[i]);
-            doc.Save();
+
+            // The temp file lives in the destination directory so the final move is a same-volume
+            // rename (atomic); the final output is never touched until it is atomically replaced.
+            var destinationDirectory = Path.GetDirectoryName(outputPath) ?? string.Empty;
+            var tempPath = Path.Combine(
+                destinationDirectory,
+                $"{Path.GetFileName(outputPath)}.{Guid.NewGuid():N}.tmp");
+
+            try
+            {
+                File.Copy(originalPath, tempPath, true);
+                using (var doc = WordprocessingDocument.Open(tempPath, true))
+                {
+                    var replacer = new Variables.DocxVariableReplacer();
+                    replacer.Replace(doc, records[i]);
+                    doc.Save();
+                }
+                File.Move(tempPath, outputPath, overwrite: true);
+            }
+            finally
+            {
+                // A failed record must not leave its partial temp file behind; a pre-existing final
+                // output is preserved because it is only replaced by the atomic move above.
+                TryDeleteFile(tempPath);
+            }
         }
     }
 
