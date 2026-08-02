@@ -296,6 +296,86 @@ public class WorkbookBuilderMalformedInputTests : IDisposable
         Assert.Equal(new List<string> { "Sheet1" }, builder.GetWorksheetNames());
     }
 
+    // ---------------------------------------------------------------- create overload
+
+    [Fact]
+    public void Create_NullPath_ThrowsArgumentNullException()
+    {
+        Assert.Throws<ArgumentNullException>(() => WorkbookBuilder.Create((string)null!));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("\t")]
+    public void Create_EmptyOrWhitespacePath_ThrowsArgumentExceptionAndCreatesNoFile(string path)
+    {
+        // Whitespace-only names are legal files on some platforms; Create must reject them up
+        // front so a stray whitespace path never materializes a junk workbook file.
+        var ex = Assert.Throws<ArgumentException>(() => WorkbookBuilder.Create(path));
+        Assert.Equal("path", ex.ParamName);
+        Assert.False(File.Exists(path), "A rejected empty/whitespace path must not create a file.");
+    }
+
+    [Fact]
+    public void Create_PathIsDirectory_ThrowsWithoutNormalizing()
+    {
+        // Create is not a malformed-package boundary: ordinary path/permission errors must
+        // propagate unchanged instead of being wrapped in the domain exception.
+        var dir = Path.Combine(Path.GetTempPath(), $"create_dir_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var ex = Assert.ThrowsAny<Exception>(() => WorkbookBuilder.Create(dir));
+            Assert.IsNotType<XlsxException>(ex);
+            Assert.True(
+                ex is UnauthorizedAccessException or IOException or DirectoryNotFoundException,
+                $"expected a filesystem error, got {ex.GetType().Name}: '{ex.Message}'.");
+        }
+        finally
+        {
+            Directory.Delete(dir);
+        }
+    }
+
+    [Fact]
+    public void Create_MissingParentDirectory_ThrowsDirectoryNotFoundException()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"no_such_dir_{Guid.NewGuid():N}", "book.xlsx");
+        Assert.Throws<DirectoryNotFoundException>(() => WorkbookBuilder.Create(path));
+    }
+
+    [Fact]
+    public void Create_AfterFailedCreate_CanStillCreateValidWorkbook()
+    {
+        var badPath = Path.Combine(Path.GetTempPath(), $"no_such_dir_{Guid.NewGuid():N}", "book.xlsx");
+        Assert.Throws<DirectoryNotFoundException>(() => WorkbookBuilder.Create(badPath));
+
+        var goodPath = CreateTempFile(Array.Empty<byte>());
+        File.Delete(goodPath);
+        using (var builder = WorkbookBuilder.Create(goodPath))
+        {
+            builder.AddWorksheet("Sheet1");
+            builder.Save();
+        }
+
+        Assert.True(File.Exists(goodPath));
+        using var reader = WorkbookBuilder.Open(goodPath);
+        Assert.Equal(new List<string> { "Sheet1" }, reader.GetWorksheetNames());
+    }
+
+    [Fact]
+    public void Open_Stream_DisposedSourceStream_PropagatesObjectDisposedExceptionUnchanged()
+    {
+        // A broad programmer exception such as ObjectDisposedException must never be
+        // classified as a malformed package: the boundary cleans up and rethrows the
+        // original type instead of wrapping it in an XlsxException.
+        using var stream = new MemoryStream(CreateValidWorkbook());
+        stream.Dispose();
+
+        Assert.Throws<ObjectDisposedException>(() => WorkbookBuilder.Open(stream));
+    }
+
     [Fact]
     public void Open_ByteArray_ValidWorkbookStillOpens_AfterMalformedPayloadFailures()
     {
