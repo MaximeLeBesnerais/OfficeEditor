@@ -18,6 +18,17 @@ public static class XlsxInstructionExecutor
     /// </summary>
     public static void Execute(XlsxInstructionSet instructions, IWorkbookBuilder builder)
     {
+        if (instructions == null)
+        {
+            throw new XlsxException("Instruction set must not be null.");
+        }
+
+        if (instructions.Worksheets is null)
+        {
+            throw new XlsxException(
+                "Instruction set must contain at least one worksheet in 'worksheets'.");
+        }
+
         var variables = instructions.Variables ?? new Dictionary<string, string>();
 
         foreach (var wsInstruction in instructions.Worksheets)
@@ -113,6 +124,11 @@ public static class XlsxInstructionExecutor
     private static void ApplyCellInstruction(
         IWorksheetBuilder sheet, CellInstruction cell, Dictionary<string, string> variables, string sheetName)
     {
+        if (cell == null)
+        {
+            throw new XlsxException($"Cell instruction in sheet '{sheetName}' must be a cell object.");
+        }
+
         // Defense in depth: instruction sets built in code (bypassing the parser's
         // validation) must not silently drop 'type'/'numberFormat' either.
         XlsxInstructionValidator.RejectUnsupportedCellFields(cell, sheetName);

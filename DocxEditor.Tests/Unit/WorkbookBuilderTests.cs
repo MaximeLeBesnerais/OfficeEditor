@@ -625,6 +625,120 @@ public class WorkbookBuilderTests : IDisposable
         Assert.Contains("Invalid cell reference", ex.Message);
     }
 
+    [Theory]
+    [InlineData("XFD1")]
+    [InlineData("XFD1048576")]
+    [InlineData("A1048576")]
+    public void AddCell_MaxExcelBounds_ShouldSucceed(string reference)
+    {
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var worksheet = builder.AddWorksheet("Sheet1");
+
+        worksheet.AddCell(reference, "edge");
+
+        Assert.True(worksheet.CellExists(reference));
+        Assert.Equal("edge", worksheet.GetCellValue(reference));
+    }
+
+    [Theory]
+    [InlineData("XFE1")]
+    [InlineData("XFD1048577")]
+    [InlineData("A1048577")]
+    [InlineData("XFE1048577")]
+    public void AddCell_BeyondExcelBounds_ShouldThrowXlsxException(string reference)
+    {
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var worksheet = builder.AddWorksheet("Sheet1");
+
+        var ex = Assert.Throws<XlsxException>(() => worksheet.AddCell(reference, "value"));
+        Assert.Contains(reference, ex.Message);
+    }
+
+    [Theory]
+    [InlineData("A99999999999999999999")]
+    [InlineData("XFD99999999999999999999999999")]
+    public void AddCell_HugeRowString_ShouldThrowXlsxException_NotOverflow(string reference)
+    {
+        // A row far beyond int range must fail predictably as XlsxException,
+        // never as an OverflowException from int.Parse deep in the parser.
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var worksheet = builder.AddWorksheet("Sheet1");
+
+        var ex = Assert.Throws<XlsxException>(() => worksheet.AddCell(reference, "value"));
+        Assert.Contains("row", ex.Message.ToLowerInvariant());
+    }
+
+    [Fact]
+    public void GetCellReference_MaxExcelIndexes_ShouldReturnXFD1048576()
+    {
+        var reference = XlsxEditor.Core.Builders.WorksheetBuilder.GetCellReference(16383, 1048576);
+        Assert.Equal("XFD1048576", reference);
+    }
+
+    [Fact]
+    public void GetCellReference_ColumnBeyondMax_ShouldThrowXlsxException()
+    {
+        var ex = Assert.Throws<XlsxException>(
+            () => XlsxEditor.Core.Builders.WorksheetBuilder.GetCellReference(16384, 1));
+        Assert.Contains("XFD", ex.Message);
+    }
+
+    [Fact]
+    public void GetCellReference_RowBeyondMax_ShouldThrowXlsxException()
+    {
+        var ex = Assert.Throws<XlsxException>(
+            () => XlsxEditor.Core.Builders.WorksheetBuilder.GetCellReference(0, 1048577));
+        Assert.Contains("1,048,576", ex.Message);
+    }
+
+    [Fact]
+    public void GetRange_ReversedRange_ShouldThrowXlsxException()
+    {
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var worksheet = builder.AddWorksheet("Sheet1");
+
+        var ex = Assert.Throws<XlsxException>(() => worksheet.GetRange("C3", "A1"));
+        Assert.Contains("reversed", ex.Message.ToLowerInvariant());
+    }
+
+    [Fact]
+    public void GetRange_SameRowReversedColumns_ShouldThrowXlsxException()
+    {
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var worksheet = builder.AddWorksheet("Sheet1");
+
+        Assert.Throws<XlsxException>(() => worksheet.GetRange("B1", "A1"));
+    }
+
+    [Fact]
+    public void GetRange_SameColumnReversedRows_ShouldThrowXlsxException()
+    {
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var worksheet = builder.AddWorksheet("Sheet1");
+
+        Assert.Throws<XlsxException>(() => worksheet.GetRange("A3", "A1"));
+    }
+
+    [Fact]
+    public void GetRange_MalformedReference_ShouldThrowXlsxException()
+    {
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var worksheet = builder.AddWorksheet("Sheet1");
+
+        var ex = Assert.Throws<XlsxException>(() => worksheet.GetRange("1A", "B2"));
+        Assert.Contains("Invalid cell reference", ex.Message);
+    }
+
+    [Fact]
+    public void ClearRange_ReversedRange_ShouldThrowXlsxException()
+    {
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var worksheet = builder.AddWorksheet("Sheet1");
+
+        var ex = Assert.Throws<XlsxException>(() => worksheet.ClearRange("B2", "A1"));
+        Assert.Contains("reversed", ex.Message.ToLowerInvariant());
+    }
+
     [Fact]
     public void AddCell_LowercaseReference_ShouldNormalizeToSameCell()
     {
