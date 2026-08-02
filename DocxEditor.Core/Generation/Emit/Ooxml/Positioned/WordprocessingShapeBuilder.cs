@@ -110,6 +110,8 @@ internal static class WordprocessingShapeBuilder
     /// Builds the <c>p:pic</c> floating picture shell around a supplied image relationship
     /// id (<paramref name="embedId"/>). <paramref name="srcRect"/> carries an optional
     /// <c>a:srcRect</c> crop (values are 1/1000ths of a percent, 100000 = 100%).
+    /// <paramref name="offsetXEmu"/>/<paramref name="offsetYEmu"/> are the canonical
+    /// transform offset (letterboxing), normally zero.
     /// </summary>
     public static Pic.Picture BuildPicture(
         uint id,
@@ -119,7 +121,9 @@ internal static class WordprocessingShapeBuilder
         double heightPt,
         double rotation,
         string embedId,
-        (int Left, int Top, int Right, int Bottom)? srcRect)
+        (int Left, int Top, int Right, int Bottom)? srcRect,
+        long offsetXEmu = 0,
+        long offsetYEmu = 0)
     {
         // In the DOCX pic context the non-visual properties live in the picture namespace
         // (pic:cNvPr), unlike wps shapes which reuse DrawingML-main a:cNvPr.
@@ -150,7 +154,7 @@ internal static class WordprocessingShapeBuilder
         blipFill.Append(new A.Stretch(new A.FillRectangle()));
 
         Pic.ShapeProperties shapeProperties = new(
-            BuildTransform(widthPt, heightPt, rotation),
+            BuildTransform(widthPt, heightPt, rotation, offsetXEmu, offsetYEmu),
             new A.PresetGeometry(new A.AdjustValueList()) { Preset = A.ShapeTypeValues.Rectangle },
             new A.NoFill(),
             new A.Outline(new A.NoFill()));
@@ -220,7 +224,8 @@ internal static class WordprocessingShapeBuilder
         return bodyProperties;
     }
 
-    private static A.Transform2D BuildTransform(double widthPt, double heightPt, double rotation)
+    private static A.Transform2D BuildTransform(
+        double widthPt, double heightPt, double rotation, long offsetXEmu = 0, long offsetYEmu = 0)
     {
         A.Transform2D transform = new();
         if (rotation != 0.0)
@@ -228,7 +233,7 @@ internal static class WordprocessingShapeBuilder
             transform.Rotation = NormalizeAngle(rotation);
         }
 
-        transform.Append(new A.Offset { X = 0, Y = 0 });
+        transform.Append(new A.Offset { X = offsetXEmu, Y = offsetYEmu });
         transform.Append(new A.Extents { Cx = PtToEmu(widthPt), Cy = PtToEmu(heightPt) });
         return transform;
     }

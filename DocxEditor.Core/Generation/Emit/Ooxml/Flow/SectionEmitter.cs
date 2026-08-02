@@ -87,21 +87,11 @@ internal static class SectionEmitter
             return;
         }
 
-        for (var i = 0; i < section.Positioned.Count; i++)
-        {
-            if (section.Positioned[i] is PositionedImage image)
-            {
-                _ = context.Images.Resolve(
-                    context.MainPart,
-                    image.Source,
-                    $"$.{sectionPath}.positioned[{i}].src");
-            }
-        }
-
-        var result = context.PositionedEmitter.Emit(context.MainPart, body, section.Positioned);
+        var positionedPath = $"$.{sectionPath}.positioned";
+        var result = context.PositionedEmitter.Emit(context.MainPart, body, section.Positioned, positionedPath);
         foreach (var warning in result.Warnings)
         {
-            var warningPath = $"$.{sectionPath}.positioned[{warning.Index}]";
+            var warningPath = positionedPath + $"[{warning.Index}]";
             if (!string.IsNullOrEmpty(warning.PathSuffix))
             {
                 warningPath += $".{warning.PathSuffix}";

@@ -22,7 +22,11 @@ internal sealed class DesignTokenResolver
 
     /// <summary>
     /// Resolves a color reference (palette token or #RRGGBB) to its RRGGBB hex without the
-    /// leading '#'. Unknown references fall back to <paramref name="fallbackHex"/>.
+    /// leading '#'. Palette tokens take precedence over raw hex literals (mirroring the
+    /// canonical <c>DocxDesignResolver</c> precedence: palette first, then hex), so a token
+    /// shadows a hex-shaped reference. A bare <c>RRGGBB</c> string that is not a token is
+    /// interpreted as hex — the parser only accepts <c>#RRGGBB</c>, so this only matters for
+    /// models built by hand. Unknown references fall back to <paramref name="fallbackHex"/>.
     /// </summary>
     public string ResolveHex(string? color, string fallbackHex)
     {
@@ -31,18 +35,22 @@ internal sealed class DesignTokenResolver
             return fallbackHex;
         }
 
-        if (color.StartsWith('#'))
-        {
-            return color.Length == 7 ? color[1..].ToUpperInvariant() : fallbackHex;
-        }
-
         if (_design is not null && _design.Palette.TryGetValue(color, out string? hex) && !string.IsNullOrWhiteSpace(hex))
         {
             return hex.StartsWith('#') ? hex[1..].ToUpperInvariant() : hex.ToUpperInvariant();
         }
 
-        return fallbackHex;
+        if (color.StartsWith('#'))
+        {
+            return color.Length == 7 ? color[1..].ToUpperInvariant() : fallbackHex;
+        }
+
+        return IsBareHex(color) ? color.ToUpperInvariant() : fallbackHex;
     }
+
+    private static bool IsBareHex(string color) =>
+        color.Length == 6 && color.All(c =>
+            c is >= '0' and <= '9' or >= 'a' and <= 'f' or >= 'A' and <= 'F');
 
     /// <summary>
     /// Resolves a font reference: the slot names "display"/"body" map to the design font

@@ -147,8 +147,9 @@ public sealed class DocxOoxmlEmitter : IDocxDocumentEmitter, IDisposable
     }
 
     /// <summary>
-    /// Saves the emitted package to <paramref name="stream"/> and leaves it open. The document
-    /// must be emitted (or the package auto-creates a blank document so this never fails).
+    /// Saves the emitted package to <paramref name="stream"/> and leaves it open, flushed,
+    /// with its position at the end of the written bytes. The document must be emitted (or
+    /// the package auto-creates a blank document so this never fails).
     /// </summary>
     public void Save(Stream stream)
     {
@@ -160,6 +161,7 @@ public sealed class DocxOoxmlEmitter : IDocxDocumentEmitter, IDisposable
         _packageStream!.Position = 0;
         _packageStream.CopyTo(stream);
         _packageStream.Position = 0;
+        stream.Flush();
     }
 
     /// <summary>Returns the emitted package as a byte array.</summary>
