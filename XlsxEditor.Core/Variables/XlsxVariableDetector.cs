@@ -67,6 +67,11 @@ public class XlsxVariableDetector
 
     private string GetCellText(Cell cell, WorkbookPart workbookPart)
     {
+        if (cell.DataType?.Value == CellValues.InlineString && cell.InlineString is not null)
+        {
+            return cell.InlineString.InnerText;
+        }
+
         if (cell.DataType?.Value == CellValues.SharedString && cell.CellValue?.Text != null)
         {
             if (int.TryParse(cell.CellValue.Text, out var sharedStringIndex))
