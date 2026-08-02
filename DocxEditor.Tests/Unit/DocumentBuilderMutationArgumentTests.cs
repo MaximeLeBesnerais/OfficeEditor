@@ -206,6 +206,28 @@ public class DocumentBuilderMutationArgumentTests : IDisposable
         Assert.False(File.Exists(expectedA));
     }
 
+    [Fact]
+    public void MergeBatch_WithNullValueInRecord_ThrowsAndWritesNoFiles()
+    {
+        // Gap fixed: a null value previously flowed into the per-record path, silently dropping the
+        // variable from the generated file name; the whole batch is now prevalidated so a null value
+        // fails up front with an argument exception — before any output file, including earlier
+        // records' files, is written.
+        var outputPattern = Path.Combine(Path.GetTempPath(), $"batch_{Guid.NewGuid():N}_{{index}}_{{name}}.docx");
+        var expectedA = outputPattern.Replace("{index}", "0").Replace("{name}", "Ada");
+        _tempFiles.Add(expectedA);
+        using var builder = DocumentBuilder.Create();
+
+        var ex = Assert.Throws<ArgumentException>(() => builder.MergeBatch(
+            new List<Dictionary<string, string>>
+            {
+                new() { ["name"] = "Ada" },
+                new() { ["name"] = null! },
+            }, outputPattern));
+        Assert.Contains("records[1]", ex.Message);
+        Assert.False(File.Exists(expectedA), "Prevalidation must reject before any output file is written.");
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]

@@ -310,6 +310,107 @@ public class DocumentBuilderAdvancedTests : IDisposable
     }
 
     [Fact]
+    public void MergeBatch_Success_LeavesNoTempArtifacts()
+    {
+        // Each record is written to a temp file and atomically moved onto its final output; a
+        // successful batch must therefore never leave a *.tmp file behind in the output directory.
+        using (var builder = DocumentBuilder.Create(_testFilePath))
+        {
+            builder.AddParagraph("Hello {{name}}");
+            builder.Save();
+        }
+
+        var outputDir = Path.Combine(Path.GetTempPath(), $"merge_clean_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(outputDir);
+        var outputPattern = Path.Combine(outputDir, "out_{index}.docx");
+        var expectedA = outputPattern.Replace("{index}", "0");
+        var expectedB = outputPattern.Replace("{index}", "1");
+        _additionalFiles.Add(expectedA);
+        _additionalFiles.Add(expectedB);
+
+        var batchRunnerPath = Path.Combine(Path.GetTempPath(), $"merge_runner_{Guid.NewGuid():N}.docx");
+        _additionalFiles.Add(batchRunnerPath);
+        try
+        {
+            using (var builder = DocumentBuilder.Create(batchRunnerPath))
+            {
+                builder.MergeBatch(new List<Dictionary<string, string>>
+                {
+                    new() { ["name"] = "Ada" },
+                    new() { ["name"] = "Bob" },
+                }, outputPattern, _testFilePath);
+            }
+
+            Assert.True(File.Exists(expectedA));
+            Assert.True(File.Exists(expectedB));
+            Assert.Empty(Directory.GetFiles(outputDir, "*.tmp"));
+        }
+        finally
+        {
+            if (Directory.Exists(outputDir))
+            {
+                Directory.Delete(outputDir, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public void MergeBatch_WithFailingRecord_PreservesExistingOutputAndLeavesNoTempArtifacts()
+    {
+        // Per-record atomicity: each record is generated into a temp file in the destination
+        // directory and atomically moved onto its final output, so a failing record never leaves a
+        // corrupt partial file and never clobbers a pre-existing destination. Here record 0
+        // completes, then record 1 fails because its final path is already occupied by an unrelated
+        // directory (the atomic rename refuses to replace it); the completed record-0 output and the
+        // occupied path both survive with no temp artifact left behind. Earlier records remaining on
+        // a later failure is documented per-record (not whole-batch) batch semantics.
+        using (var builder = DocumentBuilder.Create(_testFilePath))
+        {
+            builder.AddParagraph("Hello {{name}}");
+            builder.Save();
+        }
+
+        var outputDir = Path.Combine(Path.GetTempPath(), $"merge_atomic_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(outputDir);
+        var outputPattern = Path.Combine(outputDir, "out_{index}.docx");
+        var expectedA = outputPattern.Replace("{index}", "0");
+        var occupiedDestination = outputPattern.Replace("{index}", "1");
+        _additionalFiles.Add(expectedA);
+        Directory.CreateDirectory(occupiedDestination);
+
+        var batchRunnerPath = Path.Combine(Path.GetTempPath(), $"merge_runner_{Guid.NewGuid():N}.docx");
+        _additionalFiles.Add(batchRunnerPath);
+        try
+        {
+            using (var builder = DocumentBuilder.Create(batchRunnerPath))
+            {
+                Assert.ThrowsAny<Exception>(() => builder.MergeBatch(new List<Dictionary<string, string>>
+                {
+                    new() { ["name"] = "Ada" },
+                    new() { ["name"] = "Bob" },
+                }, outputPattern, _testFilePath));
+            }
+
+            Assert.True(File.Exists(expectedA), "Earlier completed records must remain on a later failure.");
+            using (var firstDoc = WordprocessingDocument.Open(expectedA, false))
+            {
+                Assert.Contains("Hello Ada", firstDoc.MainDocumentPart!.Document!.Body!.InnerText);
+            }
+
+            Assert.True(Directory.Exists(occupiedDestination),
+                "A failed record must not replace its pre-existing destination.");
+            Assert.Empty(Directory.GetFiles(outputDir, "*.tmp"));
+        }
+        finally
+        {
+            if (Directory.Exists(outputDir))
+            {
+                Directory.Delete(outputDir, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
     public void AddHyperlink_ShouldCreateHyperlinkRelationshipAndElement()
     {
         using (var builder = DocumentBuilder.Create(_testFilePath))
