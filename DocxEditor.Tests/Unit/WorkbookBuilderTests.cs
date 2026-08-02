@@ -1978,6 +1978,467 @@ public class WorkbookBuilderTests : IDisposable
         Assert.Equal("42", ws.GetCellValue("C1"));
     }
 
+    // ─── Explicit column widths and row heights ──────────────────
+
+    [Fact]
+    public void SetColumnWidth_ShouldWriteSingleColDefinition()
+    {
+        // Act
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            var sheet = builder.AddWorksheet("Sheet1");
+            Assert.Same(sheet, sheet.SetColumnWidth("B", 20.5));
+            builder.Save();
+        }
+
+        // Assert: <col min="2" max="2" width="20.5" customWidth="1"/>
+        using var doc = SpreadsheetDocument.Open(_testFilePath, false);
+        var col = Assert.Single(doc.WorkbookPart!.WorksheetParts.First().Worksheet!
+            .GetFirstChild<Columns>()!.Elements<Column>());
+        Assert.Equal(2u, col.Min!.Value);
+        Assert.Equal(2u, col.Max!.Value);
+        Assert.Equal(20.5, col.Width!.Value);
+        Assert.True(col.CustomWidth!.Value);
+        OpenXmlAssert.NoValidationErrors(doc);
+    }
+
+    [Fact]
+    public void SetColumnWidth_MultipleColumnsOutOfOrder_ShouldBeSortedWithoutOverlap()
+    {
+        // Act: write C, then A, then B — forced out-of-order insertion
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            var sheet = builder.AddWorksheet("Sheet1");
+            sheet.SetColumnWidth("C", 30);
+            sheet.SetColumnWidth("A", 10);
+            sheet.SetColumnWidth("B", 20);
+            builder.Save();
+        }
+
+        // Assert: one sorted, non-overlapping definition per column
+        using var doc = SpreadsheetDocument.Open(_testFilePath, false);
+        var cols = doc.WorkbookPart!.WorksheetParts.First().Worksheet!
+            .GetFirstChild<Columns>()!.Elements<Column>().ToList();
+        Assert.Equal(3, cols.Count);
+        Assert.Equal(new[] { 1u, 2u, 3u }, cols.Select(c => c.Min!.Value));
+        Assert.Equal(new[] { 1u, 2u, 3u }, cols.Select(c => c.Max!.Value));
+        Assert.Equal(new[] { 10.0, 20.0, 30.0 }, cols.Select(c => c.Width!.Value));
+        OpenXmlAssert.NoValidationErrors(doc);
+    }
+
+    [Fact]
+    public void SetColumnWidth_RepeatedCall_UpdatesInPlace_WithoutDuplicates()
+    {
+        // Act: the same column is set three times, interleaved with another column
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            var sheet = builder.AddWorksheet("Sheet1");
+            sheet.SetColumnWidth("A", 10);
+            sheet.SetColumnWidth("A", 30);
+            sheet.SetColumnWidth("B", 15);
+            sheet.SetColumnWidth("A", 40);
+            builder.Save();
+        }
+
+        // Assert: A appears exactly once, last width wins
+        using var doc = SpreadsheetDocument.Open(_testFilePath, false);
+        var cols = doc.WorkbookPart!.WorksheetParts.First().Worksheet!
+            .GetFirstChild<Columns>()!.Elements<Column>().ToList();
+        Assert.Equal(2, cols.Count);
+        var a = cols.Single(c => c.Min!.Value == 1);
+        Assert.Equal(1u, a.Max!.Value);
+        Assert.Equal(40.0, a.Width!.Value);
+        OpenXmlAssert.NoValidationErrors(doc);
+    }
+
+    [Fact]
+    public void SetColumnWidth_InsertBetweenExistingColumns_ShouldPreserveOthers()
+    {
+        // Act: A and C exist before B is inserted between them
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            var sheet = builder.AddWorksheet("Sheet1");
+            sheet.SetColumnWidth("A", 10);
+            sheet.SetColumnWidth("C", 30);
+            sheet.SetColumnWidth("B", 20);
+            builder.Save();
+        }
+
+        // Assert: all three survive with their own widths
+        using var doc = SpreadsheetDocument.Open(_testFilePath, false);
+        var cols = doc.WorkbookPart!.WorksheetParts.First().Worksheet!
+            .GetFirstChild<Columns>()!.Elements<Column>()
+            .ToDictionary(c => c.Min!.Value, c => c.Width!.Value);
+        Assert.Equal(3, cols.Count);
+        Assert.Equal(new[] { 1u, 2u, 3u }, cols.Keys.OrderBy(k => k));
+        Assert.Equal(10.0, cols[1]);
+        Assert.Equal(20.0, cols[2]);
+        Assert.Equal(30.0, cols[3]);
+        OpenXmlAssert.NoValidationErrors(doc);
+    }
+
+    [Fact]
+    public void SetColumnWidth_ShouldPreserveExistingCells()
+    {
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            var sheet = builder.AddWorksheet("Sheet1");
+            sheet.AddCell("A1", "value");
+            sheet.SetColumnWidth("A", 25);
+            builder.Save();
+        }
+
+        using var reader = WorkbookBuilder.Open(_testFilePath);
+        var ws = reader.GetWorksheet("Sheet1");
+        Assert.Equal("value", ws.GetCellValue("A1"));
+        Assert.Equal(25.0, ws.GetColumnWidth("A"));
+    }
+
+    [Fact]
+    public void SetColumnWidth_ColumnInsideExistingRange_ShouldSplitPreservingOthers()
+    {
+        // A workbook authored with a multi-column definition (as Excel writes when a range
+        // of columns shares one width). Setting one column must split the range instead of
+        // emitting an overlapping <col> that would corrupt the column model.
+        var bytes = CreateWorkbookWithColumnRange();
+        byte[] saved;
+        using (var builder = WorkbookBuilder.Open(bytes))
+        {
+            builder.GetWorksheet("Sheet1").SetColumnWidth("B", 20);
+            saved = builder.SaveToBytes();
+        }
+
+        // Assert: 1..1=10, 2..2=20, 3..5=10, 7..7=22 — widths preserved around the split
+        using var reader = WorkbookBuilder.Open(saved);
+        var ws = reader.GetWorksheet("Sheet1");
+        Assert.Equal(10.0, ws.GetColumnWidth("A"));
+        Assert.Equal(20.0, ws.GetColumnWidth("B"));
+        Assert.Equal(10.0, ws.GetColumnWidth("D"));
+        Assert.Equal(22.0, ws.GetColumnWidth("G"));
+        Assert.Null(ws.GetColumnWidth("Z"));
+
+        using var doc = SpreadsheetDocument.Open(new MemoryStream(saved), false);
+        var cols = doc.WorkbookPart!.WorksheetParts.First().Worksheet!
+            .GetFirstChild<Columns>()!.Elements<Column>().ToList();
+        Assert.Equal(4, cols.Count);
+        Assert.Equal(new[] { 1u, 2u, 3u, 7u }, cols.Select(c => c.Min!.Value));
+        OpenXmlAssert.NoValidationErrors(doc);
+    }
+
+    [Theory]
+    [InlineData(0.0)]
+    [InlineData(-5.0)]
+    [InlineData(256.0)]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(double.NegativeInfinity)]
+    public void SetColumnWidth_InvalidWidth_ThrowsXlsxException_AndLeavesWorksheetUnmodified(double width)
+    {
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var sheet = builder.AddWorksheet("Sheet1");
+
+        // Act & Assert: validation runs before any mutation, so no <col> is written
+        var ex = Assert.Throws<XlsxException>(() => sheet.SetColumnWidth("A", width));
+        Assert.Contains("width", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Null(sheet.GetColumnWidth("A"));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData(null)]
+    [InlineData("A1")]
+    [InlineData("AAAA")]
+    [InlineData("XFE")]
+    [InlineData("1")]
+    public void SetColumnWidth_InvalidColumn_ThrowsXlsxException(string? column)
+    {
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var sheet = builder.AddWorksheet("Sheet1");
+
+        var ex = Assert.Throws<XlsxException>(() => sheet.SetColumnWidth(column!, 20));
+        Assert.Contains("column", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Null(sheet.GetColumnWidth("A"));
+    }
+
+    [Theory]
+    [InlineData(255.0)]
+    [InlineData(1.0)]
+    [InlineData(0.5)]
+    public void SetColumnWidth_ValidBoundaryWidths_ShouldBeAccepted(double width)
+    {
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var sheet = builder.AddWorksheet("Sheet1");
+
+        sheet.SetColumnWidth("A", width);
+
+        Assert.Equal(width, sheet.GetColumnWidth("A"));
+    }
+
+    [Fact]
+    public void SetColumnWidth_LowercaseAndMaxColumn_ShouldNormalizeAndSucceed()
+    {
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var sheet = builder.AddWorksheet("Sheet1");
+
+        sheet.SetColumnWidth("a", 12.5);
+        sheet.SetColumnWidth("XFD", 255.0);
+
+        Assert.Equal(12.5, sheet.GetColumnWidth("A"));
+        Assert.Equal(12.5, sheet.GetColumnWidth("a"));
+        Assert.Equal(255.0, sheet.GetColumnWidth("XFD"));
+    }
+
+    [Fact]
+    public void SetRowHeight_ShouldWriteHtAndCustomHeight()
+    {
+        // Act
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            var sheet = builder.AddWorksheet("Sheet1");
+            Assert.Same(sheet, sheet.SetRowHeight(2, 30));
+            builder.Save();
+        }
+
+        // Assert: <row r="2" ht="30" customHeight="1"/>
+        using var doc = SpreadsheetDocument.Open(_testFilePath, false);
+        var row = Assert.Single(doc.WorkbookPart!.WorksheetParts.First().Worksheet!
+            .GetFirstChild<SheetData>()!.Elements<Row>());
+        Assert.Equal(2u, row.RowIndex!.Value);
+        Assert.Equal(30.0, row.Height!.Value);
+        Assert.True(row.CustomHeight!.Value);
+        OpenXmlAssert.NoValidationErrors(doc);
+    }
+
+    [Fact]
+    public void SetRowHeight_RepeatedCall_UpdatesInPlace()
+    {
+        // Act: row 1 is set twice, interleaved with another row
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            var sheet = builder.AddWorksheet("Sheet1");
+            sheet.SetRowHeight(1, 20);
+            sheet.SetRowHeight(2, 25);
+            sheet.SetRowHeight(1, 40);
+            builder.Save();
+        }
+
+        // Assert: one row element per index, last height wins
+        using var doc = SpreadsheetDocument.Open(_testFilePath, false);
+        var rows = doc.WorkbookPart!.WorksheetParts.First().Worksheet!
+            .GetFirstChild<SheetData>()!.Elements<Row>().ToList();
+        Assert.Equal(2, rows.Count);
+        Assert.Equal(40.0, rows.Single(r => r.RowIndex!.Value == 1).Height!.Value);
+        OpenXmlAssert.NoValidationErrors(doc);
+    }
+
+    [Fact]
+    public void SetRowHeight_ShouldPreserveExistingCellsAndStyles()
+    {
+        // Act: set heights on rows that already carry header/data cells
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            var sheet = builder.AddWorksheet("Sheet1");
+            sheet.AddHeaderRow(new List<string> { "Name", "City" });
+            sheet.AddDataRow(new List<string> { "Ada", "Paris" }, 2);
+            sheet.SetRowHeight(1, 30);
+            sheet.SetRowHeight(2, 45);
+            builder.Save();
+        }
+
+        // Assert: cells and header styles survive the height write
+        using (var doc = SpreadsheetDocument.Open(_testFilePath, false))
+        {
+            var rows = doc.WorkbookPart!.WorksheetParts.First().Worksheet!
+                .GetFirstChild<SheetData>()!.Elements<Row>().ToList();
+            var header = rows.Single(r => r.RowIndex!.Value == 1);
+            Assert.Equal(30.0, header.Height!.Value);
+            var headerCells = header.Elements<Cell>().ToList();
+            Assert.Equal(2, headerCells.Count);
+            Assert.All(headerCells, c => Assert.Equal(1u, c.StyleIndex!.Value));
+
+            var data = rows.Single(r => r.RowIndex!.Value == 2);
+            Assert.Equal(45.0, data.Height!.Value);
+            Assert.Equal(new[] { "A2", "B2" }, data.Elements<Cell>()
+                .Select(c => c.CellReference!.Value));
+            OpenXmlAssert.NoValidationErrors(doc);
+        }
+
+        // Values still resolve through the public API after the height writes
+        using var reader = WorkbookBuilder.Open(_testFilePath);
+        var ws = reader.GetWorksheet("Sheet1");
+        Assert.Equal("Ada", ws.GetCellValue("A2"));
+        Assert.Equal("Paris", ws.GetCellValue("B2"));
+    }
+
+    [Fact]
+    public void SetRowHeight_ThenAddCell_ShouldCoexist()
+    {
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            var sheet = builder.AddWorksheet("Sheet1");
+            sheet.SetRowHeight(3, 40);
+            sheet.AddCell("A3", "value");
+            builder.Save();
+        }
+
+        using var reader = WorkbookBuilder.Open(_testFilePath);
+        var ws = reader.GetWorksheet("Sheet1");
+        Assert.Equal(40.0, ws.GetRowHeight(3));
+        Assert.Equal("value", ws.GetCellValue("A3"));
+    }
+
+    [Theory]
+    [InlineData(0.0)]
+    [InlineData(-1.0)]
+    [InlineData(409.6)]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(double.NegativeInfinity)]
+    public void SetRowHeight_InvalidHeight_ThrowsXlsxException_AndLeavesWorksheetUnmodified(double height)
+    {
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var sheet = builder.AddWorksheet("Sheet1");
+
+        var ex = Assert.Throws<XlsxException>(() => sheet.SetRowHeight(1, height));
+        Assert.Contains("height", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Null(sheet.GetRowHeight(1));
+        Assert.Empty(sheet.GetRows());
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    [InlineData(1_048_577)]
+    public void SetRowHeight_InvalidRowIndex_ThrowsXlsxException(int rowIndex)
+    {
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var sheet = builder.AddWorksheet("Sheet1");
+
+        var ex = Assert.Throws<XlsxException>(() => sheet.SetRowHeight(rowIndex, 30));
+        Assert.Contains("row", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(sheet.GetRows());
+    }
+
+    [Theory]
+    [InlineData(1, 409.5)]
+    [InlineData(1_048_576, 1.0)]
+    public void SetRowHeight_BoundaryValues_ShouldSucceed(int rowIndex, double height)
+    {
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var sheet = builder.AddWorksheet("Sheet1");
+
+        sheet.SetRowHeight(rowIndex, height);
+
+        Assert.Equal(height, sheet.GetRowHeight(rowIndex));
+    }
+
+    [Fact]
+    public void ColumnWidthsAndRowHeights_PersistAcrossSaveAndReopen()
+    {
+        // Arrange & Act: build a workbook with widths, heights and cells
+        byte[] bytes;
+        using (var builder = WorkbookBuilder.Create())
+        {
+            var sheet = builder.AddWorksheet("Sheet1");
+            sheet.SetColumnWidth("A", 20);
+            sheet.SetColumnWidth("C", 15.5);
+            sheet.SetRowHeight(1, 30);
+            sheet.SetRowHeight(2, 45);
+            sheet.AddCell("A1", "keep");
+            bytes = builder.SaveToBytes();
+        }
+
+        // Assert: everything reads back through the public API after a save/reopen
+        using (var reader = WorkbookBuilder.Open(bytes))
+        {
+            var ws = reader.GetWorksheet("Sheet1");
+            Assert.Equal(20.0, ws.GetColumnWidth("A"));
+            Assert.Null(ws.GetColumnWidth("B"));
+            Assert.Equal(15.5, ws.GetColumnWidth("C"));
+            Assert.Equal(30.0, ws.GetRowHeight(1));
+            Assert.Equal(45.0, ws.GetRowHeight(2));
+            Assert.Null(ws.GetRowHeight(3));
+            Assert.Equal("keep", ws.GetCellValue("A1"));
+        }
+
+        using var doc = SpreadsheetDocument.Open(new MemoryStream(bytes), false);
+        OpenXmlAssert.NoValidationErrors(doc);
+    }
+
+    [Fact]
+    public void ColumnWidthsAndRowHeights_ReopenedWorkbook_UpdateInPlaceWithoutDuplicates()
+    {
+        // Arrange: a saved workbook with widths and heights
+        byte[] bytes;
+        using (var builder = WorkbookBuilder.Create())
+        {
+            var sheet = builder.AddWorksheet("Sheet1");
+            sheet.SetColumnWidth("A", 10);
+            sheet.SetColumnWidth("B", 20);
+            sheet.SetRowHeight(1, 25);
+            bytes = builder.SaveToBytes();
+        }
+
+        // Act: reopen, overwrite every value, add a new column
+        using (var builder = WorkbookBuilder.Open(bytes))
+        {
+            var sheet = builder.GetWorksheet("Sheet1");
+            sheet.SetColumnWidth("A", 50);
+            sheet.SetColumnWidth("B", 60);
+            sheet.SetColumnWidth("C", 70);
+            sheet.SetRowHeight(1, 55);
+            bytes = builder.SaveToBytes();
+        }
+
+        // Assert: no duplicate <col> or <row> definitions appeared
+        using (var doc = SpreadsheetDocument.Open(new MemoryStream(bytes), false))
+        {
+            var cols = doc.WorkbookPart!.WorksheetParts.First().Worksheet!
+                .GetFirstChild<Columns>()!.Elements<Column>().ToList();
+            Assert.Equal(3, cols.Count);
+            var rows = doc.WorkbookPart!.WorksheetParts.First().Worksheet!
+                .GetFirstChild<SheetData>()!.Elements<Row>().ToList();
+            Assert.Single(rows);
+            Assert.Equal(55.0, rows[0].Height!.Value);
+            OpenXmlAssert.NoValidationErrors(doc);
+        }
+
+        using var reader = WorkbookBuilder.Open(bytes);
+        var ws = reader.GetWorksheet("Sheet1");
+        Assert.Equal(50.0, ws.GetColumnWidth("A"));
+        Assert.Equal(60.0, ws.GetColumnWidth("B"));
+        Assert.Equal(70.0, ws.GetColumnWidth("C"));
+        Assert.Equal(55.0, ws.GetRowHeight(1));
+    }
+
+    /// <summary>
+    /// Builds a workbook whose first sheet carries Excel-style multi-column width
+    /// definitions (1..5 at width 10, column 7 at width 22).
+    /// </summary>
+    private static byte[] CreateWorkbookWithColumnRange()
+    {
+        using var ms = new MemoryStream();
+        using (var doc = SpreadsheetDocument.Create(ms, SpreadsheetDocumentType.Workbook))
+        {
+            var workbookPart = doc.AddWorkbookPart();
+            var worksheetPart = workbookPart.AddNewPart<WorksheetPart>();
+            worksheetPart.Worksheet = new Worksheet(
+                new Columns(
+                    new Column { Min = 1u, Max = 5u, Width = 10, CustomWidth = true },
+                    new Column { Min = 7u, Max = 7u, Width = 22, CustomWidth = true }),
+                new SheetData());
+            workbookPart.Workbook = new Workbook(new Sheets(new Sheet
+            {
+                Name = "Sheet1",
+                SheetId = 1u,
+                Id = workbookPart.GetIdOfPart(worksheetPart)
+            }));
+            doc.Save();
+        }
+        return ms.ToArray();
+    }
+
     public void Dispose()
     {
         if (File.Exists(_testFilePath))

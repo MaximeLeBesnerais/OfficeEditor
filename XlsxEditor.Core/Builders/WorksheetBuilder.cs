@@ -22,6 +22,13 @@ public class WorksheetBuilder : IWorksheetBuilder
     private const int MaxColumnNumber = 16384;
     private const int MaxRowNumber = 1_048_576;
 
+    // Excel's UI limits for explicit sizes: a column width is measured in characters of
+    // the default font and caps at 255; a row height is measured in points and caps at
+    // 409.5. Larger values open but are silently clamped by Excel, so the builder rejects
+    // them as non-Excel-compatible instead of writing a value Excel will not honor.
+    private const double MaxColumnWidth = 255;
+    private const double MaxRowHeight = 409.5;
+
     public WorksheetPart WorksheetPart => _worksheetPart;
 
     public WorksheetBuilder(WorksheetPart worksheetPart, Worksheet worksheet, WorkbookBuilder workbookBuilder)
@@ -403,6 +410,57 @@ public class WorksheetBuilder : IWorksheetBuilder
             "Use fluent-API or JSON instructions to build worksheet content without charts for now.");
     }
 
+    public IWorksheetBuilder SetColumnWidth(string column, double width)
+    {
+        var columnNumber = GetColumnNumber(column);
+        ValidateColumnWidth(width, column);
+
+        // All validation runs before any mutation, so a rejected width can never leave a
+        // partial <col> behind. Idempotency is handled below: repeated calls for the same
+        // column update the existing definition instead of appending an overlapping one.
+        var cols = GetOrCreateCols();
+        var existing = cols.Elements<Column>().FirstOrDefault(c =>
+            c.Min?.Value is { } min && c.Max?.Value is { } max
+            && min <= columnNumber && columnNumber <= max);
+
+        if (existing != null)
+        {
+            if (existing.Min?.Value == columnNumber && existing.Max?.Value == columnNumber)
+            {
+                existing.Width = width;
+                existing.CustomWidth = true;
+                // bestFit signals an auto-calculated width (auto-width); it must not
+                // survive an explicit custom width or Excel may ignore the value we set.
+                existing.BestFit = false;
+                return this;
+            }
+
+            // The target column sits inside a multi-column definition (e.g. min=1 max=5
+            // authored by Excel or another tool). Splitting it keeps every other column's
+            // width/style intact while inserting a single-column override — an overlapping
+            // <col> would corrupt the worksheet's column model.
+            SplitColumnRange(existing, columnNumber, width);
+            return this;
+        }
+
+        InsertColumnAtSortedPosition(cols, CreateWidthCol(columnNumber, width));
+        return this;
+    }
+
+    public IWorksheetBuilder SetRowHeight(int rowIndex, double height)
+    {
+        ValidateRowIndex(rowIndex);
+        ValidateRowHeight(height, rowIndex);
+
+        // GetOrCreateRow reuses the existing row element (cells and styles untouched) or
+        // creates an empty one, so repeated calls update ht/customHeight in place and can
+        // never write duplicate <row> definitions.
+        var row = GetOrCreateRow(rowIndex);
+        row.Height = height;
+        row.CustomHeight = true;
+        return this;
+    }
+
     public string? GetCellValue(string cellReference)
     {
         var cell = FindCell(cellReference);
@@ -563,6 +621,24 @@ public class WorksheetBuilder : IWorksheetBuilder
         if (firstCol == int.MaxValue) firstCol = 0;
 
         return (firstRow, lastRow, firstCol, lastCol);
+    }
+
+    public double? GetColumnWidth(string column)
+    {
+        var columnNumber = GetColumnNumber(column);
+        var cols = _worksheet.GetFirstChild<Columns>();
+        var col = cols?.Elements<Column>().FirstOrDefault(c =>
+            c.Min?.Value is { } min && c.Max?.Value is { } max
+            && min <= columnNumber && columnNumber <= max);
+        return col?.Width?.Value;
+    }
+
+    public double? GetRowHeight(int rowIndex)
+    {
+        ValidateRowIndex(rowIndex);
+        var row = _sheetData.Elements<Row>()
+            .FirstOrDefault(r => r.RowIndex?.Value == (uint)rowIndex);
+        return row?.Height?.Value;
     }
 
     public IWorksheetBuilder DeleteCell(string cellReference)
@@ -879,5 +955,182 @@ public class WorksheetBuilder : IWorksheetBuilder
         }
 
         return count;
+    }
+
+    // ─── Column width / row height helpers ────────────────────────
+
+    /// <summary>
+    /// Validates an A1-style column letter ('A'..'XFD', case-insensitive) and returns its
+    /// 1-based column number (1 = A, 16384 = XFD). A row-less column letter — not a cell
+    /// reference — is the natural Excel vocabulary for addressing a column; passing a cell
+    /// reference or a row number is a misuse and is rejected with a clear message.
+    /// </summary>
+    private static int GetColumnNumber(string column)
+    {
+        if (string.IsNullOrWhiteSpace(column))
+        {
+            throw new XlsxException(
+                "Column must not be empty or whitespace. " +
+                "Use an A1-style column letter such as 'A' or 'AB'.");
+        }
+
+        if (column.Length > 3 || !column.All(char.IsAsciiLetter))
+        {
+            throw new XlsxException(
+                $"Invalid column '{column}'. Expected an A1-style column letter such as " +
+                "'A' or 'AB' (1-3 letters, no row number).");
+        }
+
+        var columnNumber = ColumnIndexFromLetters(column.ToUpperInvariant());
+        if (columnNumber > MaxColumnNumber)
+        {
+            throw new XlsxException(
+                $"Column '{column}' is beyond Excel's maximum column 'XFD'.");
+        }
+
+        return columnNumber;
+    }
+
+    private static void ValidateColumnWidth(double width, string column)
+    {
+        if (!double.IsFinite(width))
+        {
+            throw new XlsxException(
+                $"Column width for '{column}' must be a finite number; NaN and " +
+                "infinity are not valid Excel column widths.");
+        }
+
+        if (width <= 0)
+        {
+            throw new XlsxException(
+                $"Column width for '{column}' must be greater than zero " +
+                $"(Excel column-width units). Got {width}.");
+        }
+
+        if (width > MaxColumnWidth)
+        {
+            throw new XlsxException(
+                $"Column width for '{column}' must not exceed {MaxColumnWidth} " +
+                $"(Excel's maximum column width). Got {width}.");
+        }
+    }
+
+    private static void ValidateRowHeight(double height, int rowIndex)
+    {
+        if (!double.IsFinite(height))
+        {
+            throw new XlsxException(
+                $"Row height for row {rowIndex} must be a finite number; NaN and " +
+                "infinity are not valid Excel row heights.");
+        }
+
+        if (height <= 0)
+        {
+            throw new XlsxException(
+                $"Row height for row {rowIndex} must be greater than zero (points). " +
+                $"Got {height}.");
+        }
+
+        if (height > MaxRowHeight)
+        {
+            throw new XlsxException(
+                $"Row height for row {rowIndex} must not exceed {MaxRowHeight} points " +
+                $"(Excel's maximum row height). Got {height}.");
+        }
+    }
+
+    /// <summary>
+    /// Returns the worksheet's &lt;cols&gt; container, creating and inserting it in schema
+    /// position (immediately before &lt;sheetData&gt;) on first use. The element is reused
+    /// afterwards, so every column definition lives in one sorted, non-overlapping list.
+    /// </summary>
+    private Columns GetOrCreateCols()
+    {
+        var cols = _worksheet.GetFirstChild<Columns>();
+        if (cols != null)
+        {
+            return cols;
+        }
+
+        cols = new Columns();
+        _worksheet.InsertBefore(cols, _sheetData);
+        return cols;
+    }
+
+    private static void InsertColumnAtSortedPosition(Columns cols, Column newCol)
+    {
+        // Column ranges are non-overlapping, so ordering by Min alone is sufficient: a new
+        // single-column definition belongs just before the first range that starts past it.
+        var min = newCol.Min?.Value ?? 0;
+        foreach (var existing in cols.Elements<Column>())
+        {
+            if ((existing.Min?.Value ?? 0) > min)
+            {
+                cols.InsertBefore(newCol, existing);
+                return;
+            }
+        }
+
+        cols.Append(newCol);
+    }
+
+    private static Column CreateWidthCol(int columnNumber, double width)
+    {
+        return new Column
+        {
+            Min = (uint)columnNumber,
+            Max = (uint)columnNumber,
+            Width = width,
+            CustomWidth = true
+        };
+    }
+
+    /// <summary>
+    /// Splits a multi-column definition that covers <paramref name="columnNumber"/> into up
+    /// to three non-overlapping parts (left, single-column override, right), preserving the
+    /// original definition's width and formatting attributes on the untouched parts.
+    /// </summary>
+    private static void SplitColumnRange(Column existing, int columnNumber, double width)
+    {
+        var container = (Columns)existing.Parent!;
+        var min = existing.Min!.Value;
+        var max = existing.Max!.Value;
+
+        var parts = new List<Column>(3);
+        if (min < columnNumber)
+        {
+            parts.Add(CopyColumnRange(existing, min, (uint)(columnNumber - 1)));
+        }
+
+        parts.Add(CreateWidthCol(columnNumber, width));
+
+        if (columnNumber < max)
+        {
+            parts.Add(CopyColumnRange(existing, (uint)(columnNumber + 1), max));
+        }
+
+        container.InsertBefore(parts[0], existing);
+        for (var i = 1; i < parts.Count; i++)
+        {
+            container.InsertAfter(parts[i], parts[i - 1]);
+        }
+
+        container.RemoveChild(existing);
+    }
+
+    private static Column CopyColumnRange(Column source, uint min, uint max)
+    {
+        return new Column
+        {
+            Min = min,
+            Max = max,
+            Width = source.Width,
+            CustomWidth = source.CustomWidth,
+            BestFit = source.BestFit,
+            Hidden = source.Hidden,
+            Style = source.Style,
+            OutlineLevel = source.OutlineLevel,
+            Collapsed = source.Collapsed
+        };
     }
 }
