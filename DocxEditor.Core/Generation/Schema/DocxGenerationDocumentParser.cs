@@ -1120,7 +1120,7 @@ public sealed class DocxGenerationDocumentParser : IDocxGenerationParser
             }
             else if (hasRuns)
             {
-                runs = ParseRuns(textEl, $"{path}.runs");
+                runs = ParseRuns(runsEl, $"{path}.runs");
                 if (runs is null)
                 {
                     return null;
