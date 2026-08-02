@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Spreadsheet;
 
@@ -90,6 +91,14 @@ public class XlsxVariableReplacer
                 cell.CellValue = new CellValue(newIndex.ToString());
             }
         }
+        else if (cell.DataType?.Value == CellValues.InlineString && cell.InlineString is not null)
+        {
+            // Inline-string cells keep their text in <is><t>, not <v>. Writing a
+            // t="str" literal here would leave the stale <is> alongside the new <v>
+            // and change the cell's type; rewrite the inline string in place instead.
+            cell.InlineString = new InlineString(new Text(newText) { Space = SpaceProcessingModeValues.Preserve });
+            cell.CellValue = null;
+        }
         else
         {
             cell.CellValue = new CellValue(newText);
@@ -99,6 +108,11 @@ public class XlsxVariableReplacer
 
     private string GetCellText(Cell cell, WorkbookPart workbookPart)
     {
+        if (cell.DataType?.Value == CellValues.InlineString && cell.InlineString is not null)
+        {
+            return cell.InlineString.InnerText;
+        }
+
         if (cell.DataType?.Value == CellValues.SharedString && cell.CellValue?.Text != null)
         {
             if (int.TryParse(cell.CellValue.Text, out var sharedStringIndex))
@@ -130,8 +144,10 @@ public class XlsxVariableReplacer
             index++;
         }
 
-        // Add new shared string
-        var newItem = new SharedStringItem(new Text(text));
+        // Add new shared string. xml:space="preserve" so leading/trailing whitespace
+        // in a merged value survives (Excel trims <t> text without it), matching the
+        // contract the WorkbookBuilder applies to its own shared-string writes.
+        var newItem = new SharedStringItem(new Text(text) { Space = SpaceProcessingModeValues.Preserve });
         sharedStringTable.Append(newItem);
         return index;
     }
