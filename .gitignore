@@ -7,6 +7,8 @@ obj/
 .vscode/
 .opencode/bg-agents
 .opencode/plans/
+.tmp/
+.worktrees/
 *.user
 *.suo
 
