@@ -94,16 +94,42 @@ public class DocumentBuilder : IDocumentBuilder
         }
     }
 
+    /// <summary>
+    /// Creates a new DOCX document at the given path and returns a builder over it.
+    /// The path must be a non-empty, non-whitespace file path, mirroring
+    /// <see cref="Open(string)"/>; null, empty, or whitespace paths are rejected up front as
+    /// argument exceptions. If opening or initializing the package fails, the opened document
+    /// is disposed so no file handle leaks, and the original failure propagates unchanged —
+    /// ordinary path/permission and IO errors are never normalized into the domain exception.
+    /// On success the returned builder owns the document; callers must dispose it.
+    /// </summary>
     public static IDocumentBuilder Create(string path)
     {
-        var document = WordprocessingDocument.Create(path, DocumentFormat.OpenXml.WordprocessingDocumentType.Document);
-        var mainPart = document.AddMainDocumentPart();
-        mainPart.Document = new Document();
-        var body = new Body();
-        mainPart.Document.Append(body);
-        mainPart.Document.Save();
-        
-        return new DocumentBuilder(document, true, path);
+        ArgumentNullException.ThrowIfNull(path);
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            throw new ArgumentException("Path must not be empty or whitespace.", nameof(path));
+        }
+
+        WordprocessingDocument? document = null;
+        try
+        {
+            document = WordprocessingDocument.Create(path, DocumentFormat.OpenXml.WordprocessingDocumentType.Document);
+            var mainPart = document.AddMainDocumentPart();
+            mainPart.Document = new Document();
+            var body = new Body();
+            mainPart.Document.Append(body);
+            mainPart.Document.Save();
+
+            return new DocumentBuilder(document, true, path);
+        }
+        catch
+        {
+            // A failed create must never leak the partially opened package handle; the
+            // caller-visible failure is preserved and rethrown unchanged.
+            document?.Dispose();
+            throw;
+        }
     }
 
     public static IDocumentBuilder Create()
@@ -446,8 +472,21 @@ public class DocumentBuilder : IDocumentBuilder
         return paragraph;
     }
 
+    /// <summary>
+    /// Locates the first paragraph whose text contains <paramref name="text"/>. Because every
+    /// paragraph's text contains the empty string, an empty target would silently select the
+    /// first paragraph of the document — deleting, replacing, or inserting around the wrong
+    /// element — so null and empty targets are rejected as argument errors at this choke point
+    /// shared by all find-by-text operations.
+    /// </summary>
     private Paragraph? FindParagraphByText(string text)
     {
+        ArgumentNullException.ThrowIfNull(text);
+        if (string.IsNullOrEmpty(text))
+        {
+            throw new ArgumentException("Target text must be a non-empty string.", nameof(text));
+        }
+
         return _body.Elements<Paragraph>()
             .FirstOrDefault(p => p.InnerText.Contains(text));
     }
@@ -574,6 +613,20 @@ public class DocumentBuilder : IDocumentBuilder
         ) { AbstractNumberId = abstractNumId };
     }
 
+    private static void ValidateContentBlocks(List<ContentBlock> blocks)
+    {
+        ArgumentNullException.ThrowIfNull(blocks);
+        for (int i = 0; i < blocks.Count; i++)
+        {
+            // A null entry would be silently skipped by the renderer's type switch, claiming
+            // success while rendering fewer blocks than requested.
+            if (blocks[i] is null)
+            {
+                throw new ArgumentException($"blocks[{i}]: each content block must be non-null.", nameof(blocks));
+            }
+        }
+    }
+
     private static Style CreateDefaultStyle(string styleId)
     {
         return styleId switch
@@ -639,6 +692,8 @@ public class DocumentBuilder : IDocumentBuilder
 
     public IDocumentBuilder AddRichContent(List<ContentBlock> blocks)
     {
+        ValidateContentBlocks(blocks);
+
         // Numbering definitions are allocated lazily per list block via the callback,
         // so documents without lists never get a numbering part.
         var renderer = new ContentBlockRenderer(StyleMapping.Default, _cachedStyles, EnsureStyle, AllocateNumberingInstance);
@@ -648,6 +703,8 @@ public class DocumentBuilder : IDocumentBuilder
 
     public IDocumentBuilder ReplaceWithRichContent(string targetText, List<ContentBlock> blocks)
     {
+        ValidateContentBlocks(blocks);
+
         var targetParagraph = FindParagraphByText(targetText);
         if (targetParagraph == null)
         {
@@ -731,6 +788,8 @@ public class DocumentBuilder : IDocumentBuilder
 
     public IDocumentBuilder MergeVariables(Dictionary<string, string> data)
     {
+        ArgumentNullException.ThrowIfNull(data);
+
         var replacer = new Variables.DocxVariableReplacer();
         replacer.Replace(_document, data);
         return this;
@@ -738,6 +797,20 @@ public class DocumentBuilder : IDocumentBuilder
 
     public void MergeBatch(List<Dictionary<string, string>> records, string outputPattern, string? templatePath = null)
     {
+        ArgumentNullException.ThrowIfNull(records);
+        ArgumentNullException.ThrowIfNull(outputPattern);
+        if (string.IsNullOrWhiteSpace(outputPattern))
+        {
+            throw new ArgumentException("Output pattern must not be empty or whitespace.", nameof(outputPattern));
+        }
+        for (int i = 0; i < records.Count; i++)
+        {
+            if (records[i] is null)
+            {
+                throw new ArgumentException($"records[{i}]: each record must be non-null.", nameof(records));
+            }
+        }
+
         // Use provided template path or try to get from document
         var originalPath = templatePath ?? GetDocumentPath();
         

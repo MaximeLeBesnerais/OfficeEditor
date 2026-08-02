@@ -210,6 +210,33 @@ public sealed class DocxTemplateEngineTests : IDisposable
         Assert.Null(exception);
     }
 
+    [Fact]
+    public void Process_WithNullDocument_ThrowsArgumentNullException()
+    {
+        // Act / Assert
+        Assert.Throws<ArgumentNullException>(() => new DocxTemplateEngine().Process(null!, []));
+    }
+
+    [Fact]
+    public void Process_WithNullData_ThrowsArgumentNullExceptionAndLeavesDocumentUntouched()
+    {
+        // A null data dictionary previously NRE'd only when the template happened to contain
+        // conditionals or loops; with a marker-free template the call silently succeeded. The
+        // argument must be rejected up front, before any pattern-dependent work, and must never
+        // partially mutate the document.
+        var path = CreateDocument(body => body.Append(CreateParagraph("Before ", "{{#if show}}Visible{{/if}}")));
+
+        using (var document = WordprocessingDocument.Open(path, true))
+        {
+            Assert.Throws<ArgumentNullException>(() => new DocxTemplateEngine().Process(document, null!));
+        }
+
+        using var reopened = WordprocessingDocument.Open(path, false);
+        var paragraph = GetFirstParagraph(reopened);
+        Assert.Equal("Before {{#if show}}Visible{{/if}}", paragraph.InnerText);
+        Assert.Equal(["Before ", "{{#if show}}Visible{{/if}}"], paragraph.Elements<Run>().Select(run => run.GetFirstChild<Text>()!.Text).ToArray());
+    }
+
     public void Dispose()
     {
         foreach (var file in _tempFiles)
