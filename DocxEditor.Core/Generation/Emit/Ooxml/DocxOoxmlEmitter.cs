@@ -97,10 +97,12 @@ public sealed class DocxOoxmlEmitter : IDocxDocumentEmitter, IDisposable
                 _options.ImageSourceOptions,
                 _options.ImageAssetOptions,
                 _warnings);
+            var drawingIds = new DrawingIdAllocator(_document!);
             var positionedEmitter = new PositionedElementEmitter(new PositionedElementEmitOptions
             {
                 Design = document.Design,
-                ImageResolver = images
+                ImageResolver = images,
+                DrawingIdAllocator = drawingIds.Next
             });
             var context = new OoxmlEmitContext
             {
@@ -109,6 +111,7 @@ public sealed class DocxOoxmlEmitter : IDocxDocumentEmitter, IDisposable
                 DesignResolver = designResolver,
                 StyleManager = styleManager,
                 Images = images,
+                DrawingIds = drawingIds,
                 PositionedEmitter = positionedEmitter,
                 FromTemplate = document.TemplatePath is not null,
                 Warnings = _warnings
@@ -214,7 +217,9 @@ public sealed class DocxOoxmlEmitter : IDocxDocumentEmitter, IDisposable
                 $"The template file '{templatePath}' does not exist; generate from a blank document by omitting 'template'.", ex);
         }
 
-        _packageStream = new MemoryStream(bytes);
+        _packageStream = new MemoryStream();
+        _packageStream.Write(bytes);
+        _packageStream.Position = 0;
         try
         {
             _document = WordprocessingDocument.Open(_packageStream, true);

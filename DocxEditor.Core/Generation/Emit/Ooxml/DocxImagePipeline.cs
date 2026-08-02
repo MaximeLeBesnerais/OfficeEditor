@@ -41,8 +41,6 @@ internal sealed class DocxImagePipeline : IPositionedImageResolver
         return (asset, GetPartManager(owningPart).Register(asset));
     }
 
-    public uint NextDocPrId(OpenXmlPart owningPart) => GetPartManager(owningPart).NextDocPrId();
-
     public string? ResolveEmbedId(OpenXmlPart owningPart, PositionedImage image)
     {
         var (_, part) = Resolve(owningPart, image.Source, "$.positioned.image");

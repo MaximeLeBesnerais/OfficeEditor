@@ -24,7 +24,7 @@ namespace DocxEditor.Core.Generation.Emit.Ooxml.Positioned;
 /// surface as <see cref="PositionedElementEmitWarning"/> — never silent omission.
 ///
 /// Determinism: elements are emitted in ascending z-order (stable within equal z), later
-/// elements paint on top, and every drawing id is unique within the owning part.
+/// elements paint on top, and integrated generation allocates every drawing id document-wide.
 ///
 /// SDK caveat: the OpenXML SDK ships no typed classes for the <c>wps</c> vocabulary and its
 /// Office2010 schema for it is incorrect (it models <c>wps:cNvSpPr</c> as containing only
@@ -72,10 +72,13 @@ public sealed class PositionedElementEmitter
         ArgumentNullException.ThrowIfNull(elements);
 
         EmitContext context = new(owningPart, container, _options, _design, _textBoxes);
-        List<PositionedElement> ordered = [.. elements.OrderBy(e => e.Position.ZOrder)];
+        var ordered = elements
+            .Select((element, index) => (Element: element, OriginalIndex: index))
+            .OrderBy(item => item.Element.Position.ZOrder)
+            .ToList();
         for (int i = 0; i < ordered.Count; i++)
         {
-            context.EmitElement(i, ordered[i]);
+            context.EmitElement(ordered[i].OriginalIndex, ordered[i].Element);
         }
 
         return context.Result;
@@ -89,8 +92,8 @@ public sealed class PositionedElementEmitter
     }
 
     /// <summary>
-    /// Per-call emit state: the owning part + target container, the monotonically unique
-    /// drawing ids and z-heights, and the collected warnings. Created fresh per
+    /// Per-call emit state: the owning part + target container, drawing ids and z-heights,
+    /// and the collected warnings. Created fresh per
     /// <see cref="Emit"/> call so a shared emitter is deterministic and reuse-safe.
     /// </summary>
     private sealed class EmitContext
@@ -131,7 +134,7 @@ public sealed class PositionedElementEmitter
             Warnings = [.. _warnings]
         };
 
-        public uint NextDrawingId() => _nextDrawingId++;
+        public uint NextDrawingId() => _options.DrawingIdAllocator?.Invoke() ?? _nextDrawingId++;
 
         /// <summary>Monotonic anchor z-height: higher values paint on top, matching the emit (z) order.</summary>
         public uint NextRelativeHeight() => RelativeHeightBase + _emitted;
@@ -140,8 +143,11 @@ public sealed class PositionedElementEmitter
 
         public void RecordSkipped() => _skipped++;
 
-        public void Warn(int index, string elementType, string message)
-            => _warnings.Add(new PositionedElementEmitWarning(index, elementType, message));
+        public void Warn(int index, string elementType, string message, string? pathSuffix = null)
+            => _warnings.Add(new PositionedElementEmitWarning(index, elementType, message)
+            {
+                PathSuffix = pathSuffix
+            });
 
         public void EmitElement(int index, PositionedElement element)
         {
@@ -248,6 +254,13 @@ public sealed class PositionedElementEmitter
             StrokeSpec stroke = _design.ResolveLineStroke(element.Stroke);
             (string? strokeHex, double strokeWidthPt) = ResolveStroke(stroke);
 
+            if (Math.Abs(position.Rotation % 360.0) > 0.000001)
+            {
+                context.Warn(index, "line",
+                    "rotation was not applied because rotating an endpoint-defined line would change its declared endpoints.",
+                    "position.rotation");
+            }
+
             uint id = NextDrawingId();
             OpenXmlUnknownElement shape = WordprocessingShapeBuilder.BuildLine(
                 id, $"Line {id}", position.Alt, lengthPt, vertical, strokeHex!, strokeWidthPt);
@@ -322,12 +335,11 @@ public sealed class PositionedElementEmitter
                     srcRect = (Percent(crop.Left), Percent(crop.Top), Percent(crop.Right), Percent(crop.Bottom));
                     break;
                 case ImageFitMode.Crop:
-                    break;
                 case ImageFitMode.Fill:
                 case ImageFitMode.Contain:
                     if (resolver.TryGetNaturalPixelSize(element.Source, out int naturalWidth, out int naturalHeight))
                     {
-                        if (element.Fit == ImageFitMode.Fill)
+                        if (element.Fit is ImageFitMode.Fill or ImageFitMode.Crop)
                         {
                             srcRect = ComputeCoverCrop(naturalWidth, naturalHeight, widthPt, heightPt);
                         }
@@ -351,7 +363,7 @@ public sealed class PositionedElementEmitter
 
             uint id = NextDrawingId();
             A.Pictures.Picture picture = WordprocessingShapeBuilder.BuildPicture(
-                id, $"Picture {id}", position.Alt, widthPt, heightPt, embedId, srcRect);
+                id, $"Picture {id}", position.Alt, widthPt, heightPt, position.Rotation, embedId, srcRect);
 
             AppendAnchor(context, index, "image", "Picture", position, widthPt, heightPt, picture);
         }

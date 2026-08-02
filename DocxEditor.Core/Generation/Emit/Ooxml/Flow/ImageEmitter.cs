@@ -25,7 +25,8 @@ internal static class ImageEmitter
         var drawing = InlinePictureXmlFactory.BuildInline(
             part,
             geometry,
-            context.Images.NextDocPrId(owningPart),
+            context.NextDrawingId(),
+            context.NextDrawingId(),
             image.Alt);
         container.Append(new Paragraph(new DocumentFormat.OpenXml.Wordprocessing.Run(drawing)));
     }

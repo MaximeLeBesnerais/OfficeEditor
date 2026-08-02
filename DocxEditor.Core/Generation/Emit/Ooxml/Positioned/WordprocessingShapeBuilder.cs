@@ -117,6 +117,7 @@ internal static class WordprocessingShapeBuilder
         string? alt,
         double widthPt,
         double heightPt,
+        double rotation,
         string embedId,
         (int Left, int Top, int Right, int Bottom)? srcRect)
     {
@@ -149,9 +150,7 @@ internal static class WordprocessingShapeBuilder
         blipFill.Append(new A.Stretch(new A.FillRectangle()));
 
         Pic.ShapeProperties shapeProperties = new(
-            new A.Transform2D(
-                new A.Offset { X = 0, Y = 0 },
-                new A.Extents { Cx = PtToEmu(widthPt), Cy = PtToEmu(heightPt) }),
+            BuildTransform(widthPt, heightPt, rotation),
             new A.PresetGeometry(new A.AdjustValueList()) { Preset = A.ShapeTypeValues.Rectangle },
             new A.NoFill(),
             new A.Outline(new A.NoFill()));
