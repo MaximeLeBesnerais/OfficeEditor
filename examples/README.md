@@ -1,6 +1,6 @@
 # OfficeEditor Examples
 
-Each example shows the **input → transformation → output** so you know exactly what goes in and what comes out.
+Each example page shows the **input → transformation → output**. The console runner exercises the core numbered examples; later sections may be standalone, tested library snippets where explicitly noted.
 
 ## Quick Start
 

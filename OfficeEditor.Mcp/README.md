@@ -196,3 +196,5 @@ initialize → tools/list → anatomize → replaceText on slide 1 → render sl
 - The host trusts the local caller: it executes arbitrary deck edits and renders on
   demand, which is CPU/memory intensive by nature. Do not expose it behind an
   unsandboxed multi-tenant transport.
+
+See the repository [security policy](../SECURITY.md) for vulnerability reporting and the full trust model.

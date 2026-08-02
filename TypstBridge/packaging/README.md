@@ -10,9 +10,9 @@ replace the external Typst CLI fallback.
 
 TypstBridge renders PDF, SVG, and PNG through the native Rust cdylib and is the
 primary backend for OfficeEditor.Core's `TypstCompilerService`. The
-platform/package matrix is still preliminary; these scripts define the expected
-layout and support the currently targeted RIDs, but each non-Linux-x64 platform
-still needs explicit build and publish verification.
+platform/package matrix is still preliminary. Release packages currently build and
+publish **osx-arm64, linux-x64, and win-x64**. The other layouts below are local-build
+or future-matrix conveniences and are not release-verified promises.
 
 ## Runtime asset layout
 
@@ -28,22 +28,19 @@ TypstBridge/runtimes/
 └── osx-arm64/native/libtypst_bridge.dylib
 ```
 
-The Bash build script supports `linux-x64` and `linux-arm64`; the PowerShell
-build script supports `win-x64` and `win-arm64`. Other RIDs are called out
-explicitly so cross-compilation support can be added without changing the
-expected layout.
+The Bash build script supports Linux and macOS x64/arm64 targets; the PowerShell
+build script supports `win-x64` and `win-arm64`. The release workflow publishes
+only the three release-verified RIDs listed above.
 
 Generated files under `TypstBridge/runtimes/` are local build outputs for test
 and package validation. Do not commit them unless the packaging policy is
 explicitly changed.
 
-On Linux x64, building `TypstBridge.Managed` (or a project that references it)
-automatically runs `packaging/build-native.sh linux-x64` when
-`TypstBridge/runtimes/linux-x64/native/libtypst_bridge.so` is missing. Other
-platforms currently skip this automatic build and continue to rely on the
-managed probe/fallback behavior unless their runtime asset is prepared manually.
-Clean Linux x64 source builds therefore require Rust and `cargo` when the native
-runtime asset is not already present.
+On a recognized host RID, building `TypstBridge.Managed` (or a project that references
+it) can build the matching native asset when it is missing and the build is not
+cross-targeting another RID. Clean source builds therefore require Rust, `cargo`, and
+the host linker when the runtime asset is not already present; otherwise the managed
+service probes the bridge and can fall back to the external Typst CLI.
 
 ## Build native library
 

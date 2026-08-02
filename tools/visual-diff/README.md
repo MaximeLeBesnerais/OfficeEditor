@@ -37,8 +37,9 @@ When a required tool is missing, the tool exits 1 before doing any work and prin
 Run from the repository root:
 
 ```bash
-# DOCX suite: examples/REF/DOCX/*.pdf vs examples/output/ref/docx/*.pdf
-dotnet run --project tools/visual-diff -- --suite docx
+# DOCX suite is wired, but first generate matching PDFs under
+# examples/output/ref/docx/. With none present, the suite exits loudly.
+# dotnet run --project tools/visual-diff -- --suite docx
 
 # PPTX suite: examples/REF/PPTX/*.pdf vs examples/output/ref/pptx/*.pdf
 # (sales_acceleration_deck, AetherLink, northwind-launch-review, northwind-demo)

@@ -47,6 +47,9 @@ sheet.AddHeaderRow(new List<string> { "Category", "Q1", "Q2", "Q3", "Q4", "Total
 sheet.AddDataRow(new List<string> { "Revenue", "10000", "12000", "11000", "15000" }, 2);
 sheet.AddDataRow(new List<string> { "Expenses", "6000", "7000", "6500", "8000" }, 3);
 sheet.AddDataRow(new List<string> { "Profit", "4000", "5000", "4500", "7000" }, 4);
+sheet.AddCell("F2", "=SUM(B2:E2)", true);
+sheet.AddCell("F3", "=SUM(B3:E3)", true);
+sheet.AddCell("F4", "=SUM(B4:E4)", true);
 
 sheet.AddFormulaRow(new List<string> {
     "TOTAL", "=SUM(B2:B4)", "=SUM(C2:C4)", "=SUM(D2:D4)", "=SUM(E2:E4)", "=SUM(F2:F4)"
@@ -70,7 +73,7 @@ builder.Save();
 | 5 | **TOTAL** | `=SUM(B2:B4)` | `=SUM(C2:C4)` | `=SUM(D2:D4)` | `=SUM(E2:E4)` | `=SUM(F2:F4)` |
 | 6 | **AVERAGE** | `=AVERAGE(B2:B4)` | ... | ... | ... | ... |
 
-> Excel calculates: TOTAL row = 20000, 26000, 22000, 30000, 98000
+> Excel calculates: TOTAL row = 20000, 24000, 22000, 30000, 96000
 
 ---
 
@@ -325,3 +328,5 @@ Missing cells read as `null` (not exceptions); `CellExists` distinguishes an abs
 cd examples
 dotnet run
 ```
+
+The runner currently executes sections 1–5. Sections 6–8 document tested library APIs but are not yet called from `examples/Program.cs`.

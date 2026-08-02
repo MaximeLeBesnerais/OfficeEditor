@@ -2,7 +2,7 @@
 
 TypstBridge is a first-party native bridge around Typst's Rust crates, exposed to .NET through a stable C ABI and a managed P/Invoke wrapper.
 
-It is not a C# reimplementation of Typst. OfficeEditor.Core's `TypstCompilerService` now tries TypstBridge first and falls back to the legacy paths when the bridge is unavailable or compilation fails.
+It is not a C# reimplementation of Typst. OfficeEditor.Core's `TypstCompilerService` tries TypstBridge first and falls back to the external Typst CLI when the bridge is unavailable or compilation fails.
 
 ## Current status
 
@@ -17,7 +17,7 @@ It is not a C# reimplementation of Typst. OfficeEditor.Core's `TypstCompilerServ
 - Diagnostics and error messages are exposed through the ABI and managed wrapper.
 - OfficeEditor.Core uses TypstBridge as the primary `TypstCompilerService` backend.
 - The external Typst CLI remains the safety-net fallback.
-- Linux x64 builds can auto-generate the native runtime asset when `TypstBridge.Managed` is built and the asset is missing.
+- Recognized host-RID builds can generate the matching native runtime asset when `TypstBridge.Managed` is built and the asset is missing.
 - Managed tests cover native loading, PDF/SVG/PNG rendering, multi-page outputs, PPI, and diagnostics. Asset/font behavior and repeated compile/free stability are covered by native-side checks or remain future managed-test coverage where gaps exist.
 - **ABI v3** adds persistent compile sessions (warm worlds), a process-wide parsed-font cache, and bounded comemo memoization eviction for long-lived processes; see below and [`docs/abi.md`](docs/abi.md).
 
@@ -29,7 +29,7 @@ It is not a C# reimplementation of Typst. OfficeEditor.Core's `TypstCompilerServ
 
 Current limits:
 
-- Package/platform support is preliminary; the runtime asset layout exists, but the full platform matrix still needs verification.
+- Release packages build osx-arm64, linux-x64, and win-x64 assets; additional local-build RIDs remain preliminary.
 
 ## Layout
 
@@ -73,7 +73,7 @@ TypstBridge/runtimes/linux-x64/native/libtypst_bridge.so
 
 Linux builds use `-C link-arg=-Wl,-z,noexecstack` so the bridge can load on hardened kernels.
 
-On Linux x64, building `TypstBridge.Managed` or a project that references it can run the native build automatically when `TypstBridge/runtimes/linux-x64/native/libtypst_bridge.so` is missing. Clean source builds on Linux x64 therefore require Rust and `cargo` unless the runtime asset is already present.
+On a recognized host RID, building `TypstBridge.Managed` or a project that references it can run the matching native build when its runtime asset is missing. Clean source builds therefore require Rust, `cargo`, and the host linker unless the runtime asset is already present.
 
 If the native library has already been built, copy it without rebuilding:
 

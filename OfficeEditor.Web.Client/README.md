@@ -1,32 +1,40 @@
-# React + TypeScript + Vite
+# OfficeEditor Web Demo
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+This React/Vite client is the local demonstration UI for `OfficeEditor.Api`. It is not a separately supported product or a production-ready hosted service.
 
-Currently, two official plugins are available:
+## Run locally
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+From the repository root, start the API and client together:
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+make dev
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+Then open <http://localhost:5173/>. To run only the client:
+
+```bash
+cd OfficeEditor.Web.Client
+npm install
+npm run dev
+```
+
+The client expects the local API at `http://localhost:5001`.
+
+## Demo screens
+
+- **Render** — render whitelisted reference decks to PNG or SVG with server timings.
+- **Generate** — edit the demo title/theme, generate PPTX, preview slides, and download the deck.
+- **Any render** — upload a PPTX and render it locally.
+- **Compare** — compare OfficeEditor rendering with an optional locally installed LibreOffice/Poppler toolchain.
+
+## Checks
+
+```bash
+npm run lint
+npm run build
+npm audit
+```
+
+## Security boundary
+
+This client and `OfficeEditor.Api` are local demo surfaces. They do not provide production authentication, tenant isolation, quotas, or sandboxing. Do not expose them directly to the public internet without an application-specific security boundary. See [`../SECURITY.md`](../SECURITY.md).

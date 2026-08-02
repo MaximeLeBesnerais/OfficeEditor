@@ -53,7 +53,7 @@ Getting Started:
 
 ## 2. Markdown → DOCX
 
-**Input:** `sample.md`
+**Input:** `sample.md` (excerpt below; the tracked sample also includes Phases 2–3, a budget table, and next steps)
 
 ```markdown
 # Project Proposal
@@ -128,10 +128,10 @@ builder.Save();
 using var detector = DocumentBuilder.Open("03-detection-template.docx");
 var variables = detector.DetectVariables();
 // Returns:
-// [ { Name: "customerName", FullMatch: "{{customerName}}", Location: "paragraph" },
-//   { Name: "orderNumber",  FullMatch: "{{orderNumber}}",  Location: "paragraph" },
-//   { Name: "totalAmount",  FullMatch: "{{totalAmount}}",  Location: "paragraph" },
-//   { Name: "dueDate",      FullMatch: "{{dueDate}}",      Location: "paragraph" } ]
+// [ { Name: "customerName", FullMatch: "{{customerName}}", Location: "body" },
+//   { Name: "orderNumber",  FullMatch: "{{orderNumber}}",  Location: "body" },
+//   { Name: "totalAmount",  FullMatch: "{{totalAmount}}",  Location: "body" },
+//   { Name: "dueDate",      FullMatch: "{{dueDate}}",      Location: "body" } ]
 ```
 
 **Output:** `output/docx/03-detection-template.docx` (unchanged)
@@ -273,5 +273,7 @@ Shipment contents
 cd examples
 dotnet run
 ```
+
+The runner currently executes sections 1–4. Sections 5–6 are library snippets backed by tests but are not yet called from `examples/Program.cs`.
 
 Or run just the DOCX portion by editing `Program.cs` to call only `RunDocxExamples()`.

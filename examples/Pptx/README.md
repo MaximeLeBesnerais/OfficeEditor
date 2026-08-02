@@ -251,46 +251,39 @@ for (int i = 0; i < thumbnails.Length; i++)
 
 ---
 
-## JSON Instructions
+## JSON Edit Instructions
+
+PPTX edit instructions target an existing deck. Use deck anatomy to obtain the 1-based slide number and element id, then parse an `operations` array with `PptxJsonInstructionParser`. From-scratch generation is a separate `version: "2.0"` vocabulary demonstrated by `demo/demo-deck.json`.
 
 **Input:** `instructions/sample.json`
 
 ```json
 {
-  "version": "1.0",
-  "slides": [
+  "operations": [
+    { "type": "replaceText", "slide": 1, "elementId": 2, "text": "Q4 Review" },
     {
-      "type": "TitleSlide",
-      "title": "{{presentationTitle}}",
-      "subtitle": "{{subtitle}}"
+      "type": "replaceTable",
+      "slide": 2,
+      "elementId": 5,
+      "rows": [["Quarter", "Revenue"], ["Q4", "$150K"]]
     },
-    {
-      "type": "ContentSlide",
-      "title": "Agenda",
-      "content": ["Introduction", "Market Analysis", "Product Demo", "Q&A"]
-    },
-    {
-      "type": "TableSlide",
-      "title": "Sales Data",
-      "table": {
-        "headers": ["Quarter", "Revenue", "Growth"],
-        "rows": [
-          ["Q1", "$100K", "10%"],
-          ["Q2", "$120K", "20%"],
-          ["Q3", "$110K", "-8%"],
-          ["Q4", "$150K", "36%"]
-        ]
-      }
-    }
-  ],
-  "variables": {
-    "presentationTitle": "Q4 Review",
-    "subtitle": "Annual Performance Report"
-  }
+    { "type": "duplicateSlide", "slide": 2, "position": 3 }
+  ]
 }
 ```
 
-**Output:** Presentation generated from the instruction set.
+```csharp
+using var builder = PresentationBuilder.Open("template.pptx");
+var set = new PptxJsonInstructionParser().Parse(
+    await File.ReadAllTextAsync("instructions/sample.json"));
+var result = new PptxInstructionEngine().Apply(builder, set);
+if (result.FailedOps.Count > 0) { /* inspect operation errors */ }
+builder.Save("edited.pptx");
+```
+
+Supported operations are `replaceText`, `replaceImage`, `replaceTable`, `moveSlide`, `duplicateSlide`, and `deleteSlide`.
+
+**Output:** `edited.pptx`, with the requested operations applied to the existing deck.
 
 ---
 
@@ -300,6 +293,8 @@ for (int i = 0; i < thumbnails.Length; i++)
 cd examples
 dotnet run
 ```
+
+The runner executes PPTX sections 1–5. Section 6 and the JSON edit-instruction section are tested library snippets but are not yet called from `examples/Program.cs`.
 
 **Prerequisites for Typst features:**
 - TypstBridge native runtime asset for your RID (built/copied by the project where supported)

@@ -1,15 +1,15 @@
 # OfficeEditor
 
-A .NET 9 suite for **creating, editing, generating, and rendering Office documents** — DOCX, PPTX, XLSX — without Office or LibreOffice. Fluent C# builders, JSON/YAML instruction sets, and a **declarative JSON vocabulary that generates complete decks and documents**. Rendering is handled by **TypstBridge**, a native Rust bridge around the Typst engine: PPTX/DOCX → PDF, per-slide PNG, and SVG, in milliseconds per slide.
+A .NET 9 library suite for **creating, editing, generating, and rendering Office documents** — DOCX, PPTX, XLSX — without requiring Office or LibreOffice. It provides fluent C# builders, JSON/YAML instruction sets, and a loudly validated declarative JSON vocabulary for complete PPTX decks. Rendering uses **TypstBridge**, a native Rust bridge around Typst: PPTX → PDF/PNG/SVG and DOCX → PDF.
 
 ## Features
 
 - **Three formats, one model** — Word (DOCX), PowerPoint (PPTX), Excel (XLSX); create from scratch or edit existing files with style preservation
-- **JSON → document generation** — declarative, loudly-validated vocabulary: cover, content, tables, KPIs, themes (PPTX today; DOCX and XLSX vocabularies on the roadmap — see `docs/roadmap-*.md`)
-- **Rendering** — native TypstBridge (Typst 0.15.1): PDF, PNG at configurable PPI, SVG; whole-deck renders in well under a second; per-slide timings exposed everywhere
+- **JSON workflows** — PPTX has the full declarative generation vocabulary; XLSX has a working v1 instruction engine; DOCX generation and the richer XLSX vocabulary remain on the roadmap
+- **Rendering** — native TypstBridge (Typst 0.15.1): PPTX PDF/PNG/SVG and DOCX PDF; whole-deck timings are exposed by the PPTX surfaces
 - **Fluent C# APIs** — `DocumentBuilder`, `PresentationBuilder`, `WorkbookBuilder` (file, stream, or in-memory `byte[]`)
-- **Instruction sets** — JSON/YAML edit operations against existing documents
-- **Variables & mail merge** — `{{variable}}` detection, merge, batch; `{{#if}}/{{#each}}` template logic
+- **Instruction sets** — JSON/YAML DOCX operations, JSON PPTX edit operations, and a v1 JSON XLSX builder vocabulary
+- **Variables & mail merge** — `{{variable}}` detection and replacement across all three formats, plus DOCX batch merge
 - **Markdown → DOCX** — styled conversion via Markdig
 - **Surfaces** — unified CLI, ASP.NET Core API, MCP stdio host (4 `deck_*` tools), and a web demo app
 - **Brand profiles** — extract theme colors/fonts from existing decks into reusable token sets
@@ -36,8 +36,8 @@ officeeditor detect template.docx
 # Merge template with data
 officeeditor merge template.pptx data.json output.pptx
 
-# Edit with instructions
-officeeditor edit document.docx --instructions instructions.json
+# DOCX-only instruction editing is available through the source CLI
+dotnet run --project DocxEditor.Cli -- edit document.docx --instructions instructions.json
 ```
 
 ### C# API — generate a deck from JSON (the flagship path)
@@ -96,6 +96,8 @@ var sheet = book.AddWorksheet("Sales");
 sheet.AddHeaderRow(new List<string> { "Product", "Q1", "Q2" })
      .AddDataRow(new List<string> { "Widget", "100", "200" }, 2)
      .AddFormulaRow(new List<string> { "Total", "=SUM(B2:B2)", "=SUM(C2:C2)" }, 3);
+sheet.SetColumnWidth("A", 24).SetRowHeight(1, 28);
+sheet.MergeCells("A4:C4");
 book.Save();
 
 // In-memory (services, Azure Functions, APIs)
@@ -104,7 +106,7 @@ mem.AddParagraph("Hello");
 BinaryOfficeDocument bin = mem.ToBinaryDocument();   // bin.Bytes, bin.ContentType
 ```
 
-### Variables, mail merge, template logic
+### Variables and mail merge
 
 ```csharp
 var variables = builder.DetectVariables();          // find {{vars}} — all formats
@@ -114,13 +116,13 @@ builder.MergeVariables(new Dictionary<string, string>
     ["date"] = "2026-01-31"
 });
 
-// Template logic (DOCX/PPTX/XLSX template engines)
-// {{#if amount > 100}}…{{/if}}   {{#each items}}…{{/each}}
+// Lower-level template-engine classes also exist for conditional/loop expansion,
+// but they are not wired into the unified CLI or public demo surfaces.
 ```
 
 ## Installation
 
-NuGet packages are published at **0.1.0** (currently *unlisted* — install by exact version; they don't appear in search yet):
+NuGet packages are listed at **0.1.0**:
 
 ```bash
 dotnet add package MaximeLB.PptxEditor.Core --version 0.1.0   # PPTX
@@ -134,7 +136,7 @@ dotnet tool install -g MaximeLB.OfficeEditor.Cli --version 0.1.0   # `officeedit
 | `MaximeLB.OfficeEditor.Core` | Shared services (TypstCompilerService), variables, models |
 | `MaximeLB.DocxEditor.Core` | DOCX builder, instructions, markdown, DOCX→Typst converter |
 | `MaximeLB.PptxEditor.Core` | PPTX builder, converters, generation pipeline, brand profiles |
-| `MaximeLB.XlsxEditor.Core` | XLSX builder, variables |
+| `MaximeLB.XlsxEditor.Core` | XLSX builder/read API, variables, JSON instructions |
 | `MaximeLB.TypstBridge.Managed` | Managed wrapper + native TypstBridge (osx-arm64, linux-x64, win-x64) |
 | `MaximeLB.OfficeEditor.Cli` | Unified `officeeditor` CLI (dotnet tool) |
 
@@ -168,17 +170,19 @@ cd OfficeEditor && dotnet build        # 0 warnings, 0 errors (enforced)
 | Web demo | `make dev` → http://localhost:5173/ (`/demo` = the app) |
 | MCP host (JSON-RPC stdio) | `dotnet run --project OfficeEditor.Mcp` |
 | Examples | `dotnet run --project examples` |
-| Convert / diff / bench tools | `dotnet run --project tools/convert-pptx -- <in> <out> [--format pdf\|png]` · `tools/convert-docx` · `tools/visual-diff -- --suite pptx\|docx\|gen` · `tools/pptx-benchmark` |
+| Convert / diff / bench tools | `dotnet run --project tools/convert-pptx -- <in> <out> [--format pdf\|png]` · `dotnet run --project tools/convert-docx -- <in> <out> [--format pdf\|typ]` · `dotnet run --project tools/visual-diff -- --suite pptx\|gen` · `dotnet run --project tools/pptx-benchmark` |
 | CLI demo | `make -f Makefile.demo demo` (preflight → convert REF deck → generate deck, prints timings, opens PDFs) |
 
 ### The demo
 
 `make dev`, open http://localhost:5173/ — four tabs, all timings server-measured:
 
-1. **Render** — pick a whitelisted REF deck → timed PNG/SVG gallery ("16 slides in 394ms, 24.6ms/slide")
+1. **Render** — pick a whitelisted REF deck → timed PNG/SVG gallery (the current benchmark is about 329 ms / 20.6 ms per slide for the 16-slide sales deck on Apple Silicon)
 2. **Generate** — edit the demo deck's title live + swap theme presets → PPTX + previews + **downloadable .pptx**
 3. **Any render** — upload any `.pptx`
 4. **Compare** — OfficeEditor Engine vs headless LibreOffice, side-by-side slides and timings (typically >10× faster)
+
+The API and web client are local demos, not production multi-tenant services. They have no complete authentication, quota, sandbox, or tenant-isolation layer. See [SECURITY.md](SECURITY.md).
 
 ## Architecture
 
@@ -188,7 +192,7 @@ DocxEditor/                          # repo folder (historical name; product is 
 ├── PptxEditor.Core/                 # PPTX: Builders, Converters, Variables
 │   └── Generation/                  #   JSON vocab: Schema (loud validator) → Archetypes → Components
 │       #                            #   → Layout (once, pure C#) → Emit/OOXML + Emit/Typst (twice)
-├── XlsxEditor.Core/                 # XLSX: Builders, Variables
+├── XlsxEditor.Core/                 # XLSX: Builders/read API, Variables, JSON Instructions
 ├── OfficeEditor.Core/               # Shared: TypstCompilerService, Variables, Exceptions
 ├── OfficeEditor.Cli/                # Unified multi-format CLI
 ├── OfficeEditor.Api/                # ASP.NET Core: deck sessions, previews, generation, demo/compare
@@ -216,14 +220,14 @@ Key design decisions:
 ## Testing
 
 ```bash
-dotnet test                 # full suite: ~1,750 tests across 6 projects
+dotnet test                 # full suite: 2,300+ cases across 5 test projects
 ```
 
 - xUnit; per-primitive parity fixtures with RMSE thresholds for the generation pipeline
 - Coverage: merged-union line coverage across all test projects (`scripts/check-coverage.py`); CI gate floor **83%** — source of truth is `COVERAGE_THRESHOLD` in `.github/workflows/ci.yml`
 - Typst-dependent tests are env-gated: `OE_RUN_TYPST_COMPILE_TESTS=1 dotnet test`
 - CI: `build-test` on PRs and `main` pushes — Release build (warnings = errors) + full suite + coverage gate (83% floor); runs only when C#-relevant paths change
-- Visual regression: `dotnet run --project tools/visual-diff -- --suite pptx|docx|gen` (baselines are per-machine, not committed)
+- Visual regression: PPTX and generation suites are runnable today. The DOCX suite is wired but still needs generated reference outputs under `examples/output/ref/docx/`.
 
 ## Performance
 
@@ -255,10 +259,14 @@ Reproduce: `dotnet run --project tools/pptx-benchmark` (methodology in `tools/pp
 
 **Rendering (PPTX → Typst → PDF/PNG/SVG):**
 - Text, images, shapes, and tables render with good fidelity
-- Charts, SmartArt, and animations have **partial support** — complex instances may render simplified or be omitted
+- Clustered bar/column charts render; other chart families can fall back to placeholders. SmartArt renders from pre-rendered drawing shapes with documented theme-color limits. Animations are outside the static preview model.
 - Font fidelity varies by platform; installing Microsoft Office fonts (Aptos, Calibri) improves accuracy, but exact PowerPoint parity is not guaranteed (font metrics, line breaking, layout engines differ)
 
-**NuGet:** packages published at 0.1.0 but currently *unlisted* — install by exact version.
+**NuGet:** packages are listed at 0.1.0.
+
+## Security
+
+OfficeEditor libraries run in the caller's process and are not a sandbox for hostile documents. Deployments accepting untrusted uploads must provide their own isolation, resource limits, authentication, and filesystem policy. The API/web demo and LibreOffice comparison path are local conveniences, not the product security boundary. See [SECURITY.md](SECURITY.md) for reporting instructions and the full trust model.
 
 ## License
 
@@ -270,7 +278,7 @@ The repo uses a protected `main` / working `dev` branch model:
 
 1. Branch from `dev`; CI runs on your PR (build + full tests + coverage gate; C#-path-gated)
 2. PRs into `main` must come from `dev` (`guard-main` enforces it)
-3. Releases: tag `v*` on `main` → native matrix → NuGet trusted publishing
+3. Release policy: create `v*` tags from tested `main` commits → native matrix → NuGet trusted publishing
 
 See `AGENTS.md` for engineering conventions and `docs/roadmap-*.md` for what's planned.
 

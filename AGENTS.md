@@ -4,7 +4,7 @@
 
 ## Project Overview
 
-.NET 9 (9.0.313) suite for creating and editing Office documents — **DOCX, PPTX** via instruction sets (JSON/YAML), a **declarative JSON vocabulary for generating beautiful PPTX from scratch**, and **XLSX** via fluent C# APIs and a variable templating pipeline. JSON instructions for XLSX are on the Phase 2 roadmap. Also: edit existing PPTX with smart text/image replacement, extract brand profiles, convert PPTX → Typst → PDF/PNG/SVG, and verify visual fidelity with a per-primitive RMSE parity suite.
+.NET 9 (9.0.313) suite for creating and editing Office documents — **DOCX, PPTX** via instruction sets (JSON/YAML), a **declarative JSON vocabulary for generating beautiful PPTX from scratch**, and **XLSX** via fluent C# APIs, a read/variable pipeline, and a working v1 JSON instruction engine. The richer XLSX generation vocabulary remains on the roadmap. Also: edit existing PPTX with smart text/image replacement, extract brand profiles, convert PPTX → Typst → PDF/PNG/SVG, and verify visual fidelity with a per-primitive RMSE parity suite.
 
 The repo folder is named `DocxEditor/` for historical reasons; the product is **OfficeEditor** (see `README.md`).
 
@@ -56,23 +56,23 @@ git status                # expect clean or only intended changes
 - **Branches:** `dev` is the default/working branch; `main` is protected. PRs into `main` must come from `dev` (enforced by `guard-main.yml`); both branches require the `build-test` check; owner may self-merge/bypass (warnings expected on direct pushes).
 - **CI (`ci.yml`):** runs on PRs and pushes to `main` only — pushes to `dev` trigger nothing. `build-test` = Release build + full suite + coverage gate (merged-union counting via `scripts/check-coverage.py`; the threshold is defined as `COVERAGE_THRESHOLD` in `.github/workflows/ci.yml` — that file is the source of truth, do not hardcode it here) and runs only when the diff touches C#-relevant paths (`.cs/.csproj/.sln/.props/.targets`, `TypstBridge/**`, the gate script, `ci.yml` itself); docs-only changes skip it (a skipped check counts as success).
 - **Warnings are errors** (`TreatWarningsAsErrors` in `Directory.Build.props`) — the build must stay at 0/0.
-- **Release (`release.yml`):** push a `v*` tag on `main` → native TypstBridge matrix (osx-arm64, linux-x64, win-x64) → `dotnet pack` of the six packages → NuGet push via trusted publishing (OIDC, keyless; policy + `NUGET_USER` secret already configured).
+- **Release (`release.yml`):** policy requires creating `v*` tags from tested `main` commits; the workflow currently triggers on any `v*` tag and does not itself verify ancestry. It builds the native TypstBridge matrix (osx-arm64, linux-x64, win-x64), packs six packages, and publishes via NuGet trusted publishing.
 - Typst-dependent tests are env-gated: `OE_RUN_TYPST_COMPILE_TESTS=1 dotnet test …`. Brand-profile snapshots regenerate with `OE_UPDATE_SNAPSHOTS=1`.
 
 ## Entry Points
 
 | Component | Run it |
 |---|---|
-| Unified CLI (create/edit/detect/merge/generate) | `dotnet run --project OfficeEditor.Cli -- <command>` |
+| Unified CLI (create/detect/merge/generate; `edit` is still a stub) | `dotnet run --project OfficeEditor.Cli -- <command>` |
 | DOCX-only CLI | `dotnet run --project DocxEditor.Cli -- <command>` |
 | API (deck sessions, previews, generate, demo endpoints) | `dotnet run --project OfficeEditor.Api --urls http://localhost:5001` |
 | Web client (demo app) | `cd OfficeEditor.Web.Client && npm run dev` → http://localhost:5173 (`/demo` = the app) |
 | API + web together | `make dev` (root Makefile) |
 | MCP stdio host (JSON-RPC) | `dotnet run --project OfficeEditor.Mcp` |
 | Example programs (all formats) | `dotnet run --project examples` |
-| Convert tools | `dotnet run --project tools/convert-pptx -- <in.pptx> <out> [--format pdf\|png]` · `tools/convert-docx` (same shape) |
+| Convert tools | `dotnet run --project tools/convert-pptx -- <in.pptx> <out> [--format pdf\|png]` · `dotnet run --project tools/convert-docx -- <in.docx> <out> [--format pdf\|typ]` |
 | Deck fidelity measurement | `python3 scripts/rmse.py <deck.pptx> [--format md\|json] [--no-render] [--force]` — renders ours, reuses/builds refs, per-slide RMSE % with mean/median/p85/p90/<10%/<15%/worst-5 |
-| Visual regression | `dotnet run --project tools/visual-diff -- --suite pptx\|docx\|gen` |
+| Visual regression | `dotnet run --project tools/visual-diff -- --suite pptx\|gen`; DOCX is wired but awaits generated reference outputs |
 | Benchmark (vs LibreOffice) | `dotnet run --project tools/pptx-benchmark` |
 
 ## Demo
@@ -91,7 +91,7 @@ DocxEditor/                         # repo folder (historical name)
 ├── DocxEditor.Tests/               # xUnit tests (unit + integration)
 ├── PptxEditor.Core/                # PPTX: Builders, Converters, Models, Services, Variables
 │   └── Generation/                 #   Model, Schema, Layout, Emit/Ooxml, Emit/Typst, Components, Archetypes, Fixtures, Design
-├── XlsxEditor.Core/                # XLSX: Builders, Variables
+├── XlsxEditor.Core/                # XLSX: Builders/read API, Variables, JSON Instructions
 ├── OfficeEditor.Core/              # Shared services (TypstCompilerService, Variables, Exceptions)
 ├── OfficeEditor.Cli/               # Multi-format CLI (create, edit, detect, merge, generate)
 ├── OfficeEditor.Api/               # ASP.NET Core API: deck sessions, slide previews/thumbnails, instruction/anatomy endpoints
