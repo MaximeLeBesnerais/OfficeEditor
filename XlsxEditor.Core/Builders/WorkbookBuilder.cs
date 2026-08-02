@@ -418,6 +418,20 @@ public class WorkbookBuilder : IWorkbookBuilder
 
     public IWorkbookBuilder MergeVariables(Dictionary<string, string> data)
     {
+        ArgumentNullException.ThrowIfNull(data);
+
+        // A null replacement value would be written as an empty string — never the
+        // caller's intent. Fail loudly before any cell is mutated.
+        foreach (var pair in data)
+        {
+            if (pair.Value is null)
+            {
+                throw new ArgumentNullException(
+                    $"data['{pair.Key}']",
+                    $"Value for variable '{pair.Key}' must not be null; use an empty string to clear a value.");
+            }
+        }
+
         var replacer = new Variables.XlsxVariableReplacer();
         replacer.Replace(_document, data);
         return this;
