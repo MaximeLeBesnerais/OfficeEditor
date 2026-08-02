@@ -257,15 +257,23 @@ public sealed class DocxStyleManager
     {
         BaselineStyleKind.Body => ("Normal", "Normal"),
         BaselineStyleKind.Title => ("Title", "Title"),
+        BaselineStyleKind.Subtitle => ("Subtitle", "Subtitle"),
+        BaselineStyleKind.Eyebrow => ("Eyebrow", "Eyebrow"),
         BaselineStyleKind.Heading1 => ("Heading1", "heading 1"),
         BaselineStyleKind.Heading2 => ("Heading2", "heading 2"),
         BaselineStyleKind.Heading3 => ("Heading3", "heading 3"),
         BaselineStyleKind.Heading4 => ("Heading4", "heading 4"),
         BaselineStyleKind.Heading5 => ("Heading5", "heading 5"),
         BaselineStyleKind.Heading6 => ("Heading6", "heading 6"),
+        BaselineStyleKind.MutedBody => ("MutedBody", "Muted Body"),
+        BaselineStyleKind.Label => ("Label", "Label"),
+        BaselineStyleKind.Metric => ("Metric", "Metric"),
+        BaselineStyleKind.MetricLabel => ("MetricLabel", "Metric Label"),
         BaselineStyleKind.Callout => ("Callout", "Callout"),
+        BaselineStyleKind.Footer => ("Footer", "Footer"),
         BaselineStyleKind.Table => ("TableGrid", "Table Grid"),
         BaselineStyleKind.TableHeader => ("TableHeader", "TableHeader"),
+        BaselineStyleKind.TableBody => ("TableBody", "Table Body"),
         BaselineStyleKind.Code => ("Code", "Code"),
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "unknown baseline style kind.")
     };

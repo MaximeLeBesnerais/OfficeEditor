@@ -22,7 +22,7 @@ internal static class CalloutEmitter
                 new BottomBorder { Val = BorderValues.Single, Size = 4, Color = "D9D9D9" },
                 new RightBorder { Val = BorderValues.Single, Size = 4, Color = "D9D9D9" }))
         {
-            TableWidth = new TableWidth { Width = "auto", Type = TableWidthUnitValues.Auto }
+            TableWidth = new TableWidth { Width = "0", Type = TableWidthUnitValues.Auto }
         };
 
         var table = new Table(tableProperties, new TableGrid(new GridColumn()));

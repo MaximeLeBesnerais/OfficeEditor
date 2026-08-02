@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.RegularExpressions;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Wordprocessing;
+using DocxEditor.Core.Generation.Design;
 using DocxEditor.Core.Generation.Model;
 using DocxEditor.Core.Generation.Schema;
 using Model = DocxEditor.Core.Generation.Model;
@@ -18,7 +19,8 @@ internal sealed record ResolvedTextFormat(
     string? Color,
     bool Bold,
     bool Italic,
-    bool Underline);
+    bool Underline,
+    bool AllCaps = false);
 
 /// <summary>
 /// Local, replaceable OpenXML formatting helpers for the flow-first emitter. The design
@@ -129,10 +131,25 @@ internal static class FormattingHelpers
                 resolved.ColorHex is { } color ? StripHash(color) : null,
                 resolved.Bold is true,
                 resolved.Italic is true,
-                resolved.Underline is true);
+                resolved.Underline is true,
+                resolved.AllCaps is true);
         }
         return null;
     }
+
+    /// <summary>
+    /// Converts resolved role formatting to a <see cref="ResolvedTextFormat"/> so role-based
+    /// paragraphs can reuse the run-building path. Colors arrive already resolved to #RRGGBB.
+    /// </summary>
+    public static ResolvedTextFormat FromRoleFormatting(ResolvedRoleFormatting role) =>
+        new(
+            role.Run.FontFamily,
+            role.Run.FontSizePt,
+            role.Run.ColorHex is { } color ? StripHash(color) : null,
+            role.Run.Bold is true,
+            role.Run.Italic is true,
+            role.Run.Underline is true,
+            role.Run.AllCaps is true);
 
     /// <summary>
     /// Default direct formatting for a heading level (used when the heading carries neither an
@@ -197,6 +214,10 @@ internal static class FormattingHelpers
         {
             runProperties.Underline = new Underline { Val = UnderlineValues.Single };
         }
+        if (run.AllCaps || defaults?.AllCaps is true)
+        {
+            runProperties.Caps = new Caps();
+        }
 
         var wordRun = new DocumentFormat.OpenXml.Wordprocessing.Run();
         if (runProperties.HasChildren)
@@ -247,6 +268,10 @@ internal static class FormattingHelpers
         if (defaults?.Underline is true)
         {
             runProperties.Underline = new Underline { Val = UnderlineValues.Single };
+        }
+        if (defaults?.AllCaps is true)
+        {
+            runProperties.Caps = new Caps();
         }
 
         if (runProperties.HasChildren)
