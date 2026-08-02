@@ -71,7 +71,11 @@ public sealed class DeckPreviewService : IDeckPreviewService
                 bytes = await Task.Run(
                     () => _renderer.RenderSlide(session, slideIndex, normalizedFormat, ppi), ct)
                     .ConfigureAwait(false);
-                session.RenderedPages[cacheKey] = bytes;
+                if (bytes.LongLength <= ApiResourceLimits.RenderedPagesPerDeckBytes - session.RenderedPageBytes)
+                {
+                    session.RenderedPages[cacheKey] = bytes;
+                    session.RenderedPageBytes += bytes.LongLength;
+                }
             }
 
             return new SlidePreview(

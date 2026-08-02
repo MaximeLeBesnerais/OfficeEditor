@@ -39,6 +39,8 @@ public sealed class DeckSession
     /// <summary>Rendered pages keyed by (slideIndex, format, ppi) within this revision.</summary>
     public Dictionary<RenderedPageKey, byte[]> RenderedPages { get; } = new();
 
+    internal long RenderedPageBytes { get; set; }
+
     /// <summary>
     /// Session-owned temp directories (fonts, extracted assets). Deleted by the
     /// session-store sweeper when the session is evicted or removed. Lock on this
@@ -83,6 +85,9 @@ public sealed class InMemoryDeckSessionStore : IDeckSessionStore
 
         var options = new MemoryCacheEntryOptions()
             .SetSlidingExpiration(SlidingLifetime)
+            // Reserve the complete per-deck preview-cache allowance so the global
+            // cache size remains an upper bound even though previews are added later.
+            .SetSize(checked(session.SourceBytes.LongLength + ApiResourceLimits.RenderedPagesPerDeckBytes))
             // Sweeper: session-owned temp dirs must not outlive the cache entry.
             .RegisterPostEvictionCallback((_, value, _, _) =>
             {

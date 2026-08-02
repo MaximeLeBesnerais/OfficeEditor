@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
+using OfficeEditor.Api.Services;
 using PptxEditor.Core.Builders;
 
 namespace OfficeEditor.Api.Tests.Integration;
@@ -23,6 +24,17 @@ public sealed class ApiIntegrationTests : IClassFixture<WebApplicationFactory<Pr
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var body = await response.Content.ReadAsStringAsync();
         Assert.Contains("ok", body);
+    }
+
+    [Fact]
+    public async Task RequestLargerThanConfiguredLimit_ReturnsPayloadTooLarge()
+    {
+        using var content = new StringContent("{}");
+        content.Headers.ContentLength = ApiResourceLimits.MaxRequestBodyBytes + 1;
+
+        var response = await _client.PostAsync("/api/decks/generate", content);
+
+        Assert.Equal(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
     }
 
     [Fact]
