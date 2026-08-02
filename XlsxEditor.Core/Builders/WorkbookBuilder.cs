@@ -61,6 +61,27 @@ public interface IWorksheetBuilder
     /// </summary>
     IWorksheetBuilder SetRowHeight(int rowIndex, double height);
 
+    /// <summary>
+    /// Merges the cells in <paramref name="range"/> (A1 notation, e.g. "A1:C3") into a
+    /// single display cell. Merging is a display-only operation: every cell keeps its
+    /// value, formula and style, and Excel displays the top-left cell's content across
+    /// the merged area — no cells are deleted. The range is normalized to Excel's real
+    /// sheet bounds (columns A-XFD, rows 1-1,048,576) before any mutation; malformed,
+    /// single-cell, reversed, duplicate and overlapping ranges are rejected with an
+    /// <see cref="XlsxException"/> and leave the worksheet untouched. Adjacent,
+    /// non-overlapping ranges remain valid.
+    /// </summary>
+    IWorksheetBuilder MergeCells(string range);
+
+    /// <summary>
+    /// Removes the merge on <paramref name="range"/> (A1 notation, e.g. "A1:C3"),
+    /// restoring the individual cells. It is the complement of
+    /// <see cref="MergeCells"/>: cell values, formulas and styles are never touched.
+    /// Unmerging a range that is not currently merged is a no-op. Malformed or reversed
+    /// ranges are rejected with an <see cref="XlsxException"/> before any mutation.
+    /// </summary>
+    IWorksheetBuilder UnmergeCells(string range);
+
     // Read
     string? GetCellValue(string cellReference);
     string? GetCellFormula(string cellReference);
@@ -70,6 +91,12 @@ public interface IWorksheetBuilder
     List<RowInfo> GetRows();
     RowInfo? GetRow(int rowIndex);
     (int firstRow, int lastRow, int firstCol, int lastCol) GetDimensions();
+
+    /// <summary>
+    /// Returns the worksheet's merged ranges in A1 notation (e.g. "A1:C3"), in document
+    /// order. An empty list means nothing is merged.
+    /// </summary>
+    List<string> GetMergeRanges();
 
     /// <summary>
     /// Returns the effective width of the column (Excel column-width units), or null when

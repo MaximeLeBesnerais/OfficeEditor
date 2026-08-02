@@ -461,6 +461,128 @@ public class WorksheetBuilder : IWorksheetBuilder
         return this;
     }
 
+    public IWorksheetBuilder MergeCells(string range)
+    {
+        var (start, end) = NormalizeMergeRange(range);
+
+        // All validation runs BEFORE any mutation (no <mergeCell> is appended and the
+        // <mergeCells> container is not created) so a rejected range can never leave a
+        // partially merged worksheet behind.
+        var startRow = GetRowIndex(start);
+        var startColumn = GetColumnIndex(start);
+        var endRow = GetRowIndex(end);
+        var endColumn = GetColumnIndex(end);
+
+        if (startRow == endRow && startColumn == endColumn)
+        {
+            throw new XlsxException(
+                $"Merge range '{range}' is a single cell. " +
+                "Excel only merges a range of two or more cells; " +
+                "a single cell needs no merge.");
+        }
+
+        if (endRow < startRow || endColumn < startColumn)
+        {
+            throw new XlsxException(
+                $"Merge range '{range}' is reversed: the start cell must be the top-left " +
+                "corner of the merge and the end cell the bottom-right corner.");
+        }
+
+        foreach (var existing in GetMergeCellEntries())
+        {
+            var (exStartRow, exStartColumn, exEndRow, exEndColumn) = ParseMergeReference(existing, range);
+
+            if (exStartRow == startRow && exStartColumn == startColumn
+                && exEndRow == endRow && exEndColumn == endColumn)
+            {
+                throw new XlsxException(
+                    $"Merge range '{range}' is already merged in this worksheet " +
+                    $"(existing merge '{existing.Reference?.Value}'). " +
+                    "Remove the existing merge first or unmerge the range.");
+            }
+
+            var overlaps = startRow <= exEndRow && exStartRow <= endRow
+                && startColumn <= exEndColumn && exStartColumn <= endColumn;
+            if (overlaps)
+            {
+                throw new XlsxException(
+                    $"Merge range '{range}' overlaps existing merge '{existing.Reference?.Value}'. " +
+                    "Excel does not allow overlapping merged ranges on the same worksheet.");
+            }
+        }
+
+        var mergeCells = GetOrCreateMergeCells();
+        mergeCells.Append(new MergeCell { Reference = $"{start}:{end}" });
+        mergeCells.Count = (uint)mergeCells.Elements<MergeCell>().Count();
+        return this;
+    }
+
+    public IWorksheetBuilder UnmergeCells(string range)
+    {
+        var (start, end) = NormalizeMergeRange(range);
+        var startRow = GetRowIndex(start);
+        var startColumn = GetColumnIndex(start);
+        var endRow = GetRowIndex(end);
+        var endColumn = GetColumnIndex(end);
+
+        if (startRow == endRow && startColumn == endColumn)
+        {
+            throw new XlsxException(
+                $"Merge range '{range}' is a single cell. " +
+                "A merge spans two or more cells, so there is nothing to unmerge.");
+        }
+
+        if (endRow < startRow || endColumn < startColumn)
+        {
+            throw new XlsxException(
+                $"Merge range '{range}' is reversed: the start cell must be the top-left " +
+                "corner of the merge and the end cell the bottom-right corner.");
+        }
+
+        // Unmerging a range that is not currently merged is a no-op — matching Excel's
+        // behaviour and keeping the operation safe to call unconditionally.
+        var mergeCells = _worksheet.GetFirstChild<MergeCells>();
+        if (mergeCells == null)
+        {
+            return this;
+        }
+
+        foreach (var existing in mergeCells.Elements<MergeCell>().ToList())
+        {
+            var (exStartRow, exStartColumn, exEndRow, exEndColumn) = ParseMergeReference(existing, range);
+            if (exStartRow == startRow && exStartColumn == startColumn
+                && exEndRow == endRow && exEndColumn == endColumn)
+            {
+                existing.Remove();
+                mergeCells.Count = (uint)mergeCells.Elements<MergeCell>().Count();
+                if (mergeCells.Count?.Value == 0)
+                {
+                    // An empty <mergeCells> container is unnecessary; drop it so
+                    // GetOrCreateMergeCells can rebuild it cleanly on the next merge.
+                    mergeCells.Remove();
+                }
+                return this;
+            }
+        }
+
+        return this;
+    }
+
+    public List<string> GetMergeRanges()
+    {
+        var mergeCells = _worksheet.GetFirstChild<MergeCells>();
+        if (mergeCells == null)
+        {
+            return new List<string>();
+        }
+
+        return mergeCells.Elements<MergeCell>()
+            .Select(c => c.Reference?.Value)
+            .Where(r => r != null)
+            .Cast<string>()
+            .ToList();
+    }
+
     public string? GetCellValue(string cellReference)
     {
         var cell = FindCell(cellReference);
@@ -955,6 +1077,181 @@ public class WorksheetBuilder : IWorksheetBuilder
         }
 
         return count;
+    }
+
+    // ─── Merged cells helpers ─────────────────────────────────────
+
+    /// <summary>
+    /// Splits an A1-style range ("A1:C3") into its two canonical upper-case endpoint cell
+    /// references. The endpoints are normalized and bounded to Excel's real sheet limits
+    /// (columns A-XFD, rows 1-1,048,576) by <see cref="NormalizeCellReference"/>; a range
+    /// without a colon, or with a malformed/out-of-bounds endpoint, throws an
+    /// <see cref="XlsxException"/> before any mutation.
+    /// </summary>
+    private static (string start, string end) NormalizeMergeRange(string range)
+    {
+        ArgumentNullException.ThrowIfNull(range);
+
+        var bounds = range.Split(':');
+        if (bounds.Length != 2)
+        {
+            throw new XlsxException(
+                $"Invalid merge range '{range}'. Expected an A1-style range such as 'A1:C3' " +
+                "(two cell references separated by a colon).");
+        }
+
+        return (NormalizeCellReference(bounds[0]), NormalizeCellReference(bounds[1]));
+    }
+
+    /// <summary>
+    /// Parses an existing &lt;mergeCell&gt; reference into its bounding rows/columns. A
+    /// merge entry that is missing, malformed or reversed means the workbook's merge data is
+    /// already corrupt; that is surfaced as an <see cref="XlsxException"/> naming both the
+    /// offending entry and the incoming range it was being checked against, instead of being
+    /// silently skipped.
+    /// </summary>
+    private static (int startRow, int startColumn, int endRow, int endColumn) ParseMergeReference(
+        MergeCell mergeCell, string incomingRange)
+    {
+        var reference = mergeCell.Reference?.Value;
+        if (string.IsNullOrEmpty(reference))
+        {
+            throw new XlsxException(
+                $"This worksheet contains a merge entry with no reference, so it cannot be " +
+                $"checked against '{incomingRange}'. The workbook's merge data is corrupt; " +
+                "repair or remove the invalid entry.");
+        }
+
+        var bounds = reference.Split(':');
+        if (bounds.Length != 2)
+        {
+            throw new XlsxException(
+                $"This worksheet contains an invalid merge reference '{reference}', so it " +
+                $"cannot be checked against '{incomingRange}'. Expected an A1-style range " +
+                $"such as 'A1:C3'. The workbook's merge data is corrupt; repair or remove " +
+                "the invalid entry.");
+        }
+
+        var startRow = GetRowIndex(bounds[0]);
+        var startColumn = GetColumnIndex(bounds[0]);
+        var endRow = GetRowIndex(bounds[1]);
+        var endColumn = GetColumnIndex(bounds[1]);
+
+        if (endRow < startRow || endColumn < startColumn)
+        {
+            throw new XlsxException(
+                $"This worksheet contains a reversed merge reference '{reference}', so it " +
+                $"cannot be checked against '{incomingRange}'. Expected a range whose start " +
+                "is the top-left corner and whose end is the bottom-right corner. The " +
+                "workbook's merge data is corrupt; repair or remove the invalid entry.");
+        }
+
+        return (startRow, startColumn, endRow, endColumn);
+    }
+
+    private List<MergeCell> GetMergeCellEntries()
+    {
+        var mergeCells = _worksheet.GetFirstChild<MergeCells>();
+        if (mergeCells == null)
+        {
+            return new List<MergeCell>();
+        }
+
+        return mergeCells.Elements<MergeCell>().ToList();
+    }
+
+    /// <summary>
+    /// Returns the worksheet's &lt;mergeCells&gt; container, creating and inserting it in
+    /// schema position on first use. The element is reused afterwards, so every merge lives
+    /// in one list with a Count that stays in sync with its &lt;mergeCell&gt; children.
+    /// </summary>
+    private MergeCells GetOrCreateMergeCells()
+    {
+        var existing = _worksheet.GetFirstChild<MergeCells>();
+        if (existing != null)
+        {
+            return existing;
+        }
+
+        var mergeCells = new MergeCells();
+        InsertMergeCellsAtSchemaPosition(mergeCells);
+        return mergeCells;
+    }
+
+    /// <summary>
+    /// Inserts a new &lt;mergeCells&gt; container at its correct position in the
+    /// CT_Worksheet child sequence (immediately after customSheetViews, before phoneticPr).
+    /// Existing children of a reopened worksheet are already in schema order, so inserting
+    /// before the first child that follows mergeCells is correct whether the worksheet was
+    /// just created or carries elements such as autoFilter, hyperlinks or tableParts.
+    /// </summary>
+    private void InsertMergeCellsAtSchemaPosition(MergeCells mergeCells)
+    {
+        foreach (var child in _worksheet.ChildElements)
+        {
+            if (GetWorksheetChildOrder(child.LocalName) > MergeCellsOrder)
+            {
+                _worksheet.InsertBefore(mergeCells, child);
+                return;
+            }
+        }
+
+        _worksheet.Append(mergeCells);
+    }
+
+    private const int MergeCellsOrder = 15;
+
+    /// <summary>
+    /// Ordinal positions of the worksheet child elements in the CT_Worksheet sequence
+    /// (ECMA-376 §18.3.1.99). mergeCells sits at position 15, between customSheetViews and
+    /// phoneticPr. Elements not listed (non-standard children) are treated as following
+    /// mergeCells — the safe side for an element that sits two-thirds into the sequence.
+    /// </summary>
+    private static readonly Dictionary<string, int> WorksheetChildOrder = new()
+    {
+        ["sheetPr"] = 1,
+        ["dimension"] = 2,
+        ["sheetViews"] = 3,
+        ["sheetFormatPr"] = 4,
+        ["cols"] = 5,
+        ["sheetData"] = 6,
+        ["sheetCalcPr"] = 7,
+        ["sheetProtection"] = 8,
+        ["protectedRanges"] = 9,
+        ["scenarios"] = 10,
+        ["autoFilter"] = 11,
+        ["sortState"] = 12,
+        ["dataConsolidate"] = 13,
+        ["customSheetViews"] = 14,
+        ["mergeCells"] = 15,
+        ["phoneticPr"] = 16,
+        ["conditionalFormatting"] = 17,
+        ["dataValidations"] = 18,
+        ["hyperlinks"] = 19,
+        ["printOptions"] = 20,
+        ["pageMargins"] = 21,
+        ["pageSetup"] = 22,
+        ["headerFooter"] = 23,
+        ["rowBreaks"] = 24,
+        ["colBreaks"] = 25,
+        ["customProperties"] = 26,
+        ["cellWatches"] = 27,
+        ["ignoredErrors"] = 28,
+        ["smartTags"] = 29,
+        ["drawing"] = 30,
+        ["legacyDrawing"] = 31,
+        ["legacyDrawingHF"] = 32,
+        ["picture"] = 33,
+        ["oleObjects"] = 34,
+        ["controls"] = 35,
+        ["webPublishItems"] = 36,
+        ["tableParts"] = 37,
+        ["extLst"] = 38
+    };
+
+    private static int GetWorksheetChildOrder(string localName)
+    {
+        return WorksheetChildOrder.TryGetValue(localName, out var order) ? order : int.MaxValue;
     }
 
     // ─── Column width / row height helpers ────────────────────────
