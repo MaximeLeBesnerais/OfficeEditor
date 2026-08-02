@@ -204,12 +204,17 @@ builder.Save("05-processed.xlsx");
 | 5 | **TOTAL** | | | `=SUM(D2:D4)` → 2500 |
 
 > **Note:** The original template `05-template.xlsx` is preserved.
+>
+> **Inline strings:** templates may store text in inline-string cells (`<is><t>`)
+> as well as shared strings. `DetectVariables`/`MergeVariables` read and rewrite both
+> cell kinds in place, so a merged value keeps the cell's type instead of leaving a
+> stale inline string beside a new `<v>`.
 
 ---
 
-## JSON Instructions *(planned schema — Phase 2, not yet executable)*
+## 6. JSON Instructions
 
-The JSON instruction engine for XLSX is on the Phase 2 roadmap. `instructions/sample.json` documents the intended vocabulary shape. Today, use the fluent C# API (`WorkbookBuilder`/`WorksheetBuilder`) to create workbooks programmatically.
+The JSON instruction engine (`XlsxEditor.Core/Instructions/`) parses, loudly validates, and executes a v1 vocabulary. `instructions/sample.json` runs end-to-end via the library.
 
 **Input:** `instructions/sample.json`
 
@@ -242,7 +247,75 @@ The JSON instruction engine for XLSX is on the Phase 2 roadmap. `instructions/sa
 }
 ```
 
-**Output:** *(not yet executable — this schema will drive generation after Phase 2 is complete)*
+**Operation:** Parse and execute
+```csharp
+using XlsxEditor.Core.Instructions;
+
+var set = XlsxInstructionParser.ParseFromFile("instructions/sample.json");
+using var builder = WorkbookBuilder.Create("06-instructions.xlsx");
+XlsxInstructionExecutor.Execute(set, builder);
+builder.Save();
+```
+
+**Output:** `output/xlsx/06-instructions.xlsx` — worksheets "Revenue" (headers + 3 rows, formulas in column E) and "Summary" (cell A1 literal, cell B1 formula). `{{var}}` values resolve at generation time; an unresolved `{{…}}` placeholder fails the run with a descriptive `XlsxException` instead of being written verbatim.
+
+**Vocabulary (v1):** `version` (must be `"1.0"`), `worksheets[].name`, `headers`, `rows`, `cells[]` (`address` with `value` XOR `formula`, formula starting with `=`), `variables`, and `style` (a numeric styleId string). Validation is loud: unknown keys, invalid sheet names, out-of-bounds addresses (columns A–XFD, rows 1–1,048,576), and cells with both/neither `value` and `formula` are all rejected with actionable errors.
+
+**Not in JSON yet (Phase 2 of the XLSX roadmap):** typed cells, `numberFormat`, images, merges, and column widths / row heights — the last three are fluent-API only today. The CLI `create --instructions` wiring is not in place either; use the library directly.
+
+---
+
+## 7. Layout & Merges
+
+Explicit column widths and row heights, and display-only cell merges, via the fluent API.
+
+**Code:**
+```csharp
+using var builder = WorkbookBuilder.Create("07-layout.xlsx");
+var sheet = builder.AddWorksheet("Report");
+
+sheet.AddHeaderRow(new List<string> { "Metric", "Q1", "Q2" });
+sheet.AddDataRow(new List<string> { "Revenue", "100", "150" }, 2);
+
+sheet.SetColumnWidth("A", 24);      // IWorksheetBuilder SetColumnWidth(string column, double width)
+sheet.SetColumnWidth("B", 12.5);
+sheet.SetRowHeight(1, 30);          // IWorksheetBuilder SetRowHeight(int rowIndex, double height)
+
+sheet.MergeCells("A1:A1");          // rejected: single cell
+sheet.MergeCells("A1:C1");          // header spans the table
+sheet.UnmergeCells("A1:C1");        // restores it (no-op if not merged)
+
+sheet.GetMergeRanges();             // List<string> in A1 notation, document order
+sheet.GetColumnWidth("B");          // double? -> 12.5 (null when undefined)
+sheet.GetRowHeight(1);              // double? -> 30 (null when undefined)
+builder.Save();
+```
+
+Widths are in Excel column-width units (characters of the default font, max 255); heights are in points (max 409.5). Ranges are normalized and bounded to Excel's real sheet limits (columns A–XFD, rows 1–1,048,576) before mutation; malformed, single-cell, reversed, duplicate and overlapping merges throw an `XlsxException` and leave the worksheet untouched.
+
+---
+
+## 8. Read Back
+
+Reopen a workbook and inspect cells, rows, ranges, and dimensions.
+
+**Code:**
+```csharp
+using var builder = WorkbookBuilder.Open("03-multi-sheet.xlsx");
+var summary = builder.GetWorksheet("Summary");
+
+summary.GetCellValue("B2");              // string? -> cached value, shared-string resolved
+summary.GetCellFormula("B2");            // string? -> "=SUM('Sales Data'!B2:B4)"
+summary.CellExists("B2");                // bool
+summary.GetCellInfo("B2");               // CellInfo? (Reference/Value/Formula/DataType)
+summary.GetRange("A1", "B5");            // List<CellInfo>
+summary.GetRows();                       // List<RowInfo>
+summary.GetRow(2);                       // RowInfo?
+summary.GetDimensions();                 // (firstRow, lastRow, firstCol, lastCol)
+builder.Save();
+```
+
+Missing cells read as `null` (not exceptions); `CellExists` distinguishes an absent cell from an empty one.
 
 ---
 
