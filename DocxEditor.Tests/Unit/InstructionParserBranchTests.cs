@@ -1,5 +1,7 @@
+using System.Text.Json;
 using DocxEditor.Core.Models;
 using DocxEditor.Core.Serialization;
+using OfficeEditor.Core.Exceptions;
 
 namespace DocxEditor.Tests.Unit;
 
@@ -152,14 +154,17 @@ public class InstructionParserBranchTests
     }
 
     [Theory]
-    [InlineData("not: [valid", typeof(Exception))]
-    [InlineData("operations: scalar", typeof(Exception))]
-    public void YamlParser_WithMalformedYaml_ShouldThrow(string yaml, Type expectedException)
+    [InlineData("not: [valid")]
+    [InlineData("operations: scalar")]
+    public void YamlParser_WithMalformedYaml_ShouldThrowDomainExceptionWrappingYamlException(string yaml)
     {
-        var exception = Record.Exception(() => new DocxYamlInstructionParser().Parse(yaml));
+        // Malformed YAML syntax and non-mapping roots must surface as the domain exception with
+        // the original YamlDotNet failure (including its line/column marks) preserved as the
+        // inner exception — never a raw YamlException leaking to callers.
+        var ex = Assert.Throws<OfficeEditorException>(() => new DocxYamlInstructionParser().Parse(yaml));
 
-        Assert.NotNull(exception);
-        Assert.IsAssignableFrom(expectedException, exception);
+        Assert.Contains("Invalid YAML", ex.Message);
+        Assert.IsType<YamlDotNet.Core.YamlException>(ex.InnerException);
     }
 
     [Fact]
@@ -623,5 +628,209 @@ public class InstructionParserBranchTests
         var errors = new DocxInstructionValidator().Validate(json);
 
         Assert.Empty(errors);
+    }
+
+    // ---------------------------------------------------------------- hardened input boundary
+
+    // The parse boundary must normalize every uncontrolled framework failure into the project's
+    // typed domain exception with the original preserved as InnerException. Documented contract:
+    //   * Envelope-level deserialization failures (empty/malformed JSON, wrong root kinds, wrong
+    //     property value kinds at the operation level) -> OfficeEditorException wrapping the
+    //     System.Text.Json failure, with the actionable Path kept in the message.
+    //   * Semantically invalid instructions (missing required fields, unsupported types, block
+    //     shape/kind violations) keep their ArgumentException / NotSupportedException contract
+    //     with operation/block paths in the message.
+
+    [Fact]
+    public void JsonParser_WithNullInput_ShouldThrowArgumentException()
+    {
+        var ex = Assert.Throws<ArgumentException>(() => new DocxJsonInstructionParser().Parse(null!));
+        Assert.Contains("Invalid JSON", ex.Message);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("not json")]
+    [InlineData("[1, 2]")]
+    [InlineData(@"{ ""operations"": ""x"" }")]
+    [InlineData(@"{ ""operations"": [ { ""type"": 42 } ] }")]
+    [InlineData(@"{ ""operations"": [ { ""type"": ""addParagraph"", ""text"": 42 } ] }")]
+    [InlineData(@"{ ""operations"": [ { ""type"": ""insertAfter"", ""target"": ""t"", ""content"": { ""text"": 42 } } ] }")]
+    public void JsonParser_WithMalformedJsonOrWrongValueKinds_ShouldThrowDomainExceptionWrappingJsonException(string json)
+    {
+        var ex = Assert.Throws<OfficeEditorException>(() => new DocxJsonInstructionParser().Parse(json));
+
+        Assert.Contains("Invalid JSON", ex.Message);
+        Assert.IsType<JsonException>(ex.InnerException);
+    }
+
+    [Fact]
+    public void JsonParser_WithWrongValueKind_ShouldPreserveActionablePathInMessage()
+    {
+        var json = @"{ ""operations"": [ { ""type"": 42 } ] }";
+
+        var ex = Assert.Throws<OfficeEditorException>(() => new DocxJsonInstructionParser().Parse(json));
+
+        Assert.Contains("operations[0].type", ex.Message);
+    }
+
+    [Fact]
+    public void YamlParser_WithNullInput_ShouldThrowArgumentException()
+    {
+        var ex = Assert.Throws<ArgumentException>(() => new DocxYamlInstructionParser().Parse(null!));
+        Assert.Contains("Invalid YAML", ex.Message);
+    }
+
+    [Theory]
+    [InlineData("operations:\n  - type:\n      - a\n      - b")]
+    [InlineData("operations:\n  - type: addParagraph\n    text:\n      - a")]
+    [InlineData("operations:\n  - type: insertAfter\n    target: t\n    content: scalar")]
+    public void YamlParser_WithWrongValueKinds_ShouldThrowDomainExceptionWrappingYamlException(string yaml)
+    {
+        var ex = Assert.Throws<OfficeEditorException>(() => new DocxYamlInstructionParser().Parse(yaml));
+
+        Assert.Contains("Invalid YAML", ex.Message);
+        Assert.IsType<YamlDotNet.Core.YamlException>(ex.InnerException);
+    }
+
+    [Fact]
+    public void YamlParser_WithNonScalarBlockType_ShouldThrowArgumentException()
+    {
+        var yaml = """
+        operations:
+          - type: addRichContent
+            blocks:
+              - type:
+                  - paragraph
+        """;
+
+        var ex = Assert.Throws<ArgumentException>(() => new DocxYamlInstructionParser().Parse(yaml));
+        Assert.Contains("type", ex.Message);
+    }
+
+    [Fact]
+    public void DocxInstructionValidator_WithNullInput_ShouldReportErrorNotThrow()
+    {
+        var errors = new DocxInstructionValidator().Validate(null!);
+
+        Assert.Single(errors);
+        Assert.Contains("Invalid JSON", errors[0]);
+    }
+
+    [Theory]
+    [InlineData(@"{ ""operations"": [ { ""type"": 42 } ] }")]
+    [InlineData(@"{ ""operations"": [ { ""type"": [ ""x"" ] } ] }")]
+    public void DocxInstructionValidator_WithNonStringOperationType_ShouldReportErrorNotThrow(string json)
+    {
+        // A 'type' that exists but is not a string must fail validation instead of throwing
+        // InvalidOperationException from JsonElement.GetString().
+        var errors = new DocxInstructionValidator().Validate(json);
+
+        Assert.Single(errors);
+        Assert.Contains("operations[0].type", errors[0]);
+        Assert.Contains("string", errors[0], StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void DocxInstructionValidator_WithNonStringBlockType_ShouldReportErrorNotThrow()
+    {
+        var json = """
+        { "operations": [ { "type": "addRichContent", "blocks": [ { "type": 42 } ] } ] }
+        """;
+
+        var errors = new DocxInstructionValidator().Validate(json);
+
+        Assert.Single(errors);
+        Assert.Contains("blocks[0].type", errors[0]);
+    }
+
+    [Fact]
+    public void ValidatorPresenceOnly_WhileParserEnforcesValueKinds_ShouldDocumentContract()
+    {
+        // Intentional difference: the validator's contract for text/style/replace/target is
+        // presence-only (it does not check their value kinds), while the parser is the strict
+        // boundary that rejects a wrong kind with the domain exception. Not silently weakening
+        // validation — this test documents the contract so it can't regress unnoticed.
+        var json = """
+        { "operations": [ { "type": "addParagraph", "text": 42 } ] }
+        """;
+
+        Assert.Empty(new DocxInstructionValidator().Validate(json));
+
+        var ex = Assert.Throws<OfficeEditorException>(() => new DocxJsonInstructionParser().Parse(json));
+        Assert.Contains("operations[0].text", ex.Message);
+        Assert.IsType<JsonException>(ex.InnerException);
+    }
+
+    // ---------------------------------------------------------------- null entries & unknown properties
+
+    [Theory]
+    [InlineData(@"{ ""operations"": [ null ] }", "operations[0]")]
+    [InlineData(@"{ ""operations"": [ null, { ""type"": ""create"" } ] }", "operations[0]")]
+    [InlineData(@"{ ""operations"": [ { ""type"": ""create"" }, null ] }", "operations[1]")]
+    public void JsonParser_WithNullOperationEntry_ShouldThrowArgumentException(string json, string pathHint)
+    {
+        // A null entry in 'operations' must fail descriptively instead of leaking an NRE.
+        var ex = Assert.Throws<ArgumentException>(() => new DocxJsonInstructionParser().Parse(json));
+        Assert.Contains(pathHint, ex.Message);
+    }
+
+    [Theory]
+    [InlineData(@"{ ""operations"": [ { ""type"": ""create"", ""weirdField"": 42 } ] }", "weirdField")]
+    [InlineData(@"{ ""operations"": [ { ""type"": ""addParagraph"", ""text"": ""x"", ""typo"": ""y"" } ] }", "typo")]
+    public void JsonParser_WithUnknownOperationProperty_ShouldThrowDomainExceptionWrappingJsonException(string json, string propertyName)
+    {
+        // Unknown JSON properties must be rejected loudly (System.Text.Json
+        // UnmappedMemberHandling.Disallow), keeping the actionable path in the message and the
+        // original JsonException as the inner exception.
+        var ex = Assert.Throws<OfficeEditorException>(() => new DocxJsonInstructionParser().Parse(json));
+        Assert.Contains("Invalid JSON", ex.Message);
+        Assert.Contains(propertyName, ex.Message);
+        Assert.Contains("operations[0]", ex.Message);
+        Assert.IsType<JsonException>(ex.InnerException);
+    }
+
+    [Fact]
+    public void JsonParser_WithUnknownRootProperty_ShouldThrowDomainExceptionWrappingJsonException()
+    {
+        // Only the documented root metadata (version/description) is tolerated; any other
+        // unknown root property is rejected loudly.
+        var json = @"{ ""operations"": [], ""extra"": true }";
+
+        var ex = Assert.Throws<OfficeEditorException>(() => new DocxJsonInstructionParser().Parse(json));
+        Assert.Contains("Invalid JSON", ex.Message);
+        Assert.Contains("extra", ex.Message);
+        Assert.IsType<JsonException>(ex.InnerException);
+    }
+
+    [Fact]
+    public void JsonParser_WithRootMetadata_ShouldParse()
+    {
+        // The documented instruction-file metadata (version/description) is accepted.
+        var json = """
+        {
+          "version": "1.0",
+          "description": "Sample instruction set.",
+          "operations": [ { "type": "create" } ]
+        }
+        """;
+
+        var instructions = new DocxJsonInstructionParser().Parse(json);
+
+        Assert.Single(instructions.Operations);
+        Assert.IsType<CreateDocumentInstruction>(instructions.Operations[0]);
+    }
+
+    [Theory]
+    [InlineData("operations:\n  - ")]
+    [InlineData("operations:\n  -\n  - type: create\n")]
+    [InlineData("operations:\n  - ~\n  - type: create\n")]
+    public void YamlParser_WithNullOperationEntry_ShouldThrowArgumentException(string yaml)
+    {
+        // YamlDotNet deserializes a bare '-' / '~' list item into a null DTO; it must fail
+        // descriptively instead of leaking a raw NRE.
+        var ex = Assert.Throws<ArgumentException>(() => new DocxYamlInstructionParser().Parse(yaml));
+        Assert.Contains("operations[0]", ex.Message);
     }
 }
