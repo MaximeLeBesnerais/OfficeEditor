@@ -145,6 +145,15 @@ public class DocxVariableReplacer
                 continue;
             }
 
+            // A match fully contained in a single Text node was already handled by the
+            // per-text pass (ReplaceVariablesInText). Skipping it here keeps the two
+            // passes disjoint, so a replacement value that itself contains a {{...}}
+            // sequence is not re-substituted on the second pass.
+            if (varEnd <= firstNode.start + firstNode.length)
+            {
+                continue;
+            }
+
             int localVarStart = varStart - firstNode.start;
             int localVarEnd = varEnd - firstNode.start;
 
@@ -177,6 +186,13 @@ public class DocxVariableReplacer
                     string keepBefore = keepStart > 0 ? node.text.Text.Substring(0, keepStart) : string.Empty;
                     string keepAfter = keepEnd < node.text.Text.Length ? node.text.Text.Substring(keepEnd) : string.Empty;
                     node.text.Text = keepBefore + keepAfter;
+                    // The surviving text can now lead/trail with whitespace that was
+                    // previously buried next to the placeholder; without xml:space=preserve
+                    // Word collapses it, mirroring the first-node and per-text paths.
+                    if (node.text.Text.Length > 0)
+                    {
+                        node.text.Space = SpaceProcessingModeValues.Preserve;
+                    }
                 }
 
                 positions[i] = (node.text, positions[i].start, node.text.Text.Length);

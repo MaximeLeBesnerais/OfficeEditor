@@ -272,6 +272,212 @@ public class VariableBranchTests : IDisposable
     }
 
     [Fact]
+    public void DocxReplacer_WithSplitPlaceholderAcrossMixedFormatRuns_ShouldPreserveExactRunTextAndProperties()
+    {
+        var para = new W.Paragraph(
+            new W.Run(new W.RunProperties(new W.Bold()), new W.Text("Bold {{fi")),
+            new W.Run(new W.RunProperties(new W.Italic()), new W.Text("rst}} and {{la")),
+            new W.Run(new W.RunProperties(new W.Bold(), new W.Italic()), new W.Text("st}} done")));
+        var path = CreateDocx(new[] { para });
+
+        using (var document = WordprocessingDocument.Open(path, true))
+        {
+            new DocxVariableReplacer().Replace(document, new Dictionary<string, string>
+            {
+                ["first"] = "1st",
+                ["last"] = "2nd"
+            });
+        }
+
+        using var reopened = WordprocessingDocument.Open(path, false);
+        var body = reopened.MainDocumentPart!.Document!.Body!;
+        Assert.Equal("Bold 1st and 2nd done", body.InnerText);
+
+        var runs = body.Descendants<W.Paragraph>().Single().Elements<W.Run>().ToList();
+        Assert.Equal(3, runs.Count);
+
+        AssertRun(runs[0], "Bold 1st", bold: true, italic: false);
+        AssertRun(runs[1], " and 2nd", bold: false, italic: true);
+        AssertRun(runs[2], " done", bold: true, italic: true);
+
+        Assert.Equal(SpaceProcessingModeValues.Preserve, runs[1].GetFirstChild<W.Text>()!.Space?.Value);
+        Assert.Equal(SpaceProcessingModeValues.Preserve, runs[2].GetFirstChild<W.Text>()!.Space?.Value);
+    }
+
+    [Fact]
+    public void DocxReplacer_WithPrefixAndSuffixInDifferentlyFormattedRuns_ShouldKeepEachRunFormatting()
+    {
+        var para = new W.Paragraph(
+            new W.Run(new W.RunProperties(new W.Italic()), new W.Text("Italic {{na")),
+            new W.Run(new W.RunProperties(new W.Bold()), new W.Text("me}} bold")),
+            new W.Run(new W.Text(" plain suffix")));
+        var path = CreateDocx(new[] { para });
+
+        using (var document = WordprocessingDocument.Open(path, true))
+        {
+            new DocxVariableReplacer().Replace(document, new Dictionary<string, string>
+            {
+                ["name"] = "Ada"
+            });
+        }
+
+        using var reopened = WordprocessingDocument.Open(path, false);
+        var body = reopened.MainDocumentPart!.Document!.Body!;
+        Assert.Equal("Italic Ada bold plain suffix", body.InnerText);
+
+        var runs = body.Descendants<W.Paragraph>().Single().Elements<W.Run>().ToList();
+        Assert.Equal(3, runs.Count);
+
+        AssertRun(runs[0], "Italic Ada", bold: false, italic: true);
+        AssertRun(runs[1], " bold", bold: true, italic: false);
+        AssertRun(runs[2], " plain suffix", bold: false, italic: false);
+        Assert.Equal(SpaceProcessingModeValues.Preserve, runs[1].GetFirstChild<W.Text>()!.Space?.Value);
+        Assert.Null(runs[2].GetFirstChild<W.Text>()!.Space?.Value);
+    }
+
+    [Fact]
+    public void DocxReplacer_WithMultiplePlaceholdersSpanningRuns_ShouldReplaceAllInOrder()
+    {
+        var para = new W.Paragraph(
+            new W.Run(new W.RunProperties(new W.Bold()), new W.Text("{{a}} {{b")),
+            new W.Run(new W.RunProperties(new W.Italic()), new W.Text("}} and {{c")),
+            new W.Run(new W.RunProperties(new W.Bold()), new W.Text("}} end")));
+        var path = CreateDocx(new[] { para });
+
+        using (var document = WordprocessingDocument.Open(path, true))
+        {
+            new DocxVariableReplacer().Replace(document, new Dictionary<string, string>
+            {
+                ["a"] = "X",
+                ["b"] = "Y",
+                ["c"] = "Z"
+            });
+        }
+
+        using var reopened = WordprocessingDocument.Open(path, false);
+        var body = reopened.MainDocumentPart!.Document!.Body!;
+        Assert.Equal("X Y and Z end", body.InnerText);
+
+        var runs = body.Descendants<W.Paragraph>().Single().Elements<W.Run>().ToList();
+        Assert.Equal(3, runs.Count);
+
+        AssertRun(runs[0], "X Y", bold: true, italic: false);
+        AssertRun(runs[1], " and Z", bold: false, italic: true);
+        AssertRun(runs[2], " end", bold: true, italic: false);
+
+        Assert.Equal(SpaceProcessingModeValues.Preserve, runs[1].GetFirstChild<W.Text>()!.Space?.Value);
+        Assert.Equal(SpaceProcessingModeValues.Preserve, runs[2].GetFirstChild<W.Text>()!.Space?.Value);
+    }
+
+    [Fact]
+    public void DocxReplacer_WithMissingVariableSpanningRuns_ShouldPreservePlaceholderAndFormatting()
+    {
+        var para = new W.Paragraph(
+            new W.Run(new W.RunProperties(new W.Bold()), new W.Text("Bold {{miss")),
+            new W.Run(new W.RunProperties(new W.Italic()), new W.Text("ing}} tail")));
+        var path = CreateDocx(new[] { para });
+
+        using (var document = WordprocessingDocument.Open(path, true))
+        {
+            new DocxVariableReplacer().Replace(document, new Dictionary<string, string>());
+        }
+
+        using var reopened = WordprocessingDocument.Open(path, false);
+        var body = reopened.MainDocumentPart!.Document!.Body!;
+        Assert.Equal("Bold {{missing}} tail", body.InnerText);
+
+        var runs = body.Descendants<W.Paragraph>().Single().Elements<W.Run>().ToList();
+        Assert.Equal(2, runs.Count);
+
+        AssertRun(runs[0], "Bold {{miss", bold: true, italic: false);
+        AssertRun(runs[1], "ing}} tail", bold: false, italic: true);
+    }
+
+    [Fact]
+    public void DocxReplacer_WithSingleRunPlaceholderAndOtherFormattedRuns_ShouldNotDisturbNeighbors()
+    {
+        var para = new W.Paragraph(
+            new W.Run(new W.RunProperties(new W.Bold()), new W.Text("Hello {{name}}")),
+            new W.Run(new W.RunProperties(new W.Italic()), new W.Text(" world")),
+            new W.Run(new W.RunProperties(new W.Bold()), new W.Text("!")));
+        var path = CreateDocx(new[] { para });
+
+        using (var document = WordprocessingDocument.Open(path, true))
+        {
+            new DocxVariableReplacer().Replace(document, new Dictionary<string, string>
+            {
+                ["name"] = "Ada"
+            });
+        }
+
+        using var reopened = WordprocessingDocument.Open(path, false);
+        var body = reopened.MainDocumentPart!.Document!.Body!;
+        Assert.Equal("Hello Ada world!", body.InnerText);
+
+        var runs = body.Descendants<W.Paragraph>().Single().Elements<W.Run>().ToList();
+        Assert.Equal(3, runs.Count);
+
+        AssertRun(runs[0], "Hello Ada", bold: true, italic: false);
+        AssertRun(runs[1], " world", bold: false, italic: true);
+        AssertRun(runs[2], "!", bold: true, italic: false);
+    }
+
+    [Fact]
+    public void DocxReplacer_WithReplacementContainingPlaceholderPattern_ShouldNotResubstitute()
+    {
+        var para = new W.Paragraph(
+            new W.Run(new W.Text("Hello {{a}}")),
+            new W.Run(new W.Text(" world")));
+        var path = CreateDocx(new[] { para });
+
+        using (var document = WordprocessingDocument.Open(path, true))
+        {
+            new DocxVariableReplacer().Replace(document, new Dictionary<string, string>
+            {
+                ["a"] = "X{{y}}Z",
+                ["y"] = "evil"
+            });
+        }
+
+        using var reopened = WordprocessingDocument.Open(path, false);
+        var body = reopened.MainDocumentPart!.Document!.Body!;
+        Assert.Equal("Hello X{{y}}Z world", body.InnerText);
+        Assert.DoesNotContain("evil", body.InnerText);
+
+        var runs = body.Descendants<W.Paragraph>().Single().Elements<W.Run>().ToList();
+        Assert.Equal(2, runs.Count);
+        AssertRun(runs[0], "Hello X{{y}}Z", bold: false, italic: false);
+        AssertRun(runs[1], " world", bold: false, italic: false);
+    }
+
+    [Fact]
+    public void DocxReplacer_SaveAndReopen_ShouldProduceValidatorCleanDocument()
+    {
+        var para = new W.Paragraph(
+            new W.Run(new W.RunProperties(new W.Bold()), new W.Text("Bold {{fi")),
+            new W.Run(new W.RunProperties(new W.Italic()), new W.Text("rst}} and {{la")),
+            new W.Run(new W.RunProperties(new W.Bold(), new W.Italic()), new W.Text("st}} done")),
+            new W.Run(new W.Text(" {{miss")),
+            new W.Run(new W.Text("ing}} tail")));
+        var path = CreateDocx(new[] { para });
+
+        using (var document = WordprocessingDocument.Open(path, true))
+        {
+            new DocxVariableReplacer().Replace(document, new Dictionary<string, string>
+            {
+                ["first"] = "1st",
+                ["last"] = "2nd"
+            });
+        }
+
+        OpenXmlAssert.NoDocxValidationErrors(path);
+
+        using var reopened = WordprocessingDocument.Open(path, false);
+        Assert.Equal("Bold 1st and 2nd done {{missing}} tail",
+            reopened.MainDocumentPart!.Document!.Body!.InnerText);
+    }
+
+    [Fact]
     public void XlsxDetector_ShouldScanSharedAndPlainCellsWithDefaultsAndDuplicateLocations()
     {
         var path = CreateXlsx(includeSharedStringPart: true,
@@ -491,5 +697,13 @@ public class VariableBranchTests : IDisposable
         }
 
         return cell.CellValue?.Text ?? string.Empty;
+    }
+
+    private static void AssertRun(W.Run run, string expectedText, bool bold, bool italic)
+    {
+        Assert.Equal(expectedText, run.Elements<W.Text>().SingleOrDefault()?.Text ?? string.Empty);
+        var rp = run.GetFirstChild<W.RunProperties>();
+        Assert.Equal(bold, rp?.Elements<W.Bold>().Any() ?? false);
+        Assert.Equal(italic, rp?.Elements<W.Italic>().Any() ?? false);
     }
 }
