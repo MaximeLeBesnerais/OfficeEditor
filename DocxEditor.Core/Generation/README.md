@@ -1,9 +1,12 @@
 # DOCX generation vocabulary (v1.0)
 
-Declarative **JSON → DOCX** generation foundation. This is the flagship DOCX deliverable
+Declarative **JSON → DOCX** generation. This is the flagship DOCX deliverable
 (roadmap-docx.md Phase 3): a versioned vocabulary for building new documents from scratch,
 distinct from the edit instruction set in `DocxEditor.Core/Serialization`
 (generate = new document from JSON; edit = ops against an existing document).
+
+For current end-to-end usage, asset policy, API examples, and implementation limits, see
+[`docs/docx-generation.md`](../../docs/docx-generation.md).
 
 The model has **two tiers**, which is what makes it a product and not a paragraph printer:
 
@@ -20,12 +23,12 @@ The model has **two tiers**, which is what makes it a product and not a paragrap
 |---|---|
 | Model (immutable records, no OpenXML types) | `Model/` — `DocxGenerationDocument`, `Section`, `PageSetup`, `DesignTokens`, `TextModel`, `FlowBlocks`, `TableModel`, `Images`, `Positioned`, `Enums` |
 | Parser + validator | `Schema/` — `DocxGenerationDocumentParser`, `DocxGenerationIssue`, `DocxGenerationValidationResult`, `DocxGenerationValidationException` |
-| Stable contracts for downstream emitters | `Contracts/` — `IDocxGenerationParser`, `IDocxDocumentEmitter`, `DocxGenerationResult` |
+| OOXML emission | `Emit/Ooxml/` — flow, positioned content, styles, sections, and images |
+| End-to-end API and contracts | `DocxGenerator.cs`, `Contracts/` — file, stream, and byte output plus parser/emitter contracts and `DocxGenerationResult` |
 
-Pipeline (Phase 3+, not implemented here): **JSON → parse (this parser) → model → layout
-(pure C# walk) → emit** (OOXML delivery + Typst preview, `IDocxDocumentEmitter`). Emitters
-consume the discriminated records via `is` pattern matching; every block/primitive is
-documented below with its JSON `type` and C# record.
+The implemented pipeline is **JSON → validate/parse → model → OOXML emit → DOCX**.
+`DocxGenerator` provides file, stream, and byte output, using `DocxOoxmlEmitter` for the
+package. Every block/primitive is documented below with its JSON `type` and C# record.
 
 ## Document root
 
@@ -209,14 +212,17 @@ wrong root kinds, missing fields, wrong value kinds, unsupported versions, inval
 bad colors, non-finite/negative dimensions, invalid page/margin/column geometry, empty
 sections/blocks/lists/tables, ragged tables, and negative/non-positive positioned bounds.
 
-## Contracts for downstream emitters
+## Generation API and emitter contract
 
 - `IDocxGenerationParser` — `Validate` / `Parse` / `SupportedVersion` (implemented by the
   concrete parser; wire through this interface).
-- `IDocxDocumentEmitter` — `Emit(DocxGenerationDocument)` → `DocxGenerationResult`. OOXML
-  and Typst emitters implement this; the pipeline is `parse → model → emit → result`.
-- `DocxGenerationResult` — the result shell: the parsed document plus `Outputs`
-  (`EmittedOutput(Kind, FilePath)`; `DocxOutputKind.Document | TypstPreview`).
+- `IDocxDocumentEmitter` — target-neutral `Emit(DocxGenerationDocument)` →
+  `DocxGenerationResult`; the built-in implementation is `DocxOoxmlEmitter`.
+- `DocxGenerationResult` — the generated model, emitted DOCX file output when applicable,
+  and non-fatal warnings.
+
+The current generation path emits OOXML `.docx` packages only. It does not include a Typst
+preview emitter; rendering and conversion are separate operations.
 
 ## v1 limits (intentional)
 

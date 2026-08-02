@@ -69,7 +69,25 @@ class Program
         }
 
         var inputPath = args[1];
-        var outputPath = GetArgumentValue(args, "--output") ?? Path.ChangeExtension(inputPath, ".pptx");
+        var outputArgumentIndex = Array.FindIndex(
+            args,
+            argument => argument.Equals("--output", StringComparison.OrdinalIgnoreCase));
+        if (outputArgumentIndex == args.Length - 1)
+        {
+            AnsiConsole.MarkupLine("[red]--output requires a file path ending in .pptx or .docx.[/]");
+            return false;
+        }
+
+        var outputPath = outputArgumentIndex >= 0
+            ? args[outputArgumentIndex + 1]
+            : Path.ChangeExtension(inputPath, ".pptx");
+        var outputExtension = Path.GetExtension(outputPath);
+        if (!outputExtension.Equals(".pptx", StringComparison.OrdinalIgnoreCase) &&
+            !outputExtension.Equals(".docx", StringComparison.OrdinalIgnoreCase))
+        {
+            AnsiConsole.MarkupLine("[red]Unsupported output format. Use a file path ending in .pptx or .docx.[/]");
+            return false;
+        }
 
         if (!File.Exists(inputPath))
         {
@@ -79,7 +97,7 @@ class Program
 
         var json = File.ReadAllText(inputPath);
 
-        if (Path.GetExtension(outputPath).Equals(".docx", StringComparison.OrdinalIgnoreCase))
+        if (outputExtension.Equals(".docx", StringComparison.OrdinalIgnoreCase))
             return GenerateDocx(inputPath, outputPath, json);
 
         var generated = false;
