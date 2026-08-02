@@ -1,3 +1,4 @@
+using DocxEditor.Core.Generation.Design;
 using DocxEditor.Core.Generation.Model;
 
 namespace DocxEditor.Core.Generation.Contracts;
@@ -14,6 +15,12 @@ public sealed record DocxGenerationResult
 
     /// <summary>Artifacts produced by the emitter, in emit order.</summary>
     public IReadOnlyList<EmittedOutput> Outputs { get; init; } = [];
+
+    /// <summary>
+    /// Design-token resolution fallbacks and caveats collected during emission (off-palette colors,
+    /// undefined font slots, unknown token/style references). Deterministic for a given document.
+    /// </summary>
+    public IReadOnlyList<DesignResolutionWarning> Warnings { get; init; } = [];
 }
 
 /// <summary>One artifact produced by an emitter (e.g. the generated .docx package).</summary>
