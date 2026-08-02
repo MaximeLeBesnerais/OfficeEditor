@@ -33,7 +33,7 @@ public static class XlsxInstructionValidator
                 $"Unsupported instruction version '{instructions.Version}'. Only version '1.0' is supported.");
         }
 
-        if (instructions.Worksheets.Count == 0)
+        if (instructions.Worksheets is null || instructions.Worksheets.Count == 0)
         {
             throw new XlsxException(
                 "Instruction set must contain at least one worksheet in 'worksheets'.");
@@ -55,6 +55,11 @@ public static class XlsxInstructionValidator
 
     private static void ValidateWorksheet(WorksheetInstruction ws, HashSet<string> seenNames)
     {
+        if (ws == null)
+        {
+            throw new XlsxException("Every entry in 'worksheets' must be a worksheet object.");
+        }
+
         if (string.IsNullOrWhiteSpace(ws.Name))
         {
             throw new XlsxException("Every worksheet must have a non-empty 'name'.");
@@ -88,6 +93,40 @@ public static class XlsxInstructionValidator
                 $"Worksheet '{ws.Name}' must have at least one of 'headers', 'rows', or 'cells'.");
         }
 
+        if (ws.Headers != null)
+        {
+            for (var i = 0; i < ws.Headers.Count; i++)
+            {
+                if (ws.Headers[i] == null)
+                {
+                    throw new XlsxException(
+                        $"Header {i + 1} of worksheet '{ws.Name}' is null; headers must be strings.");
+                }
+            }
+        }
+
+        if (ws.Rows != null)
+        {
+            for (var i = 0; i < ws.Rows.Count; i++)
+            {
+                var row = ws.Rows[i];
+                if (row == null)
+                {
+                    throw new XlsxException(
+                        $"Row {i + 1} of worksheet '{ws.Name}' is null; each row must be an array of cell values.");
+                }
+
+                for (var j = 0; j < row.Count; j++)
+                {
+                    if (row[j] == null)
+                    {
+                        throw new XlsxException(
+                            $"Cell {j + 1} of row {i + 1} in worksheet '{ws.Name}' is null; cell values must be strings.");
+                    }
+                }
+            }
+        }
+
         if (ws.Cells != null)
         {
             foreach (var cell in ws.Cells)
@@ -99,6 +138,11 @@ public static class XlsxInstructionValidator
 
     private static void ValidateCellInstruction(CellInstruction cell, string sheetName)
     {
+        if (cell == null)
+        {
+            throw new XlsxException($"Cell instruction in sheet '{sheetName}' must be a cell object.");
+        }
+
         if (string.IsNullOrWhiteSpace(cell.Address))
         {
             throw new XlsxException($"Cell instruction in sheet '{sheetName}' is missing 'address'.");
@@ -110,6 +154,11 @@ public static class XlsxInstructionValidator
                 $"Invalid cell address '{cell.Address}' in sheet '{sheetName}'. " +
                 "Expected a valid Excel reference like 'A1', 'AA10', etc.");
         }
+
+        // Enforce Excel's real limits (columns A-XFD, rows 1-1,048,576) through the
+        // same shared parser the builders use, so validation and execution can never
+        // disagree about what is a legal address.
+        WorksheetBuilder.NormalizeCellReference(cell.Address);
 
         var hasValue = !string.IsNullOrEmpty(cell.Value);
         var hasFormula = !string.IsNullOrEmpty(cell.Formula);
