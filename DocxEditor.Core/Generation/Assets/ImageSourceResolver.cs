@@ -114,10 +114,12 @@ public static class ImageSourceResolver
         }
 
         string fullPath;
+        string sourceFullPath;
         if (opts.AllowedRoot is { } root)
         {
             var rootFull = GetFullRootPath(root);
             fullPath = Path.IsPathRooted(path) ? Path.GetFullPath(path) : Path.GetFullPath(Path.Combine(rootFull, path));
+            sourceFullPath = fullPath;
 
             if (!IsLexicallyContained(fullPath, rootFull))
             {
@@ -126,21 +128,30 @@ public static class ImageSourceResolver
                     $"Image path '{path}' resolves outside the allowed root '{root}'.");
             }
 
-            if (File.Exists(fullPath) || Directory.Exists(fullPath))
+            if (!File.Exists(fullPath))
             {
-                var canonicalRoot = TryCanonicalize(rootFull) ?? rootFull;
-                var canonicalPath = TryCanonicalize(fullPath) ?? fullPath;
-                if (!IsLexicallyContained(canonicalPath, canonicalRoot))
-                {
-                    throw new ImageSourceException(
-                        ImageSourceErrorCode.OutsideAllowedRoot,
-                        $"Image path '{path}' escapes the allowed root '{root}' through a symbolic link.");
-                }
+                throw new ImageSourceException(
+                    ImageSourceErrorCode.FileNotFound,
+                    $"Image file not found: '{path}'.");
             }
+
+            var canonicalRoot = CanonicalizeExistingPath(rootFull, root);
+            var canonicalPath = CanonicalizeExistingPath(fullPath, path);
+            if (!IsLexicallyContained(canonicalPath, canonicalRoot))
+            {
+                throw new ImageSourceException(
+                    ImageSourceErrorCode.OutsideAllowedRoot,
+                    $"Image path '{path}' escapes the allowed root '{root}' through a symbolic link.");
+            }
+
+            // The loader reads this validated target rather than reopening the original
+            // symlink-bearing path, narrowing the check/read race.
+            fullPath = canonicalPath;
         }
         else
         {
             fullPath = Path.GetFullPath(path);
+            sourceFullPath = fullPath;
         }
 
         if (!File.Exists(fullPath))
@@ -154,18 +165,18 @@ public static class ImageSourceResolver
         {
             Kind = ImageSourceKind.LocalFile,
             Source = source,
-            DeclaredMediaType = DocxImageMediaTypes.ParseExtension(fullPath) is { } hint
+            DeclaredMediaType = DocxImageMediaTypes.ParseExtension(sourceFullPath) is { } hint
                 ? DocxImageMediaTypes.GetContentType(hint)
                 : null,
             FilePath = fullPath,
-            FileName = Path.GetFileName(fullPath)
+            FileName = Path.GetFileName(sourceFullPath)
         };
     }
 
     private static string GetFullRootPath(string root)
     {
         var full = Path.GetFullPath(root);
-        return full.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return Path.TrimEndingDirectorySeparator(full);
     }
 
     private static bool IsLexicallyContained(string path, string root)
@@ -180,19 +191,16 @@ public static class ImageSourceResolver
     }
 
     /// <summary>
-    /// Best-effort symlink-aware canonicalization. Walks each path component and resolves any
-    /// link it hits via <see cref="FileSystemInfo.ResolveLinkTarget(bool)"/>, so a symlinked
-    /// directory (e.g. /tmp → /private/tmp on macOS) or a link chain inside the path is
-    /// expanded to its final target. Falls back to the lexical full path when a component
-    /// cannot be resolved.
+    /// Symlink-aware canonicalization for an existing path. Walks every component and resolves
+    /// links to their final targets. Any inspection or link-resolution failure is surfaced as
+    /// a typed asset error rather than falling back to an unvalidated lexical path.
     /// </summary>
-    private static string? TryCanonicalize(string path)
+    private static string CanonicalizeExistingPath(string path, string displayPath)
     {
         try
         {
             var full = Path.GetFullPath(path);
             var root = Path.GetPathRoot(full) ?? string.Empty;
-            var separator = Path.DirectorySeparatorChar;
             var components = full[root.Length..].Split(
                 [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
                 StringSplitOptions.RemoveEmptyEntries);
@@ -201,30 +209,24 @@ public static class ImageSourceResolver
             foreach (var component in components)
             {
                 current = Path.Combine(current, component);
-                var link = ResolveLink(current);
-                if (link is not null)
+                var attributes = File.GetAttributes(current);
+                if ((attributes & FileAttributes.ReparsePoint) != 0)
                 {
-                    current = link;
+                    FileSystemInfo info = (attributes & FileAttributes.Directory) != 0
+                        ? new DirectoryInfo(current)
+                        : new FileInfo(current);
+                    current = info.ResolveLinkTarget(true)?.FullName
+                        ?? throw new IOException($"Symbolic link target could not be resolved: '{current}'.");
                 }
             }
             return Path.GetFullPath(current);
         }
-        catch
+        catch (Exception ex) when (ex is not ImageSourceException)
         {
-            return null;
+            throw new ImageSourceException(
+                ImageSourceErrorCode.PathNotReadable,
+                $"Image path could not be canonicalized safely: '{displayPath}'.",
+                ex);
         }
-    }
-
-    private static string? ResolveLink(string path)
-    {
-        if (Directory.Exists(path))
-        {
-            return new DirectoryInfo(path).ResolveLinkTarget(true)?.FullName;
-        }
-        if (File.Exists(path))
-        {
-            return new FileInfo(path).ResolveLinkTarget(true)?.FullName;
-        }
-        return null;
     }
 }

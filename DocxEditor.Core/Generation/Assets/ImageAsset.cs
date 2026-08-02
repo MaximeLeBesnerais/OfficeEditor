@@ -36,8 +36,21 @@ public sealed record ImageAssetWarning(ImageAssetWarningCode Code, string Messag
 /// </summary>
 public sealed record ImageAsset
 {
-    /// <summary>The decoded image bytes (from a data URI or local file). Do not mutate.</summary>
-    public required byte[] Bytes { get; init; }
+    private byte[] _bytes = [];
+
+    /// <summary>
+    /// A copy of the decoded image bytes (from a data URI or local file). Mutating the
+    /// returned array cannot change this asset's content or invalidate its hash.
+    /// </summary>
+    public required byte[] Bytes
+    {
+        get => (byte[])_bytes.Clone();
+        init
+        {
+            ArgumentNullException.ThrowIfNull(value);
+            _bytes = (byte[])value.Clone();
+        }
+    }
 
     /// <summary>Content-detected media type (bytes, never the filename).</summary>
     public required DocxImageMediaType MediaType { get; init; }
@@ -71,4 +84,7 @@ public sealed record ImageAsset
 
     /// <summary>Explicit warnings for unsupported/ambiguous metadata. Never silent drops.</summary>
     public IReadOnlyList<ImageAssetWarning> Warnings { get; init; } = [];
+
+    /// <summary>Opens the asset-owned buffer for read-only package emission without exposing it.</summary>
+    internal Stream OpenRead() => new MemoryStream(_bytes, writable: false);
 }

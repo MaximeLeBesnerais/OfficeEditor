@@ -4,7 +4,7 @@ using DocxEditor.Core.Generation.Model;
 namespace DocxEditor.Core.Generation.Emit.Ooxml.Images;
 
 /// <summary>
-/// Resolved drawing geometry for a placed picture: the EMU extents and centering offset of
+/// Resolved drawing geometry for a placed picture: the EMU extents and placement offset of
 /// the DrawingML <c>a:xfrm</c>, the source crop (<c>a:srcRect</c>) in spcPct units, and the
 /// display size in points. Produced by <see cref="Resolve"/> from the pure
 /// <see cref="ImageFitCalculator"/>; consumed by the inline and positioned picture factories.
@@ -17,10 +17,10 @@ public sealed record ResolvedImageGeometry
     /// <summary>Display height in EMU (≥ 1).</summary>
     public required long ExtentsCyEmu { get; init; }
 
-    /// <summary>Horizontal offset in EMU within the reserved box (contain centering).</summary>
+    /// <summary>Horizontal transform offset in EMU.</summary>
     public long OffsetXEmu { get; init; }
 
-    /// <summary>Vertical offset in EMU within the reserved box.</summary>
+    /// <summary>Vertical transform offset in EMU.</summary>
     public long OffsetYEmu { get; init; }
 
     /// <summary>Source crop in spcPct units, or null when nothing is cropped.</summary>

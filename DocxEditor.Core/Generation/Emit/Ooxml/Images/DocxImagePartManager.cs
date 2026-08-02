@@ -7,9 +7,9 @@ namespace DocxEditor.Core.Generation.Emit.Ooxml.Images;
 /// Adds and deduplicates image parts on a main document, header, or footer part. Images are keyed
 /// by SHA-256 content hash: registering the same payload twice returns the same
 /// <see cref="RegisteredImagePart"/> (and relationship id), so the package embeds one part
-/// per unique image. Relationship ids, part names and docPr ids are deterministic given the
-/// same input, payload bytes are fed straight from the asset buffer (no copy, no mutation,
-/// no temp files) and the caller's buffers are never touched.
+/// per unique image for this relationship owner. Relationship ids, part names and docPr ids
+/// are deterministic given the same input, and payload bytes are fed from the asset-owned
+/// read-only buffer without temp files.
 /// </summary>
 public sealed class DocxImagePartManager
 {
@@ -63,7 +63,8 @@ public sealed class DocxImagePartManager
             _ => throw new NotSupportedException(
                 $"Image relationships are not supported for part type '{_owningPart.GetType().Name}'.")
         };
-        imagePart.FeedData(new MemoryStream(asset.Bytes, writable: false));
+        using var assetStream = asset.OpenRead();
+        imagePart.FeedData(assetStream);
 
         var registered = new RegisteredImagePart
         {

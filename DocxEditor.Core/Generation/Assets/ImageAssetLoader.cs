@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -42,7 +43,7 @@ public sealed class ImageAssetLoader
         ArgumentNullException.ThrowIfNull(bytes);
         var options = assetOptions ?? ImageAssetOptions.Default;
         ImageAssetOptions.Validate(options);
-        return Build(bytes, declaredMediaType, displayName, new ImageSourceResolution
+        return Build((byte[])bytes.Clone(), declaredMediaType, displayName, new ImageSourceResolution
         {
             Kind = ImageSourceKind.DataUri,
             Source = source
@@ -63,17 +64,22 @@ public sealed class ImageAssetLoader
             }
 
             byte[] bytes;
-            try
+            if (resolution.IsBase64)
             {
-                bytes = resolution.IsBase64
-                    ? Convert.FromBase64String(payload)
-                    : Encoding.UTF8.GetBytes(Uri.UnescapeDataString(payload));
+                try
+                {
+                    bytes = Convert.FromBase64String(payload);
+                }
+                catch (FormatException ex)
+                {
+                    throw new ImageSourceException(
+                        ImageSourceErrorCode.InvalidDataUri,
+                        "Image data URI payload is not valid base64.", ex);
+                }
             }
-            catch (FormatException ex)
+            else
             {
-                throw new ImageSourceException(
-                    ImageSourceErrorCode.InvalidDataUri,
-                    "Image data URI payload is not valid base64.", ex);
+                bytes = DecodePercentEncodedPayload(payload);
             }
 
             if (bytes.Length > options.MaxEncodedBytes)
@@ -86,38 +92,104 @@ public sealed class ImageAssetLoader
         }
 
         var filePath = resolution.FilePath!;
-        long length;
-        try
-        {
-            length = new FileInfo(filePath).Length;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
-        {
-            throw new ImageSourceException(ImageSourceErrorCode.PathNotReadable, $"Image file could not be read: '{filePath}'.", ex);
-        }
-        if (length > options.MaxEncodedBytes)
-        {
-            throw new ImageSourceException(
-                ImageSourceErrorCode.EncodedBytesExceededLimit,
-                $"Image file '{filePath}' is {length} bytes, exceeding the {options.MaxEncodedBytes}-byte limit.");
-        }
-
         byte[] fileBytes;
         try
         {
-            fileBytes = File.ReadAllBytes(filePath);
+            using var stream = new FileStream(
+                filePath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                bufferSize: 81920,
+                FileOptions.SequentialScan);
+            var length = stream.Length;
+            if (length > options.MaxEncodedBytes || length > int.MaxValue)
+            {
+                throw new ImageSourceException(
+                    ImageSourceErrorCode.EncodedBytesExceededLimit,
+                    $"Image file '{filePath}' is {length} bytes, exceeding the {options.MaxEncodedBytes}-byte limit.");
+            }
+
+            fileBytes = GC.AllocateUninitializedArray<byte>((int)length);
+            stream.ReadExactly(fileBytes);
+            if (stream.ReadByte() != -1)
+            {
+                throw new ImageSourceException(
+                    ImageSourceErrorCode.PathNotReadable,
+                    $"Image file changed while it was being read: '{filePath}'.");
+            }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
         {
             throw new ImageSourceException(ImageSourceErrorCode.PathNotReadable, $"Image file could not be read: '{filePath}'.", ex);
         }
-        if (fileBytes.Length > options.MaxEncodedBytes)
-        {
-            throw new ImageSourceException(
-                ImageSourceErrorCode.EncodedBytesExceededLimit,
-                $"Image file '{filePath}' grew to {fileBytes.Length} bytes while reading, exceeding the {options.MaxEncodedBytes}-byte limit.");
-        }
         return (fileBytes, resolution.DeclaredMediaType, resolution.FileName);
+    }
+
+    private static byte[] DecodePercentEncodedPayload(string payload)
+    {
+        var writer = new ArrayBufferWriter<byte>(Math.Max(1, payload.Length));
+        var segmentStart = 0;
+
+        for (var i = 0; i < payload.Length; i++)
+        {
+            if (payload[i] != '%')
+            {
+                continue;
+            }
+
+            WriteUtf8(payload.AsSpan(segmentStart, i - segmentStart), writer);
+            if (i + 2 >= payload.Length
+                || !TryReadHexNibble(payload[i + 1], out var high)
+                || !TryReadHexNibble(payload[i + 2], out var low))
+            {
+                throw new ImageSourceException(
+                    ImageSourceErrorCode.InvalidDataUri,
+                    $"Image data URI payload contains a malformed percent escape at character {i}.");
+            }
+
+            writer.GetSpan(1)[0] = (byte)((high << 4) | low);
+            writer.Advance(1);
+            i += 2;
+            segmentStart = i + 1;
+        }
+
+        WriteUtf8(payload.AsSpan(segmentStart), writer);
+        return writer.WrittenSpan.ToArray();
+    }
+
+    private static void WriteUtf8(ReadOnlySpan<char> value, ArrayBufferWriter<byte> writer)
+    {
+        if (value.IsEmpty)
+        {
+            return;
+        }
+
+        var byteCount = Encoding.UTF8.GetByteCount(value);
+        var written = Encoding.UTF8.GetBytes(value, writer.GetSpan(byteCount));
+        writer.Advance(written);
+    }
+
+    private static bool TryReadHexNibble(char value, out int nibble)
+    {
+        if (value is >= '0' and <= '9')
+        {
+            nibble = value - '0';
+            return true;
+        }
+        if (value is >= 'A' and <= 'F')
+        {
+            nibble = value - 'A' + 10;
+            return true;
+        }
+        if (value is >= 'a' and <= 'f')
+        {
+            nibble = value - 'a' + 10;
+            return true;
+        }
+
+        nibble = 0;
+        return false;
     }
 
     private static ImageAsset Build(byte[] bytes, string? declaredMediaType, string? fileName, ImageSourceResolution resolution, ImageAssetOptions options)
@@ -173,7 +245,9 @@ public sealed class ImageAssetLoader
                 $"Media type {metadata.MediaType} is not enabled by the current asset options.");
         }
 
-        var (naturalWidthPt, naturalHeightPt) = ComputeNaturalSize(metadata, warnings);
+        var dpiX = UsableDpiOrNull(metadata.DpiX);
+        var dpiY = UsableDpiOrNull(metadata.DpiY);
+        var (naturalWidthPt, naturalHeightPt) = ComputeNaturalSize(metadata, dpiX, dpiY, warnings);
         var hash = Convert.ToHexStringLower(SHA256.HashData(bytes));
         var displayName = fileName ?? $"image_{hash[..12]}{DocxImageMediaTypes.GetExtension(metadata.MediaType)}";
 
@@ -183,8 +257,8 @@ public sealed class ImageAssetLoader
             MediaType = metadata.MediaType,
             Width = metadata.Width,
             Height = metadata.Height,
-            DpiX = metadata.DpiX,
-            DpiY = metadata.DpiY,
+            DpiX = dpiX,
+            DpiY = dpiY,
             NaturalWidthPt = naturalWidthPt,
             NaturalHeightPt = naturalHeightPt,
             ContentHash = hash,
@@ -194,30 +268,58 @@ public sealed class ImageAssetLoader
         };
     }
 
-    private static (double WidthPt, double HeightPt) ComputeNaturalSize(ImageHeaderMetadata metadata, List<ImageAssetWarning> warnings)
+    private static (double WidthPt, double HeightPt) ComputeNaturalSize(
+        ImageHeaderMetadata metadata,
+        double? dpiX,
+        double? dpiY,
+        List<ImageAssetWarning> warnings)
     {
         const double defaultDpi = 96;
         const double pointsPerInch = 72;
 
-        if (metadata.DpiX is { } dpiX && metadata.DpiY is { } dpiY)
+        if (dpiX is { } horizontalDpi && dpiY is { } verticalDpi)
         {
-            var ratio = Math.Max(dpiX, dpiY) / Math.Min(dpiX, dpiY);
+            var ratio = Math.Max(horizontalDpi, verticalDpi) / Math.Min(horizontalDpi, verticalDpi);
             if (ratio > 1.5)
             {
                 warnings.Add(new ImageAssetWarning(
                     ImageAssetWarningCode.AspectDpiInconsistent,
-                    $"X/Y DPI differ significantly ({dpiX:0.##}/{dpiY:0.##}); natural size is computed per-axis."));
+                    $"X/Y DPI differ significantly ({horizontalDpi:0.##}/{verticalDpi:0.##}); natural size is computed per-axis."));
             }
-            return (metadata.Width / dpiX * pointsPerInch, metadata.Height / dpiY * pointsPerInch);
+            var widthPt = metadata.Width / horizontalDpi * pointsPerInch;
+            var heightPt = metadata.Height / verticalDpi * pointsPerInch;
+            if (double.IsFinite(widthPt) && widthPt > 0 && double.IsFinite(heightPt) && heightPt > 0)
+            {
+                return (widthPt, heightPt);
+            }
+
+            dpiX = null;
+            dpiY = null;
         }
 
-        var dpi = metadata.DpiX ?? metadata.DpiY ?? defaultDpi;
-        if (metadata.DpiX is null && metadata.DpiY is null)
+        var dpi = dpiX ?? dpiY ?? defaultDpi;
+        if (dpiX is null && dpiY is null)
         {
             warnings.Add(new ImageAssetWarning(
                 ImageAssetWarningCode.IntrinsicDpiUnavailable,
                 $"{metadata.MediaType} carries no intrinsic DPI; natural size assumes {defaultDpi:0} DPI."));
         }
-        return (metadata.Width / dpi * pointsPerInch, metadata.Height / dpi * pointsPerInch);
+        var naturalWidthPt = metadata.Width / dpi * pointsPerInch;
+        var naturalHeightPt = metadata.Height / dpi * pointsPerInch;
+        if (double.IsFinite(naturalWidthPt) && naturalWidthPt > 0
+            && double.IsFinite(naturalHeightPt) && naturalHeightPt > 0)
+        {
+            return (naturalWidthPt, naturalHeightPt);
+        }
+
+        warnings.Add(new ImageAssetWarning(
+            ImageAssetWarningCode.IntrinsicDpiUnavailable,
+            $"{metadata.MediaType} intrinsic DPI does not produce finite dimensions; natural size assumes {defaultDpi:0} DPI."));
+        return (
+            metadata.Width / defaultDpi * pointsPerInch,
+            metadata.Height / defaultDpi * pointsPerInch);
     }
+
+    private static double? UsableDpiOrNull(double? dpi) =>
+        dpi is { } value && double.IsFinite(value) && value > 0 ? value : null;
 }
