@@ -360,6 +360,73 @@ public class DocumentBuilderMalformedInputTests : IDisposable
         Assert.Throws<DirectoryNotFoundException>(() => DocumentBuilder.Open(path));
     }
 
+    // ---------------------------------------------------------------- create overload
+
+    [Fact]
+    public void Create_NullPath_ThrowsArgumentNullException()
+    {
+        Assert.Throws<ArgumentNullException>(() => DocumentBuilder.Create((string)null!));
+    }
+
+    [Fact]
+    public void Create_EmptyPath_ThrowsArgumentException()
+    {
+        Assert.Throws<ArgumentException>(() => DocumentBuilder.Create(string.Empty));
+    }
+
+    [Fact]
+    public void Create_WhitespacePath_ThrowsArgumentExceptionAndCreatesNoFile()
+    {
+        // Whitespace-only names are legal files on some platforms; Create must reject them up
+        // front so a stray whitespace path never materializes a junk document file.
+        Assert.Throws<ArgumentException>(() => DocumentBuilder.Create("   "));
+        Assert.False(File.Exists("   "), "A rejected whitespace path must not create a file.");
+    }
+
+    [Fact]
+    public void Create_PathIsDirectory_ThrowsWithoutNormalizing()
+    {
+        // Create is not a malformed-package boundary: ordinary path/permission errors must
+        // propagate unchanged instead of being wrapped in the domain exception.
+        var dir = Path.Combine(Path.GetTempPath(), $"create_dir_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var ex = Assert.ThrowsAny<Exception>(() => DocumentBuilder.Create(dir));
+            Assert.IsNotType<OfficeEditorException>(ex);
+        }
+        finally
+        {
+            Directory.Delete(dir);
+        }
+    }
+
+    [Fact]
+    public void Create_MissingParentDirectory_ThrowsDirectoryNotFoundException()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"no_such_dir_{Guid.NewGuid():N}", "doc.docx");
+        Assert.Throws<DirectoryNotFoundException>(() => DocumentBuilder.Create(path));
+    }
+
+    [Fact]
+    public void Create_AfterFailedCreate_CanStillCreateValidDocx()
+    {
+        var badPath = Path.Combine(Path.GetTempPath(), $"no_such_dir_{Guid.NewGuid():N}", "doc.docx");
+        Assert.Throws<DirectoryNotFoundException>(() => DocumentBuilder.Create(badPath));
+
+        var goodPath = Path.Combine(Path.GetTempPath(), $"create_ok_{Guid.NewGuid():N}.docx");
+        _tempFiles.Add(goodPath);
+        using (var builder = DocumentBuilder.Create(goodPath))
+        {
+            builder.AddParagraph("after failed create");
+            builder.Save();
+        }
+
+        Assert.True(File.Exists(goodPath));
+        using var doc = WordprocessingDocument.Open(goodPath, false);
+        Assert.Contains("after failed create", doc.MainDocumentPart!.Document!.Body!.InnerText);
+    }
+
     // ---------------------------------------------------------------- recovery
 
     [Fact]
