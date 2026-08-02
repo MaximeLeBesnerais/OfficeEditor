@@ -10,8 +10,10 @@ For current end-to-end usage, asset policy, API examples, and implementation lim
 
 The model has **two tiers**, which is what makes it a product and not a paragraph printer:
 
-- **Flow tier** — sections → blocks (paragraph/heading/list/table/image/callout/pageBreak/group),
-  headers/footers, page setup.
+- **Flow tier** — sections → blocks (paragraph/heading/list/table/image/callout/pageBreak/group
+  plus the semantic report archetypes `cover`/`kpiRow`/`section`/`comparisonTable`/`roadmap`),
+  headers/footers, page setup. Archetypes are lowered to concrete flow blocks by the pure
+  expansion stage (`Expand/DocxGenerationExpander`) before emission.
 - **Positioned tier** — the hard DOCX quirks, first-class: free text boxes, shapes
   (rect/line/callout), floating pictures with anchor reference, wrap mode, wrap distances,
   rotation and z-order. The converter's read side (`DocxToTypstConverter`) is the
@@ -26,7 +28,7 @@ The model has **two tiers**, which is what makes it a product and not a paragrap
 | OOXML emission | `Emit/Ooxml/` — flow, positioned content, styles, sections, and images |
 | End-to-end API and contracts | `DocxGenerator.cs`, `Contracts/` — file, stream, and byte output plus parser/emitter contracts and `DocxGenerationResult` |
 
-The implemented pipeline is **JSON → validate/parse → model → OOXML emit → DOCX**.
+The implemented pipeline is **JSON → validate/parse → expand (archetypes → flow) → model → OOXML emit → DOCX**.
 `DocxGenerator` provides file, stream, and byte output, using `DocxOoxmlEmitter` for the
 package. Every block/primitive is documented below with its JSON `type` and C# record.
 
@@ -122,6 +124,14 @@ Every flow block carries an optional `style` (paragraph/table/list/picture style
 | `callout` | `CalloutBlock` | `tone` (note|tip|warning|error), `text`/`runs`, `style`, `token` |
 | `pageBreak` | `PageBreakBlock` | marker, no properties |
 | `group` | `FlowContainerBlock` | section-safe raw grouping: nested `blocks`; emitters may flatten or wrap |
+| `cover` | `CoverBlock` | report archetype: `title`, optional `eyebrow`/`subtitle`/`metadata`/`kpis`/`pageBreak` |
+| `kpiRow` | `KpiRowBlock` | report archetype: `items` (2–4 value/label/tone) → pale KPI band table |
+| `section` | `SemanticSectionBlock` | report archetype: `title`, optional `intro`, nested `blocks` → heading + flow |
+| `comparisonTable` | `ComparisonTableBlock` | report archetype: `columns`, `rows`, optional `emphasisFirstColumn` → table |
+| `roadmap` | `RoadmapBlock` | report archetype: `phases` (window/action/evidence/tone) → table |
+
+Archetypes are lowered by `Expand/DocxGenerationExpander` into the concrete flow blocks above
+before emission; item/row counts outside a component's budget warn but still render.
 
 ```json
 { "type": "paragraph", "text": "Hello", "style": "BodyText", "token": "body",

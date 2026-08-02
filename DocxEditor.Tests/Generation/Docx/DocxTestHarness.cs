@@ -69,6 +69,10 @@ public static class DocxTestHarness
     public static string ReadBuiltInSample() =>
         File.ReadAllText(FindRepoFile(Path.Combine("examples", "Docx", "generation", "comprehensive.json")));
 
+    /// <summary>Reads the report archetype fixture (<c>examples/Docx/generation/editorial-report.json</c>).</summary>
+    public static string ReadEditorialReport() =>
+        File.ReadAllText(FindRepoFile(Path.Combine("examples", "Docx", "generation", "editorial-report.json")));
+
     /// <summary>Opens a generated DOCX read-only and returns its main document part.</summary>
     public static MainDocumentPart OpenMainPart(string path)
     {
