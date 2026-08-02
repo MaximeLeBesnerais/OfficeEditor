@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using DocxEditor.Core.Models;
+using OfficeEditor.Core.Exceptions;
 
 namespace DocxEditor.Core.Serialization;
 
@@ -19,7 +20,25 @@ public class DocxJsonInstructionParser
 
     public DocumentInstructions Parse(string json)
     {
-        var wrapper = JsonSerializer.Deserialize<JsonInstructionWrapper>(json, _options);
+        if (json is null)
+        {
+            throw new ArgumentException("Invalid JSON instruction file.");
+        }
+
+        JsonInstructionWrapper? wrapper;
+        try
+        {
+            wrapper = JsonSerializer.Deserialize<JsonInstructionWrapper>(json, _options);
+        }
+        catch (JsonException ex)
+        {
+            // Malformed JSON, empty input, non-object roots, and wrong property value kinds
+            // all surface here from System.Text.Json. Normalize them to the domain exception,
+            // preserving the actionable Path/Position in the message and the original exception
+            // as the inner exception.
+            throw new OfficeEditorException($"Invalid JSON instruction file: {ex.Message}", ex);
+        }
+
         if (wrapper?.Operations == null)
         {
             throw new ArgumentException("Invalid JSON instruction file.");

@@ -1,5 +1,6 @@
 using DocxEditor.Core.Serialization;
 using DocxEditor.Core.Models;
+using OfficeEditor.Core.Exceptions;
 
 namespace DocxEditor.Tests.Unit;
 
@@ -71,12 +72,28 @@ operations:
     [Fact]
     public void JsonParser_ShouldThrowOnInvalidJson()
     {
-        // Arrange
+        // Malformed JSON is normalized to the domain exception with the original
+        // System.Text.Json failure preserved as the inner exception — never a raw
+        // JsonException leaking to callers.
         var json = "invalid json";
         var parser = new DocxJsonInstructionParser();
 
-        // Act & Assert
-        Assert.ThrowsAny<Exception>(() => parser.Parse(json));
+        var ex = Assert.Throws<OfficeEditorException>(() => parser.Parse(json));
+        Assert.Contains("Invalid JSON", ex.Message);
+        Assert.IsType<System.Text.Json.JsonException>(ex.InnerException);
+    }
+
+    [Fact]
+    public void YamlParser_ShouldThrowOnMalformedYaml()
+    {
+        // Malformed YAML is normalized to the domain exception with the original
+        // YamlDotNet failure preserved as the inner exception.
+        var yaml = "not: [valid";
+        var parser = new DocxYamlInstructionParser();
+
+        var ex = Assert.Throws<OfficeEditorException>(() => parser.Parse(yaml));
+        Assert.Contains("Invalid YAML", ex.Message);
+        Assert.IsType<YamlDotNet.Core.YamlException>(ex.InnerException);
     }
 
     [Fact]
