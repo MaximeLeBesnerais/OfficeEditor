@@ -184,6 +184,7 @@ Status: Shipped
 ```
 
 > **Note:** The original template `04-merge-template.docx` is preserved.
+> **Note:** Replacement preserves run-level formatting — a placeholder split across multiple runs keeps each run's properties (bold/italic/…), leading/trailing whitespace is kept via `xml:space="preserve"`, and a replacement value containing `{{...}}` is not re-substituted.
 
 ---
 
@@ -223,11 +224,45 @@ engine.Execute(document, instructions);
 | `replaceWithRichContent` | `target`, `blocks` | Replace a paragraph with structured content blocks |
 | `insertAfter` | `target`, `content` | Insert a paragraph after the given target text |
 
-Validate instruction JSON before parsing with `DocxInstructionValidator` for field-level error messages.
+Validate instruction JSON before parsing with `DocxInstructionValidator` for field-level error messages. Instruction sets are **prevalidated before any mutation**: a batch with a null operation, an empty `find`, or malformed rich-content blocks fails up front instead of partially applying earlier operations. Malformed JSON/YAML and unknown JSON fields are rejected loudly, and documents whose package structure is corrupt or not a valid WordprocessingML package are rejected at open time.
 
 **Output:** Document modified according to the instruction set.
 
 **Current limitations:** images, headers/footers, and table styling are not yet available via the builder. Hyperlinks are flattened to plain text in the converter.
+
+
+---
+
+## 6. Rich-Content Lists (Numbering)
+
+**Input:** None (created from scratch)
+
+Bullet and ordered lists via `AddRichContent` produce **real, collision-free numbering**: a `NumberingDefinitionsPart` is created on demand, numbering ids are allocated above any numbering already in the document so they never collide, and one generated definition per list kind (bullet / ordered) is shared across lists of the same kind. This is default single-level bullets and decimal numbering — custom or multi-level schemes are not yet supported.
+
+**Code:**
+```csharp
+using var builder = DocumentBuilder.Create("06-lists.docx");
+
+builder.AddRichContent(new ContentBlockBuilder()
+    .AddParagraph("Shipment contents", "Heading2")
+    .AddList(ordered: false, new List<string> { "Gears", "Bearings", "Seals" })
+    .AddList(ordered: true, new List<string> { "Inspect", "Pack", "Label" })
+    .Build());
+
+builder.Save();
+```
+
+**Output:** `output/docx/06-lists.docx` — the package now contains a `numbering.xml` part with the generated definitions; opens in Word/LibreOffice without repair prompts.
+
+```
+Shipment contents
+• Gears
+• Bearings
+• Seals
+1. Inspect
+2. Pack
+3. Label
+```
 
 
 ---
