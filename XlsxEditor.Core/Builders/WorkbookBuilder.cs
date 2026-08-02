@@ -193,9 +193,10 @@ public class WorkbookBuilder : IWorkbookBuilder
     /// The path must be a non-empty, non-whitespace file path, mirroring
     /// <see cref="Open(string)"/>; null, empty, or whitespace paths are rejected up front as
     /// argument exceptions. If creating or initializing the package fails, the opened document
-    /// is disposed so no file handle leaks and no partial file is left behind, and the original
-    /// failure propagates unchanged — ordinary path/permission and IO errors are never
-    /// normalized into the domain exception. On success the returned builder owns the
+    /// is disposed best-effort so no file handle leaks and no partial file is left behind, and
+    /// the original failure propagates unchanged — a dispose error during cleanup can never mask
+    /// the primary create/initialization failure. Ordinary path/permission and IO errors are
+    /// never normalized into the domain exception. On success the returned builder owns the
     /// document; callers must dispose it.
     /// </summary>
     public static IWorkbookBuilder Create(string path)
@@ -218,8 +219,9 @@ public class WorkbookBuilder : IWorkbookBuilder
         catch
         {
             // A failed create must never leak the partially opened package handle; the
-            // caller-visible failure is preserved and rethrown unchanged.
-            document?.Dispose();
+            // caller-visible failure is preserved and rethrown unchanged. Cleanup is
+            // best-effort so a dispose error cannot replace the primary failure.
+            DisposeFailedOpen(document);
             throw;
         }
     }
@@ -526,6 +528,14 @@ public class WorkbookBuilder : IWorkbookBuilder
 
     public void Save(string? path = null)
     {
+        // Reject empty/whitespace destinations before flushing so an invalid path fails fast
+        // without touching the source document or materializing a junk file; matches the
+        // Create/Open path contract.
+        if (path is not null && string.IsNullOrWhiteSpace(path))
+        {
+            throw new ArgumentException("Path must not be empty or whitespace.", nameof(path));
+        }
+
         if (string.IsNullOrEmpty(path))
         {
             if (string.IsNullOrEmpty(_path))
