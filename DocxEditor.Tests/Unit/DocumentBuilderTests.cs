@@ -223,6 +223,36 @@ public class DocumentBuilderTests : IDisposable
         Assert.Throws<InvalidOperationException>(() => builder.Save());
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Save_WithEmptyOrWhitespacePath_ThrowsArgumentExceptionAndPreservesSource(string path)
+    {
+        // Gap fixed: an empty destination was a silent no-op on file-backed documents while
+        // whitespace materialized a junk file named after the whitespace; both are now rejected
+        // as argument errors up front, matching the Create/Open path contract.
+        using (var builder = DocumentBuilder.Create(_testFilePath))
+        {
+            builder.AddParagraph("Keep");
+            Assert.Throws<ArgumentException>(() => builder.Save(path));
+        }
+
+        using var doc = WordprocessingDocument.Open(_testFilePath, false);
+        Assert.Contains("Keep", doc.MainDocumentPart!.Document!.Body!.InnerText);
+    }
+
+    [Fact]
+    public void Save_WithWhitespacePath_CreatesNoJunkFile()
+    {
+        using (var builder = DocumentBuilder.Create(_testFilePath))
+        {
+            builder.AddParagraph("Keep");
+            Assert.Throws<ArgumentException>(() => builder.Save("   "));
+        }
+
+        Assert.False(File.Exists("   "), "A rejected whitespace path must not create a file.");
+    }
+
     [Fact]
     public void SaveToBytes_AfterAddingMarkdown_ReturnsValidDocx()
     {

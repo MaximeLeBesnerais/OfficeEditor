@@ -407,6 +407,13 @@ public class DocumentBuilder : IDocumentBuilder
 
     public void Save(string? path = null)
     {
+        // Reject empty/whitespace destinations before flushing so an invalid path fails fast
+        // without touching the source document; matches the Create/Open path contract.
+        if (path is not null && string.IsNullOrWhiteSpace(path))
+        {
+            throw new ArgumentException("Path must not be empty or whitespace.", nameof(path));
+        }
+
         _document.Save();
 
         if (!string.IsNullOrEmpty(path) && !string.Equals(_filePath, path, StringComparison.OrdinalIgnoreCase))
@@ -811,12 +818,28 @@ public class DocumentBuilder : IDocumentBuilder
             }
         }
 
+        if (templatePath is not null && string.IsNullOrWhiteSpace(templatePath))
+        {
+            throw new ArgumentException("Template path must not be empty or whitespace.", nameof(templatePath));
+        }
+
         // Use provided template path or try to get from document
         var originalPath = templatePath ?? GetDocumentPath();
         
         if (string.IsNullOrEmpty(originalPath))
         {
             throw new InvalidOperationException("Document path not available. Please provide templatePath parameter.");
+        }
+
+        if (records.Count > 0)
+        {
+            // Route the template through the hardened open contract before any output file is
+            // written. A corrupt, wrong-format, or structurally-invalid template previously bypassed
+            // the Open boundary: it was copied to every output path and then failed mid-loop with a
+            // raw SDK exception, leaving corrupt partial outputs on disk. Validating first makes the
+            // malformed template fail up front with the domain exception (missing-file and other
+            // ordinary IO errors still propagate unchanged) while no output file has been created.
+            using var template = Open(File.ReadAllBytes(originalPath));
         }
         
         for (int i = 0; i < records.Count; i++)
