@@ -23,8 +23,19 @@ public class DocxTemplateEngine
         @"^(\w+)\s*([\u003e\u003c=!]+)\s*(.+)$",
         RegexOptions.Compiled);
 
+    /// <summary>
+    /// Rewrites the document's paragraphs against the given template data. Both arguments are
+    /// required: a null document NREs on the main-part access, and a null <paramref name="data"/>
+    /// dictionary previously only NRE'd when the template happened to contain conditionals or
+    /// loops — with a marker-free template the call silently succeeded. Both are programmer
+    /// input errors and are rejected up front with argument exceptions so the outcome no longer
+    /// depends on template content, and so a null data never mutates a document.
+    /// </summary>
     public void Process(WordprocessingDocument document, Dictionary<string, object> data)
     {
+        ArgumentNullException.ThrowIfNull(document);
+        ArgumentNullException.ThrowIfNull(data);
+
         var body = document.MainDocumentPart?.Document?.Body;
         if (body != null)
         {
