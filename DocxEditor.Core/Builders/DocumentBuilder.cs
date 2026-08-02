@@ -1,3 +1,4 @@
+using System.Xml;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
@@ -61,9 +62,7 @@ public class DocumentBuilder : IDocumentBuilder
         _filePath = filePath;
         _documentStream = documentStream;
 
-        var mainPart = document.MainDocumentPart
-            ?? throw new OfficeEditorException(
-                "The package does not contain a WordprocessingML main document part, so it is not a valid DOCX document.");
+        var mainPart = GetRequiredMainPart(document);
         var documentRoot = mainPart.Document
             ?? throw new OfficeEditorException(
                 "The main document part does not contain a <w:document> root element.");
@@ -71,6 +70,28 @@ public class DocumentBuilder : IDocumentBuilder
             ?? throw new OfficeEditorException(
                 "The document does not contain a <w:body> element, so it cannot be edited.");
         _cachedStyles = LoadStyles();
+    }
+
+    /// <summary>
+    /// Returns the required main document part. The SDK returns null when the package has no
+    /// officeDocument relationship, and throws <see cref="InvalidOperationException"/> when that
+    /// relationship targets a part that does not exist in the package. Both structural failures
+    /// surface as the DOCX domain exception instead of an NRE or an unrelated SDK failure.
+    /// </summary>
+    private static MainDocumentPart GetRequiredMainPart(WordprocessingDocument document)
+    {
+        try
+        {
+            return document.MainDocumentPart
+                ?? throw new OfficeEditorException(
+                    "The package does not contain a WordprocessingML main document part, so it is not a valid DOCX document.");
+        }
+        catch (InvalidOperationException ex) when (ex is not ObjectDisposedException)
+        {
+            throw new OfficeEditorException(
+                "The package's main document relationship targets a part that does not exist, so it is not a valid DOCX document.",
+                ex);
+        }
     }
 
     public static IDocumentBuilder Create(string path)
@@ -115,7 +136,13 @@ public class DocumentBuilder : IDocumentBuilder
         catch (Exception ex)
         {
             document?.Dispose();
-            throw NormalizeOpenFailure(ex, $"the file '{path}'");
+            if (IsMalformedPackageFailure(ex))
+            {
+                throw new OfficeEditorException(
+                    $"Could not open a valid DOCX document from the file '{path}'. The content is missing, corrupt, or not a WordprocessingML package.",
+                    ex);
+            }
+            throw;
         }
     }
 
@@ -141,7 +168,13 @@ public class DocumentBuilder : IDocumentBuilder
         {
             document?.Dispose();
             buffer?.Dispose();
-            throw NormalizeOpenFailure(ex, "the supplied stream");
+            if (IsMalformedPackageFailure(ex))
+            {
+                throw new OfficeEditorException(
+                    $"Could not open a valid DOCX document from the supplied stream. The content is missing, corrupt, or not a WordprocessingML package.",
+                    ex);
+            }
+            throw;
         }
     }
 
@@ -166,22 +199,29 @@ public class DocumentBuilder : IDocumentBuilder
         {
             document?.Dispose();
             buffer?.Dispose();
-            throw NormalizeOpenFailure(ex, "the supplied byte array");
+            if (IsMalformedPackageFailure(ex))
+            {
+                throw new OfficeEditorException(
+                    $"Could not open a valid DOCX document from the supplied byte array. The content is missing, corrupt, or not a WordprocessingML package.",
+                    ex);
+            }
+            throw;
         }
     }
 
     /// <summary>
-    /// Maps any failure inside the public open boundary to the DOCX domain exception, preserving
-    /// the original SDK/package failure as the inner exception. Constructor validation already
-    /// raises <see cref="OfficeEditorException"/> directly; those pass through unwrapped.
+    /// True for the failure types the OpenXml SDK raises for structurally corrupt, wrong-format,
+    /// or malformed-XML packages. Only these are normalized to <see cref="OfficeEditorException"/>;
+    /// everything else — <see cref="FileNotFoundException"/> and ordinary path/permission errors,
+    /// the constructor's own <see cref="OfficeEditorException"/>, and programmer/fatal failures —
+    /// must propagate unchanged after the opened document and internal buffer are cleaned up.
     /// </summary>
-    private static Exception NormalizeOpenFailure(Exception failure, string source)
+    private static bool IsMalformedPackageFailure(Exception failure)
     {
-        return failure is OfficeEditorException
-            ? failure
-            : new OfficeEditorException(
-                $"Could not open a valid DOCX document from {source}. The content is missing, corrupt, or not a WordprocessingML package.",
-                failure);
+        return failure is OpenXmlPackageException
+            or FileFormatException
+            or InvalidDataException
+            or XmlException;
     }
 
     public IDocumentBuilder AddParagraph(string text, string? style = null)

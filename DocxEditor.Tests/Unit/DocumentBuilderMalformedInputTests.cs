@@ -1,5 +1,6 @@
 using System.IO;
 using System.IO.Packaging;
+using System.Xml;
 using DocxEditor.Core.Builders;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
@@ -11,12 +12,14 @@ namespace DocxEditor.Tests.Unit;
 
 /// <summary>
 /// Deterministic malformed-input suite for the public <see cref="DocumentBuilder"/> open boundary.
-/// The open boundary is the single place malformed DOCX input is rejected: every corrupt,
-/// wrong-format, sparse, or structurally-invalid package must fail during <c>Open</c> with a
+/// The open boundary is the single place malformed DOCX input is rejected: corrupt,
+/// wrong-format, sparse, or structurally-invalid packages fail during <c>Open</c> with a
 /// <see cref="OfficeEditorException"/> (the original SDK/package failure preserved as the inner
 /// exception) — never an uncontrolled NullReferenceException and never deferred to later builder
 /// use. Null and empty arguments are rejected up front as ArgumentNullException/ArgumentException,
-/// and a failed open never claims the caller's stream.
+/// a failed open never claims the caller's stream, and ordinary path/permission errors
+/// (<see cref="FileNotFoundException"/>, <see cref="DirectoryNotFoundException"/>, ...) propagate
+/// unchanged instead of being normalized.
 /// </summary>
 public class DocumentBuilderMalformedInputTests : IDisposable
 {
@@ -121,6 +124,25 @@ public class DocumentBuilderMalformedInputTests : IDisposable
         return stream.ToArray();
     }
 
+    // OPC package whose main document part contains malformed (non-well-formed) XML.
+    private static byte[] BuildWordPackageWithMalformedXml()
+    {
+        using var stream = new MemoryStream();
+        using (var package = Package.Open(stream, FileMode.Create))
+        {
+            var documentPart = package.CreatePart(new Uri("/word/document.xml", UriKind.Relative), WordMainContentType);
+            using (var writer = new StreamWriter(documentPart.GetStream(), new System.Text.UTF8Encoding(false)))
+            {
+                writer.Write(@"<?xml version=""1.0"" encoding=""UTF-8"" standalone=""yes""?>" +
+                             @"<w:document xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main""><w:body></w:document>");
+            }
+
+            package.CreateRelationship(documentPart.Uri, TargetMode.Internal, OfficeDocumentRelationship);
+        }
+
+        return stream.ToArray();
+    }
+
     /// <summary>
     /// The public open boundary must reject every malformed input with a domain exception carrying
     /// a diagnostic message, regardless of which overload or SDK failure mode is hit.
@@ -143,6 +165,15 @@ public class DocumentBuilderMalformedInputTests : IDisposable
     public void Open_RandomBytes_ThrowsOfficeEditorException()
     {
         AssertOpenFailure(() => DocumentBuilder.Open(CreateRandomBytes(1024)), "random non-archive bytes");
+    }
+
+    [Fact]
+    public void Open_GarbageBytes_ThrowsDomainExceptionWrappingFileFormatException()
+    {
+        // Non-archive input surfaces as System.IO.FileFormatException from the package reader and
+        // must be normalized to the domain exception with the original preserved as the inner.
+        var ex = Assert.Throws<OfficeEditorException>(() => DocumentBuilder.Open(CreateRandomBytes(1024)));
+        Assert.IsType<System.IO.FileFormatException>(ex.InnerException);
     }
 
     [Theory]
@@ -189,6 +220,17 @@ public class DocumentBuilderMalformedInputTests : IDisposable
     {
         var bytes = BuildWordPackageWithBrokenMainRelationship();
         AssertOpenFailure(() => DocumentBuilder.Open(bytes), "OPC package whose main relationship targets a missing part");
+    }
+
+    [Fact]
+    public void Open_WordPackageWithMalformedXml_ThrowsDomainExceptionWrappingXmlException()
+    {
+        // A well-formed OPC package whose main part is not well-formed XML surfaces as
+        // XmlException when the root element is loaded; it must be normalized to the domain
+        // exception with the original preserved as the inner.
+        var bytes = BuildWordPackageWithMalformedXml();
+        var ex = Assert.Throws<OfficeEditorException>(() => DocumentBuilder.Open(bytes));
+        Assert.IsType<XmlException>(ex.InnerException);
     }
 
     [Fact]
@@ -301,6 +343,21 @@ public class DocumentBuilderMalformedInputTests : IDisposable
     public void Open_WhitespacePath_ThrowsArgumentException()
     {
         Assert.Throws<ArgumentException>(() => DocumentBuilder.Open("   "));
+    }
+
+    [Fact]
+    public void Open_NonexistentPath_ThrowsFileNotFoundException()
+    {
+        // Ordinary path errors are not malformed-package failures and must propagate unchanged.
+        var path = Path.Combine(Path.GetTempPath(), $"missing_{Guid.NewGuid():N}.docx");
+        Assert.Throws<FileNotFoundException>(() => DocumentBuilder.Open(path));
+    }
+
+    [Fact]
+    public void Open_MissingDirectoryPath_ThrowsDirectoryNotFoundException()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"no_such_dir_{Guid.NewGuid():N}", "doc.docx");
+        Assert.Throws<DirectoryNotFoundException>(() => DocumentBuilder.Open(path));
     }
 
     // ---------------------------------------------------------------- recovery

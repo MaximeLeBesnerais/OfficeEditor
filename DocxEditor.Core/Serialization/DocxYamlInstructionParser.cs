@@ -42,8 +42,15 @@ public class DocxYamlInstructionParser
         }
 
         var instructions = new List<Instruction>();
-        foreach (var op in wrapper.Operations)
+        for (int i = 0; i < wrapper.Operations.Count; i++)
         {
+            var op = wrapper.Operations[i];
+            // YamlDotNet deserializes a bare '-' / '~' list item into a null DTO; dereferencing
+            // it would leak a raw NullReferenceException, so it must be rejected descriptively.
+            if (op is null)
+            {
+                throw new ArgumentException($"operations[{i}]: each operation must be an object.");
+            }
             instructions.Add(ParseInstruction(op));
         }
 
