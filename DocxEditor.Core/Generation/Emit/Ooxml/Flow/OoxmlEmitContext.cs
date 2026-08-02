@@ -35,6 +35,9 @@ internal sealed class OoxmlEmitContext
     /// <summary>Asset loader + relationship manager shared by inline and positioned images.</summary>
     public required DocxImagePipeline Images { get; init; }
 
+    /// <summary>Document-wide allocator for DrawingML non-visual ids.</summary>
+    public required DrawingIdAllocator DrawingIds { get; init; }
+
     /// <summary>Positioned drawing emitter configured with this document's design and assets.</summary>
     public required PositionedElementEmitter PositionedEmitter { get; init; }
 
@@ -96,7 +99,80 @@ internal sealed class OoxmlEmitContext
     public int AllocateNumbering(bool ordered, int start) =>
         _numberingAllocator.Allocate(MainPart, ordered, start);
 
+    /// <summary>Allocates an id unique across all drawing-bearing package parts.</summary>
+    public uint NextDrawingId() => DrawingIds.Next();
+
     /// <summary>Adds a warning for a resolved block/cell path.</summary>
     public void Warn(string path, string message) =>
         Warnings.Add(new DocxGenerationIssue(path, message, null, DocxGenerationIssueSeverity.Warning));
+}
+
+/// <summary>
+/// Monotonic DrawingML non-visual id allocator initialized from every existing XML package
+/// part. A single instance is shared by body, header/footer and positioned emitters.
+/// </summary>
+internal sealed class DrawingIdAllocator
+{
+    private ulong _nextId;
+
+    public DrawingIdAllocator(WordprocessingDocument document)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+
+        uint maxId = 0;
+        HashSet<OpenXmlPart> visited = [];
+        foreach (var part in EnumerateParts(document, visited))
+        {
+            if (part.RootElement is not { } root)
+            {
+                continue;
+            }
+
+            foreach (var element in root.Descendants())
+            {
+                if (element.LocalName is not ("docPr" or "cNvPr"))
+                {
+                    continue;
+                }
+
+                var id = element.GetAttribute("id", string.Empty).Value;
+                if (uint.TryParse(id, System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+                {
+                    maxId = Math.Max(maxId, parsed);
+                }
+            }
+        }
+
+        _nextId = (ulong)maxId + 1;
+    }
+
+    public uint Next()
+    {
+        if (_nextId > uint.MaxValue)
+        {
+            throw new InvalidOperationException("No DrawingML non-visual ids remain available in the document.");
+        }
+
+        return (uint)_nextId++;
+    }
+
+    private static IEnumerable<OpenXmlPart> EnumerateParts(
+        OpenXmlPartContainer container,
+        HashSet<OpenXmlPart> visited)
+    {
+        foreach (var pair in container.Parts)
+        {
+            var part = pair.OpenXmlPart;
+            if (!visited.Add(part))
+            {
+                continue;
+            }
+
+            yield return part;
+            foreach (var descendant in EnumerateParts(part, visited))
+            {
+                yield return descendant;
+            }
+        }
+    }
 }

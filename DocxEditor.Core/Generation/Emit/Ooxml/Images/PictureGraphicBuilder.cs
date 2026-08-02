@@ -16,11 +16,11 @@ internal static class PictureGraphicBuilder
     public static A.Graphic BuildGraphic(
         RegisteredImagePart part,
         ResolvedImageGeometry geometry,
-        uint docPrId,
+        uint nonVisualId,
         string? altText,
         long rotationSixtiethsOfDegree)
     {
-        var name = $"Picture {docPrId}";
+        var name = $"Picture {nonVisualId}";
         var xfrm = new A.Transform2D(
             new A.Offset { X = geometry.OffsetXEmu, Y = geometry.OffsetYEmu },
             new A.Extents { Cx = geometry.ExtentsCxEmu, Cy = geometry.ExtentsCyEmu });
@@ -31,7 +31,7 @@ internal static class PictureGraphicBuilder
 
         var picture = new Pic.Picture(
             new Pic.NonVisualPictureProperties(
-                new Pic.NonVisualDrawingProperties { Id = docPrId, Name = name, Description = altText },
+                new Pic.NonVisualDrawingProperties { Id = nonVisualId, Name = name, Description = altText },
                 new Pic.NonVisualPictureDrawingProperties()),
             BuildBlipFill(part, geometry),
             new Pic.ShapeProperties(

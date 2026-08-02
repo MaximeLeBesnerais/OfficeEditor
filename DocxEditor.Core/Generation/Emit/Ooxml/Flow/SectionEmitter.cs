@@ -24,13 +24,7 @@ internal static class SectionEmitter
         var body = GetBody(context);
         if (context.FromTemplate)
         {
-            // A template's body already ends with a sectPr describing its final section; CT_Body
-            // allows only one body-level sectPr and it must be the last child, so drop the
-            // template's trailing section properties and let the last generated section emit its own.
-            foreach (var trailing in body.Elements<SectionProperties>().ToList())
-            {
-                trailing.Remove();
-            }
+            PreserveTemplateSections(body);
         }
 
         for (var i = 0; i < sections.Count; i++)
@@ -44,7 +38,14 @@ internal static class SectionEmitter
     {
         var body = GetBody(context);
         var empty = new Section { Blocks = [] };
-        body.Append(BuildSectionProperties(context, empty, index: 0, sections: [empty], [], [], "$.sections[0]"));
+        if (context.FromTemplate)
+        {
+            PreserveTemplateSections(body);
+        }
+        var path = "sections[0]";
+        var headerIds = EmitHeaderParts(context, empty, path);
+        var footerIds = EmitFooterParts(context, empty, path);
+        body.Append(BuildSectionProperties(context, empty, index: 0, sections: [empty], headerIds, footerIds, path));
     }
 
     private static Body GetBody(OoxmlEmitContext context) =>
@@ -97,8 +98,13 @@ internal static class SectionEmitter
         var result = context.PositionedEmitter.Emit(context.MainPart, body, section.Positioned);
         foreach (var warning in result.Warnings)
         {
+            var warningPath = $"$.{sectionPath}.positioned[{warning.Index}]";
+            if (!string.IsNullOrEmpty(warning.PathSuffix))
+            {
+                warningPath += $".{warning.PathSuffix}";
+            }
             context.Warnings.Add(new DocxGenerationIssue(
-                $"$.{sectionPath}.positioned[{warning.Index}]",
+                warningPath,
                 $"[{warning.ElementType}] {warning.Message}",
                 null,
                 DocxGenerationIssueSeverity.Warning));
@@ -107,30 +113,34 @@ internal static class SectionEmitter
 
     private static IReadOnlyList<string> EmitHeaderParts(OoxmlEmitContext context, Section section, string path)
     {
-        if (section.Header.Count == 0)
-        {
-            return [];
-        }
-
         var headerPart = context.MainPart.AddNewPart<HeaderPart>();
         var header = new Header();
         context.RegisterPartContainer(header, headerPart);
-        FlowBlockEmitter.EmitBlocks(context, header, section.Header, $"{path}.header");
+        if (section.Header.Count == 0)
+        {
+            header.Append(new Paragraph());
+        }
+        else
+        {
+            FlowBlockEmitter.EmitBlocks(context, header, section.Header, $"{path}.header");
+        }
         headerPart.Header = header;
         return [context.MainPart.GetIdOfPart(headerPart)];
     }
 
     private static IReadOnlyList<string> EmitFooterParts(OoxmlEmitContext context, Section section, string path)
     {
-        if (section.Footer.Count == 0)
-        {
-            return [];
-        }
-
         var footerPart = context.MainPart.AddNewPart<FooterPart>();
         var footer = new Footer();
         context.RegisterPartContainer(footer, footerPart);
-        FlowBlockEmitter.EmitBlocks(context, footer, section.Footer, $"{path}.footer");
+        if (section.Footer.Count == 0)
+        {
+            footer.Append(new Paragraph());
+        }
+        else
+        {
+            FlowBlockEmitter.EmitBlocks(context, footer, section.Footer, $"{path}.footer");
+        }
         footerPart.Footer = footer;
         return [context.MainPart.GetIdOfPart(footerPart)];
     }
@@ -150,10 +160,14 @@ internal static class SectionEmitter
         foreach (var id in headerIds)
         {
             sectionProperties.Append(new HeaderReference { Type = HeaderFooterValues.Default, Id = id });
+            sectionProperties.Append(new HeaderReference { Type = HeaderFooterValues.Even, Id = id });
+            sectionProperties.Append(new HeaderReference { Type = HeaderFooterValues.First, Id = id });
         }
         foreach (var id in footerIds)
         {
             sectionProperties.Append(new FooterReference { Type = HeaderFooterValues.Default, Id = id });
+            sectionProperties.Append(new FooterReference { Type = HeaderFooterValues.Even, Id = id });
+            sectionProperties.Append(new FooterReference { Type = HeaderFooterValues.First, Id = id });
         }
 
         // The break that starts the FOLLOWING section is recorded on this section's sectPr.
@@ -205,7 +219,8 @@ internal static class SectionEmitter
     /// </summary>
     private static void AttachSectionBreak(Body body, SectionProperties sectionProperties)
     {
-        if (body.Elements().LastOrDefault() is Paragraph lastParagraph)
+        if (body.Elements().LastOrDefault() is Paragraph lastParagraph
+            && lastParagraph.ParagraphProperties?.SectionProperties is null)
         {
             lastParagraph.ParagraphProperties ??= new ParagraphProperties();
             lastParagraph.ParagraphProperties.SectionProperties = sectionProperties;
@@ -213,6 +228,18 @@ internal static class SectionEmitter
         }
 
         body.Append(new Paragraph(new ParagraphProperties(sectionProperties)));
+    }
+
+    private static void PreserveTemplateSections(Body body)
+    {
+        // A body-level sectPr describes the template's final section. Convert it to an
+        // intermediate section break before appending generated content, otherwise the old
+        // template body would inherit the first generated section's geometry and headers.
+        foreach (var trailing in body.Elements<SectionProperties>().ToList())
+        {
+            trailing.Remove();
+            body.Append(new Paragraph(new ParagraphProperties(trailing)));
+        }
     }
 
     private static SectionMarkValues SectionMarkValue(SectionBreakType breakType) => breakType switch

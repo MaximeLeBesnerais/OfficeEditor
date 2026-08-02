@@ -32,4 +32,7 @@ public sealed record PositionedElementEmitOptions
     /// highest one, guaranteeing uniqueness within the part.
     /// </summary>
     public uint? DrawingIdBase { get; init; }
+
+    /// <summary>Integrating emitter's document-wide id allocator.</summary>
+    internal Func<uint>? DrawingIdAllocator { get; init; }
 }

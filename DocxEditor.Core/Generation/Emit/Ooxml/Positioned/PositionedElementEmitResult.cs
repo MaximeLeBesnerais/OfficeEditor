@@ -21,11 +21,15 @@ public sealed record PositionedElementEmitResult
 
 /// <summary>
 /// One explicit warning about an approximated or degraded positioned element. The index
-/// is the positioned element's position in the emit sequence, <see cref="ElementType"/>
+/// is the positioned element's original declaration index, <see cref="ElementType"/>
 /// is the JSON type name (textBox/image/rect/line/callout).
 /// </summary>
 public sealed record PositionedElementEmitWarning(int Index, string ElementType, string Message)
 {
+    /// <summary>Optional path below the positioned element associated with the warning.</summary>
+    public string? PathSuffix { get; init; }
+
     /// <summary>Formats the warning like the generation validator's path-qualified issues.</summary>
-    public override string ToString() => $"positioned[{Index}] ({ElementType}): {Message}";
+    public override string ToString() =>
+        $"positioned[{Index}]{(PathSuffix is null ? string.Empty : $".{PathSuffix}")} ({ElementType}): {Message}";
 }

@@ -20,6 +20,17 @@ public static class InlinePictureXmlFactory
         RegisteredImagePart part,
         ResolvedImageGeometry geometry,
         uint docPrId,
+        string? altText) =>
+        BuildInline(part, geometry, docPrId, docPrId, altText);
+
+    /// <summary>
+    /// Builds an inline picture with independently allocated anchor and picture non-visual ids.
+    /// </summary>
+    public static Drawing BuildInline(
+        RegisteredImagePart part,
+        ResolvedImageGeometry geometry,
+        uint docPrId,
+        uint pictureNonVisualId,
         string? altText)
     {
         ArgumentNullException.ThrowIfNull(part);
@@ -41,7 +52,7 @@ public static class InlinePictureXmlFactory
             Description = altText
         });
         inline.Append(new Wp.NonVisualGraphicFrameDrawingProperties(new A.GraphicFrameLocks { NoChangeAspect = true }));
-        inline.Append(PictureGraphicBuilder.BuildGraphic(part, geometry, docPrId, altText, rotationSixtiethsOfDegree: 0));
+        inline.Append(PictureGraphicBuilder.BuildGraphic(part, geometry, pictureNonVisualId, altText, rotationSixtiethsOfDegree: 0));
 
         return new Drawing(inline);
     }
