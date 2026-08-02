@@ -2,6 +2,8 @@
 
 Every example shows **what you start with → the code you run → what you get**.
 
+For complete document generation, see the [declarative DOCX vocabulary guide](../../docs/docx-generation.md) and its [self-contained JSON example](generation/comprehensive.json).
+
 ---
 
 ## 1. Basic Document Creation
