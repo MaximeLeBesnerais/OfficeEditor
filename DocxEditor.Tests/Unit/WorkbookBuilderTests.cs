@@ -2125,6 +2125,55 @@ public class WorkbookBuilderTests : IDisposable
         OpenXmlAssert.NoValidationErrors(doc);
     }
 
+    [Fact]
+    public void SetColumnWidth_SplitRangedCol_OverridePreservesUnrelatedAttributes()
+    {
+        // A ranged definition authored by another tool carries more than a width (style,
+        // hidden, outline, collapsed, bestFit). Overriding one column must keep every
+        // unrelated attribute on the new single-column definition — only Min/Max/Width/
+        // CustomWidth are replaced and BestFit is cleared, since an explicit width is not
+        // auto-fitted.
+        var bytes = CreateWorkbookWithStyledColumnRange();
+        byte[] saved;
+        using (var builder = WorkbookBuilder.Open(bytes))
+        {
+            builder.GetWorksheet("Sheet1").SetColumnWidth("C", 20);
+            saved = builder.SaveToBytes();
+        }
+
+        // Assert: the override keeps style/hidden/outline/collapsed, drops bestFit, and the
+        // flanks keep the original definition untouched.
+        using var doc = SpreadsheetDocument.Open(new MemoryStream(saved), false);
+        var cols = doc.WorkbookPart!.WorksheetParts.First().Worksheet!
+            .GetFirstChild<Columns>()!.Elements<Column>().ToList();
+        Assert.Equal(3, cols.Count);
+        Assert.Equal(new[] { 1u, 3u, 4u }, cols.Select(c => c.Min!.Value));
+        Assert.Equal(new[] { 2u, 3u, 5u }, cols.Select(c => c.Max!.Value));
+
+        var target = cols[1];
+        Assert.Equal(20.0, target.Width!.Value);
+        Assert.True(target.CustomWidth!.Value);
+        Assert.Equal(7u, target.Style!.Value);
+        Assert.True(target.Hidden!.Value);
+        Assert.Equal((byte)3, target.OutlineLevel!.Value);
+        Assert.True(target.Collapsed!.Value);
+        Assert.False(target.BestFit!.Value);
+
+        var left = cols[0];
+        Assert.Equal(10.0, left.Width!.Value);
+        Assert.Equal(7u, left.Style!.Value);
+        Assert.True(left.Hidden!.Value);
+        Assert.True(left.BestFit!.Value);
+
+        var right = cols[2];
+        Assert.Equal(10.0, right.Width!.Value);
+        Assert.Equal(7u, right.Style!.Value);
+        Assert.True(right.Hidden!.Value);
+        Assert.True(right.BestFit!.Value);
+
+        OpenXmlAssert.NoValidationErrors(doc);
+    }
+
     [Theory]
     [InlineData(0.0)]
     [InlineData(-5.0)]
@@ -2428,6 +2477,52 @@ public class WorkbookBuilderTests : IDisposable
                     new Column { Min = 1u, Max = 5u, Width = 10, CustomWidth = true },
                     new Column { Min = 7u, Max = 7u, Width = 22, CustomWidth = true }),
                 new SheetData());
+            workbookPart.Workbook = new Workbook(new Sheets(new Sheet
+            {
+                Name = "Sheet1",
+                SheetId = 1u,
+                Id = workbookPart.GetIdOfPart(worksheetPart)
+            }));
+            doc.Save();
+        }
+        return ms.ToArray();
+    }
+
+    private static byte[] CreateWorkbookWithStyledColumnRange()
+    {
+        using var ms = new MemoryStream();
+        using (var doc = SpreadsheetDocument.Create(ms, SpreadsheetDocumentType.Workbook))
+        {
+            var workbookPart = doc.AddWorkbookPart();
+            var worksheetPart = workbookPart.AddNewPart<WorksheetPart>();
+            worksheetPart.Worksheet = new Worksheet(
+                new Columns(
+                    new Column
+                    {
+                        Min = 1u,
+                        Max = 5u,
+                        Width = 10,
+                        CustomWidth = true,
+                        BestFit = true,
+                        Style = 7u,
+                        Hidden = true,
+                        OutlineLevel = 3,
+                        Collapsed = true
+                    }),
+                new SheetData());
+            var stylesPart = workbookPart.AddNewPart<WorkbookStylesPart>();
+            stylesPart.Stylesheet = new Stylesheet(
+                new Fonts(new Font()) { Count = 1 },
+                new Fills(
+                    new Fill(new PatternFill { PatternType = PatternValues.None }),
+                    new Fill(new PatternFill { PatternType = PatternValues.Gray125 })
+                ) { Count = 2 },
+                new Borders(new Border()) { Count = 1 },
+                new CellStyleFormats(new CellFormat()) { Count = 1 },
+                new CellFormats(
+                    Enumerable.Range(0, 8).Select(_ =>
+                        new CellFormat { NumberFormatId = 0, FontId = 0, FillId = 0, BorderId = 0 })
+                ) { Count = 8 });
             workbookPart.Workbook = new Workbook(new Sheets(new Sheet
             {
                 Name = "Sheet1",
