@@ -1,7 +1,6 @@
 {
-  "_schema_status": "planned — not yet executable (Phase 2 XLSX roadmap). This file documents the intended JSON→XLSX vocabulary shape.",
   "version": "1.0",
-  "description": "Instructions for creating a budget workbook",
+  "description": "Instructions for creating a budget workbook (executable v1 sample — parse with XlsxInstructionParser, apply with XlsxInstructionExecutor)",
   "worksheets": [
     {
       "name": "Revenue",
