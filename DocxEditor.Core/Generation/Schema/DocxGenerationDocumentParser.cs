@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using DocxEditor.Core.Generation.Contracts;
+using DocxEditor.Core.Generation.Design;
 using DocxEditor.Core.Generation.Model;
 
 namespace DocxEditor.Core.Generation.Schema;
@@ -87,6 +88,22 @@ public sealed class DocxGenerationDocumentParser : IDocxGenerationParser
         ["horizontal"] = LineOrientation.Horizontal, ["vertical"] = LineOrientation.Vertical
     };
 
+    private static readonly IReadOnlyDictionary<string, TextRole> TextRoles = new Dictionary<string, TextRole>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["title"] = TextRole.Title, ["subtitle"] = TextRole.Subtitle, ["eyebrow"] = TextRole.Eyebrow,
+        ["heading1"] = TextRole.Heading1, ["heading2"] = TextRole.Heading2, ["heading3"] = TextRole.Heading3,
+        ["heading4"] = TextRole.Heading4, ["heading5"] = TextRole.Heading5, ["heading6"] = TextRole.Heading6,
+        ["body"] = TextRole.Body, ["muted"] = TextRole.Muted, ["label"] = TextRole.Label,
+        ["metric"] = TextRole.Metric, ["metricLabel"] = TextRole.MetricLabel,
+        ["tableHeader"] = TextRole.TableHeader, ["tableBody"] = TextRole.TableBody,
+        ["callout"] = TextRole.Callout, ["footer"] = TextRole.Footer
+    };
+
+    private static readonly IReadOnlyDictionary<string, Density> Densities = new Dictionary<string, Density>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["compact"] = Density.Compact, ["comfortable"] = Density.Comfortable, ["spacious"] = Density.Spacious
+    };
+
     // Known docx-specific confusions, matched case-insensitively after stripping -_/ and spaces.
     private static readonly IReadOnlyDictionary<string, string> DocxIsms = new Dictionary<string, string>(StringComparer.Ordinal)
     {
@@ -102,28 +119,29 @@ public sealed class DocxGenerationDocumentParser : IDocxGenerationParser
 
     private static readonly IReadOnlySet<string> RootProps = Set("version", "metadata", "design", "template", "sections");
     private static readonly IReadOnlySet<string> MetadataProps = Set("title", "author", "subject", "keywords", "description", "language");
-    private static readonly IReadOnlySet<string> DesignProps = Set("palette", "fonts", "typography", "spacing", "shapes", "page");
+    private static readonly IReadOnlySet<string> DesignProps = Set("theme", "palette", "fonts", "typography", "spacing", "shapes", "page", "layout");
     private static readonly IReadOnlySet<string> FontsProps = Set("display", "body");
-    private static readonly IReadOnlySet<string> TypographyTokenProps = Set("font", "size", "color", "bold", "italic", "underline");
+    private static readonly IReadOnlySet<string> TypographyTokenProps = Set("font", "size", "color", "bold", "italic", "underline", "allCaps");
     private static readonly IReadOnlySet<string> ShapesProps = Set("cornerRadius", "defaultFill", "defaultStroke", "defaultStrokeWidth");
     private static readonly IReadOnlySet<string> PageProps = Set("size", "orientation", "margins", "defaultFont", "defaultTextColor");
+    private static readonly IReadOnlySet<string> LayoutProps = Set("density", "minBodySizePt", "maxTableWidthPt");
     private static readonly IReadOnlySet<string> MarginsProps = Set("top", "right", "bottom", "left");
     private static readonly IReadOnlySet<string> SectionProps = Set("pageSetup", "header", "footer", "blocks", "positioned");
     private static readonly IReadOnlySet<string> PageSetupProps = Set("size", "orientation", "margins", "columns", "breakType");
     private static readonly IReadOnlySet<string> ColumnsProps = Set("count", "spacing", "separator");
     private static readonly IReadOnlySet<string> PageSizeCustomProps = Set("width", "height");
-    private static readonly IReadOnlySet<string> ParagraphProps = Set("type", "text", "runs", "style", "token", "alignment", "spacing");
-    private static readonly IReadOnlySet<string> HeadingProps = Set("type", "level", "text", "runs", "style", "token", "alignment");
+    private static readonly IReadOnlySet<string> ParagraphProps = Set("type", "text", "runs", "style", "token", "role", "alignment", "spacing");
+    private static readonly IReadOnlySet<string> HeadingProps = Set("type", "level", "text", "runs", "style", "token", "role", "alignment");
     private static readonly IReadOnlySet<string> ListProps = Set("type", "kind", "start", "items", "style");
-    private static readonly IReadOnlySet<string> ListItemProps = Set("text", "runs", "token", "alignment", "spacing");
+    private static readonly IReadOnlySet<string> ListItemProps = Set("text", "runs", "token", "role", "alignment", "spacing");
     private static readonly IReadOnlySet<string> TableProps = Set("type", "rows", "widths", "style", "alignment");
     private static readonly IReadOnlySet<string> RowProps = Set("header", "cells");
-    private static readonly IReadOnlySet<string> CellProps = Set("text", "runs", "token", "alignment", "fill");
+    private static readonly IReadOnlySet<string> CellProps = Set("text", "runs", "token", "role", "alignment", "fill");
     private static readonly IReadOnlySet<string> FlowImageProps = Set("type", "src", "fit", "crop", "alt", "width", "height", "style");
-    private static readonly IReadOnlySet<string> CalloutProps = Set("type", "tone", "text", "runs", "style", "token");
+    private static readonly IReadOnlySet<string> CalloutProps = Set("type", "tone", "text", "runs", "style", "token", "role");
     private static readonly IReadOnlySet<string> PageBreakProps = Set("type");
     private static readonly IReadOnlySet<string> GroupProps = Set("type", "blocks", "style");
-    private static readonly IReadOnlySet<string> RunProps = Set("text", "style", "font", "size", "color", "bold", "italic", "underline");
+    private static readonly IReadOnlySet<string> RunProps = Set("text", "style", "font", "size", "color", "bold", "italic", "underline", "allCaps");
     private static readonly IReadOnlySet<string> SpacingProps = Set("before", "after", "line");
     private static readonly IReadOnlySet<string> CropProps = Set("left", "top", "right", "bottom");
     private static readonly IReadOnlySet<string> StrokeProps = Set("color", "width");
@@ -216,7 +234,8 @@ public sealed class DocxGenerationDocumentParser : IDocxGenerationParser
         private readonly List<DocxGenerationIssue> _errors = [];
         private readonly List<DocxGenerationIssue> _warnings = [];
         private DesignTokens? _design;
-        private IReadOnlyDictionary<string, string> _palette = new Dictionary<string, string>();
+        private string? _themeName;
+        private IReadOnlyDictionary<string, string> _palette = DesignThemeCatalog.Editorial.Palette;
 
         public DocxGenerationValidationResult Validate(string json)
         {
@@ -301,11 +320,8 @@ public sealed class DocxGenerationDocumentParser : IDocxGenerationParser
 
             if (TryGet(root, "design", out var designEl))
             {
+                // ParseDesign sets _themeName and the effective (theme + document) palette.
                 _design = ParseDesign(designEl, "$.design");
-                if (_design is not null)
-                {
-                    _palette = _design.Palette;
-                }
             }
 
             string? template = null;
@@ -378,34 +394,40 @@ public sealed class DocxGenerationDocumentParser : IDocxGenerationParser
         {
             if (el.ValueKind != JsonValueKind.Object)
             {
-                Error(path, "must be an object ({\"palette\":…,\"fonts\":…,\"typography\":…,\"spacing\":…,\"shapes\":…,\"page\":…}).");
+                Error(path, "must be an object ({\"theme\":…,\"palette\":…,\"fonts\":…,\"typography\":…,\"spacing\":…,\"shapes\":…,\"page\":…,\"layout\":…}).");
                 return null;
             }
             CheckUnknownProps(el, path, "design", DesignProps);
 
+            var theme = StringProp(el, "theme", path);
+            if (theme is not null && !DesignThemeCatalog.Themes.ContainsKey(theme))
+            {
+                Error($"{path}.theme", $"unknown theme '{theme}'. Known themes: {string.Join(", ", DesignThemeCatalog.Themes.Keys)}.", Suggest(theme, DesignThemeCatalog.Themes.Keys));
+            }
+            _themeName = theme;
+
             var palette = new Dictionary<string, string>(StringComparer.Ordinal);
-            if (!TryGet(el, "palette", out var paletteEl))
+            if (TryGet(el, "palette", out var paletteEl))
             {
-                Error(path, "'palette' is required (token name → #RRGGBB).");
-            }
-            else if (paletteEl.ValueKind != JsonValueKind.Object)
-            {
-                Error($"{path}.palette", "must be an object mapping token names to #RRGGBB colors.");
-            }
-            else
-            {
-                foreach (var color in paletteEl.EnumerateObject())
+                if (paletteEl.ValueKind != JsonValueKind.Object)
                 {
-                    var colorPath = $"{path}.palette.{color.Name}";
-                    if (color.Value.ValueKind != JsonValueKind.String || !HexColorPattern.IsMatch(color.Value.GetString() ?? string.Empty))
+                    Error($"{path}.palette", "must be an object mapping token names to #RRGGBB colors.");
+                }
+                else
+                {
+                    foreach (var color in paletteEl.EnumerateObject())
                     {
-                        Error(colorPath, "palette colors must be #RRGGBB hex literals.");
-                        continue;
+                        var colorPath = $"{path}.palette.{color.Name}";
+                        if (color.Value.ValueKind != JsonValueKind.String || !HexColorPattern.IsMatch(color.Value.GetString() ?? string.Empty))
+                        {
+                            Error(colorPath, "palette colors must be #RRGGBB hex literals.");
+                            continue;
+                        }
+                        palette[color.Name] = color.Value.GetString()!;
                     }
-                    palette[color.Name] = color.Value.GetString()!;
                 }
             }
-            _palette = palette;
+            _palette = DesignThemeCatalog.Resolve(_themeName).EffectivePalette(palette);
 
             var fonts = new FontTokens();
             if (TryGet(el, "fonts", out var fontsEl))
@@ -512,14 +534,35 @@ public sealed class DocxGenerationDocumentParser : IDocxGenerationParser
                 }
             }
 
+            var layout = new LayoutDefaults();
+            if (TryGet(el, "layout", out var layoutEl))
+            {
+                if (layoutEl.ValueKind != JsonValueKind.Object)
+                {
+                    Error($"{path}.layout", "must be an object ({\"density\":…,\"minBodySizePt\":…,\"maxTableWidthPt\":…}).");
+                }
+                else
+                {
+                    CheckUnknownProps(layoutEl, $"{path}.layout", "layout", LayoutProps);
+                    layout = new LayoutDefaults
+                    {
+                        Density = EnumProp(layoutEl, "density", $"{path}.layout", Densities, (Density?)null, "density"),
+                        MinBodySizePt = NumberProp(layoutEl, "minBodySizePt", $"{path}.layout", min: 0),
+                        MaxTableWidthPt = NumberProp(layoutEl, "maxTableWidthPt", $"{path}.layout", minExclusive: 0)
+                    };
+                }
+            }
+
             return new DesignTokens
             {
+                Theme = theme,
                 Palette = palette,
                 Fonts = fonts,
                 Typography = typography,
                 Spacing = spacing,
                 Shapes = shapes,
-                Page = page
+                Page = page,
+                Layout = layout
             };
         }
 
@@ -527,7 +570,7 @@ public sealed class DocxGenerationDocumentParser : IDocxGenerationParser
         {
             if (el.ValueKind != JsonValueKind.Object)
             {
-                Error(path, "must be an object ({\"font\":…,\"size\":…,\"color\":…,\"bold\":…,\"italic\":…,\"underline\":…}).");
+                Error(path, "must be an object ({\"font\":…,\"size\":…,\"color\":…,\"bold\":…,\"italic\":…,\"underline\":…,\"allCaps\":…}).");
                 return null;
             }
             CheckUnknownProps(el, path, "a typography token", TypographyTokenProps);
@@ -543,19 +586,23 @@ public sealed class DocxGenerationDocumentParser : IDocxGenerationParser
                 Color = ColorProp(el, "color", path),
                 Bold = BoolProp(el, "bold", path),
                 Italic = BoolProp(el, "italic", path),
-                Underline = BoolProp(el, "underline", path)
+                Underline = BoolProp(el, "underline", path),
+                AllCaps = BoolProp(el, "allCaps", path)
             };
         }
 
         private void CheckFontReference(string value, string path, FontTokens fonts)
         {
-            if (string.Equals(value, "display", StringComparison.OrdinalIgnoreCase) && string.IsNullOrWhiteSpace(fonts.Display))
+            var theme = DesignThemeCatalog.Resolve(_themeName);
+            if (string.Equals(value, "display", StringComparison.OrdinalIgnoreCase) &&
+                string.IsNullOrWhiteSpace(fonts.Display) && string.IsNullOrWhiteSpace(theme.DisplayFontFamily))
             {
-                Warn(path, "font slot 'display' is not defined in 'design.fonts'; emitters fall back to the document default.");
+                Warn(path, "font slot 'display' is not defined in 'design.fonts' nor the active theme; emitters fall back to the document default.");
             }
-            else if (string.Equals(value, "body", StringComparison.OrdinalIgnoreCase) && string.IsNullOrWhiteSpace(fonts.Body))
+            else if (string.Equals(value, "body", StringComparison.OrdinalIgnoreCase) &&
+                     string.IsNullOrWhiteSpace(fonts.Body) && string.IsNullOrWhiteSpace(theme.BodyFontFamily))
             {
-                Warn(path, "font slot 'body' is not defined in 'design.fonts'; emitters fall back to the document default.");
+                Warn(path, "font slot 'body' is not defined in 'design.fonts' nor the active theme; emitters fall back to the document default.");
             }
         }
 
@@ -1160,10 +1207,11 @@ public sealed class DocxGenerationDocumentParser : IDocxGenerationParser
                 Error($"{path}.token", $"unknown typography token '{token}'.", Suggest(token, TypographyTokenNames()));
             }
 
+            var role = EnumProp(el, "role", path, TextRoles, (TextRole?)null, "text role");
             var alignment = EnumProp(el, "alignment", path, TextAlignments, (TextAlignment?)null, "alignment");
             var spacing = TryGet(el, "spacing", out var spacingEl) ? ParseParagraphSpacing(spacingEl, $"{path}.spacing") : null;
 
-            return new TextModel { Text = text, Runs = runs, Token = token, Alignment = alignment, Spacing = spacing };
+            return new TextModel { Text = text, Runs = runs, Token = token, Role = role, Alignment = alignment, Spacing = spacing };
         }
 
         private IReadOnlyList<Run>? ParseRuns(JsonElement el, string path)
@@ -1200,7 +1248,8 @@ public sealed class DocxGenerationDocumentParser : IDocxGenerationParser
                         Color = ColorProp(runEl, "color", runPath),
                         Bold = BoolProp(runEl, "bold", runPath),
                         Italic = BoolProp(runEl, "italic", runPath),
-                        Underline = BoolProp(runEl, "underline", runPath)
+                        Underline = BoolProp(runEl, "underline", runPath),
+                        AllCaps = BoolProp(runEl, "allCaps", runPath)
                     });
                 }
                 index++;

@@ -71,6 +71,10 @@ public static class DocxFormattingHelpers
         {
             properties.Append(new Wp.Underline { Val = Wp.UnderlineValues.Single });
         }
+        if (formatting.AllCaps == true)
+        {
+            properties.Append(new Wp.Caps());
+        }
         return properties;
     }
 

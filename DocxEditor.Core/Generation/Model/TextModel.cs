@@ -17,6 +17,13 @@ public sealed record TextModel
     /// <summary>Named design typography token reference (see <c>design.typography</c>).</summary>
     public string? Token { get; init; }
 
+    /// <summary>
+    /// Semantic text role (see <see cref="TextRole"/>). Null = infer from the block kind
+    /// (heading level / body). The active theme supplies default formatting for the role,
+    /// which <see cref="Token"/> and direct run formatting override.
+    /// </summary>
+    public TextRole? Role { get; init; }
+
     /// <summary>Horizontal alignment of the paragraph. Null = emitter/inherited default.</summary>
     public TextAlignment? Alignment { get; init; }
 
@@ -50,6 +57,9 @@ public sealed record Run
 
     /// <summary>Underline.</summary>
     public bool Underline { get; init; }
+
+    /// <summary>All-caps rendering (<c>w:caps</c>).</summary>
+    public bool AllCaps { get; init; }
 }
 
 /// <summary>Paragraph spacing. <see cref="BeforePt"/> / <see cref="AfterPt"/> may come from

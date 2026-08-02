@@ -30,10 +30,13 @@ public sealed record ResolvedRunFormatting
     /// <summary>Underline. Null = inherit, true = force single underline.</summary>
     public bool? Underline { get; init; }
 
+    /// <summary>All-caps rendering. Null = inherit, true = force <c>w:caps</c>.</summary>
+    public bool? AllCaps { get; init; }
+
     /// <summary>True when no field is set; such a value needs no properties emitted.</summary>
     public bool IsEmpty =>
         FontFamily is null && FontSizePt is null && ColorHex is null &&
-        Bold is null && Italic is null && Underline is null;
+        Bold is null && Italic is null && Underline is null && AllCaps is null;
 
     /// <summary>
     /// Overlays <paramref name="over"/> onto this instance: each non-null field of the overlay wins,
@@ -49,6 +52,7 @@ public sealed record ResolvedRunFormatting
                 ColorHex = over.ColorHex ?? ColorHex,
                 Bold = over.Bold ?? Bold,
                 Italic = over.Italic ?? Italic,
-                Underline = over.Underline ?? Underline
+                Underline = over.Underline ?? Underline,
+                AllCaps = over.AllCaps ?? AllCaps
             };
 }

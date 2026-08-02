@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
+using DocxEditor.Core.Generation.Design;
 using DocxEditor.Core.Generation.Model;
 
 namespace DocxEditor.Core.Generation.Schema;
@@ -25,10 +26,11 @@ internal static class DocxGenerationModelValidator
     {
         private readonly List<DocxGenerationIssue> _errors = [];
         private readonly List<DocxGenerationIssue> _warnings = [];
-        private IReadOnlyDictionary<string, string> _palette = new Dictionary<string, string>();
+        private IReadOnlyDictionary<string, string> _palette = DesignThemeCatalog.Editorial.Palette;
         private IReadOnlyDictionary<string, TypographyToken> _typography = new Dictionary<string, TypographyToken>();
         private FontTokens _fonts = new();
         private PageDefaults _pageDefaults = new();
+        private string? _themeName;
 
         public DocxGenerationValidationResult Validate()
         {
@@ -83,14 +85,18 @@ internal static class DocxGenerationModelValidator
 
         private void ValidateDesign(DesignTokens design)
         {
-            IReadOnlyDictionary<string, string>? palette = design.Palette;
-            if (palette is null)
+            string? themeName = design.Theme;
+            if (themeName is not null && !DesignThemeCatalog.Themes.ContainsKey(themeName))
             {
-                Error("$.design.palette", "must not be null.");
+                Error("$.design.theme", $"unknown theme '{themeName}'. Known themes: {string.Join(", ", DesignThemeCatalog.Themes.Keys)}.", Suggest(themeName, DesignThemeCatalog.Themes.Keys));
             }
-            else
+            _themeName = themeName;
+
+            IReadOnlyDictionary<string, string>? palette = design.Palette;
+            // A null/omitted palette is valid: the active theme's palette applies as the base.
+            _palette = DesignThemeCatalog.Resolve(_themeName).EffectivePalette(palette);
+            if (palette is not null)
             {
-                _palette = palette;
                 foreach (var (name, color) in palette)
                 {
                     string path = $"$.design.palette.{name}";
@@ -102,11 +108,7 @@ internal static class DocxGenerationModelValidator
             }
 
             FontTokens? fonts = design.Fonts;
-            if (fonts is null)
-            {
-                Error("$.design.fonts", "must not be null.");
-            }
-            else
+            if (fonts is not null)
             {
                 _fonts = fonts;
             }
@@ -148,11 +150,7 @@ internal static class DocxGenerationModelValidator
             }
 
             ShapeDefaults? shapes = design.Shapes;
-            if (shapes is null)
-            {
-                Error("$.design.shapes", "must not be null.");
-            }
-            else
+            if (shapes is not null)
             {
                 CheckNonNegative(shapes.CornerRadiusPt, "$.design.shapes.cornerRadius");
                 CheckColor(shapes.DefaultFill, "$.design.shapes.defaultFill");
@@ -176,6 +174,14 @@ internal static class DocxGenerationModelValidator
                 }
                 CheckFontReference(page.DefaultFontFamily, "$.design.page.defaultFont");
                 CheckColor(page.DefaultTextColor, "$.design.page.defaultTextColor");
+            }
+
+            LayoutDefaults? layout = design.Layout;
+            if (layout is not null)
+            {
+                CheckNullableEnum(layout.Density, "$.design.layout.density", "density");
+                CheckOptionalNonNegative(layout.MinBodySizePt, "$.design.layout.minBodySizePt");
+                CheckOptionalPositive(layout.MaxTableWidthPt, "$.design.layout.maxTableWidthPt");
             }
         }
 
@@ -477,6 +483,7 @@ internal static class DocxGenerationModelValidator
             {
                 Error($"{path}.token", $"unknown typography token '{content.Token}'.", Suggest(content.Token, _typography.Keys));
             }
+            CheckNullableEnum(content.Role, $"{path}.role", "text role");
             CheckNullableEnum(content.Alignment, $"{path}.alignment", "alignment");
             if (content.Spacing is not null)
             {
@@ -775,13 +782,16 @@ internal static class DocxGenerationModelValidator
 
         private void CheckFontReference(string? value, string path)
         {
-            if (string.Equals(value, "display", StringComparison.OrdinalIgnoreCase) && string.IsNullOrWhiteSpace(_fonts.Display))
+            var theme = DesignThemeCatalog.Resolve(_themeName);
+            if (string.Equals(value, "display", StringComparison.OrdinalIgnoreCase) &&
+                string.IsNullOrWhiteSpace(_fonts.Display) && string.IsNullOrWhiteSpace(theme.DisplayFontFamily))
             {
-                Warn(path, "font slot 'display' is not defined in 'design.fonts'; emitters fall back to the document default.");
+                Warn(path, "font slot 'display' is not defined in 'design.fonts' nor the active theme; emitters fall back to the document default.");
             }
-            else if (string.Equals(value, "body", StringComparison.OrdinalIgnoreCase) && string.IsNullOrWhiteSpace(_fonts.Body))
+            else if (string.Equals(value, "body", StringComparison.OrdinalIgnoreCase) &&
+                     string.IsNullOrWhiteSpace(_fonts.Body) && string.IsNullOrWhiteSpace(theme.BodyFontFamily))
             {
-                Warn(path, "font slot 'body' is not defined in 'design.fonts'; emitters fall back to the document default.");
+                Warn(path, "font slot 'body' is not defined in 'design.fonts' nor the active theme; emitters fall back to the document default.");
             }
         }
 
