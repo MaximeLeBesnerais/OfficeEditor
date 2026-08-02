@@ -1215,6 +1215,53 @@ public class WorkbookBuilderTests : IDisposable
         Assert.Throws<InvalidOperationException>(() => builder.Save());
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Save_WithEmptyOrWhitespacePath_ThrowsArgumentExceptionAndPreservesSource(string path)
+    {
+        // Gap fixed: an empty destination was a silent flush of the source document while
+        // whitespace materialized a junk file named after the whitespace; both are now rejected
+        // as argument errors up front, matching the Create/Open path contract.
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            builder.AddWorksheet("Sheet1").AddCell("A1", "Keep");
+            var ex = Assert.Throws<ArgumentException>(() => builder.Save(path));
+            Assert.Equal("path", ex.ParamName);
+        }
+
+        using var reader = WorkbookBuilder.Open(_testFilePath);
+        Assert.Equal("Keep", reader.GetWorksheet("Sheet1").GetCellValue("A1"));
+    }
+
+    [Fact]
+    public void Save_WithWhitespacePath_CreatesNoJunkFile()
+    {
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            builder.AddWorksheet("Sheet1").AddCell("A1", "Keep");
+            Assert.Throws<ArgumentException>(() => builder.Save("   "));
+        }
+
+        Assert.False(File.Exists("   "), "A rejected whitespace path must not create a file.");
+    }
+
+    [Fact]
+    public void Save_AfterRejectedPath_ValidSaveStillWorks()
+    {
+        // A rejected explicit destination must leave the builder usable: the source flush
+        // via the parameterless Save() still works afterwards.
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            builder.AddWorksheet("Sheet1").AddCell("A1", "Keep");
+            Assert.Throws<ArgumentException>(() => builder.Save("   "));
+            builder.Save();
+        }
+
+        using var reader = WorkbookBuilder.Open(_testFilePath);
+        Assert.Equal("Keep", reader.GetWorksheet("Sheet1").GetCellValue("A1"));
+    }
+
     // ─── Phase 0 tests ────────────────────────────────────────────
 
     [Fact]
