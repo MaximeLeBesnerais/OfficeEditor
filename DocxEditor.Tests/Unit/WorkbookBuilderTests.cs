@@ -2461,6 +2461,410 @@ public class WorkbookBuilderTests : IDisposable
         Assert.Equal(55.0, ws.GetRowHeight(1));
     }
 
+    // ─── Merged cells ─────────────────────────────────────────────
+
+    [Fact]
+    public void MergeCells_ValidRange_ShouldEmitMergeCellInSchemaOrder()
+    {
+        // Act
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            var worksheet = builder.AddWorksheet("Sheet1");
+            worksheet.MergeCells("A1:C3");
+            builder.Save();
+        }
+
+        // Assert: a single <mergeCell ref="A1:C3"> under <mergeCells count="1">, placed
+        // after <sheetData> (and before <tableParts>) in the CT_Worksheet child sequence.
+        using var doc = SpreadsheetDocument.Open(_testFilePath, false);
+        var worksheetElement = doc.WorkbookPart!.WorksheetParts.First().Worksheet!;
+        var mergeCells = worksheetElement.GetFirstChild<MergeCells>();
+        Assert.NotNull(mergeCells);
+        Assert.Equal(1u, mergeCells.Count?.Value);
+        var mergeCell = Assert.Single(mergeCells.Elements<MergeCell>());
+        Assert.Equal("A1:C3", mergeCell.Reference?.Value);
+
+        var childNames = worksheetElement.ChildElements.Select(c => c.LocalName).ToList();
+        Assert.Contains("mergeCells", childNames);
+        Assert.True(childNames.IndexOf("sheetData") < childNames.IndexOf("mergeCells"));
+        OpenXmlAssert.NoValidationErrors(doc);
+    }
+
+    [Fact]
+    public void MergeCells_LowercaseRange_ShouldNormalizeToUpperCase()
+    {
+        // Act & Assert: Excel references are case-insensitive; 'a1:c3' and 'A1:C3'
+        // must resolve to one canonical merge rather than two distinct entries.
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            var worksheet = builder.AddWorksheet("Sheet1");
+            worksheet.MergeCells("a1:c3");
+            builder.Save();
+        }
+
+        using var reader = WorkbookBuilder.Open(_testFilePath);
+        Assert.Equal(new[] { "A1:C3" }, reader.GetWorksheet("Sheet1").GetMergeRanges());
+    }
+
+    [Fact]
+    public void MergeCells_MultipleRanges_ShouldKeepCountInSync()
+    {
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            var worksheet = builder.AddWorksheet("Sheet1");
+            worksheet.MergeCells("A1:B2");
+            worksheet.MergeCells("C1:D2");
+            builder.Save();
+        }
+
+        using var doc = SpreadsheetDocument.Open(_testFilePath, false);
+        var mergeCells = doc.WorkbookPart!.WorksheetParts.First().Worksheet!.GetFirstChild<MergeCells>();
+        Assert.NotNull(mergeCells);
+        Assert.Equal(2u, mergeCells.Count?.Value);
+        Assert.Equal(2, mergeCells.Elements<MergeCell>().Count());
+        OpenXmlAssert.NoValidationErrors(doc);
+    }
+
+    [Fact]
+    public void MergeCells_AdjacentRanges_ShouldBeValid()
+    {
+        // Act: horizontally adjacent (sharing an edge, no shared cell) and vertically
+        // adjacent ranges must both be accepted — only overlapping merges are rejected.
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            var worksheet = builder.AddWorksheet("Sheet1");
+            worksheet.MergeCells("A1:B2");
+            worksheet.MergeCells("C1:D2");
+            worksheet.MergeCells("A3:A4");
+            builder.Save();
+        }
+
+        using var reader = WorkbookBuilder.Open(_testFilePath);
+        Assert.Equal(new[] { "A1:B2", "C1:D2", "A3:A4" }, reader.GetWorksheet("Sheet1").GetMergeRanges());
+    }
+
+    [Fact]
+    public void MergeCells_AtSheetLimits_ShouldEmitWithinExcelBounds()
+    {
+        // Act: the last column's last two rows are the real grid corner; a merge touching
+        // it must round-trip, while a column past XFD must be rejected before mutation.
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            var worksheet = builder.AddWorksheet("Sheet1");
+            worksheet.MergeCells("XFD1048575:XFD1048576");
+            builder.Save();
+        }
+
+        using (var reader = WorkbookBuilder.Open(_testFilePath))
+        {
+            Assert.Equal(new[] { "XFD1048575:XFD1048576" }, reader.GetWorksheet("Sheet1").GetMergeRanges());
+        }
+
+        using var builder2 = WorkbookBuilder.Create(_testFilePath);
+        var ws2 = builder2.AddWorksheet("Sheet1");
+        var ex = Assert.Throws<XlsxException>(() => ws2.MergeCells("XFE1:XFE2"));
+        Assert.Contains("column", ex.Message);
+    }
+
+    [Fact]
+    public void MergeCells_InvalidRange_ShouldThrowBeforeMutation()
+    {
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var worksheet = builder.AddWorksheet("Sheet1");
+
+        // A single cell (no colon) is not a range; "A1:A1" merges one cell, which Excel
+        // does not do; empty, malformed and out-of-bounds endpoints are rejected.
+        var ex = Assert.Throws<XlsxException>(() => worksheet.MergeCells("A1"));
+        Assert.Contains("A1", ex.Message);
+
+        ex = Assert.Throws<XlsxException>(() => worksheet.MergeCells("A1:A1"));
+        Assert.Contains("single cell", ex.Message);
+
+        ex = Assert.Throws<XlsxException>(() => worksheet.MergeCells("A0:C3"));
+        Assert.Contains("row", ex.Message);
+
+        ex = Assert.Throws<XlsxException>(() => worksheet.MergeCells("A1:C"));
+        Assert.Contains("C", ex.Message);
+
+        // Nothing was mutated: no <mergeCells> container exists.
+        Assert.Empty(worksheet.GetMergeRanges());
+    }
+
+    [Fact]
+    public void MergeCells_SingleCell_ShouldThrow()
+    {
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var worksheet = builder.AddWorksheet("Sheet1");
+
+        var ex = Assert.Throws<XlsxException>(() => worksheet.MergeCells("B2:B2"));
+        Assert.Contains("single cell", ex.Message);
+        Assert.Empty(worksheet.GetMergeRanges());
+    }
+
+    [Fact]
+    public void MergeCells_ReversedRange_ShouldThrow()
+    {
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var worksheet = builder.AddWorksheet("Sheet1");
+
+        var ex = Assert.Throws<XlsxException>(() => worksheet.MergeCells("C3:A1"));
+        Assert.Contains("reversed", ex.Message);
+        Assert.Empty(worksheet.GetMergeRanges());
+    }
+
+    [Fact]
+    public void MergeCells_DuplicateRange_ShouldThrow()
+    {
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var worksheet = builder.AddWorksheet("Sheet1");
+        worksheet.MergeCells("A1:B2");
+
+        // The exact same range, even in different case, is a duplicate.
+        var ex = Assert.Throws<XlsxException>(() => worksheet.MergeCells("a1:b2"));
+        Assert.Contains("already merged", ex.Message);
+        Assert.Equal(new[] { "A1:B2" }, worksheet.GetMergeRanges());
+    }
+
+    [Fact]
+    public void MergeCells_OverlappingRange_ShouldThrow()
+    {
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var worksheet = builder.AddWorksheet("Sheet1");
+        worksheet.MergeCells("A1:C3");
+
+        // Partially overlapping and fully contained ranges are both rejected.
+        var ex = Assert.Throws<XlsxException>(() => worksheet.MergeCells("B2:D4"));
+        Assert.Contains("overlap", ex.Message);
+        Assert.Contains("A1:C3", ex.Message);
+
+        ex = Assert.Throws<XlsxException>(() => worksheet.MergeCells("A1:B2"));
+        Assert.Contains("overlap", ex.Message);
+
+        Assert.Equal(new[] { "A1:C3" }, worksheet.GetMergeRanges());
+    }
+
+    [Fact]
+    public void MergeCells_ShouldPreserveCellValuesAndStyles()
+    {
+        // Act: a styled header plus data, then a merge over the header row.
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            var worksheet = builder.AddWorksheet("Sheet1");
+            worksheet.AddHeaderRow(new List<string> { "Name", "Age", "City" });
+            worksheet.AddDataRow(new List<string> { "John", "30", "Paris" }, 2);
+            worksheet.MergeCells("A1:C1");
+            builder.Save();
+        }
+
+        // Assert: merging is display-only — no cell is deleted, no value or style lost.
+        using (var reader = WorkbookBuilder.Open(_testFilePath))
+        {
+            var ws = reader.GetWorksheet("Sheet1");
+            Assert.Equal("Name", ws.GetCellValue("A1"));
+            Assert.Equal("Age", ws.GetCellValue("B1"));
+            Assert.Equal("City", ws.GetCellValue("C1"));
+            Assert.Equal("John", ws.GetCellValue("A2"));
+            Assert.Equal(new[] { "A1:C1" }, ws.GetMergeRanges());
+        }
+
+        using var doc = SpreadsheetDocument.Open(_testFilePath, false);
+        var headerCells = doc.WorkbookPart!.WorksheetParts.First().Worksheet!
+            .GetFirstChild<SheetData>()!.Elements<Row>().First().Elements<Cell>().ToList();
+        Assert.Equal(3, headerCells.Count);
+        Assert.NotNull(headerCells[0].StyleIndex);
+        OpenXmlAssert.NoValidationErrors(doc);
+    }
+
+    [Fact]
+    public void MergeCells_OnReopenedWorkbook_ShouldRoundTripWithoutDuplicates()
+    {
+        // Arrange: hand-build a workbook that already carries a <mergeCells> element
+        // (as Excel would), then reopen it through the public API.
+        byte[] bytes;
+        using (var ms = new MemoryStream())
+        {
+            using (var doc = SpreadsheetDocument.Create(ms, SpreadsheetDocumentType.Workbook))
+            {
+                var workbookPart = doc.AddWorkbookPart();
+                var worksheetPart = workbookPart.AddNewPart<WorksheetPart>();
+                worksheetPart.Worksheet = new Worksheet(
+                    new SheetData(new Row(new Cell { CellReference = "A1" })),
+                    new MergeCells(new MergeCell { Reference = "A1:C1" }) { Count = 1 });
+                workbookPart.Workbook = new Workbook(new Sheets(new Sheet
+                {
+                    Name = "Sheet1",
+                    SheetId = 1u,
+                    Id = workbookPart.GetIdOfPart(worksheetPart)
+                }));
+                doc.Save();
+            }
+            bytes = ms.ToArray();
+        }
+
+        // Act: reopen, add an adjacent merge, save, reopen again.
+        using (var builder = WorkbookBuilder.Open(bytes))
+        {
+            builder.GetWorksheet("Sheet1").MergeCells("D1:E1");
+            bytes = builder.SaveToBytes();
+        }
+
+        // Assert: the existing merge survived and the new one joined it — no duplicates,
+        // Count in sync, schema still valid.
+        using (var doc = SpreadsheetDocument.Open(new MemoryStream(bytes), false))
+        {
+            var mergeCells = doc.WorkbookPart!.WorksheetParts.First().Worksheet!.GetFirstChild<MergeCells>();
+            Assert.NotNull(mergeCells);
+            var refs = mergeCells.Elements<MergeCell>().Select(c => c.Reference?.Value).ToList();
+            Assert.Equal(new[] { "A1:C1", "D1:E1" }, refs);
+            Assert.Equal(2u, mergeCells.Count?.Value);
+            OpenXmlAssert.NoValidationErrors(doc);
+        }
+
+        using var reader = WorkbookBuilder.Open(bytes);
+        Assert.Equal(new[] { "A1:C1", "D1:E1" }, reader.GetWorksheet("Sheet1").GetMergeRanges());
+    }
+
+    [Fact]
+    public void MergeCells_BeforeTableParts_ShouldKeepWorksheetSchemaValid()
+    {
+        // Act: a table appends <tableParts> at the end; a merge must slot in before it.
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            var worksheet = builder.AddWorksheet("Sheet1");
+            worksheet.AddHeaderRow(new List<string> { "A", "B" });
+            worksheet.AddTable("A1", "B2", "Sales");
+            worksheet.MergeCells("A1:B1");
+            builder.Save();
+        }
+
+        using var doc = SpreadsheetDocument.Open(_testFilePath, false);
+        var childNames = doc.WorkbookPart!.WorksheetParts.First().Worksheet!
+            .ChildElements.Select(c => c.LocalName).ToList();
+        Assert.True(childNames.IndexOf("sheetData") < childNames.IndexOf("mergeCells"));
+        Assert.True(childNames.IndexOf("mergeCells") < childNames.IndexOf("tableParts"));
+        OpenXmlAssert.NoValidationErrors(doc);
+    }
+
+    [Fact]
+    public void MergeCells_OnReopenedWorkbookWithLaterElements_ShouldInsertInSchemaOrder()
+    {
+        // Arrange: a workbook that already carries elements that must FOLLOW <mergeCells>
+        // in the schema sequence (hyperlinks, tableParts) but no merge cells yet — as an
+        // Excel-authored sheet might look when reopened.
+        byte[] bytes;
+        using (var ms = new MemoryStream())
+        {
+            using (var doc = SpreadsheetDocument.Create(ms, SpreadsheetDocumentType.Workbook))
+            {
+                var workbookPart = doc.AddWorkbookPart();
+                var worksheetPart = workbookPart.AddNewPart<WorksheetPart>();
+                worksheetPart.Worksheet = new Worksheet(
+                    new SheetData(new Row(new Cell { CellReference = "A1" })),
+                    new Hyperlinks(new Hyperlink { Reference = "A1" }),
+                    new TableParts());
+                workbookPart.Workbook = new Workbook(new Sheets(new Sheet
+                {
+                    Name = "Sheet1",
+                    SheetId = 1u,
+                    Id = workbookPart.GetIdOfPart(worksheetPart)
+                }));
+                doc.Save();
+            }
+            bytes = ms.ToArray();
+        }
+
+        // Act: reopen and add a merge.
+        using (var builder = WorkbookBuilder.Open(bytes))
+        {
+            builder.GetWorksheet("Sheet1").MergeCells("A1:B1");
+            bytes = builder.SaveToBytes();
+        }
+
+        // Assert: the new <mergeCells> slots between <sheetData> and <hyperlinks>.
+        using (var doc = SpreadsheetDocument.Open(new MemoryStream(bytes), false))
+        {
+            var childNames = doc.WorkbookPart!.WorksheetParts.First().Worksheet!
+                .ChildElements.Select(c => c.LocalName).ToList();
+            Assert.True(childNames.IndexOf("sheetData") < childNames.IndexOf("mergeCells"));
+            Assert.True(childNames.IndexOf("mergeCells") < childNames.IndexOf("hyperlinks"));
+            Assert.True(childNames.IndexOf("hyperlinks") < childNames.IndexOf("tableParts"));
+            OpenXmlAssert.NoValidationErrors(doc);
+        }
+    }
+
+    [Fact]
+    public void UnmergeCells_ShouldRemoveMergeAndKeepCells()
+    {
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            var worksheet = builder.AddWorksheet("Sheet1");
+            worksheet.AddCell("A1", "left");
+            worksheet.AddCell("B1", "mid");
+            worksheet.MergeCells("A1:B1");
+            builder.Save();
+        }
+
+        // Act: reopen and unmerge.
+        using (var builder = WorkbookBuilder.Open(_testFilePath))
+        {
+            builder.GetWorksheet("Sheet1").UnmergeCells("A1:B1");
+            builder.Save();
+        }
+
+        // Assert: the merge is gone, the cells and their values survive.
+        using (var reader = WorkbookBuilder.Open(_testFilePath))
+        {
+            var ws = reader.GetWorksheet("Sheet1");
+            Assert.Empty(ws.GetMergeRanges());
+            Assert.Equal("left", ws.GetCellValue("A1"));
+            Assert.Equal("mid", ws.GetCellValue("B1"));
+        }
+
+        using var doc = SpreadsheetDocument.Open(_testFilePath, false);
+        Assert.Null(doc.WorkbookPart!.WorksheetParts.First().Worksheet!.GetFirstChild<MergeCells>());
+        OpenXmlAssert.NoValidationErrors(doc);
+    }
+
+    [Fact]
+    public void UnmergeCells_NotMergedRange_ShouldBeNoOp()
+    {
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var worksheet = builder.AddWorksheet("Sheet1");
+
+        worksheet.MergeCells("A1:B2");
+        worksheet.UnmergeCells("C1:D2");
+        worksheet.UnmergeCells("A1:B2");
+        worksheet.UnmergeCells("A1:B2");
+
+        Assert.Empty(worksheet.GetMergeRanges());
+    }
+
+    [Fact]
+    public void UnmergeCells_InvalidOrReversedRange_ShouldThrow()
+    {
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var worksheet = builder.AddWorksheet("Sheet1");
+        worksheet.MergeCells("A1:B2");
+
+        var ex = Assert.Throws<XlsxException>(() => worksheet.UnmergeCells("B2:A1"));
+        Assert.Contains("reversed", ex.Message);
+
+        ex = Assert.Throws<XlsxException>(() => worksheet.UnmergeCells("A1"));
+        Assert.Contains("A1", ex.Message);
+
+        Assert.Equal(new[] { "A1:B2" }, worksheet.GetMergeRanges());
+    }
+
+    [Fact]
+    public void GetMergeRanges_ShouldReturnEmpty_WhenNothingMerged()
+    {
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var worksheet = builder.AddWorksheet("Sheet1");
+        worksheet.AddCell("A1", "value");
+
+        Assert.Empty(worksheet.GetMergeRanges());
+    }
+
     /// <summary>
     /// Builds a workbook whose first sheet carries Excel-style multi-column width
     /// definitions (1..5 at width 10, column 7 at width 22).
