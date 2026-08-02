@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Caching.Memory;
 using OfficeEditor.Api.Services;
+using PptxEditor.Core.Builders;
 
 namespace OfficeEditor.Api.Tests.Unit;
 
@@ -157,6 +158,91 @@ public sealed class DeckSessionStoreTests : IDisposable
         _store.SweepSession(session);
 
         Assert.Empty(session.TempDirectories);
+    }
+
+    [Fact]
+    public void GetBytes_KnownDeck_ReturnsSourceBytes()
+    {
+        byte[] bytes = [1, 2, 3, 4];
+        var deckId = _store.Store(bytes, "deck.pptx", 2);
+
+        Assert.Same(bytes, _store.GetBytes(deckId));
+    }
+
+    [Fact]
+    public void GetBytes_UnknownDeck_ReturnsNull()
+    {
+        Assert.Null(_store.GetBytes(Guid.NewGuid()));
+    }
+
+    [Fact]
+    public void WithDeckLock_KnownDeck_ReturnsActionResult()
+    {
+        var deckId = _store.Store([1], "deck.pptx", 1);
+
+        var result = _store.WithDeckLock(deckId, () => 42);
+
+        Assert.Equal(42, result);
+    }
+
+    [Fact]
+    public void WithDeckLock_UnknownDeck_StillRunsActionAndReturnsResult()
+    {
+        // Unknown/expired deck: no lock to hold — the action still runs so edit callers
+        // re-check inside it and map to 404 rather than throwing.
+        var result = _store.WithDeckLock(Guid.NewGuid(), () => "ran");
+
+        Assert.Equal("ran", result);
+    }
+
+    [Fact]
+    public void WithDeckLock_KnownDeck_ReleasesTheSessionLockAfterwards()
+    {
+        var deckId = _store.Store([1], "deck.pptx", 1);
+        _store.TryGet(deckId, out var session);
+
+        var inner = _store.WithDeckLock(deckId, () =>
+        {
+            Assert.Equal(0, session!.RenderLock.CurrentCount);
+            return true;
+        });
+
+        Assert.True(inner);
+        Assert.Equal(1, session!.RenderLock.CurrentCount);
+    }
+
+    [Fact]
+    public void UpdateBytes_UnknownDeck_ThrowsKeyNotFoundException()
+    {
+        var ex = Assert.Throws<KeyNotFoundException>(() => _store.UpdateBytes(Guid.NewGuid(), [1]));
+        Assert.Contains("Unknown deck id", ex.Message);
+    }
+
+    [Fact]
+    public void UpdateBytes_KnownDeck_BumpsRevisionAndReDerivesSlideCount()
+    {
+        var twoSlideDeck = BuildDeckBytes(2);
+        var deckId = _store.Store(twoSlideDeck, "deck.pptx", 2);
+
+        _store.UpdateBytes(deckId, BuildDeckBytes(1));
+
+        Assert.True(_store.TryGet(deckId, out var updated));
+        Assert.Equal(1, updated!.Revision);
+        Assert.Equal(1, updated.SlideCount);
+        Assert.Equal("deck.pptx", updated.FileName);
+        Assert.Equal(deckId, updated.DeckId);
+    }
+
+    private static byte[] BuildDeckBytes(int slideCount)
+    {
+        using var builder = PresentationBuilder.Create();
+        for (var i = 0; i < slideCount; i++)
+        {
+            builder.AddSlide();
+            builder.CurrentSlide.AddTitle($"Slide {i + 1}");
+        }
+
+        return builder.SaveToBytes();
     }
 
     private static string CreateSessionTempDir()

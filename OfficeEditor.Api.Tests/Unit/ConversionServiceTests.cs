@@ -312,6 +312,23 @@ public sealed class ConversionServiceTests
         Assert.Contains("Unsupported conversion", result.ErrorMessage);
     }
 
+    [Theory]
+    [InlineData("1", 36)]
+    [InlineData("110", 110)]
+    [InlineData("50000", 600)]
+    [InlineData("NaN", 150)]
+    [InlineData("Infinity", 150)]
+    [InlineData("not-a-number", 150)]
+    public void GetPpi_ClampsUntrustedRenderCost(string value, float expected)
+    {
+        IReadOnlyDictionary<string, string> options = new Dictionary<string, string>
+        {
+            ["Ppi"] = value
+        };
+
+        Assert.Equal(expected, ConversionService.GetPpi(options));
+    }
+
     [Fact]
     public async Task ConvertAsync_Messages_AccumulateAcrossPipeline()
     {

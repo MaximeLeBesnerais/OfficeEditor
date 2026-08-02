@@ -1,4 +1,3 @@
-using System.Reflection;
 using Microsoft.Extensions.Caching.Memory;
 using OfficeEditor.Api.Services;
 
@@ -81,13 +80,10 @@ public sealed class ConversionResultStoreTests : IDisposable
     {
         // White-box check of the eviction policy: entries must renew their
         // lifetime on every access (sliding), with a 30-minute window.
-        var optionsField = typeof(InMemoryConversionResultStore)
-            .GetField("_cacheOptions", BindingFlags.NonPublic | BindingFlags.Instance);
-
-        Assert.NotNull(optionsField);
-        var options = Assert.IsType<MemoryCacheEntryOptions>(optionsField!.GetValue(_store));
+        var options = InMemoryConversionResultStore.CreateCacheOptions(123);
         Assert.Equal(TimeSpan.FromMinutes(30), options.SlidingExpiration);
         Assert.Null(options.AbsoluteExpirationRelativeToNow);
+        Assert.Equal(123, options.Size);
     }
 
     [Fact]

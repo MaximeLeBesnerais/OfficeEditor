@@ -159,4 +159,18 @@ public sealed class DeckPreviewServiceTests
         Assert.Equal(1, _renderer.CallCount);
         Assert.All(results, r => Assert.Same(results[0].Bytes, r.Bytes));
     }
+
+    [Fact]
+    public async Task GetSlidePreviewAsync_WhenCacheBudgetIsExhausted_DoesNotRetainPage()
+    {
+        var session = BuildSession();
+        session.RenderedPageBytes = ApiResourceLimits.RenderedPagesPerDeckBytes;
+
+        await _service.GetSlidePreviewAsync(session, 1, "png", 150);
+        await _service.GetSlidePreviewAsync(session, 1, "png", 150);
+
+        Assert.Equal(2, _renderer.CallCount);
+        Assert.Empty(session.RenderedPages);
+        Assert.Equal(ApiResourceLimits.RenderedPagesPerDeckBytes, session.RenderedPageBytes);
+    }
 }

@@ -16,13 +16,10 @@ public interface IConversionResultStore
 public sealed class InMemoryConversionResultStore : IConversionResultStore
 {
     private readonly IMemoryCache _cache;
-    private readonly MemoryCacheEntryOptions _cacheOptions;
 
     public InMemoryConversionResultStore(IMemoryCache cache)
     {
         _cache = cache;
-        _cacheOptions = new MemoryCacheEntryOptions()
-            .SetSlidingExpiration(TimeSpan.FromMinutes(30));
     }
 
     public Guid Store(byte[] bytes, string contentType, string fileName)
@@ -32,7 +29,7 @@ public sealed class InMemoryConversionResultStore : IConversionResultStore
         ArgumentException.ThrowIfNullOrWhiteSpace(fileName);
 
         var id = Guid.NewGuid();
-        _cache.Set(id, new StoredResult(bytes, contentType, fileName), _cacheOptions);
+        _cache.Set(id, new StoredResult(bytes, contentType, fileName), CreateCacheOptions(bytes.LongLength));
         return id;
     }
 
@@ -40,4 +37,9 @@ public sealed class InMemoryConversionResultStore : IConversionResultStore
     {
         return _cache.TryGetValue(id, out result);
     }
+
+    internal static MemoryCacheEntryOptions CreateCacheOptions(long byteLength) =>
+        new MemoryCacheEntryOptions()
+            .SetSlidingExpiration(TimeSpan.FromMinutes(30))
+            .SetSize(Math.Max(1, byteLength));
 }

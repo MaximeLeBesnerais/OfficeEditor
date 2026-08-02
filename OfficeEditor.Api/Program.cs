@@ -1,10 +1,16 @@
 using System.Text.Json;
+using Microsoft.AspNetCore.Http.Features;
 using OfficeEditor.Api.Components;
 using OfficeEditor.Api.Models;
 using OfficeEditor.Api.Services;
 using PptxEditor.Core.Builders;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.WebHost.ConfigureKestrel(options =>
+    options.Limits.MaxRequestBodySize = ApiResourceLimits.MaxRequestBodyBytes);
+builder.Services.Configure<FormOptions>(options =>
+    options.MultipartBodyLengthLimit = ApiResourceLimits.MaxRequestBodyBytes);
 
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
@@ -24,7 +30,8 @@ builder.Services.AddCors(options =>
     });
 });
 
-builder.Services.AddMemoryCache();
+builder.Services.AddMemoryCache(options =>
+    options.SizeLimit = ApiResourceLimits.MemoryCacheBytes);
 builder.Services.AddSingleton<IConversionResultStore, InMemoryConversionResultStore>();
 builder.Services.AddSingleton<IConversionService, ConversionService>();
 builder.Services.AddSingleton<ISampleFileService, SampleFileService>();
@@ -48,6 +55,23 @@ builder.Services.AddSingleton(sp => new RenderWarmupService(
 builder.Services.AddHostedService(sp => sp.GetRequiredService<RenderWarmupService>());
 
 var app = builder.Build();
+
+app.UseExceptionHandler(errorApp => errorApp.Run(async context =>
+{
+    context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+    await context.Response.WriteAsJsonAsync(new { error = "An unexpected server error occurred." });
+}));
+
+app.Use(async (context, next) =>
+{
+    if (context.Request.ContentLength > ApiResourceLimits.MaxRequestBodyBytes)
+    {
+        context.Response.StatusCode = StatusCodes.Status413PayloadTooLarge;
+        return;
+    }
+
+    await next(context);
+});
 
 app.UseCors(ReactCorsPolicy);
 
@@ -528,12 +552,6 @@ app.MapPost("/api/demo/render", async (
     {
         return Results.BadRequest(new { error = ex.Message });
     }
-    catch (Exception ex)
-    {
-        // Render failures (Typst backend errors, …) are surfaced, never swallowed.
-        return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status500InternalServerError);
-    }
-
     return Results.Ok(new DemoRenderResponse(
         Success: true,
         DeckId: result.DeckId,
@@ -593,12 +611,6 @@ app.MapPost("/api/demo/render-upload", async (
         // Client-side problems: invalid deck, empty deck, over the slide cap.
         return Results.BadRequest(new { error = ex.Message });
     }
-    catch (Exception ex)
-    {
-        // Render failures (Typst backend errors, …) are surfaced, never swallowed.
-        return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status500InternalServerError);
-    }
-
     return Results.Ok(new DemoRenderResponse(
         Success: true,
         DeckId: result.DeckId,
@@ -801,12 +813,6 @@ app.MapPost("/api/demo/compare/typst", async (
     {
         return Results.BadRequest(new { error = ex.Message });
     }
-    catch (Exception ex)
-    {
-        // PNG render failures (Typst backend errors, …) are surfaced, never swallowed.
-        return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status500InternalServerError);
-    }
-
     return Results.Ok(ToTypstLegResponse(context, resultStore, result, name));
 });
 
@@ -851,12 +857,6 @@ app.MapPost("/api/demo/compare/typst-upload", async (
         // Client-side problems: invalid deck, empty deck, over the slide cap.
         return Results.BadRequest(new { error = ex.Message });
     }
-    catch (Exception ex)
-    {
-        // PNG render failures (Typst backend errors, …) are surfaced, never swallowed.
-        return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status500InternalServerError);
-    }
-
     return Results.Ok(ToTypstLegResponse(context, resultStore, result, file.FileName));
 });
 

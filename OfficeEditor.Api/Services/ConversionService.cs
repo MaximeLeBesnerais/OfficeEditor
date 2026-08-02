@@ -277,16 +277,18 @@ public sealed class ConversionService : IConversionService
             || request.SourceBytes.All(b => b == 0);
     }
 
-    private static float GetPpi(IReadOnlyDictionary<string, string>? options)
+    internal static float GetPpi(IReadOnlyDictionary<string, string>? options)
     {
         if (options is not null
             && options.TryGetValue("Ppi", out var ppiText)
             && float.TryParse(ppiText, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var ppi))
         {
-            return ppi;
+            return float.IsFinite(ppi)
+                ? Math.Clamp(ppi, DeckPreviewValidators.MinPpi, DeckPreviewValidators.MaxPpi)
+                : DeckPreviewValidators.DefaultPpi;
         }
 
-        return 150;
+        return DeckPreviewValidators.DefaultPpi;
     }
 
     private static string ChangeExtension(string? fileName, string extension)
