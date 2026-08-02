@@ -321,6 +321,16 @@ public class WorkbookBuilder : IWorkbookBuilder
                 $"(: \\ / ? * [ ]). Remove them and try again.");
         }
 
+        // Excel forbids sheet names that begin or end with an apostrophe (a leading
+        // apostrophe in particular is Excel's escape character for the R1C1-style
+        // and would corrupt the workbook).
+        if (name[0] == '\'' || name[^1] == '\'')
+        {
+            throw new XlsxException(
+                $"Worksheet name '{name}' begins or ends with an apostrophe ('), " +
+                "which Excel does not allow. Remove the leading or trailing apostrophe.");
+        }
+
         if (_worksheets.ContainsKey(name))
         {
             throw new XlsxException(
@@ -408,6 +418,20 @@ public class WorkbookBuilder : IWorkbookBuilder
 
     public IWorkbookBuilder MergeVariables(Dictionary<string, string> data)
     {
+        ArgumentNullException.ThrowIfNull(data);
+
+        // A null replacement value would be written as an empty string — never the
+        // caller's intent. Fail loudly before any cell is mutated.
+        foreach (var pair in data)
+        {
+            if (pair.Value is null)
+            {
+                throw new ArgumentNullException(
+                    $"data['{pair.Key}']",
+                    $"Value for variable '{pair.Key}' must not be null; use an empty string to clear a value.");
+            }
+        }
+
         var replacer = new Variables.XlsxVariableReplacer();
         replacer.Replace(_document, data);
         return this;

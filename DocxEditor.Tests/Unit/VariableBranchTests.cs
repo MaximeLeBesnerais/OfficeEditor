@@ -360,6 +360,42 @@ public class VariableBranchTests : IDisposable
         Assert.Equal("1", a1.CellValue!.Text);
     }
 
+    [Fact]
+    public void XlsxReplacer_NullDocument_ThrowsArgumentNullException()
+    {
+        var ex = Assert.Throws<ArgumentNullException>(
+            () => new XlsxVariableReplacer().Replace(null!, new Dictionary<string, string>()));
+        Assert.Equal("document", ex.ParamName);
+    }
+
+    [Fact]
+    public void XlsxReplacer_NullData_ThrowsArgumentNullException()
+    {
+        using var document = SpreadsheetDocument.Create(NewTempFile("xlsx"), SpreadsheetDocumentType.Workbook);
+        var ex = Assert.Throws<ArgumentNullException>(
+            () => new XlsxVariableReplacer().Replace(document, null!));
+        Assert.Equal("data", ex.ParamName);
+    }
+
+    [Fact]
+    public void XlsxReplacer_NullValue_ThrowsArgumentNullException_AndLeavesCellUnchanged()
+    {
+        var path = CreateXlsx(false, ("A1", CellValues.String, "Hello {{name}}"));
+
+        using (var document = SpreadsheetDocument.Open(path, true))
+        {
+            var ex = Assert.Throws<ArgumentNullException>(() =>
+                new XlsxVariableReplacer().Replace(document, new Dictionary<string, string> { ["name"] = null! }));
+            Assert.Contains("name", ex.Message);
+        }
+
+        // Atomic: the rejected merge left the placeholder untouched.
+        using var reopened = SpreadsheetDocument.Open(path, false);
+        var cell = reopened.WorkbookPart!.WorksheetParts.First().Worksheet!
+            .GetFirstChild<SheetData>()!.Elements<Row>().First().Elements<Cell>().First();
+        Assert.Equal("Hello {{name}}", cell.CellValue!.Text);
+    }
+
     public void Dispose()
     {
         foreach (var file in _files)
