@@ -19,7 +19,7 @@ All outputs are written to `examples/output/`.
 |--------|----------|---------------|
 | [DOCX](Docx/README.md) | Basic creation, Markdown → DOCX, JSON instructions, Variable detection, Mail merge | `output/docx/` |
 | [PPTX](Pptx/README.md) | Slides, Tables, Variable merge, **→ PDF**, **→ Typst source**, **→ PNG thumbnails** | `output/pptx/` |
-| [XLSX](Xlsx/README.md) | Worksheets, Formulas, Cross-sheet references, Variable detection, Mail merge | `output/xlsx/` |
+| [XLSX](Xlsx/README.md) | Worksheets, Formulas, Cross-sheet references, Variable detection, Mail merge, JSON instructions, Layout & merges, Read back | `output/xlsx/` |
 
 ## Project Structure
 
