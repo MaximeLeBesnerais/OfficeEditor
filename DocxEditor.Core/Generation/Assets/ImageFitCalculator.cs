@@ -11,8 +11,7 @@ public readonly record struct ImageSourceRect(int Left, int Top, int Right, int 
 
 /// <summary>
 /// Result of computing the display geometry for an image: the final display box in points
-/// (and EMU), a centering offset in EMU (contain within a reserved box), and the source
-/// rectangle to crop, when any.
+/// (and EMU), an optional placement offset in EMU, and the source rectangle to crop, when any.
 /// </summary>
 public sealed record ImageFitResult
 {
@@ -22,10 +21,10 @@ public sealed record ImageFitResult
     /// <summary>Final display height in points.</summary>
     public required double HeightPt { get; init; }
 
-    /// <summary>Horizontal centering offset in EMU (nonzero only for contain in a reserved box).</summary>
+    /// <summary>Horizontal placement offset in EMU.</summary>
     public long OffsetXEmu { get; init; }
 
-    /// <summary>Vertical centering offset in EMU.</summary>
+    /// <summary>Vertical placement offset in EMU.</summary>
     public long OffsetYEmu { get; init; }
 
     /// <summary>Source crop in spcPct units, or null when nothing is cropped.</summary>
@@ -39,7 +38,7 @@ public sealed record ImageFitResult
 ///
 /// <list type="bullet">
 /// <item><c>Fill</c> — covers the box (center-crops the effective region; distortion-free).</item>
-/// <item><c>Contain</c> — fits the effective region inside the box, centered, reserving the box.</item>
+/// <item><c>Contain</c> — fits the effective region inside the requested bounds and returns the contained size.</item>
 /// <item><c>Stretch</c> — fills the box exactly (may distort the effective region).</item>
 /// <item><c>Crop</c> — honors the author crop rectangle verbatim; no crop means Fill.</item>
 /// </list>
@@ -105,8 +104,6 @@ public static class ImageFitCalculator
 
         var widthPt = boxWidthPt.Value;
         var heightPt = boxHeightPt.Value;
-        long offsetXEmu = 0;
-        long offsetYEmu = 0;
         ImageSourceRect? sourceRect = baseSourceRect;
 
         switch (effectiveFit)
@@ -115,12 +112,10 @@ public static class ImageFitCalculator
                 break;
 
             case ImageFitMode.Contain:
-                var (containedWidthPt, containedHeightPt, offsetXPt, offsetYPt) =
+                var (containedWidthPt, containedHeightPt) =
                     ContainBox(boxWidthPt.Value, boxHeightPt.Value, effectiveWidth, effectiveHeight);
                 widthPt = containedWidthPt;
                 heightPt = containedHeightPt;
-                offsetXEmu = DrawingUnits.ToEmu(offsetXPt);
-                offsetYEmu = DrawingUnits.ToEmu(offsetYPt);
                 break;
 
             case ImageFitMode.Crop:
@@ -140,32 +135,33 @@ public static class ImageFitCalculator
         {
             WidthPt = widthPt,
             HeightPt = heightPt,
-            OffsetXEmu = offsetXEmu,
-            OffsetYEmu = offsetYEmu,
+            OffsetXEmu = 0,
+            OffsetYEmu = 0,
             SourceRect = sourceRect
         };
     }
 
     /// <summary>
     /// The largest sub-box of <paramref name="boxWidthPt"/>×<paramref name="boxHeightPt"/> with
-    /// the source aspect, centered. Returns the contained box plus the centering deltas.
+    /// the source aspect. The returned size is emitted at a zero transform offset so its
+    /// reduced outer extent cannot clip a letterbox shift.
     /// </summary>
-    private static (double WidthPt, double HeightPt, double OffsetXpt, double OffsetYPt) ContainBox(
+    private static (double WidthPt, double HeightPt) ContainBox(
         double boxWidthPt, double boxHeightPt, double sourceWidth, double sourceHeight)
     {
         var boxAspect = boxWidthPt / boxHeightPt;
         var sourceAspect = sourceWidth / sourceHeight;
         if (Math.Abs(boxAspect - sourceAspect) < 1e-9)
         {
-            return (boxWidthPt, boxHeightPt, 0, 0);
+            return (boxWidthPt, boxHeightPt);
         }
         if (sourceAspect > boxAspect)
         {
             var heightPt = boxWidthPt / sourceAspect;
-            return (boxWidthPt, heightPt, 0, (boxHeightPt - heightPt) / 2);
+            return (boxWidthPt, heightPt);
         }
         var widthPt = boxHeightPt * sourceAspect;
-        return (widthPt, boxHeightPt, (boxWidthPt - widthPt) / 2, 0);
+        return (widthPt, boxHeightPt);
     }
 
     /// <summary>Center-crop fractions (of the effective region) needed to cover the box, or all-zero.</summary>

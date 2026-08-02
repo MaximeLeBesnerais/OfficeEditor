@@ -272,11 +272,13 @@ public static class ImageFormatSniffer
                     var y = BinaryPrimitives.ReadUInt16BigEndian(bytes.Slice(data + 10, 2));
                     if (units == 1)
                     {
-                        return (x, y);
+                        return x > 0 && y > 0 ? (x, y) : null;
                     }
                     if (units == 2)
                     {
-                        return (x * 2.54, y * 2.54);
+                        var dpiX = x * 2.54;
+                        var dpiY = y * 2.54;
+                        return IsUsableDpi(dpiX) && IsUsableDpi(dpiY) ? (dpiX, dpiY) : null;
                     }
                     warnings.Add(new ImageAssetWarning(
                         ImageAssetWarningCode.DensityUnitsUnspecified,
@@ -396,13 +398,15 @@ public static class ImageFormatSniffer
     private static ImageHeaderMetadata? TryReadTiff(ReadOnlySpan<byte> bytes, List<ImageAssetWarning> warnings)
     {
         var littleEndian = bytes[0] == 0x49;
-        var ifdOffset = (int)ReadU32(bytes, 4, littleEndian);
-        if (ifdOffset + 2 > bytes.Length)
+        var ifdOffsetValue = ReadU32(bytes, 4, littleEndian);
+        if (!HasRange(bytes.Length, ifdOffsetValue, sizeof(ushort)))
         {
             return null;
         }
+        var ifdOffset = (int)ifdOffsetValue;
         var entryCount = ReadU16(bytes, ifdOffset, littleEndian);
-        if (ifdOffset + 2 + entryCount * 12 > bytes.Length)
+        var entriesLength = sizeof(ushort) + (uint)entryCount * 12u;
+        if (!HasRange(bytes.Length, ifdOffsetValue, entriesLength))
         {
             return null;
         }
@@ -426,10 +430,10 @@ public static class ImageFormatSniffer
                     height = type == 3 ? ReadU16(bytes, entry + 8, littleEndian) : (int)ReadU32(bytes, entry + 8, littleEndian);
                     break;
                 case 282 when type == 5: // XResolution (RATIONAL)
-                    xResolution = ReadRational(bytes, (int)ReadU32(bytes, entry + 8, littleEndian), littleEndian);
+                    xResolution = ReadRational(bytes, ReadU32(bytes, entry + 8, littleEndian), littleEndian);
                     break;
                 case 283 when type == 5: // YResolution (RATIONAL)
-                    yResolution = ReadRational(bytes, (int)ReadU32(bytes, entry + 8, littleEndian), littleEndian);
+                    yResolution = ReadRational(bytes, ReadU32(bytes, entry + 8, littleEndian), littleEndian);
                     break;
                 case 296 when type == 3 && count == 1: // ResolutionUnit
                     resolutionUnit = ReadU16(bytes, entry + 8, littleEndian);
@@ -447,13 +451,21 @@ public static class ImageFormatSniffer
         {
             if (resolutionUnit == 2) // inch
             {
-                dpiX = xr;
-                dpiY = yr;
+                if (IsUsableDpi(xr) && IsUsableDpi(yr))
+                {
+                    dpiX = xr;
+                    dpiY = yr;
+                }
             }
             else if (resolutionUnit == 3) // cm
             {
-                dpiX = xr * 2.54;
-                dpiY = yr * 2.54;
+                var convertedX = xr * 2.54;
+                var convertedY = yr * 2.54;
+                if (IsUsableDpi(convertedX) && IsUsableDpi(convertedY))
+                {
+                    dpiX = convertedX;
+                    dpiY = convertedY;
+                }
             }
             else
             {
@@ -473,12 +485,13 @@ public static class ImageFormatSniffer
         };
     }
 
-    private static double? ReadRational(ReadOnlySpan<byte> bytes, int offset, bool littleEndian)
+    private static double? ReadRational(ReadOnlySpan<byte> bytes, uint offsetValue, bool littleEndian)
     {
-        if (offset < 0 || offset + 8 > bytes.Length)
+        if (!HasRange(bytes.Length, offsetValue, 8))
         {
             return null;
         }
+        var offset = (int)offsetValue;
         var numerator = ReadU32(bytes, offset, littleEndian);
         var denominator = ReadU32(bytes, offset + 4, littleEndian);
         if (denominator == 0)
@@ -487,6 +500,11 @@ public static class ImageFormatSniffer
         }
         return numerator / (double)denominator;
     }
+
+    private static bool HasRange(int bufferLength, uint offset, uint length) =>
+        offset <= (uint)bufferLength && length <= (uint)bufferLength - offset;
+
+    private static bool IsUsableDpi(double dpi) => double.IsFinite(dpi) && dpi > 0;
 
     private static ushort ReadU16(ReadOnlySpan<byte> bytes, int offset, bool littleEndian) =>
         littleEndian
