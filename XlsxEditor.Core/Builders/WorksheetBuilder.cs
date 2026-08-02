@@ -120,6 +120,11 @@ public class WorksheetBuilder : IWorksheetBuilder
 
     public IWorksheetBuilder AddHeaderRow(List<string> values, int rowIndex = 1)
     {
+        // Validate the whole collection (null list, null elements) BEFORE any worksheet
+        // or stylesheet mutation, so a bad header row can never leave a partially
+        // written row behind.
+        ValidateCellValues(values, nameof(values));
+
         var row = GetOrCreateRow(rowIndex);
         var headerStyleIndex = _workbookBuilder.EnsureHeaderStyleIndex();
 
@@ -140,6 +145,7 @@ public class WorksheetBuilder : IWorksheetBuilder
 
     public IWorksheetBuilder AddDataRow(List<string> values, int rowIndex)
     {
+        ValidateCellValues(values, nameof(values));
         var row = GetOrCreateRow(rowIndex);
 
         for (int i = 0; i < values.Count; i++)
@@ -153,6 +159,10 @@ public class WorksheetBuilder : IWorksheetBuilder
 
     public IWorksheetBuilder AddFormulaRow(List<string> formulas, int rowIndex)
     {
+        // A null formula element is a programming error and must fail before the row
+        // is created. An empty string is the documented "no formula in this column"
+        // skip and stays supported.
+        ValidateCellValues(formulas, nameof(formulas));
         var row = GetOrCreateRow(rowIndex);
 
         for (int i = 0; i < formulas.Count; i++)
@@ -167,10 +177,37 @@ public class WorksheetBuilder : IWorksheetBuilder
         return this;
     }
 
+    /// <summary>
+    /// Atomic input validation shared by the row-writing APIs: throws
+    /// <see cref="ArgumentNullException"/> when <paramref name="values"/> is null or
+    /// contains a null element. It must run BEFORE any worksheet mutation so a bad row
+    /// never leaves a partially written row (or stylesheet) behind.
+    /// </summary>
+    private static void ValidateCellValues(IList<string> values, string paramName)
+    {
+        ArgumentNullException.ThrowIfNull(values, paramName);
+
+        for (var i = 0; i < values.Count; i++)
+        {
+            if (values[i] is null)
+            {
+                throw new ArgumentNullException(
+                    $"{paramName}[{i}]",
+                    $"Element {i} of '{paramName}' must not be null; row cell values must be non-null strings.");
+            }
+        }
+    }
+
     // Excel table display names: must start with a letter, underscore or backslash,
     // then only letters, digits, periods and underscores — no spaces or other specials.
     private static readonly Regex TableDisplayNamePattern =
         new(@"^[A-Za-z_\\][A-Za-z0-9._]*$", RegexOptions.Compiled);
+
+    // An absolute R1C1-style cell reference (e.g. 'R1C1', 'R1048576C16384'). The
+    // bracket-relative forms ('R[1]C[2]') can never be table names: '[' and ']' are
+    // already rejected by TableDisplayNamePattern.
+    private static readonly Regex R1C1ReferencePattern =
+        new(@"^[Rr][1-9][0-9]*[Cc][1-9][0-9]*$", RegexOptions.Compiled);
 
     public IWorksheetBuilder AddTable(string startCell, string endCell, string tableName)
     {
@@ -244,6 +281,55 @@ public class WorksheetBuilder : IWorksheetBuilder
                 "underscore or backslash and contain only letters, digits, periods and " +
                 "underscores (no spaces or other special characters).");
         }
+
+        if (IsCellReferenceName(tableName))
+        {
+            throw new XlsxException(
+                $"Invalid table name '{tableName}'. Excel rejects table names that look like a " +
+                "cell reference (for example A1, BC12, XFD1048576 or R1C1) because it would " +
+                "interpret the name as a reference instead of a name.");
+        }
+    }
+
+    /// <summary>
+    /// True when <paramref name="name"/> matches the grammar Excel parses as a cell
+    /// reference — A1 style ('A1', 'BC12', 'XFD1048576') or R1C1 style ('R1C1',
+    /// 'R2C3') — and the referenced cell actually exists within Excel's real sheet
+    /// bounds (columns A-XFD, rows 1-1,048,576). Names that merely resemble an
+    /// out-of-bounds reference (e.g. 'XFE1') do not refer to any cell, so they stay
+    /// usable as ordinary table names. Table names are case-insensitive in Excel, so
+    /// both 'R1C1' and 'r1c1' are caught.
+    /// </summary>
+    private static bool IsCellReferenceName(string name)
+    {
+        if (CellReferencePattern.IsMatch(name))
+        {
+            try
+            {
+                NormalizeCellReference(name);
+                return true;
+            }
+            catch (XlsxException)
+            {
+                // Column beyond XFD or row beyond 1,048,576 — not a real cell reference.
+                return false;
+            }
+        }
+
+        if (!R1C1ReferencePattern.IsMatch(name))
+        {
+            return false;
+        }
+
+        var columnLetterIndex = name.IndexOfAny(new[] { 'C', 'c' });
+        var rowText = name.AsSpan(1, columnLetterIndex - 1);
+        var columnText = name.AsSpan(columnLetterIndex + 1);
+        return long.TryParse(rowText, NumberStyles.None, CultureInfo.InvariantCulture, out var row)
+            && long.TryParse(columnText, NumberStyles.None, CultureInfo.InvariantCulture, out var column)
+            && row >= 1
+            && row <= MaxRowNumber
+            && column >= 1
+            && column <= MaxColumnNumber;
     }
 
     private void EnsureNoTableOverlap(int startRow, int endRow, int startColumn, int endColumn, string tableName)

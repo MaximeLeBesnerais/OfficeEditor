@@ -311,6 +311,40 @@ public class WorkbookBuilderTests : IDisposable
     }
 
     [Fact]
+    public void MergeVariables_NullDictionary_ThrowsArgumentNullException()
+    {
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        builder.AddWorksheet("Sheet1").AddCell("A1", "Hello {{name}}");
+
+        var ex = Assert.Throws<ArgumentNullException>(() => builder.MergeVariables(null!));
+        Assert.Equal("data", ex.ParamName);
+    }
+
+    [Fact]
+    public void MergeVariables_NullValue_ThrowsArgumentNullException_AndLeavesWorkbookUnmodified()
+    {
+        // Arrange
+        using (var creator = WorkbookBuilder.Create(_testFilePath))
+        {
+            creator.AddWorksheet("Sheet1").AddCell("A1", "Hello {{name}}");
+            creator.Save();
+        }
+
+        // Act & Assert: a null replacement value must fail loudly, never be written as
+        // an empty string.
+        using (var editor = WorkbookBuilder.Open(_testFilePath))
+        {
+            var ex = Assert.Throws<ArgumentNullException>(() =>
+                editor.MergeVariables(new Dictionary<string, string> { ["name"] = null! }));
+            Assert.Contains("name", ex.Message);
+        }
+
+        // Atomic: the placeholder survives because the merge was rejected up front.
+        using var reader = WorkbookBuilder.Open(_testFilePath);
+        Assert.Equal("Hello {{name}}", reader.GetWorksheet("Sheet1").GetCellValue("A1"));
+    }
+
+    [Fact]
     public void WorksheetLookupAndRemoval_ShouldHandleSuccessAndMissingSheets()
     {
         // Arrange
@@ -438,6 +472,98 @@ public class WorkbookBuilderTests : IDisposable
         Assert.Contains(cells, c => c.CellReference?.Value == "AA3");
         Assert.Contains(cells, c => c.CellReference?.Value == "AB3");
         Assert.All(cells, c => Assert.NotNull(c.CellFormula));
+    }
+
+    // ─── Null validation: builder row/list/merge APIs ─────────────
+
+    [Fact]
+    public void AddHeaderRow_NullList_ThrowsArgumentNullException()
+    {
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var worksheet = builder.AddWorksheet("Sheet1");
+
+        var ex = Assert.Throws<ArgumentNullException>(() => worksheet.AddHeaderRow(null!));
+        Assert.Equal("values", ex.ParamName);
+    }
+
+    [Fact]
+    public void AddDataRow_NullList_ThrowsArgumentNullException()
+    {
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var worksheet = builder.AddWorksheet("Sheet1");
+
+        var ex = Assert.Throws<ArgumentNullException>(() => worksheet.AddDataRow(null!, 2));
+        Assert.Equal("values", ex.ParamName);
+    }
+
+    [Fact]
+    public void AddFormulaRow_NullList_ThrowsArgumentNullException()
+    {
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var worksheet = builder.AddWorksheet("Sheet1");
+
+        var ex = Assert.Throws<ArgumentNullException>(() => worksheet.AddFormulaRow(null!, 2));
+        Assert.Equal("formulas", ex.ParamName);
+    }
+
+    [Fact]
+    public void AddHeaderRow_NullElement_ThrowsBeforeAnyWorksheetMutation()
+    {
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var worksheet = builder.AddWorksheet("Sheet1");
+
+        var ex = Assert.Throws<ArgumentNullException>(
+            () => worksheet.AddHeaderRow(new List<string> { "ok", null!, "later" }));
+        Assert.Equal("values[1]", ex.ParamName);
+
+        // Atomic: no row, header style or cell was written before the failure.
+        Assert.Equal((0, 0, 0, 0), worksheet.GetDimensions());
+        Assert.Empty(worksheet.GetRows());
+    }
+
+    [Fact]
+    public void AddDataRow_NullElement_ThrowsBeforeAnyWorksheetMutation()
+    {
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var worksheet = builder.AddWorksheet("Sheet1");
+
+        var ex = Assert.Throws<ArgumentNullException>(
+            () => worksheet.AddDataRow(new List<string> { "ok", null! }, 2));
+        Assert.Equal("values[1]", ex.ParamName);
+        Assert.Equal((0, 0, 0, 0), worksheet.GetDimensions());
+        Assert.Empty(worksheet.GetRows());
+    }
+
+    [Fact]
+    public void AddFormulaRow_NullElement_ThrowsBeforeAnyWorksheetMutation()
+    {
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var worksheet = builder.AddWorksheet("Sheet1");
+
+        var ex = Assert.Throws<ArgumentNullException>(
+            () => worksheet.AddFormulaRow(new List<string> { "=SUM(A1:A2)", null! }, 2));
+        Assert.Equal("formulas[1]", ex.ParamName);
+        Assert.Equal((0, 0, 0, 0), worksheet.GetDimensions());
+        Assert.Empty(worksheet.GetRows());
+    }
+
+    [Fact]
+    public void RowMethods_EmptyLists_RemainSupported()
+    {
+        // Empty collections are legitimate (e.g. an empty data source): they must not
+        // throw and they write no cells.
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            var sheet = builder.AddWorksheet("Sheet1");
+            sheet.AddHeaderRow(new List<string>(), 1);
+            sheet.AddDataRow(new List<string>(), 2);
+            sheet.AddFormulaRow(new List<string>(), 3);
+            builder.Save();
+        }
+
+        using var reader = WorkbookBuilder.Open(_testFilePath);
+        var ws = reader.GetWorksheet("Sheet1");
+        Assert.Empty(ws.GetRows().SelectMany(r => r.Cells));
     }
 
     [Fact]
@@ -575,6 +701,62 @@ public class WorkbookBuilderTests : IDisposable
         // Act & Assert
         var ex = Assert.Throws<XlsxException>(() => worksheet.AddTable("A1", "B2", tableName));
         Assert.Contains("table name", ex.Message.ToLowerInvariant());
+    }
+
+    [Theory]
+    // A1-style references (within Excel's real grid)
+    [InlineData("A1")]
+    [InlineData("AA1")]
+    [InlineData("AB12")]
+    [InlineData("XFD1048576")]
+    [InlineData("A1048576")]
+    [InlineData("R1")]  // A1 column R row 1 (also a row-only R1C1 reference)
+    [InlineData("C1")]
+    // R1C1-style references
+    [InlineData("R1C1")]
+    [InlineData("R2C3")]
+    [InlineData("r1c1")]
+    [InlineData("R1048576C16384")]
+    public void AddTable_CellReferenceName_ShouldThrow(string tableName)
+    {
+        // Excel interprets names that look like A1/R1C1 references as references, not
+        // names, so they must be rejected before any table part is created.
+        using var builder = WorkbookBuilder.Create(_testFilePath);
+        var worksheet = builder.AddWorksheet("Sheet1");
+
+        var ex = Assert.Throws<XlsxException>(() => worksheet.AddTable("A1", "B2", tableName));
+        Assert.Contains("reference", ex.Message.ToLowerInvariant());
+    }
+
+    [Theory]
+    // Ordinary names and names containing digits stay accepted.
+    [InlineData("Sales2024")]
+    [InlineData("Table1")]
+    [InlineData("Q1_2023")]
+    [InlineData("DataTable")]
+    [InlineData("data.table")]
+    [InlineData("_private")]
+    [InlineData("R")]
+    [InlineData("C")]
+    [InlineData("R2D2")]
+    [InlineData("XFE1")]     // column beyond XFD — not a real cell reference
+    [InlineData("A1048577")] // row beyond 1,048,576 — not a real cell reference
+    [InlineData("R1C16385")] // R1C1 syntax but column beyond XFD
+    public void AddTable_OrdinaryNamesAndNamesWithDigits_ShouldBeAccepted(string tableName)
+    {
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            var worksheet = builder.AddWorksheet("Sheet1");
+            worksheet.AddCell("A1", "Product");
+            worksheet.AddCell("A2", "Widget");
+            worksheet.AddTable("A1", "A2", tableName);
+            builder.Save();
+        }
+
+        using var doc = SpreadsheetDocument.Open(_testFilePath, false);
+        Assert.Contains(doc.WorkbookPart!.WorksheetParts.First().TableDefinitionParts,
+            p => p.Table?.DisplayName?.Value == tableName);
+        OpenXmlAssert.NoValidationErrors(doc);
     }
 
     [Fact]
