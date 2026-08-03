@@ -385,6 +385,28 @@ public class MarkdownStyleResolverTests
     }
 
     [Fact]
+    public void Fallback_ReadingParagraphs_HaveWidowControl()
+    {
+        var resolver = new MarkdownStyleResolver(styles: null);
+
+        // Normal/body and the generic catch-all paragraph default carry widow/orphan control.
+        var normal = resolver.ResolveElement("paragraph", "Normal").FallbackStyle!;
+        Assert.NotNull(normal.StyleParagraphProperties!.GetFirstChild<WidowControl>());
+
+        var generic = resolver.ResolveElement("tip", "Tip").FallbackStyle!;
+        Assert.NotNull(generic.StyleParagraphProperties!.GetFirstChild<WidowControl>());
+
+        var quote = resolver.ResolveElement("blockquote", "Quote").FallbackStyle!;
+        Assert.NotNull(quote.StyleParagraphProperties!.GetFirstChild<WidowControl>());
+
+        var list = resolver.ResolveElement("list", "ListParagraph").FallbackStyle!;
+        Assert.NotNull(list.StyleParagraphProperties!.GetFirstChild<WidowControl>());
+
+        var description = resolver.ResolveElement("definitionDescription", "DefinitionDescription").FallbackStyle!;
+        Assert.NotNull(description.StyleParagraphProperties!.GetFirstChild<WidowControl>());
+    }
+
+    [Fact]
     public void Fallback_TableGrid_IsTableStyleWithBorders()
     {
         var resolver = new MarkdownStyleResolver(styles: null);

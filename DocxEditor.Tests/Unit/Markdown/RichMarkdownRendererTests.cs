@@ -424,6 +424,113 @@ public class RichMarkdownRendererTests
         Assert.Contains(paragraphs, p => p.ParagraphProperties?.ParagraphBorders?.BottomBorder is not null);
     }
 
+    // ---- Pagination controls ---------------------------------------------
+
+    [Fact]
+    public void Table_Rows_CantSplitAndHeaderRepeats()
+    {
+        var bytes = Build("""
+        | A | B |
+        |---|---|
+        | 1 | 2 |
+        | 3 | 4 |
+        """);
+
+        using var doc = Open(bytes);
+        var table = doc.MainDocumentPart!.Document!.Body!.Descendants<W.Table>().Single();
+        var rows = table.Elements<W.TableRow>().ToList();
+        Assert.Equal(3, rows.Count);
+
+        // Every row is protected from splitting across a page boundary.
+        Assert.All(rows, row => Assert.NotNull(row.TableRowProperties!.GetFirstChild<CantSplit>()));
+
+        // The header row repeats at the top of every page the table spans; body rows do not.
+        var headerProperties = rows[0].TableRowProperties!;
+        Assert.NotNull(headerProperties.GetFirstChild<TableHeader>());
+        Assert.All(rows.Skip(1), row => Assert.Null(row.TableRowProperties!.GetFirstChild<TableHeader>()));
+
+        // CT_TrPr ordering: w:cantSplit precedes w:tblHeader on the header row.
+        var order = headerProperties.ChildElements.ToList();
+        Assert.True(
+            order.IndexOf(headerProperties.GetFirstChild<CantSplit>()!)
+            < order.IndexOf(headerProperties.GetFirstChild<TableHeader>()!));
+    }
+
+    [Fact]
+    public void Paragraph_Body_HasWidowOrphanControl()
+    {
+        var bytes = Build("A normal paragraph with **bold _nested_** text.");
+
+        using var doc = Open(bytes);
+        var paragraph = doc.MainDocumentPart!.Document!.Body!.Elements<W.Paragraph>().Single();
+        Assert.NotNull(paragraph.ParagraphProperties!.GetFirstChild<WidowControl>());
+    }
+
+    [Fact]
+    public void Paragraph_ListItemAndQuote_HaveWidowOrphanControl()
+    {
+        var bytes = Build("- a list item\n\n> a quoted paragraph");
+
+        using var doc = Open(bytes);
+        var paragraphs = doc.MainDocumentPart!.Document!.Body!.Elements<W.Paragraph>().ToList();
+
+        // Both the numbered/bullet marker paragraph and its text, plus the quote paragraph,
+        // carry widow/orphan control in their paragraph properties.
+        Assert.All(paragraphs, p => Assert.NotNull(p.ParagraphProperties!.GetFirstChild<WidowControl>()));
+    }
+
+    [Fact]
+    public void FallbackStyles_ReadingParagraphs_HaveWidowOrphanControl()
+    {
+        var bytes = Build("""
+        # Heading
+
+        Body paragraph.
+
+        > Quote paragraph.
+
+        - list item
+
+        Term
+        :   Definition paragraph.
+
+        ![x](https://example.com/x.png)
+
+        <div>html</div>
+        """);
+
+        using var doc = Open(bytes);
+        var styles = doc.MainDocumentPart!.StyleDefinitionsPart!.Styles!;
+        var byId = styles.Elements<Style>().ToDictionary(s => s.StyleId!.Value!);
+
+        // The reading-paragraph fallbacks the renderer generates all carry widow/orphan control.
+        foreach (var id in new[] { "Normal", "Quote", "ListParagraph", "DefinitionDescription" })
+        {
+            var style = byId[id];
+            Assert.NotNull(style.StyleParagraphProperties?.GetFirstChild<WidowControl>());
+        }
+    }
+
+    [Fact]
+    public void PaginationControls_DocumentPassesOpenXmlValidator()
+    {
+        var bytes = Build("""
+        # Heading
+
+        Body paragraph with enough text to wrap across multiple lines.
+
+        | Header A | Header B |
+        |:---------|---------:|
+        | 1        | 2        |
+
+        > Quote text.
+        """);
+
+        using var doc = Open(bytes);
+        var errors = new OpenXmlValidator().Validate(doc.MainDocumentPart!.Document!).ToList();
+        Assert.True(errors.Count == 0, string.Join("\n", errors.Select(e => e.Description)));
+    }
+
     // ---- Footnotes / YAML / HTML / unknown ---------------------------------
 
     [Fact]

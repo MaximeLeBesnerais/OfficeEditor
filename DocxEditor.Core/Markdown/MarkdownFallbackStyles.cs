@@ -126,14 +126,15 @@ internal static class MarkdownFallbackStyles
     }
 
     /// <summary>
-    /// Body fallback: a readable 11pt body with 8pt space-after and 1.15 line spacing, matching
-    /// Word's modern default paragraph cadence.
+    /// Body fallback: a readable 11pt body with 8pt space-after, 1.15 line spacing and
+    /// widow/orphan control, matching Word's modern default paragraph cadence.
     /// </summary>
     private static Style Body(string styleId, string styleName)
     {
         return new Style(
             new StyleName { Val = styleName },
             new StyleParagraphProperties(
+                new WidowControl(),
                 new SpacingBetweenLines { After = "160", Line = "276", LineRule = LineSpacingRuleValues.Auto }),
             new StyleRunProperties(
                 new RunFonts { Ascii = BodyFont, HighAnsi = BodyFont, ComplexScript = BodyFont },
@@ -147,7 +148,7 @@ internal static class MarkdownFallbackStyles
 
     /// <summary>
     /// Quote fallback: a left-indented, italic block with a subtle left border that reads as a
-    /// quotation without touching paragraph content.
+    /// quotation without touching paragraph content, plus widow/orphan control.
     /// </summary>
     private static Style Quote(string styleId, string styleName)
     {
@@ -155,6 +156,7 @@ internal static class MarkdownFallbackStyles
             new StyleName { Val = styleName },
             new BasedOn { Val = "Normal" },
             new StyleParagraphProperties(
+                new WidowControl(),
                 new ParagraphBorders(new LeftBorder { Val = BorderValues.Single, Size = 8, Space = 4, Color = "7F7F7F" }),
                 new Indentation { Left = "720" }),
             new StyleRunProperties(new Italic()))
@@ -259,13 +261,14 @@ internal static class MarkdownFallbackStyles
         };
     }
 
-    /// <summary>Definition description fallback: indented beneath its term.</summary>
+    /// <summary>Definition description fallback: indented beneath its term, with widow/orphan control.</summary>
     private static Style DefinitionDescription(string styleId, string styleName)
     {
         return new Style(
             new StyleName { Val = styleName },
             new BasedOn { Val = "Normal" },
             new StyleParagraphProperties(
+                new WidowControl(),
                 new SpacingBetweenLines { After = "80" },
                 new Indentation { Left = "720" }))
         {
@@ -294,7 +297,7 @@ internal static class MarkdownFallbackStyles
         };
     }
 
-    /// <summary>List item fallback: body text with a small space-after per item.</summary>
+    /// <summary>List item fallback: body text with a small space-after per item, kept unbroken with widow/orphan control.</summary>
     private static Style ListParagraph(string styleId, string styleName)
     {
         return new Style(
@@ -302,6 +305,7 @@ internal static class MarkdownFallbackStyles
             new BasedOn { Val = "Normal" },
             new StyleParagraphProperties(
                 new KeepLines(),
+                new WidowControl(),
                 new SpacingBetweenLines { After = "80" }))
         {
             Type = StyleValues.Paragraph,
@@ -309,7 +313,7 @@ internal static class MarkdownFallbackStyles
         };
     }
 
-    /// <summary>Table header fallback: bold, centered, kept with the table body.</summary>
+    /// <summary>Table header fallback: bold, centered, kept with the table body, with widow/orphan control.</summary>
     private static Style TableHeader(string styleId, string styleName)
     {
         return new Style(
@@ -317,6 +321,7 @@ internal static class MarkdownFallbackStyles
             new BasedOn { Val = "Normal" },
             new StyleParagraphProperties(
                 new KeepLines(),
+                new WidowControl(),
                 new SpacingBetweenLines { After = "0" },
                 new Justification { Val = JustificationValues.Center }),
             new StyleRunProperties(
@@ -343,13 +348,14 @@ internal static class MarkdownFallbackStyles
         };
     }
 
-    /// <summary>Image-caption fallback: small, italic, centered.</summary>
+    /// <summary>Image-caption fallback: small, italic, centered, with widow/orphan control.</summary>
     private static Style Caption(string styleId, string styleName)
     {
         return new Style(
             new StyleName { Val = styleName },
             new BasedOn { Val = "Normal" },
             new StyleParagraphProperties(
+                new WidowControl(),
                 new SpacingBetweenLines { After = "80" },
                 new Justification { Val = JustificationValues.Center }),
             new StyleRunProperties(
@@ -362,13 +368,15 @@ internal static class MarkdownFallbackStyles
         };
     }
 
-    /// <summary>Generic paragraph fallback: body-cadence spacing only.</summary>
+    /// <summary>Generic paragraph fallback: body-cadence spacing with widow/orphan control.</summary>
     private static Style GenericParagraph(string styleId, string styleName)
     {
         return new Style(
             new StyleName { Val = styleName },
             new BasedOn { Val = "Normal" },
-            new StyleParagraphProperties(new SpacingBetweenLines { After = "80" }))
+            new StyleParagraphProperties(
+                new WidowControl(),
+                new SpacingBetweenLines { After = "80" }))
         {
             Type = StyleValues.Paragraph,
             StyleId = styleId
