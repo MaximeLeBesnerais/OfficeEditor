@@ -316,6 +316,13 @@ The wired command is the unified `generate` surface (extension-selected, like DO
 officeeditor generate examples/Xlsx/instructions/rich-report.json --output rich-report.xlsx
 ```
 
+The same instruction set also **renders straight to PDF or PNG** through the Typst pipeline — see [Rendering & Conversion](#7-rendering--conversion-xlsx--pdfpngsvg) below:
+
+```bash
+officeeditor generate examples/Xlsx/instructions/rich-report.json --output rich-report.pdf
+officeeditor generate examples/Xlsx/instructions/rich-report.json --output rich-report.png   # directory of page-NNN.png
+```
+
 `officeeditor create <out.xlsx> --instructions <file.json>` is still **not implemented** — `create` currently makes a blank sheet, and XLSX `edit` is unimplemented (the unified `edit` command is a stub). Drive the vocabulary through `XlsxGenerator` / `XlsxInstructionExecutor` from the library when you need it from code.
 
 ### Explicit limitations
@@ -325,10 +332,58 @@ officeeditor generate examples/Xlsx/instructions/rich-report.json --output rich-
 - **Number formats** — applied via named styles or per-cell `numberFormat`; there is no separate `numFmt` table authoring.
 - **Charts, defined names, data validation, panes beyond freeze** — out of the v1 vocabulary.
 - **`create --instructions` / `edit`** — not wired; use `officeeditor generate <input.json> --output <out.xlsx>` or the library.
+- **Rendering evaluates no formulas** — the renderer (see [Rendering & Conversion](#7-rendering--conversion-xlsx--pdfpngsvg) below) draws the workbook's cached `<v>` values only. OfficeEditor-written formula cells carry no cached value (the workbook sets `fullCalcOnLoad`), so they render as empty cells until the file is opened in Excel/LibreOffice; third-party workbooks that save cached results (Excel/LibreOffice do) render those.
 
 ---
 
-## 7. Layout & Merges
+## 7. Rendering & Conversion (XLSX → PDF/PNG/SVG)
+
+The renderer (`XlsxEditor.Core/Rendering/`) converts spreadsheets to **PDF / PNG / SVG** using the repository's own Typst pipeline: `XlsxReader` → `XlsxToTypstConverter` (native Typst `table` emitter) → `TypstCompilerService` (TypstBridge primary, typst CLI safety net). **No external office suite is used in product code** — LibreOffice appears only as a test-only oracle in `visual-diff --suite xlsx`. It covers typed cells, number formats (`$#,##0.00`, `0.0%`, dates, `[Red]` negatives), fills/borders/fonts/alignment, merges, explicit column widths & row heights, freeze-pane header repetition, and auto-pagination. See the [XLSX roadmap](../docs/roadmap-xlsx.md) "Out of scope" note for the current scope and limits.
+
+### `tools/convert-xlsx` — all five formats
+
+Input is an `.xlsx` file **or** a `.json` instruction set; `--format` defaults to `pdf`:
+
+```bash
+# PDF — writes a single file
+dotnet run --project tools/convert-xlsx -- rich-report.json rich-report.pdf --format pdf
+
+# PNG / SVG — each writes a directory of page-NNN.ext pages
+dotnet run --project tools/convert-xlsx -- rich-report.xlsx out/pages --format png --ppi 150
+dotnet run --project tools/convert-xlsx -- rich-report.xlsx out/pages --format svg
+
+# Typst source
+dotnet run --project tools/convert-xlsx -- rich-report.xlsx rich-report.typ --format typ
+
+# .xlsx → JSON instruction set (best-effort round-trip back into the v1 vocabulary)
+dotnet run --project tools/convert-xlsx -- rich-report.xlsx rich-report.json --format json
+```
+
+`--font-path <path>` adds an extra font directory; `--ppi <n>` sets PNG resolution (default 150).
+
+### Unified CLI and API
+
+- `officeeditor generate <input.json> --output out.pdf` — PDF (single file); `--output out.png` — a directory of `page-NNN.png` pages.
+- `POST /api/convert` with an `.xlsx` source and `targetFormat=pdf|png|svg` renders through the same pipeline (`ConvertXlsxToRenderAsync`); PNG/SVG return the first page.
+
+### Visual regression — `visual-diff --suite xlsx`
+
+The suite diffs **our** Typst-rendered PDF against a **LibreOffice-generated reference PDF** — LibreOffice is a test-only oracle, never product code:
+
+```bash
+dotnet run --project tools/visual-diff -- --suite xlsx
+dotnet run --project tools/visual-diff -- --suite xlsx --generate   # build missing generated PDFs via tools/convert-xlsx
+```
+
+### Fixtures
+
+- [`instructions/rich-report.json`](instructions/rich-report.json) — the three-sheet rich report above (also a rendering fixture).
+- [`instructions/complex-dashboard.json`](instructions/complex-dashboard.json) — financial dashboard exercising borders, fill patterns, cross-sheet formulas, every cell type, and layout features; the renderer's stress fixture.
+- Reference PDFs (LibreOffice-rendered, committed): `examples/REF/XLSX/rich-report.pdf` and `examples/REF/XLSX/complex-dashboard.pdf`.
+
+---
+
+## 8. Layout & Merges
 
 Explicit column widths and row heights, and display-only cell merges, via the fluent API.
 
@@ -358,7 +413,7 @@ Widths are in Excel column-width units (characters of the default font, max 255)
 
 ---
 
-## 8. Read Back
+## 9. Read Back
 
 Reopen a workbook and inspect cells, rows, ranges, and dimensions.
 
@@ -389,4 +444,4 @@ cd examples
 dotnet run
 ```
 
-The runner currently executes sections 1–5. Sections 6–8 document tested library APIs but are not yet called from `examples/Program.cs`.
+The runner currently executes sections 1–5. Sections 6–9 document tested library APIs but are not yet called from `examples/Program.cs`.

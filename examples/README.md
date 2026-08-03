@@ -19,7 +19,7 @@ All outputs are written to `examples/output/`.
 |--------|----------|---------------|
 | [DOCX](Docx/README.md) | Basic creation, Markdown → DOCX (library + `docxeditor markdown` CLI), JSON instructions, Variable detection, Mail merge, **Rich markdown (fixtures)** | `output/docx/` |
 | [PPTX](Pptx/README.md) | Slides, Tables, Variable merge, **→ PDF**, **→ Typst source**, **→ PNG thumbnails** | `output/pptx/` |
-| [XLSX](Xlsx/README.md) | Worksheets, Formulas, Cross-sheet references, Variable detection, Mail merge, JSON instructions (rich vocabulary, CLI via `officeeditor generate`), Layout & merges, Read back | `output/xlsx/` |
+| [XLSX](Xlsx/README.md) | Worksheets, Formulas, Cross-sheet references, Variable detection, Mail merge, JSON instructions (rich vocabulary, CLI via `officeeditor generate`), **Rendering & conversion** (`tools/convert-xlsx` → PDF/PNG/SVG/Typst/JSON; `officeeditor generate --output *.pdf/*.png`; `/api/convert`; REF PDFs under `examples/REF/XLSX/`), Layout & merges, Read back | `output/xlsx/` |
 
 ## Project Structure
 
@@ -47,7 +47,10 @@ examples/
 │   ├── README.md           # XLSX input/output docs
 │   └── instructions/
 │       ├── sample.json     # Minimal v1 JSON instruction example
-│       └── rich-report.json# Rich vocabulary: typed cells, styles, layout, tables
+│       ├── rich-report.json# Rich vocabulary: typed cells, styles, layout, tables (rendering fixture)
+│       └── complex-dashboard.json # Rendering fixture: cross-sheet formulas, all cell types, layout
+├── REF/                    # License-clean reference corpus + ground-truth PDFs (see README.md)
+│   └── XLSX/               # rich-report.pdf, complex-dashboard.pdf (LibreOffice-rendered oracle)
 ├── Shared/
 │   └── data.json           # Sample merge data
 └── output/                 # Generated files (created on run)

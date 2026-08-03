@@ -1,12 +1,12 @@
 # OfficeEditor
 
-A .NET 9 library suite for **creating, editing, generating, and rendering Office documents** — DOCX, PPTX, XLSX — without requiring Office or LibreOffice. It provides fluent C# builders, JSON/YAML instruction sets, and a loudly validated declarative JSON vocabulary for complete PPTX decks. Rendering uses **TypstBridge**, a native Rust bridge around Typst: PPTX → PDF/PNG/SVG and DOCX → PDF.
+A .NET 9 library suite for **creating, editing, generating, and rendering Office documents** — DOCX, PPTX, XLSX — without requiring Office or LibreOffice. It provides fluent C# builders, JSON/YAML instruction sets, and a loudly validated declarative JSON vocabulary for complete PPTX decks. Rendering uses **TypstBridge**, a native Rust bridge around Typst: PPTX → PDF/PNG/SVG, DOCX → PDF, and XLSX → PDF/PNG/SVG.
 
 ## Features
 
 - **Three formats, one model** — Word (DOCX), PowerPoint (PPTX), Excel (XLSX); create from scratch or edit existing files with style preservation
-- **JSON workflows** — PPTX has the full declarative generation vocabulary; **DOCX has declarative JSON generation** (flow + positioned tiers, design themes, semantic report archetypes, see `docs/docx-generation.md`); **XLSX has a rich instruction/generation engine** (typed cells, named styles with fills/borders, layout, tables) wired into `officeeditor generate --output *.xlsx` (images and row-replication remain)
-- **Rendering** — native TypstBridge (Typst 0.15.1): PPTX PDF/PNG/SVG and DOCX PDF; whole-deck timings are exposed by the PPTX surfaces
+- **JSON workflows** — PPTX has the full declarative generation vocabulary; **DOCX has declarative JSON generation** (flow + positioned tiers, design themes, semantic report archetypes, see `docs/docx-generation.md`); **XLSX has a rich instruction/generation engine** (typed cells, named styles with fills/borders, layout, tables) wired into `officeeditor generate --output *.xlsx` and renderable to PDF/PNG/SVG through the Typst pipeline (images and row-replication remain)
+- **Rendering** — native TypstBridge (Typst 0.15.1): PPTX PDF/PNG/SVG, DOCX PDF, and XLSX PDF/PNG/SVG (formulas render cached `<v>` values only, no evaluation); whole-deck timings are exposed by the PPTX surfaces
 - **Fluent C# APIs** — `DocumentBuilder`, `PresentationBuilder`, `WorkbookBuilder` (file, stream, or in-memory `byte[]`)
 - **Instruction sets** — JSON/YAML DOCX operations, JSON PPTX edit operations, and a v1 JSON XLSX builder vocabulary
 - **Variables & mail merge** — `{{variable}}` detection and replacement across all three formats, plus DOCX batch merge
@@ -35,6 +35,10 @@ officeeditor generate report.json --output report.docx --theme corporate
 
 # Generate a workbook from a JSON instruction set
 officeeditor generate workbook.json --output workbook.xlsx
+
+# Render an XLSX JSON instruction set to PDF (single file) or PNG (a directory of page-NNN.png pages)
+officeeditor generate workbook.json --output workbook.pdf
+officeeditor generate workbook.json --output workbook.png
 
 # Detect variables in templates
 officeeditor detect template.docx
@@ -165,7 +169,7 @@ cd OfficeEditor && dotnet build        # 0 warnings, 0 errors (enforced)
 | **Roadmaps** | `docs/roadmap-pptx.md`, `docs/roadmap-docx.md`, `docs/roadmap-xlsx.md` — everything targets v0.5 |
 | **Design token sets** (mined brand profiles) | `PptxEditor.Core/Generation/Design/` |
 | **Parity fixtures** (per-primitive generation tests) | `PptxEditor.Core/Generation/Fixtures/` |
-| **Tools** | `tools/convert-pptx`, `tools/convert-docx`, `tools/visual-diff`, `tools/pptx-benchmark` |
+| **Tools** | `tools/convert-pptx`, `tools/convert-docx`, `tools/convert-xlsx`, `tools/visual-diff`, `tools/pptx-benchmark` |
 | **Typst upgrade notes** | `docs/typst-0.15.md` |
 | **Agent/ contributor rules** | `AGENTS.md`, `agent-instructions/` |
 | Local-only dev fixtures (gitignored) | `local-ref/` — never commit |
@@ -179,7 +183,7 @@ cd OfficeEditor && dotnet build        # 0 warnings, 0 errors (enforced)
 | Web demo | `make dev` → http://localhost:5173/ (`/demo` = the app) |
 | MCP host (JSON-RPC stdio) | `dotnet run --project OfficeEditor.Mcp` |
 | Examples | `dotnet run --project examples` |
-| Convert / diff / bench tools | `dotnet run --project tools/convert-pptx -- <in> <out> [--format pdf\|png]` · `dotnet run --project tools/convert-docx -- <in> <out> [--format pdf\|typ]` · `dotnet run --project tools/visual-diff -- --suite pptx\|gen` · `dotnet run --project tools/pptx-benchmark` |
+| Convert / diff / bench tools | `dotnet run --project tools/convert-pptx -- <in> <out> [--format pdf\|png]` · `dotnet run --project tools/convert-docx -- <in> <out> [--format pdf\|typ]` · `dotnet run --project tools/convert-xlsx -- <in> <out> [--format pdf\|png\|svg\|typ\|json]` · `dotnet run --project tools/visual-diff -- --suite pptx\|gen\|xlsx` · `dotnet run --project tools/pptx-benchmark` |
 | CLI demo | `make -f Makefile.demo demo` (preflight → convert REF deck → generate deck, prints timings, opens PDFs) |
 
 ### The demo
@@ -210,7 +214,7 @@ DocxEditor/                          # repo folder (historical name; product is 
 ├── TypstBridge/                     # Rust native bridge + managed wrapper (Typst 0.15.1)
 ├── examples/                        # Sample programs + REF corpus
 ├── demo/, decks/                    # Generation JSON decks
-└── tools/                           # convert-pptx, convert-docx, visual-diff, pptx-benchmark
+└── tools/                           # convert-pptx, convert-docx, convert-xlsx, visual-diff, pptx-benchmark
 ```
 
 Key design decisions:
@@ -222,7 +226,7 @@ Key design decisions:
 
 ## API & MCP surfaces
 
-**API** (`OfficeEditor.Api`): deck upload/sessions, per-slide previews (`png|svg`, ETag-cached), deck anatomy, edit instructions, JSON generation with timings (`generationMilliseconds`, `totalMilliseconds`), demo endpoints (timed REF renders, upload render, OfficeEditor-vs-LibreOffice compare), and `/api/convert` for one-off conversions — JSON → DOCX/XLSX through the declarative generators (empty JSON makes a blank document), Markdown → DOCX, DOCX → PDF, and PPTX → PDF/PNG/SVG.
+**API** (`OfficeEditor.Api`): deck upload/sessions, per-slide previews (`png|svg`, ETag-cached), deck anatomy, edit instructions, JSON generation with timings (`generationMilliseconds`, `totalMilliseconds`), demo endpoints (timed REF renders, upload render, OfficeEditor-vs-LibreOffice compare), and `/api/convert` for one-off conversions — JSON → DOCX/XLSX through the declarative generators (empty JSON makes a blank document), Markdown → DOCX, DOCX → PDF, PPTX → PDF/PNG/SVG, and XLSX → PDF/PNG/SVG (PNG/SVG return the first page).
 
 **MCP** (`OfficeEditor.Mcp`, stdio JSON-RPC): `deck_anatomize`, `deck_replace_element`, `deck_render_slide`, `deck_generate`.
 

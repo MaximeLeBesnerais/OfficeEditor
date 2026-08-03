@@ -45,6 +45,10 @@ Run from the repository root:
 # (sales_acceleration_deck, AetherLink, northwind-launch-review, northwind-demo)
 dotnet run --project tools/visual-diff -- --suite pptx
 
+# XLSX suite: our Typst render vs a LibreOffice-generated reference PDF
+# (examples/REF/XLSX/*.pdf; LibreOffice is a test-only oracle)
+dotnet run --project tools/visual-diff -- --suite xlsx
+
 # GEN suite (Phase 5 parity fixtures): PowerPoint ground truth vs Typst preview,
 # per primitive, with per-primitive RMSE thresholds as the gate
 dotnet run --project tools/visual-diff -- --suite gen --generate
@@ -89,6 +93,21 @@ Or let visual-diff invoke the converter itself for any missing deck:
 ```bash
 dotnet run --project tools/visual-diff -- --suite pptx --generate [--font-path /usr/share/fonts]
 ```
+
+### The XLSX suite and the LibreOffice oracle
+
+`--suite xlsx` diffs the committed reference PDFs (`examples/REF/XLSX/rich-report.pdf`, `examples/REF/XLSX/complex-dashboard.pdf`) against generated PDFs under `examples/output/ref/xlsx/`. The generated PDFs come from **our own Typst pipeline** via `tools/convert-xlsx`; the reference PDFs are produced by **LibreOffice headless — a test-only oracle that never runs in product code**. Only ImageMagick is required (no poppler, no typst CLI — `tools/convert-xlsx` compiles in-process through TypstBridge).
+
+```bash
+# Produce a generated PDF manually
+dotnet run --project tools/convert-xlsx -- examples/Xlsx/instructions/rich-report.json \
+  examples/output/ref/xlsx/rich-report.pdf --format pdf
+
+# Or let visual-diff invoke tools/convert-xlsx for any missing generated PDF
+dotnet run --project tools/visual-diff -- --suite xlsx --generate
+```
+
+Reference PDFs are regenerated once with LibreOffice (test-only): generate the workbook from its JSON instruction set, then `soffice --headless --convert-to pdf`.
 
 ## Compare an arbitrary pair
 
@@ -162,13 +181,13 @@ Baselines live in [`baselines/`](baselines/) as metrics.json-shaped files. **The
 
 | Option | Description |
 |--------|-------------|
-| `--suite <docx\|pptx\|gen>` | Runs a built-in comparison suite. |
+| `--suite <docx\|pptx\|xlsx\|gen>` | Runs a built-in comparison suite. |
 | `--ref <path>` | Reference PDF, single PNG, or directory of PNGs. |
 | `--gen <path>` | Generated PDF, single PNG, or directory of PNGs (same kind as `--ref`). |
 | `--out <path>` | Report directory. Required for arbitrary pairs; defaults to `examples/output/visual-diff/<suite>/` for suites. |
 | `--name <name>` | Display/report name for an arbitrary pair. |
 | `--dpi <number>` | Rasterization DPI for PDF inputs and `--render`. Default: `150`. Higher values are more precise but slower and larger. |
-| `--generate` | (`--suite pptx`) Build missing generated PDFs via `tools/convert-pptx`. (`--suite gen`) Generate fixture decks + Typst sources in-process. |
+| `--generate` | (`--suite pptx`) Build missing generated PDFs via `tools/convert-pptx`. (`--suite xlsx`) Build missing generated PDFs via `tools/convert-xlsx`. (`--suite gen`) Generate fixture decks + Typst sources in-process. |
 | `--font-path <dir>` | Extra font directory passed to `tools/convert-pptx` when using `--generate`. |
 | `--render` | (`--suite gen`) Render fixture `.typ` sources to PNG pages via the typst CLI (probed; opt-in). |
 | `--check <file>` | Threshold-check an existing metrics.json against `--baseline` or `--thresholds`. |
