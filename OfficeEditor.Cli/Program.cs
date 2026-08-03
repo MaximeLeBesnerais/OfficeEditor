@@ -69,7 +69,7 @@ class Program
         if (args.Length < 2)
         {
             AnsiConsole.MarkupLine("[red]Input JSON file path is required.[/]");
-            AnsiConsole.MarkupLine("Usage: officeeditor generate <input.json> [--output <output.pptx|output.docx|output.xlsx>] [--theme <name>]");
+            AnsiConsole.MarkupLine("Usage: officeeditor generate <input.json> [--output <output.pptx|output.docx|output.xlsx|output.pdf|output.png>] [--theme <name>]");
             return false;
         }
 
