@@ -42,6 +42,9 @@ public sealed record XlsxPlanWorksheet
     /// <summary>1-based row the header row (if any) is written to.</summary>
     public int StartRow { get; init; } = 1;
 
+    /// <summary>Named style (or legacy numeric style id) applied to the header row.</summary>
+    public string? HeaderStyle { get; init; }
+
     public IReadOnlyList<XlsxPlanColumn> Columns { get; init; } = Array.Empty<XlsxPlanColumn>();
 
     /// <summary>Resolved header cells at <see cref="StartRow"/>.</summary>

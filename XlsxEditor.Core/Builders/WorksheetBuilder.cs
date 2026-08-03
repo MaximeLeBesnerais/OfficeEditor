@@ -195,6 +195,20 @@ public class WorksheetBuilder : IWorksheetBuilder
 
     // ─── Typed cell writes ─────────────────────────────────────────
 
+    /// <summary>
+    /// Applies a raw cellXf style index to the cell at <paramref name="cellReference"/>,
+    /// creating the cell if needed. Used by the instruction executor to preserve legacy
+    /// numeric style ids that reference existing cell formats directly (the caller must
+    /// have verified the index via <see cref="WorkbookBuilder.EnsureStyleIndexExists"/>).
+    /// </summary>
+    internal IWorksheetBuilder ApplyStyleIndex(string cellReference, uint styleIndex)
+    {
+        var normalized = NormalizeCellReference(cellReference);
+        var cell = GetOrCreateCell(normalized);
+        cell.StyleIndex = styleIndex;
+        return this;
+    }
+
     public IWorksheetBuilder AddCellString(string cellReference, string value, string? styleName = null)
     {
         ArgumentNullException.ThrowIfNull(value);

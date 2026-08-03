@@ -83,7 +83,11 @@ public enum XlsxDiagnosticCode
 
     // Planner
     DuplicateWrite,
-    UnresolvedVariable
+    UnresolvedVariable,
+
+    // Generator
+    GenerationFailed,
+    PackageInvalid
 }
 
 /// <summary>
