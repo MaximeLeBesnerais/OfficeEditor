@@ -37,7 +37,6 @@ Current limits:
 TypstBridge/
 ├── README.md
 ├── docs/
-│   ├── implementation-plan.md
 │   └── abi.md
 ├── native/      # Rust cdylib project
 ├── managed/     # C# P/Invoke wrapper
