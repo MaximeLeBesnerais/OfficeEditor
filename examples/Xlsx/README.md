@@ -263,6 +263,7 @@ The JSON instruction/generation engine (`XlsxEditor.Core/Instructions/`) parses,
       "merges": ["A1:E1"],
       "cells": [
         { "address": "A1", "value": "{{reportPeriod}} — {{preparedBy}}", "style": "title" },
+        { "address": "F1", "value": "Total Revenue", "type": "string", "style": "title" },
         { "address": "F2", "formula": "=SUM(B3:B6)", "style": "money", "numberFormat": "$#,##0.00" }
       ],
       "freezePanes": { "cell": "A3" },
