@@ -351,9 +351,18 @@ class Program
         // Custom style names must resolve against the template when one is supplied. The
         // resolver is read-only over the template: unresolved/ambiguous references surface
         // as path-qualified warnings (permissive) or errors (strict), never silent fallbacks.
+        // Only the author's explicit style-map entries plus the styles the input actually
+        // renders are validated; default-map entries for constructs the input never uses
+        // (e.g. "TableGrid" in a document without tables) are never rejected.
         if (templatePath is not null)
         {
-            var styleDiagnostics = ResolveTemplateStyles(templatePath, styleMap, strict);
+            var parsedForKeys = new RichMarkdownParser(
+                strict ? MarkdownParseOptions.StrictMode : MarkdownParseOptions.Default)
+                .Parse(markdown);
+            var referencedStyleKeys = RichMarkdownRenderer.CollectReferencedStyleKeys(parsedForKeys.Document);
+            var styleDiagnostics = ResolveTemplateStyles(
+                templatePath, styleMap, strict,
+                referencedStyleKeys, userProvided: styleMapPath is not null);
             foreach (var diagnostic in styleDiagnostics)
                 PrintStyleDiagnostic(styleMapPath ?? templatePath, diagnostic);
 
@@ -494,7 +503,9 @@ class Program
     static IReadOnlyList<MarkdownStyleDiagnostic> ResolveTemplateStyles(
         string templatePath,
         StyleMapping styleMap,
-        bool strict)
+        bool strict,
+        IReadOnlySet<string> referencedStyleKeys,
+        bool userProvided)
     {
         var diagnostics = new List<MarkdownStyleDiagnostic>();
         using var document = WordprocessingDocument.Open(templatePath, false);
@@ -505,6 +516,15 @@ class Program
 
         foreach (var entry in styleMap.StyleMap)
         {
+            // A user-supplied style map is validated wholesale: every entry is the author's
+            // explicit intent, even for constructs the input happens not to use. The built-in
+            // default map is validated only for the constructs the input actually renders, so a
+            // default mapping for a construct that never appears cannot fail the conversion.
+            if (!userProvided && !referencedStyleKeys.Contains(entry.Key))
+            {
+                continue;
+            }
+
             var kind = MarkdownStyleKinds.ForElement(entry.Key);
             diagnostics.AddRange(resolver.Resolve(entry.Value, kind, element: entry.Key).Diagnostics);
         }

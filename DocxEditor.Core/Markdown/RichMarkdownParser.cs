@@ -23,6 +23,14 @@ namespace DocxEditor.Core.Markdown;
 /// </summary>
 public sealed class RichMarkdownParser
 {
+    /// <summary>
+    /// Maximum nesting depth (block inside block, inline inside inline) the parser will
+    /// structure. Deeper content is flattened into a verbatim node plus a diagnostic instead of
+    /// recursing, so adversarial input can never drive the conversion recursion past the
+    /// process stack. The renderer enforces the same bound as a second line of defense.
+    /// </summary>
+    public const int MaxNestingDepth = 128;
+
     private readonly MarkdownParseOptions _options;
 
     public RichMarkdownParser()
@@ -61,7 +69,7 @@ public sealed class RichMarkdownParser
             var context = new ParseContext(_options, markdown);
             document = new DocxEditor.Core.Markdown.Model.MarkdownDocument
             {
-                Blocks = context.ConvertBlocks(ast),
+                Blocks = context.ConvertBlocks(ast, depth: 0),
                 Span = context.GetSpan(ast)
             };
             return new MarkdownParseResult(document, context.Diagnostics);
@@ -95,12 +103,12 @@ public sealed class RichMarkdownParser
 
         // ---- Block mapping -------------------------------------------------
 
-        public IReadOnlyList<MarkdownBlock> ConvertBlocks(IEnumerable<Block> blocks)
+        public IReadOnlyList<MarkdownBlock> ConvertBlocks(IEnumerable<Block> blocks, int depth)
         {
             var result = new List<MarkdownBlock>();
             foreach (var block in blocks)
             {
-                var node = ConvertBlock(block);
+                var node = ConvertBlock(block, depth);
                 if (node != null)
                 {
                     result.Add(node);
@@ -110,8 +118,21 @@ public sealed class RichMarkdownParser
             return result;
         }
 
-        private MarkdownBlock? ConvertBlock(Block block)
+        private MarkdownBlock? ConvertBlock(Block block, int depth)
         {
+            if (depth > MaxNestingDepth)
+            {
+                // Deeply nested content is flattened to a verbatim node rather than recursing
+                // further, so adversarial nesting can never overflow the conversion stack.
+                ReportDepthOverflow(block);
+                return new MarkdownUnknownBlock
+                {
+                    Kind = "nestingDepthOverflow",
+                    Raw = RawOf(block),
+                    Span = GetSpan(block)
+                };
+            }
+
             switch (block)
             {
                 case YamlFrontMatterBlock yaml:
@@ -125,19 +146,19 @@ public sealed class RichMarkdownParser
                     return new MarkdownHeading
                     {
                         Level = heading.Level,
-                        Inlines = ConvertInlines(heading.Inline),
+                        Inlines = ConvertInlines(heading.Inline, depth),
                         Span = GetSpan(heading)
                     };
 
                 case ParagraphBlock paragraph:
                     return new MarkdownParagraph
                     {
-                        Inlines = ConvertInlines(paragraph.Inline),
+                        Inlines = ConvertInlines(paragraph.Inline, depth),
                         Span = GetSpan(paragraph)
                     };
 
                 case ListBlock list:
-                    return ConvertList(list);
+                    return ConvertList(list, depth);
 
                 case QuoteBlock quote:
                     var alertKind = quote is AlertBlock alert ? alert.Kind.ToString().Trim() : null;
@@ -149,7 +170,7 @@ public sealed class RichMarkdownParser
                     return new MarkdownQuote
                     {
                         AlertKind = alertKind,
-                        Blocks = ConvertBlocks(quote),
+                        Blocks = ConvertBlocks(quote, depth + 1),
                         Span = GetSpan(quote)
                     };
 
@@ -188,13 +209,13 @@ public sealed class RichMarkdownParser
                     };
 
                 case Table table:
-                    return ConvertTable(table);
+                    return ConvertTable(table, depth);
 
                 case DefinitionList definitionList:
-                    return ConvertDefinitionList(definitionList);
+                    return ConvertDefinitionList(definitionList, depth);
 
                 case FootnoteGroup footnoteGroup:
-                    return ConvertFootnoteGroup(footnoteGroup);
+                    return ConvertFootnoteGroup(footnoteGroup, depth);
 
                 case LinkReferenceDefinitionGroup referenceGroup:
                     return ConvertLinkReferenceDefinitions(referenceGroup);
@@ -221,7 +242,7 @@ public sealed class RichMarkdownParser
             }
         }
 
-        private MarkdownList ConvertList(ListBlock list)
+        private MarkdownList ConvertList(ListBlock list, int depth)
         {
             var items = new List<MarkdownListItem>();
             foreach (var child in list)
@@ -231,7 +252,7 @@ public sealed class RichMarkdownParser
                     items.Add(new MarkdownListItem
                     {
                         Order = item.Order,
-                        Blocks = ConvertBlocks(item),
+                        Blocks = ConvertBlocks(item, depth + 1),
                         Span = GetSpan(item)
                     });
                 }
@@ -248,7 +269,7 @@ public sealed class RichMarkdownParser
             };
         }
 
-        private MarkdownTable ConvertTable(Table table)
+        private MarkdownTable ConvertTable(Table table, int depth)
         {
             var columns = table.ColumnDefinitions
                 .Select(def => new MarkdownTableColumn
@@ -273,7 +294,7 @@ public sealed class RichMarkdownParser
                                 ColumnIndex = cell.ColumnIndex,
                                 ColumnSpan = cell.ColumnSpan,
                                 RowSpan = cell.RowSpan,
-                                Blocks = ConvertBlocks(cell)
+                                Blocks = ConvertBlocks(cell, depth + 1)
                             });
                         }
                     }
@@ -294,7 +315,7 @@ public sealed class RichMarkdownParser
             };
         }
 
-        private MarkdownDefinitionList ConvertDefinitionList(DefinitionList definitionList)
+        private MarkdownDefinitionList ConvertDefinitionList(DefinitionList definitionList, int depth)
         {
             var items = new List<MarkdownDefinitionItem>();
             foreach (var child in definitionList)
@@ -309,13 +330,13 @@ public sealed class RichMarkdownParser
                         {
                             terms.Add(new MarkdownDefinitionTerm
                             {
-                                Inlines = ConvertInlines(term.Inline),
+                                Inlines = ConvertInlines(term.Inline, depth),
                                 Span = GetSpan(term)
                             });
                         }
                         else
                         {
-                            var definition = ConvertBlock(itemChild);
+                            var definition = ConvertBlock(itemChild, depth + 1);
                             if (definition != null)
                             {
                                 definitions.Add(definition);
@@ -339,7 +360,7 @@ public sealed class RichMarkdownParser
             };
         }
 
-        private MarkdownFootnotesBlock ConvertFootnoteGroup(FootnoteGroup group)
+        private MarkdownFootnotesBlock ConvertFootnoteGroup(FootnoteGroup group, int depth)
         {
             var footnotes = new List<MarkdownFootnote>();
             foreach (var child in group)
@@ -350,7 +371,7 @@ public sealed class RichMarkdownParser
                     {
                         Label = footnote.Label ?? string.Empty,
                         Order = footnote.Order,
-                        Blocks = ConvertBlocks(footnote),
+                        Blocks = ConvertBlocks(footnote, depth + 1),
                         Span = GetSpan(footnote)
                     });
                 }
@@ -396,7 +417,7 @@ public sealed class RichMarkdownParser
 
         // ---- Inline mapping -------------------------------------------------
 
-        private IReadOnlyList<MarkdownInline> ConvertInlines(ContainerInline? root)
+        private IReadOnlyList<MarkdownInline> ConvertInlines(ContainerInline? root, int depth)
         {
             var result = new List<MarkdownInline>();
             if (root == null)
@@ -409,11 +430,11 @@ public sealed class RichMarkdownParser
                 if (inline is DelimiterInline delimiter)
                 {
                     Warn($"Unmatched delimiter '{delimiter.GetType().Name}' flattened to its literal content.", delimiter, nameof(MarkdownUnknownInline));
-                    result.AddRange(ConvertInlines(delimiter));
+                    result.AddRange(ConvertInlines(delimiter, depth + 1));
                     continue;
                 }
 
-                var node = ConvertInline(inline);
+                var node = ConvertInline(inline, depth);
                 if (node != null)
                 {
                     result.Add(node);
@@ -423,8 +444,21 @@ public sealed class RichMarkdownParser
             return result;
         }
 
-        private MarkdownInline? ConvertInline(Inline inline)
+        private MarkdownInline? ConvertInline(Inline inline, int depth)
         {
+            if (depth > MaxNestingDepth)
+            {
+                // Deeply nested inline content is flattened to a verbatim node rather than
+                // recursing further, so adversarial nesting can never overflow the conversion stack.
+                ReportDepthOverflow(inline);
+                return new MarkdownUnknownInline
+                {
+                    Kind = "nestingDepthOverflow",
+                    Raw = RawOf(inline),
+                    Span = GetSpan(inline)
+                };
+            }
+
             switch (inline)
             {
                 case EmojiInline emoji:
@@ -456,7 +490,7 @@ public sealed class RichMarkdownParser
                     return new MarkdownEmphasis
                     {
                         Kind = MapEmphasisKind(emphasis),
-                        Children = ConvertInlines(emphasis),
+                        Children = ConvertInlines(emphasis, depth + 1),
                         Span = GetSpan(emphasis)
                     };
 
@@ -470,7 +504,7 @@ public sealed class RichMarkdownParser
                     };
 
                 case LinkInline link:
-                    var children = ConvertInlines(link);
+                    var children = ConvertInlines(link, depth + 1);
                     if (link.IsImage)
                     {
                         return new MarkdownImage
@@ -571,6 +605,21 @@ public sealed class RichMarkdownParser
         }
 
         // ---- Helpers --------------------------------------------------------
+
+        /// <summary>
+        /// Reports a node that was flattened because its nesting exceeded
+        /// <see cref="MaxNestingDepth"/>. Unlike <see cref="Warn"/> this diagnostic is emitted in
+        /// every mode: it signals user-visible data loss (content escaped to text), not a
+        /// retained-verbatim construct, so it must never be silently dropped.
+        /// </summary>
+        private void ReportDepthOverflow(Markdig.Syntax.MarkdownObject node)
+        {
+            Diagnostics.Add(new MarkdownDiagnostic(
+                MarkdownDiagnosticSeverity.Warning,
+                $"Markdown nesting exceeds the maximum supported depth of {MaxNestingDepth}; the node was flattened to escaped text.",
+                GetSpan(node),
+                "nestingDepthOverflow"));
+        }
 
         private static EmphasisKind MapEmphasisKind(EmphasisInline emphasis) =>
             emphasis.DelimiterChar switch

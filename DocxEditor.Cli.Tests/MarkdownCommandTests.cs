@@ -124,6 +124,58 @@ public sealed class MarkdownCommandTests : IDisposable
     }
 
     [Fact]
+    public void Markdown_Strict_BlankDocument_DefaultMapping_Succeeds()
+    {
+        // A fresh document has no styles part; strict mode must seed the trusted built-in
+        // fallback styles for the constructs the input uses instead of failing on the default
+        // "Normal" mapping.
+        var input = WriteInput("strict-blank.md", "# Hello\n\nWorld.");
+        var output = TempPath("strict-blank.docx");
+
+        var code = InvokeMain(["markdown", input, output, "--strict"]);
+
+        Assert.Equal(0, code);
+        Assert.True(File.Exists(output));
+        using var doc = WordprocessingDocument.Open(output, false);
+        Assert.Contains("Hello", doc.MainDocumentPart!.Document!.InnerText);
+        Assert.NotNull(doc.MainDocumentPart.StyleDefinitionsPart);
+    }
+
+    [Fact]
+    public void Markdown_Strict_Template_UnusedDefaultEntries_NotRejected()
+    {
+        // The template defines only the styles the input actually uses. Default-map entries for
+        // constructs the input never uses (table, code, quote, ...) must not fail the conversion.
+        var template = CreateTemplateWithStyles("Normal", "Heading1");
+        var input = WriteInput("strict-template.md", "# Heading\n\nBody text.");
+        var output = TempPath("strict-template.docx");
+
+        var code = InvokeMain(["markdown", input, output, "--template", template, "--strict"]);
+
+        Assert.Equal(0, code);
+        Assert.True(File.Exists(output));
+        using var doc = WordprocessingDocument.Open(output, false);
+        var heading = doc.MainDocumentPart!.Document!.Body!.Elements<Paragraph>()
+            .First(p => p.InnerText.Contains("Heading"));
+        Assert.Equal("Heading1", heading.ParagraphProperties?.ParagraphStyleId?.Val?.Value);
+    }
+
+    [Fact]
+    public void Markdown_Strict_Template_ReferencedStyleMissing_StillRejected()
+    {
+        // The input uses a table, which maps to "TableGrid" by default; the template lacks it, so
+        // strict mode must still reject the reference because the input actually uses the table.
+        var template = CreateTemplateWithStyles("Normal", "Heading1");
+        var input = WriteInput("strict-table.md", "# H\n\n| A | B |\n|---|---|\n| 1 | 2 |");
+        var output = TempPath("strict-table.docx");
+
+        var code = InvokeMain(["markdown", input, output, "--template", template, "--strict"]);
+
+        Assert.Equal(1, code);
+        Assert.False(File.Exists(output));
+    }
+
+    [Fact]
     public void Markdown_Strict_RenderStyleError_DoesNotCreateOutput()
     {
         // Without a template, unresolved style references surface during render, not in the
@@ -269,6 +321,19 @@ public sealed class MarkdownCommandTests : IDisposable
         var path = TempPath("template.docx");
         using var builder = DocumentBuilder.Create(path);
         builder.AddParagraph("Template marker", "CustomBody");
+        builder.Save();
+        return path;
+    }
+
+    /// <summary>Builds a template whose styles part defines exactly the given style ids.</summary>
+    private string CreateTemplateWithStyles(params string[] styleIds)
+    {
+        var path = TempPath($"template-{Guid.NewGuid():N}.docx");
+        using var builder = DocumentBuilder.Create(path);
+        foreach (var styleId in styleIds)
+        {
+            builder.AddParagraph("Template marker", styleId);
+        }
         builder.Save();
         return path;
     }
