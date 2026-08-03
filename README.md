@@ -5,12 +5,12 @@ A .NET 9 library suite for **creating, editing, generating, and rendering Office
 ## Features
 
 - **Three formats, one model** — Word (DOCX), PowerPoint (PPTX), Excel (XLSX); create from scratch or edit existing files with style preservation
-- **JSON workflows** — PPTX has the full declarative generation vocabulary; XLSX has a working v1 instruction engine; DOCX generation and the richer XLSX vocabulary remain on the roadmap
+- **JSON workflows** — PPTX has the full declarative generation vocabulary; **DOCX has declarative JSON generation** (flow + positioned tiers, design themes, semantic report archetypes, see `docs/docx-generation.md`); **XLSX has a rich instruction/generation engine** (typed cells, named styles, layout, tables — borders, images, row-replication and CLI wiring remain)
 - **Rendering** — native TypstBridge (Typst 0.15.1): PPTX PDF/PNG/SVG and DOCX PDF; whole-deck timings are exposed by the PPTX surfaces
 - **Fluent C# APIs** — `DocumentBuilder`, `PresentationBuilder`, `WorkbookBuilder` (file, stream, or in-memory `byte[]`)
 - **Instruction sets** — JSON/YAML DOCX operations, JSON PPTX edit operations, and a v1 JSON XLSX builder vocabulary
 - **Variables & mail merge** — `{{variable}}` detection and replacement across all three formats, plus DOCX batch merge
-- **Markdown → DOCX** — styled conversion via Markdig
+- **Markdown → DOCX** — rich styled conversion via Markdig (headings 1–6, nested emphasis, real hyperlinks, images, footnotes, tables, task lists, emoji, YAML front matter, custom style maps)
 - **Surfaces** — unified CLI, ASP.NET Core API, MCP stdio host (4 `deck_*` tools), and a web demo app
 - **Brand profiles** — extract theme colors/fonts from existing decks into reusable token sets
 
