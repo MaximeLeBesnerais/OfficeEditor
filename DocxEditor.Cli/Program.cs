@@ -374,6 +374,8 @@ class Program
 
         // Generate atomically: the document is fully written to a sibling temp file and only
         // then moved over the destination, so a failure never truncates an existing output.
+        // Render diagnostics are evaluated against the temp file BEFORE it is published: on any
+        // error only this CLI's own temp file is deleted and the destination is left untouched.
         var fullOutputPath = Path.GetFullPath(outputPath);
         var outputDirectory = Path.GetDirectoryName(fullOutputPath)
             ?? throw new ArgumentException($"Cannot resolve the directory of output path '{outputPath}'.");
@@ -381,27 +383,59 @@ class Program
         var tempPath = Path.Combine(outputDirectory, $".{Path.GetFileName(fullOutputPath)}.{Guid.NewGuid():N}.tmp");
 
         MarkdownRenderResult? renderResult = null;
-        AnsiConsole.Status()
-            .Start("Converting markdown...", _ =>
-            {
-                if (templatePath is not null)
+        try
+        {
+            AnsiConsole.Status()
+                .Start("Converting markdown...", _ =>
                 {
-                    File.Copy(templatePath, tempPath, true);
-                    using var builder = DocumentBuilder.Open(tempPath);
-                    builder.AddRichMarkdown(markdown, renderOptions);
-                    renderResult = builder.LastRichMarkdownResult;
-                    builder.Save();
-                }
-                else
-                {
-                    using var builder = DocumentBuilder.Create(tempPath);
-                    builder.AddRichMarkdown(markdown, renderOptions);
-                    renderResult = builder.LastRichMarkdownResult;
-                    builder.Save();
-                }
-                File.Move(tempPath, fullOutputPath, overwrite: true);
-            });
+                    if (templatePath is not null)
+                    {
+                        File.Copy(templatePath, tempPath, true);
+                        using var builder = DocumentBuilder.Open(tempPath);
+                        builder.AddRichMarkdown(markdown, renderOptions);
+                        renderResult = builder.LastRichMarkdownResult;
+                        builder.Save();
+                    }
+                    else
+                    {
+                        using var builder = DocumentBuilder.Create(tempPath);
+                        builder.AddRichMarkdown(markdown, renderOptions);
+                        renderResult = builder.LastRichMarkdownResult;
+                        builder.Save();
+                    }
+                });
 
+            if (renderResult is not null)
+            {
+                foreach (var diagnostic in renderResult.Diagnostics)
+                    PrintMarkdownDiagnostic(inputPath, diagnostic);
+
+                if (renderResult.HasErrors)
+                {
+                    AnsiConsole.MarkupLine("[red]Markdown conversion failed: errors above.[/]");
+                    return 1;
+                }
+            }
+
+            // Publish only after the diagnostics pass; the move is the single atomic replace.
+            File.Move(tempPath, fullOutputPath, overwrite: true);
+        }
+        finally
+        {
+            TryDeleteTempFile(tempPath);
+        }
+
+        AnsiConsole.MarkupLine($"[green]Document created from markdown: {outputPath}[/]");
+        return 0;
+    }
+
+    /// <summary>
+    /// Best-effort cleanup of the CLI's own sibling temp file. Only <paramref name="tempPath"/>
+    /// is touched — the destination and any unrelated files are never deleted. Cleanup failures
+    /// are swallowed so a successful conversion is never reported as failed.
+    /// </summary>
+    private static void TryDeleteTempFile(string tempPath)
+    {
         try
         {
             if (File.Exists(tempPath))
@@ -411,23 +445,10 @@ class Program
         }
         catch (IOException)
         {
-            // Best-effort cleanup; the successful conversion is unaffected.
         }
-
-        if (renderResult is not null)
+        catch (UnauthorizedAccessException)
         {
-            foreach (var diagnostic in renderResult.Diagnostics)
-                PrintMarkdownDiagnostic(inputPath, diagnostic);
-
-            if (renderResult.HasErrors)
-            {
-                AnsiConsole.MarkupLine("[red]Markdown conversion failed: errors above.[/]");
-                return 1;
-            }
         }
-
-        AnsiConsole.MarkupLine($"[green]Document created from markdown: {outputPath}[/]");
-        return 0;
     }
 
     static StyleMapping LoadStyleMap(string? path)
