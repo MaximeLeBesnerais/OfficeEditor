@@ -135,13 +135,13 @@ builder.MergeVariables(new Dictionary<string, string>
 
 ## Installation
 
-NuGet packages are listed at **0.1.0**:
+NuGet packages are listed at **0.7.0**:
 
 ```bash
-dotnet add package MaximeLB.PptxEditor.Core --version 0.1.0   # PPTX
-dotnet add package MaximeLB.DocxEditor.Core --version 0.1.0   # DOCX
-dotnet add package MaximeLB.XlsxEditor.Core --version 0.1.0   # XLSX
-dotnet tool install -g MaximeLB.OfficeEditor.Cli --version 0.1.0   # `officeeditor` command
+dotnet add package MaximeLB.PptxEditor.Core --version 0.7.0   # PPTX
+dotnet add package MaximeLB.DocxEditor.Core --version 0.7.0   # DOCX
+dotnet add package MaximeLB.XlsxEditor.Core --version 0.7.0   # XLSX
+dotnet tool install -g MaximeLB.OfficeEditor.Cli --version 0.7.0   # `officeeditor` command
 ```
 
 | Package | Contents |
@@ -166,13 +166,10 @@ cd OfficeEditor && dotnet build        # 0 warnings, 0 errors (enforced)
 |---|---|
 | **Reference corpus** (license-clean fixtures + PowerPoint/Word-rendered ground-truth PDFs) | `examples/REF/` — PPTX: `sales_acceleration_deck` (primary, 16 slides, SmartArt), `AetherLink-Glass-Shareholder-Overview` (styled, brand mining), `northwind-investor-40` (stress), `northwind-launch-review` (pitch), `northwind-demo` (self-generated smoke deck). DOCX: `annual-report`, `monitoring-report` (`{{variable}}` templates) |
 | **Generation JSON examples** | `demo/demo-deck.json` (15 slides + `demo/themes.json` presets), `demo/deck.json` (6 slides), `decks/repo-overview.json` |
-| **Roadmaps** | `docs/roadmap-pptx.md`, `docs/roadmap-docx.md`, `docs/roadmap-xlsx.md` — everything targets v0.5 |
 | **Design token sets** (mined brand profiles) | `PptxEditor.Core/Generation/Design/` |
 | **Parity fixtures** (per-primitive generation tests) | `PptxEditor.Core/Generation/Fixtures/` |
 | **Tools** | `tools/convert-pptx`, `tools/convert-docx`, `tools/convert-xlsx`, `tools/visual-diff`, `tools/pptx-benchmark` |
-| **Typst upgrade notes** | `docs/typst-0.15.md` |
-| **Agent/ contributor rules** | `AGENTS.md`, `agent-instructions/` |
-| Local-only dev fixtures (gitignored) | `local-ref/` — never commit |
+| **Agent/ contributor rules** | `AGENTS.md` |
 
 ## Entry points
 
@@ -263,7 +260,7 @@ Reproduce: `dotnet run --project tools/pptx-benchmark` (methodology in `tools/pp
 
 ## Status & limitations
 
-**Version:** 0.1.0 (pre-1.0). Public API may change; the TypstBridge ABI is intentionally fluid until v1.0.
+**Version:** 0.7.0 (pre-1.0). Public API may change; the TypstBridge ABI is intentionally fluid until v1.0.
 
 **Platforms:** pure managed .NET 9 + per-RID native TypstBridge (osx-arm64, linux-x64, win-x64 built in CI).
 - **macOS (arm64)** — development platform; everything verified here
@@ -275,7 +272,7 @@ Reproduce: `dotnet run --project tools/pptx-benchmark` (methodology in `tools/pp
 - Clustered bar/column charts render; other chart families can fall back to placeholders. SmartArt renders from pre-rendered drawing shapes with documented theme-color limits. Animations are outside the static preview model.
 - Font fidelity varies by platform; installing Microsoft Office fonts (Aptos, Calibri) improves accuracy, but exact PowerPoint parity is not guaranteed (font metrics, line breaking, layout engines differ)
 
-**NuGet:** packages are listed at 0.1.0.
+**NuGet:** packages are listed at 0.7.0.
 
 ## Security
 
@@ -293,7 +290,7 @@ The repo uses a protected `main` / working `dev` branch model:
 2. PRs into `main` must come from `dev` (`guard-main` enforces it)
 3. Release policy: create `v*` tags from tested `main` commits → native matrix → NuGet trusted publishing
 
-See `AGENTS.md` for engineering conventions and `docs/roadmap-*.md` for what's planned.
+See `AGENTS.md` for engineering conventions and the release process.
 
 ## Author
 

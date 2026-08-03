@@ -630,10 +630,10 @@
               "content": {
                 "title": "Works today",
                 "items": [
-                   "v0.1.0 — developed & tested on macOS",
+                   "v0.7.0 — developed & tested on macOS",
                   "Create, edit, merge across 3 formats",
                   "PPTX → PDF / PNG / SVG via TypstBridge",
-                  "2,300+ test cases, 83% coverage gate"
+                  "3,200+ test cases, 85% coverage gate"
                 ]
               },
               "size": { "grow": 1 }
@@ -643,7 +643,7 @@
               "content": {
                 "title": "Next",
                 "items": [
-                  "v0.5 package and schema polish",
+                  "v0.8 package and schema polish",
                    "Windows verification (pure managed code)",
                   "Richer chart & SmartArt rendering",
                   "Stable v1 generation schema"
@@ -658,7 +658,7 @@
           "layout": { "mode": "row", "gap": 12, "justify": "start", "align": "center" },
           "size": { "h": 30 },
           "children": [
-            { "type": "badge", "content": { "text": "v0.1.0" }, "size": { "w": 80, "h": 26 } },
+            { "type": "badge", "content": { "text": "v0.7.0" }, "size": { "w": 80, "h": 26 } },
             { "type": "badge", "content": { "text": "MIT" }, "size": { "w": 60, "h": 26 } },
              { "type": "badge", "content": { "text": "macOS · Linux" }, "size": { "w": 125, "h": 26 } }
           ]

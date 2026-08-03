@@ -5,7 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PackageId>MaximeLB.OfficeEditor.Core</PackageId>
-    <Version>0.1.0</Version>
+    <Version>0.7.0</Version>
     <Authors>MaximeLB</Authors>
     <Description>Shared services and models for OfficeEditor document manipulation</Description>
     <RepositoryUrl>https://github.com/MaximeLeBesnerais/OfficeEditor</RepositoryUrl>

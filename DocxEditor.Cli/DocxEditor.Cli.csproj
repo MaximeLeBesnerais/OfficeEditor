@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PackageId>MaximeLB.DocxEditor.Cli</PackageId>
-    <Version>0.1.0</Version>
+    <Version>0.7.0</Version>
     <Authors>MaximeLB</Authors>
     <Description>DOCX document CLI tool</Description>
     <RepositoryUrl>https://github.com/MaximeLeBesnerais/OfficeEditor</RepositoryUrl>

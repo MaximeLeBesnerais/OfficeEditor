@@ -24,7 +24,7 @@ public sealed class McpServer : IDisposable
 {
     public const string ProtocolVersion = "2024-11-05";
     public const string ServerName = "officeeditor-mcp";
-    public const string ServerVersion = "0.1.0";
+    public const string ServerVersion = "0.7.0";
 
     private readonly DeckSessionStore _sessions;
     private readonly DeckTools _tools;
