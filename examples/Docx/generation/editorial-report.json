@@ -182,19 +182,13 @@
                   "tone": "positive"
                 }
               ]
-            }
-          ]
-        },
-        {
-          "type": "section",
-          "title": "Closing note",
-          "blocks": [
+            },
             {
               "type": "paragraph",
               "text": "The quarter told a clear story: the product is compounding, the team is shipping, and the remaining risk is well understood. The roadmap above converts that risk into an explicit plan.",
               "token": "body",
               "spacing": {
-                "before": 4,
+                "before": 6,
                 "after": 10
               }
             }

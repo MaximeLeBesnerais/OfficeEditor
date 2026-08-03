@@ -44,7 +44,8 @@
         { "name": "Revenue", "width": 14, "style": "money", "type": "number" },
         { "name": "Growth", "width": 10, "style": "pct", "type": "number" },
         { "name": "Active", "width": 10, "type": "boolean" },
-        { "name": "As Of", "width": 12, "type": "date" }
+        { "name": "As Of", "width": 12, "type": "date" },
+        { "name": "Total", "width": 14, "style": "money", "type": "number" }
       ],
       "headers": ["Region", "Revenue", "Growth", "Active", "As Of"],
       "rows": [
@@ -99,6 +100,13 @@
     },
     {
       "name": "Notes",
+      "columns": [
+        { "name": "Timestamp", "width": 20 },
+        { "name": "Count", "width": 10 },
+        { "name": "Flag", "width": 10 },
+        { "name": "Note", "width": 14 },
+        { "name": "Doubled", "width": 10 }
+      ],
       "cells": [
         { "address": "A1", "value": "{{reportPeriod}} — {{preparedBy}}", "style": "title" },
         { "address": "A3", "value": "2026-10-15T12:00:00", "type": "datetime", "numberFormat": "yyyy-mm-dd h:mm" },
