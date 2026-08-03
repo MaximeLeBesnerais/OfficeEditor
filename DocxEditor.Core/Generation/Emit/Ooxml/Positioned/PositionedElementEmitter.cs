@@ -1,6 +1,7 @@
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using W = DocumentFormat.OpenXml.Wordprocessing;
+using DocxEditor.Core.Generation.Emit.Ooxml.Images;
 using DocxEditor.Core.Generation.Model;
 using A = DocumentFormat.OpenXml.Drawing;
 using DW = DocumentFormat.OpenXml.Drawing.Wordprocessing;
@@ -64,14 +65,21 @@ public sealed class PositionedElementEmitter
     /// <paramref name="container"/> (a <see cref="Body"/>, header, footer or text-box
     /// content). <paramref name="owningPart"/> hosts image relationships and existing
     /// drawing ids; it is optional except when emitting positioned images through the
-    /// resolver seam. Elements are z-ordered deterministically before emission.
+    /// resolver seam. <paramref name="path"/> is the JSON path prefix of the positioned
+    /// array (e.g. <c>$.sections[0].positioned</c>); it is used to attribute image-resolver
+    /// asset warnings and may be null. Elements are z-ordered deterministically before
+    /// emission.
     /// </summary>
-    public PositionedElementEmitResult Emit(OpenXmlPart? owningPart, OpenXmlCompositeElement container, IEnumerable<PositionedElement> elements)
+    public PositionedElementEmitResult Emit(
+        OpenXmlPart? owningPart,
+        OpenXmlCompositeElement container,
+        IEnumerable<PositionedElement> elements,
+        string? path = null)
     {
         ArgumentNullException.ThrowIfNull(container);
         ArgumentNullException.ThrowIfNull(elements);
 
-        EmitContext context = new(owningPart, container, _options, _design, _textBoxes);
+        EmitContext context = new(owningPart, container, _options, _design, _textBoxes, path);
         var ordered = elements
             .Select((element, index) => (Element: element, OriginalIndex: index))
             .OrderBy(item => item.Element.Position.ZOrder)
@@ -85,10 +93,14 @@ public sealed class PositionedElementEmitter
     }
 
     /// <summary>Emits a single positioned element as a floating anchor.</summary>
-    public PositionedElementEmitResult Emit(OpenXmlPart? owningPart, OpenXmlCompositeElement container, PositionedElement element)
+    public PositionedElementEmitResult Emit(
+        OpenXmlPart? owningPart,
+        OpenXmlCompositeElement container,
+        PositionedElement element,
+        string? path = null)
     {
         ArgumentNullException.ThrowIfNull(element);
-        return Emit(owningPart, container, new[] { element });
+        return Emit(owningPart, container, new[] { element }, path);
     }
 
     /// <summary>
@@ -104,6 +116,7 @@ public sealed class PositionedElementEmitter
         private readonly PositionedElementEmitOptions _options;
         private readonly DesignTokenResolver _design;
         private readonly TextBoxContentFactory _textBoxes;
+        private readonly string? _path;
         private uint _nextDrawingId;
         private uint _emitted;
         private int _skipped;
@@ -113,19 +126,24 @@ public sealed class PositionedElementEmitter
             OpenXmlCompositeElement container,
             PositionedElementEmitOptions options,
             DesignTokenResolver design,
-            TextBoxContentFactory textBoxes)
+            TextBoxContentFactory textBoxes,
+            string? path = null)
         {
             _owningPart = owningPart;
             _container = container;
             _options = options;
             _design = design;
             _textBoxes = textBoxes;
+            _path = path;
             _nextDrawingId = ComputeNextDrawingId();
         }
 
         public OpenXmlPart? OwningPart => _owningPart;
 
         public PositionedElementEmitOptions Options => _options;
+
+        /// <summary>JSON path prefix of the positioned array, or null when unknown.</summary>
+        public string? Path => _path;
 
         public PositionedElementEmitResult Result => new()
         {
@@ -315,57 +333,27 @@ public sealed class PositionedElementEmitter
                 return;
             }
 
-            string? embedId = resolver.ResolveEmbedId(_owningPart, element);
-            if (string.IsNullOrWhiteSpace(embedId))
+            var imagePath = context.Path is { Length: > 0 } prefix ? $"{prefix}[{index}].src" : "$.positioned.image";
+            PositionedImagePlacement? placement = resolver.Resolve(_owningPart, element, imagePath);
+            if (placement is null)
             {
                 context.Warn(index, "image",
-                    $"skipped: the image-part manager returned no relationship id for source '{element.Source}'.");
+                    $"skipped: the image-part resolver returned no placement for source '{element.Source}'.");
                 RecordSkipped();
                 return;
             }
 
-            double widthPt = BoxWidthPt(position);
-            double heightPt = BoxHeightPt(position);
-            (int Left, int Top, int Right, int Bottom)? srcRect = null;
-            switch (element.Fit)
-            {
-                case ImageFitMode.Stretch:
-                    break;
-                case ImageFitMode.Crop when element.Crop is { } crop:
-                    srcRect = (Percent(crop.Left), Percent(crop.Top), Percent(crop.Right), Percent(crop.Bottom));
-                    break;
-                case ImageFitMode.Crop:
-                case ImageFitMode.Fill:
-                case ImageFitMode.Contain:
-                    if (resolver.TryGetNaturalPixelSize(element.Source, out int naturalWidth, out int naturalHeight))
-                    {
-                        if (element.Fit is ImageFitMode.Fill or ImageFitMode.Crop)
-                        {
-                            srcRect = ComputeCoverCrop(naturalWidth, naturalHeight, widthPt, heightPt);
-                        }
-                        else
-                        {
-                            (double x, double y, widthPt, heightPt) = ComputeContainBox(position.X, position.Y, widthPt, heightPt, naturalWidth, naturalHeight);
-                            position = position with { X = x, Y = y };
-                        }
-                    }
-                    else
-                    {
-                        context.Warn(index, "image",
-                            $"fit '{element.Fit.ToString().ToLowerInvariant()}' requires natural image dimensions, " +
-                            "which the image-part manager does not provide; approximated as 'stretch'.");
-                    }
-
-                    break;
-                default:
-                    throw new PositionedElementEmitException($"Image fit mode '{element.Fit}' is not supported by the positioned OOXML emitter.");
-            }
+            ResolvedImageGeometry geometry = placement.Geometry;
 
             uint id = NextDrawingId();
             A.Pictures.Picture picture = WordprocessingShapeBuilder.BuildPicture(
-                id, $"Picture {id}", position.Alt, widthPt, heightPt, position.Rotation, embedId, srcRect);
+                id, $"Picture {id}", position.Alt, geometry.WidthPt, geometry.HeightPt, position.Rotation,
+                placement.EmbedId, ToSrcRect(geometry.SourceRect), geometry.OffsetXEmu, geometry.OffsetYEmu);
 
-            AppendAnchor(context, index, "image", "Picture", position, widthPt, heightPt, picture);
+            var offsetXPt = (position.WidthPt!.Value - geometry.WidthPt) / 2.0;
+            var offsetYPt = (position.HeightPt!.Value - geometry.HeightPt) / 2.0;
+            PositionSpec shiftedPosition = position with { X = position.X + offsetXPt, Y = position.Y + offsetYPt };
+            AppendAnchor(context, index, "image", "Picture", shiftedPosition, geometry.WidthPt, geometry.HeightPt, picture);
         }
 
         private void AppendAnchor(
@@ -604,59 +592,12 @@ public sealed class PositionedElementEmitter
         private static double BoxHeightPt(PositionSpec position) => position.HeightPt!.Value;
 
         /// <summary>
-        /// Cover-crop (<see cref="ImageFitMode.Fill"/>) srcRect: the source is center-cropped
-        /// so its visible region matches the box aspect. Fractions are returned in
-        /// 1/1000ths of a percent (100000 = 100%), the DrawingML srcRect convention. Returns
-        /// null when the aspects already match (no crop needed).
+        /// Converts the canonical <see cref="Assets.ImageSourceRect"/> (spcPct units) into the
+        /// tuple shape <see cref="WordprocessingShapeBuilder.BuildPicture"/> expects, or null
+        /// when nothing is cropped.
         /// </summary>
-        private static (int Left, int Top, int Right, int Bottom)? ComputeCoverCrop(int imageWidth, int imageHeight, double boxWidthPt, double boxHeightPt)
-        {
-            double imageAspect = (double)imageWidth / imageHeight;
-            double boxAspect = boxWidthPt / boxHeightPt;
-            if (Math.Abs(imageAspect - boxAspect) < 0.0001)
-            {
-                return null;
-            }
-
-            if (imageAspect > boxAspect)
-            {
-                double visibleFraction = boxAspect / imageAspect;
-                int crop = Percent((1.0 - visibleFraction) / 2.0);
-                return crop == 0 ? null : (crop, 0, crop, 0);
-            }
-
-            double verticalVisibleFraction = imageAspect / boxAspect;
-            int verticalCrop = Percent((1.0 - verticalVisibleFraction) / 2.0);
-            return verticalCrop == 0 ? null : (0, verticalCrop, 0, verticalCrop);
-        }
-
-        /// <summary>
-        /// Contain (<see cref="ImageFitMode.Contain"/>) box: shrinks the box to the image
-        /// aspect and re-centers it by shifting the anchor position by half the delta, so the
-        /// picture is letterboxed inside the declared box.
-        /// </summary>
-        private static (double X, double Y, double Width, double Height) ComputeContainBox(
-            double xPt, double yPt, double widthPt, double heightPt, int imageWidth, int imageHeight)
-        {
-            double imageAspect = (double)imageWidth / imageHeight;
-            double boxAspect = widthPt / heightPt;
-            if (Math.Abs(imageAspect - boxAspect) < 0.0001)
-            {
-                return (xPt, yPt, widthPt, heightPt);
-            }
-
-            if (imageAspect > boxAspect)
-            {
-                double newHeight = widthPt / imageAspect;
-                return (xPt, yPt + (heightPt - newHeight) / 2.0, widthPt, newHeight);
-            }
-
-            double newWidth = heightPt * imageAspect;
-            return (xPt + (widthPt - newWidth) / 2.0, yPt, newWidth, heightPt);
-        }
-
-        private static int Percent(double fraction) =>
-            (int)Math.Round(fraction * 100000.0, MidpointRounding.AwayFromZero);
+        private static (int Left, int Top, int Right, int Bottom)? ToSrcRect(Assets.ImageSourceRect? srcRect) =>
+            srcRect is { } rect ? (rect.Left, rect.Top, rect.Right, rect.Bottom) : null;
 
         private static uint Emu(double points) =>
             (uint)Math.Clamp((long)Math.Round(points * EmuPerPoint, MidpointRounding.AwayFromZero), 0L, uint.MaxValue);

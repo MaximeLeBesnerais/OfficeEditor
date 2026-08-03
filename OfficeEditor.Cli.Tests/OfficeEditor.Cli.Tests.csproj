@@ -18,6 +18,8 @@
   <ItemGroup>
     <ProjectReference Include="..\OfficeEditor.Cli\OfficeEditor.Cli.csproj" />
     <ProjectReference Include="..\PptxEditor.Core\PptxEditor.Core.csproj" />
+    <ProjectReference Include="..\DocxEditor.Core\DocxEditor.Core.csproj" />
+    <ProjectReference Include="..\XlsxEditor.Core\XlsxEditor.Core.csproj" />
   </ItemGroup>
 
 </Project>

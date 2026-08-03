@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using DocxEditor.Core.Generation.Contracts;
+using DocxEditor.Core.Generation.Design;
 using DocxEditor.Core.Generation.Model;
 
 namespace DocxEditor.Core.Generation.Schema;
@@ -82,9 +83,30 @@ public sealed class DocxGenerationDocumentParser : IDocxGenerationParser
         ["warning"] = CalloutTone.Warning, ["error"] = CalloutTone.Error
     };
 
+    private static readonly IReadOnlyDictionary<string, ReportTone> ReportTones = new Dictionary<string, ReportTone>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["positive"] = ReportTone.Positive, ["neutral"] = ReportTone.Neutral, ["negative"] = ReportTone.Negative
+    };
+
     private static readonly IReadOnlyDictionary<string, LineOrientation> LineOrientations = new Dictionary<string, LineOrientation>(StringComparer.OrdinalIgnoreCase)
     {
         ["horizontal"] = LineOrientation.Horizontal, ["vertical"] = LineOrientation.Vertical
+    };
+
+    private static readonly IReadOnlyDictionary<string, TextRole> TextRoles = new Dictionary<string, TextRole>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["title"] = TextRole.Title, ["subtitle"] = TextRole.Subtitle, ["eyebrow"] = TextRole.Eyebrow,
+        ["heading1"] = TextRole.Heading1, ["heading2"] = TextRole.Heading2, ["heading3"] = TextRole.Heading3,
+        ["heading4"] = TextRole.Heading4, ["heading5"] = TextRole.Heading5, ["heading6"] = TextRole.Heading6,
+        ["body"] = TextRole.Body, ["muted"] = TextRole.Muted, ["label"] = TextRole.Label,
+        ["metric"] = TextRole.Metric, ["metricLabel"] = TextRole.MetricLabel,
+        ["tableHeader"] = TextRole.TableHeader, ["tableBody"] = TextRole.TableBody,
+        ["callout"] = TextRole.Callout, ["footer"] = TextRole.Footer
+    };
+
+    private static readonly IReadOnlyDictionary<string, Density> Densities = new Dictionary<string, Density>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["compact"] = Density.Compact, ["comfortable"] = Density.Comfortable, ["spacious"] = Density.Spacious
     };
 
     // Known docx-specific confusions, matched case-insensitively after stripping -_/ and spaces.
@@ -97,33 +119,46 @@ public sealed class DocxGenerationDocumentParser : IDocxGenerationParser
         ["templatepath"] = "use 'template'.",
         ["listtype"] = "use 'kind' (bullet|ordered) on a list.",
         ["alignement"] = "use 'alignment'.",
-        ["aligment"] = "use 'alignment'."
+        ["aligment"] = "use 'alignment'.",
+        ["comparsiontable"] = "use 'comparisonTable'.",
+        ["comparisontable"] = "use 'comparisonTable'.",
+        ["kpis"] = "on a cover, KPI items live in 'kpis'; use 'kpiRow' for a standalone band.",
+        ["phases"] = "roadmap phases live in 'phases'."
     };
 
     private static readonly IReadOnlySet<string> RootProps = Set("version", "metadata", "design", "template", "sections");
     private static readonly IReadOnlySet<string> MetadataProps = Set("title", "author", "subject", "keywords", "description", "language");
-    private static readonly IReadOnlySet<string> DesignProps = Set("palette", "fonts", "typography", "spacing", "shapes", "page");
+    private static readonly IReadOnlySet<string> DesignProps = Set("theme", "palette", "fonts", "typography", "spacing", "shapes", "page", "layout");
     private static readonly IReadOnlySet<string> FontsProps = Set("display", "body");
-    private static readonly IReadOnlySet<string> TypographyTokenProps = Set("font", "size", "color", "bold", "italic", "underline");
+    private static readonly IReadOnlySet<string> TypographyTokenProps = Set("font", "size", "color", "bold", "italic", "underline", "allCaps");
     private static readonly IReadOnlySet<string> ShapesProps = Set("cornerRadius", "defaultFill", "defaultStroke", "defaultStrokeWidth");
     private static readonly IReadOnlySet<string> PageProps = Set("size", "orientation", "margins", "defaultFont", "defaultTextColor");
+    private static readonly IReadOnlySet<string> LayoutProps = Set("density", "minBodySizePt", "maxTableWidthPt");
     private static readonly IReadOnlySet<string> MarginsProps = Set("top", "right", "bottom", "left");
     private static readonly IReadOnlySet<string> SectionProps = Set("pageSetup", "header", "footer", "blocks", "positioned");
     private static readonly IReadOnlySet<string> PageSetupProps = Set("size", "orientation", "margins", "columns", "breakType");
     private static readonly IReadOnlySet<string> ColumnsProps = Set("count", "spacing", "separator");
     private static readonly IReadOnlySet<string> PageSizeCustomProps = Set("width", "height");
-    private static readonly IReadOnlySet<string> ParagraphProps = Set("type", "text", "runs", "style", "token", "alignment", "spacing");
-    private static readonly IReadOnlySet<string> HeadingProps = Set("type", "level", "text", "runs", "style", "token", "alignment");
+    private static readonly IReadOnlySet<string> ParagraphProps = Set("type", "text", "runs", "style", "token", "role", "alignment", "spacing");
+    private static readonly IReadOnlySet<string> HeadingProps = Set("type", "level", "text", "runs", "style", "token", "role", "alignment");
     private static readonly IReadOnlySet<string> ListProps = Set("type", "kind", "start", "items", "style");
-    private static readonly IReadOnlySet<string> ListItemProps = Set("text", "runs", "token", "alignment", "spacing");
+    private static readonly IReadOnlySet<string> ListItemProps = Set("text", "runs", "token", "role", "alignment", "spacing");
     private static readonly IReadOnlySet<string> TableProps = Set("type", "rows", "widths", "style", "alignment");
     private static readonly IReadOnlySet<string> RowProps = Set("header", "cells");
-    private static readonly IReadOnlySet<string> CellProps = Set("text", "runs", "token", "alignment", "fill");
+    private static readonly IReadOnlySet<string> CellProps = Set("text", "runs", "token", "role", "alignment", "fill");
     private static readonly IReadOnlySet<string> FlowImageProps = Set("type", "src", "fit", "crop", "alt", "width", "height", "style");
-    private static readonly IReadOnlySet<string> CalloutProps = Set("type", "tone", "text", "runs", "style", "token");
+    private static readonly IReadOnlySet<string> CalloutProps = Set("type", "tone", "text", "runs", "style", "token", "role");
     private static readonly IReadOnlySet<string> PageBreakProps = Set("type");
     private static readonly IReadOnlySet<string> GroupProps = Set("type", "blocks", "style");
-    private static readonly IReadOnlySet<string> RunProps = Set("text", "style", "font", "size", "color", "bold", "italic", "underline");
+    private static readonly IReadOnlySet<string> CoverProps = Set("type", "eyebrow", "title", "subtitle", "metadata", "kpis", "pageBreak", "style");
+    private static readonly IReadOnlySet<string> KpiRowProps = Set("type", "items", "style");
+    private static readonly IReadOnlySet<string> KpiItemProps = Set("value", "label", "tone");
+    private static readonly IReadOnlySet<string> SemanticSectionProps = Set("type", "title", "intro", "blocks", "style");
+    private static readonly IReadOnlySet<string> ComparisonTableProps = Set("type", "columns", "rows", "emphasisFirstColumn", "style");
+    private static readonly IReadOnlySet<string> ComparisonTableRowProps = Set("cells");
+    private static readonly IReadOnlySet<string> RoadmapProps = Set("type", "phases", "style");
+    private static readonly IReadOnlySet<string> RoadmapPhaseProps = Set("window", "action", "evidence", "tone");
+    private static readonly IReadOnlySet<string> RunProps = Set("text", "style", "font", "size", "color", "bold", "italic", "underline", "allCaps");
     private static readonly IReadOnlySet<string> SpacingProps = Set("before", "after", "line");
     private static readonly IReadOnlySet<string> CropProps = Set("left", "top", "right", "bottom");
     private static readonly IReadOnlySet<string> StrokeProps = Set("color", "width");
@@ -148,7 +183,7 @@ public sealed class DocxGenerationDocumentParser : IDocxGenerationParser
 
     private static IReadOnlySet<string> Set(params string[] names) => new HashSet<string>(names, StringComparer.OrdinalIgnoreCase);
 
-    private static string[] FlowBlockTypeNames() => ["paragraph", "heading", "list", "table", "image", "callout", "pageBreak", "group"];
+    private static string[] FlowBlockTypeNames() => ["paragraph", "heading", "list", "table", "image", "callout", "pageBreak", "group", "cover", "kpiRow", "section", "comparisonTable", "roadmap"];
 
     private static string[] PositionedTypeNames() => ["textBox", "image", "rect", "line", "callout"];
 
@@ -216,7 +251,8 @@ public sealed class DocxGenerationDocumentParser : IDocxGenerationParser
         private readonly List<DocxGenerationIssue> _errors = [];
         private readonly List<DocxGenerationIssue> _warnings = [];
         private DesignTokens? _design;
-        private IReadOnlyDictionary<string, string> _palette = new Dictionary<string, string>();
+        private string? _themeName;
+        private IReadOnlyDictionary<string, string> _palette = DesignThemeCatalog.Editorial.Palette;
 
         public DocxGenerationValidationResult Validate(string json)
         {
@@ -301,11 +337,8 @@ public sealed class DocxGenerationDocumentParser : IDocxGenerationParser
 
             if (TryGet(root, "design", out var designEl))
             {
+                // ParseDesign sets _themeName and the effective (theme + document) palette.
                 _design = ParseDesign(designEl, "$.design");
-                if (_design is not null)
-                {
-                    _palette = _design.Palette;
-                }
             }
 
             string? template = null;
@@ -378,34 +411,40 @@ public sealed class DocxGenerationDocumentParser : IDocxGenerationParser
         {
             if (el.ValueKind != JsonValueKind.Object)
             {
-                Error(path, "must be an object ({\"palette\":…,\"fonts\":…,\"typography\":…,\"spacing\":…,\"shapes\":…,\"page\":…}).");
+                Error(path, "must be an object ({\"theme\":…,\"palette\":…,\"fonts\":…,\"typography\":…,\"spacing\":…,\"shapes\":…,\"page\":…,\"layout\":…}).");
                 return null;
             }
             CheckUnknownProps(el, path, "design", DesignProps);
 
+            var theme = StringProp(el, "theme", path);
+            if (theme is not null && !DesignThemeCatalog.Themes.ContainsKey(theme))
+            {
+                Error($"{path}.theme", $"unknown theme '{theme}'. Known themes: {string.Join(", ", DesignThemeCatalog.Themes.Keys)}.", Suggest(theme, DesignThemeCatalog.Themes.Keys));
+            }
+            _themeName = theme;
+
             var palette = new Dictionary<string, string>(StringComparer.Ordinal);
-            if (!TryGet(el, "palette", out var paletteEl))
+            if (TryGet(el, "palette", out var paletteEl))
             {
-                Error(path, "'palette' is required (token name → #RRGGBB).");
-            }
-            else if (paletteEl.ValueKind != JsonValueKind.Object)
-            {
-                Error($"{path}.palette", "must be an object mapping token names to #RRGGBB colors.");
-            }
-            else
-            {
-                foreach (var color in paletteEl.EnumerateObject())
+                if (paletteEl.ValueKind != JsonValueKind.Object)
                 {
-                    var colorPath = $"{path}.palette.{color.Name}";
-                    if (color.Value.ValueKind != JsonValueKind.String || !HexColorPattern.IsMatch(color.Value.GetString() ?? string.Empty))
+                    Error($"{path}.palette", "must be an object mapping token names to #RRGGBB colors.");
+                }
+                else
+                {
+                    foreach (var color in paletteEl.EnumerateObject())
                     {
-                        Error(colorPath, "palette colors must be #RRGGBB hex literals.");
-                        continue;
+                        var colorPath = $"{path}.palette.{color.Name}";
+                        if (color.Value.ValueKind != JsonValueKind.String || !HexColorPattern.IsMatch(color.Value.GetString() ?? string.Empty))
+                        {
+                            Error(colorPath, "palette colors must be #RRGGBB hex literals.");
+                            continue;
+                        }
+                        palette[color.Name] = color.Value.GetString()!;
                     }
-                    palette[color.Name] = color.Value.GetString()!;
                 }
             }
-            _palette = palette;
+            _palette = DesignThemeCatalog.Resolve(_themeName).EffectivePalette(palette);
 
             var fonts = new FontTokens();
             if (TryGet(el, "fonts", out var fontsEl))
@@ -512,14 +551,35 @@ public sealed class DocxGenerationDocumentParser : IDocxGenerationParser
                 }
             }
 
+            var layout = new LayoutDefaults();
+            if (TryGet(el, "layout", out var layoutEl))
+            {
+                if (layoutEl.ValueKind != JsonValueKind.Object)
+                {
+                    Error($"{path}.layout", "must be an object ({\"density\":…,\"minBodySizePt\":…,\"maxTableWidthPt\":…}).");
+                }
+                else
+                {
+                    CheckUnknownProps(layoutEl, $"{path}.layout", "layout", LayoutProps);
+                    layout = new LayoutDefaults
+                    {
+                        Density = EnumProp(layoutEl, "density", $"{path}.layout", Densities, (Density?)null, "density"),
+                        MinBodySizePt = NumberProp(layoutEl, "minBodySizePt", $"{path}.layout", min: 0),
+                        MaxTableWidthPt = NumberProp(layoutEl, "maxTableWidthPt", $"{path}.layout", minExclusive: 0)
+                    };
+                }
+            }
+
             return new DesignTokens
             {
+                Theme = theme,
                 Palette = palette,
                 Fonts = fonts,
                 Typography = typography,
                 Spacing = spacing,
                 Shapes = shapes,
-                Page = page
+                Page = page,
+                Layout = layout
             };
         }
 
@@ -527,7 +587,7 @@ public sealed class DocxGenerationDocumentParser : IDocxGenerationParser
         {
             if (el.ValueKind != JsonValueKind.Object)
             {
-                Error(path, "must be an object ({\"font\":…,\"size\":…,\"color\":…,\"bold\":…,\"italic\":…,\"underline\":…}).");
+                Error(path, "must be an object ({\"font\":…,\"size\":…,\"color\":…,\"bold\":…,\"italic\":…,\"underline\":…,\"allCaps\":…}).");
                 return null;
             }
             CheckUnknownProps(el, path, "a typography token", TypographyTokenProps);
@@ -543,19 +603,23 @@ public sealed class DocxGenerationDocumentParser : IDocxGenerationParser
                 Color = ColorProp(el, "color", path),
                 Bold = BoolProp(el, "bold", path),
                 Italic = BoolProp(el, "italic", path),
-                Underline = BoolProp(el, "underline", path)
+                Underline = BoolProp(el, "underline", path),
+                AllCaps = BoolProp(el, "allCaps", path)
             };
         }
 
         private void CheckFontReference(string value, string path, FontTokens fonts)
         {
-            if (string.Equals(value, "display", StringComparison.OrdinalIgnoreCase) && string.IsNullOrWhiteSpace(fonts.Display))
+            var theme = DesignThemeCatalog.Resolve(_themeName);
+            if (string.Equals(value, "display", StringComparison.OrdinalIgnoreCase) &&
+                string.IsNullOrWhiteSpace(fonts.Display) && string.IsNullOrWhiteSpace(theme.DisplayFontFamily))
             {
-                Warn(path, "font slot 'display' is not defined in 'design.fonts'; emitters fall back to the document default.");
+                Warn(path, "font slot 'display' is not defined in 'design.fonts' nor the active theme; emitters fall back to the document default.");
             }
-            else if (string.Equals(value, "body", StringComparison.OrdinalIgnoreCase) && string.IsNullOrWhiteSpace(fonts.Body))
+            else if (string.Equals(value, "body", StringComparison.OrdinalIgnoreCase) &&
+                     string.IsNullOrWhiteSpace(fonts.Body) && string.IsNullOrWhiteSpace(theme.BodyFontFamily))
             {
-                Warn(path, "font slot 'body' is not defined in 'design.fonts'; emitters fall back to the document default.");
+                Warn(path, "font slot 'body' is not defined in 'design.fonts' nor the active theme; emitters fall back to the document default.");
             }
         }
 
@@ -814,7 +878,7 @@ public sealed class DocxGenerationDocumentParser : IDocxGenerationParser
             }
             if (!TryGet(el, "type", out var typeEl) || typeEl.ValueKind != JsonValueKind.String)
             {
-                Error(path, "'type' is required (paragraph|heading|list|table|image|callout|pageBreak|group).");
+                Error(path, "'type' is required (paragraph|heading|list|table|image|callout|pageBreak|group|cover|kpiRow|section|comparisonTable|roadmap).");
                 return null;
             }
             var type = typeEl.GetString()!;
@@ -836,8 +900,18 @@ public sealed class DocxGenerationDocumentParser : IDocxGenerationParser
                     return ParsePageBreak(el, path);
                 case "group":
                     return ParseFlowGroup(el, path);
+                case "cover":
+                    return ParseCover(el, path);
+                case "kpirow":
+                    return ParseKpiRow(el, path);
+                case "section":
+                    return ParseSemanticSection(el, path);
+                case "comparisontable":
+                    return ParseComparisonTable(el, path);
+                case "roadmap":
+                    return ParseRoadmap(el, path);
                 default:
-                    Error(path, $"unknown flow block type '{type}'. Expected paragraph|heading|list|table|image|callout|pageBreak|group.", Suggest(type, FlowBlockTypeNames()));
+                    Error(path, $"unknown flow block type '{type}'. Expected paragraph|heading|list|table|image|callout|pageBreak|group|cover|kpiRow|section|comparisonTable|roadmap.", Suggest(type, FlowBlockTypeNames()));
                     return null;
             }
         }
@@ -919,7 +993,6 @@ public sealed class DocxGenerationDocumentParser : IDocxGenerationParser
             CheckUnknownProps(el, path, "a list item", ListItemProps);
             return ParseTextModel(el, path);
         }
-
         private TableBlock? ParseTable(JsonElement el, string path)
         {
             CheckUnknownProps(el, path, "a table", TableProps);
@@ -1120,6 +1193,342 @@ public sealed class DocxGenerationDocumentParser : IDocxGenerationParser
             return new FlowContainerBlock { Style = StringProp(el, "style", path), Blocks = blocks };
         }
 
+        private CoverBlock? ParseCover(JsonElement el, string path)
+        {
+            CheckUnknownProps(el, path, "a cover", CoverProps);
+            var title = ParseRequiredTextProp(el, "title", path);
+            if (title is null)
+            {
+                return null;
+            }
+            return new CoverBlock
+            {
+                Eyebrow = ParseOptionalTextProp(el, "eyebrow", path),
+                Title = title,
+                Subtitle = ParseOptionalTextProp(el, "subtitle", path),
+                Metadata = ParseOptionalTextProp(el, "metadata", path),
+                Kpis = ParseKpiItems(el, "kpis", path),
+                PageBreak = BoolProp(el, "pageBreak", path),
+                Style = StringProp(el, "style", path)
+            };
+        }
+
+        private KpiRowBlock? ParseKpiRow(JsonElement el, string path)
+        {
+            CheckUnknownProps(el, path, "a KPI row", KpiRowProps);
+            var items = ParseKpiItems(el, "items", path, required: true);
+            if (items is null)
+            {
+                return null;
+            }
+            return new KpiRowBlock { Items = items, Style = StringProp(el, "style", path) };
+        }
+
+        private IReadOnlyList<KpiItem>? ParseKpiItems(JsonElement el, string name, string path, bool required = false)
+        {
+            if (!TryGet(el, name, out var itemsEl))
+            {
+                if (required)
+                {
+                    Error(path, $"'{name}' is required (an array of KPI items).");
+                }
+                return null;
+            }
+            var itemsPath = $"{path}.{name}";
+            if (itemsEl.ValueKind != JsonValueKind.Array)
+            {
+                Error(itemsPath, "must be an array of KPI items ({\"value\":…,\"label\":…}).");
+                return null;
+            }
+            var items = new List<KpiItem>();
+            var index = 0;
+            foreach (var itemEl in itemsEl.EnumerateArray())
+            {
+                var item = ParseKpiItem(itemEl, $"{itemsPath}[{index}]");
+                if (item is not null)
+                {
+                    items.Add(item);
+                }
+                index++;
+            }
+            if (index == 0)
+            {
+                Error(itemsPath, $"'{name}' must contain at least one KPI item when present.");
+            }
+            return items;
+        }
+
+        private KpiItem? ParseKpiItem(JsonElement el, string path)
+        {
+            if (el.ValueKind != JsonValueKind.Object)
+            {
+                Error(path, "each KPI item must be an object ({\"value\":…,\"label\":…}).");
+                return null;
+            }
+            CheckUnknownProps(el, path, "a KPI item", KpiItemProps);
+            var value = ParseRequiredTextProp(el, "value", path);
+            var label = ParseRequiredTextProp(el, "label", path);
+            if (value is null || label is null)
+            {
+                return null;
+            }
+            return new KpiItem
+            {
+                Value = value,
+                Label = label,
+                Tone = EnumProp(el, "tone", path, ReportTones, ReportTone.Neutral, "report tone")
+            };
+        }
+
+        private SemanticSectionBlock? ParseSemanticSection(JsonElement el, string path)
+        {
+            CheckUnknownProps(el, path, "a semantic section", SemanticSectionProps);
+            var title = ParseRequiredTextProp(el, "title", path);
+            if (title is null)
+            {
+                return null;
+            }
+            var blocks = new List<FlowBlock>();
+            if (!TryGet(el, "blocks", out var blocksEl))
+            {
+                Error(path, "'blocks' is required (an array of flow blocks).");
+            }
+            else if (blocksEl.ValueKind != JsonValueKind.Array)
+            {
+                Error($"{path}.blocks", "must be an array of flow blocks.");
+            }
+            else
+            {
+                var index = 0;
+                foreach (var blockEl in blocksEl.EnumerateArray())
+                {
+                    var block = ParseFlowBlock(blockEl, $"{path}.blocks[{index}]");
+                    if (block is not null)
+                    {
+                        blocks.Add(block);
+                    }
+                    index++;
+                }
+                if (index == 0)
+                {
+                    Error($"{path}.blocks", "a semantic section must contain at least one flow block.");
+                }
+            }
+            return new SemanticSectionBlock
+            {
+                Title = title,
+                Intro = ParseOptionalTextProp(el, "intro", path),
+                Blocks = blocks,
+                Style = StringProp(el, "style", path)
+            };
+        }
+
+        private ComparisonTableBlock? ParseComparisonTable(JsonElement el, string path)
+        {
+            CheckUnknownProps(el, path, "a comparison table", ComparisonTableProps);
+
+            var columns = new List<TextModel>();
+            if (!TryGet(el, "columns", out var columnsEl))
+            {
+                Error(path, "'columns' is required (an array of column label strings or text objects).");
+            }
+            else if (columnsEl.ValueKind != JsonValueKind.Array)
+            {
+                Error($"{path}.columns", "must be an array of column label strings or text objects.");
+            }
+            else
+            {
+                var index = 0;
+                foreach (var columnEl in columnsEl.EnumerateArray())
+                {
+                    var label = ParseTextValue(columnEl, $"{path}.columns[{index}]");
+                    if (label is not null)
+                    {
+                        columns.Add(label);
+                    }
+                    index++;
+                }
+                if (index == 0)
+                {
+                    Error($"{path}.columns", "a comparison table must have at least one column.");
+                }
+            }
+
+            var rows = new List<ComparisonTableRow>();
+            int? columnCount = columns.Count > 0 ? columns.Count : null;
+            if (!TryGet(el, "rows", out var rowsEl))
+            {
+                Error(path, "'rows' is required (an array of row objects with 'cells').");
+            }
+            else if (rowsEl.ValueKind != JsonValueKind.Array)
+            {
+                Error($"{path}.rows", "must be an array of row objects ({\"cells\":[…]}).");
+            }
+            else
+            {
+                var index = 0;
+                foreach (var rowEl in rowsEl.EnumerateArray())
+                {
+                    var row = ParseComparisonTableRow(rowEl, $"{path}.rows[{index}]");
+                    if (row is not null)
+                    {
+                        if (columnCount is null)
+                        {
+                            columnCount = row.Cells.Count;
+                        }
+                        else if (row.Cells.Count != columnCount.Value)
+                        {
+                            Error($"{path}.rows[{index}]", $"row has {row.Cells.Count} cells but the comparison table has {columnCount.Value} columns; all rows must have the same number of cells.");
+                        }
+                        rows.Add(row);
+                    }
+                    index++;
+                }
+                if (index == 0)
+                {
+                    Error($"{path}.rows", "a comparison table must contain at least one row.");
+                }
+            }
+
+            return new ComparisonTableBlock
+            {
+                Columns = columns,
+                Rows = rows,
+                EmphasisFirstColumn = BoolProp(el, "emphasisFirstColumn", path),
+                Style = StringProp(el, "style", path)
+            };
+        }
+
+        private ComparisonTableRow? ParseComparisonTableRow(JsonElement el, string path)
+        {
+            if (el.ValueKind != JsonValueKind.Object)
+            {
+                Error(path, "each comparison table row must be an object ({\"cells\":[…]}).");
+                return null;
+            }
+            CheckUnknownProps(el, path, "a comparison table row", ComparisonTableRowProps);
+            var cells = new List<TextModel>();
+            if (!TryGet(el, "cells", out var cellsEl))
+            {
+                Error(path, "'cells' is required (an array of strings or text objects).");
+            }
+            else if (cellsEl.ValueKind != JsonValueKind.Array)
+            {
+                Error($"{path}.cells", "must be an array of strings or text objects.");
+            }
+            else
+            {
+                var index = 0;
+                foreach (var cellEl in cellsEl.EnumerateArray())
+                {
+                    var cell = ParseTextValue(cellEl, $"{path}.cells[{index}]");
+                    if (cell is not null)
+                    {
+                        cells.Add(cell);
+                    }
+                    index++;
+                }
+                if (index == 0)
+                {
+                    Error($"{path}.cells", "a row must contain at least one cell.");
+                }
+            }
+            return new ComparisonTableRow { Cells = cells };
+        }
+
+        private RoadmapBlock? ParseRoadmap(JsonElement el, string path)
+        {
+            CheckUnknownProps(el, path, "a roadmap", RoadmapProps);
+            var phases = new List<RoadmapPhase>();
+            if (!TryGet(el, "phases", out var phasesEl))
+            {
+                Error(path, "'phases' is required (an array of phase objects).");
+            }
+            else if (phasesEl.ValueKind != JsonValueKind.Array)
+            {
+                Error($"{path}.phases", "must be an array of phase objects ({\"window\":…,\"action\":…}).");
+            }
+            else
+            {
+                var index = 0;
+                foreach (var phaseEl in phasesEl.EnumerateArray())
+                {
+                    var phase = ParseRoadmapPhase(phaseEl, $"{path}.phases[{index}]");
+                    if (phase is not null)
+                    {
+                        phases.Add(phase);
+                    }
+                    index++;
+                }
+                if (index == 0)
+                {
+                    Error($"{path}.phases", "a roadmap must contain at least one phase.");
+                }
+            }
+            return new RoadmapBlock { Phases = phases, Style = StringProp(el, "style", path) };
+        }
+
+        private RoadmapPhase? ParseRoadmapPhase(JsonElement el, string path)
+        {
+            if (el.ValueKind != JsonValueKind.Object)
+            {
+                Error(path, "each roadmap phase must be an object ({\"window\":…,\"action\":…}).");
+                return null;
+            }
+            CheckUnknownProps(el, path, "a roadmap phase", RoadmapPhaseProps);
+            var window = ParseRequiredTextProp(el, "window", path);
+            var action = ParseRequiredTextProp(el, "action", path);
+            if (window is null || action is null)
+            {
+                return null;
+            }
+            return new RoadmapPhase
+            {
+                Window = window,
+                Action = action,
+                Evidence = ParseOptionalTextProp(el, "evidence", path),
+                Tone = EnumProp(el, "tone", path, ReportTones, ReportTone.Neutral, "report tone")
+            };
+        }
+
+        private TextModel? ParseRequiredTextProp(JsonElement el, string name, string path)
+        {
+            if (!TryGet(el, name, out var valueEl))
+            {
+                Error(path, $"'{name}' is required.");
+                return null;
+            }
+            return ParseTextValue(valueEl, $"{path}.{name}");
+        }
+
+        private TextModel? ParseOptionalTextProp(JsonElement el, string name, string path)
+        {
+            if (!TryGet(el, name, out var valueEl))
+            {
+                return null;
+            }
+            return ParseTextValue(valueEl, $"{path}.{name}");
+        }
+
+        /// <summary>
+        /// Parses a text value: a JSON string or a text object ({\"text\":…}). The text object's
+        /// property set matches list items, so <see cref="ParseListItem"/> delegates here.
+        /// </summary>
+        private TextModel? ParseTextValue(JsonElement el, string path)
+        {
+            if (el.ValueKind == JsonValueKind.String)
+            {
+                return new TextModel { Text = el.GetString()! };
+            }
+            if (el.ValueKind != JsonValueKind.Object)
+            {
+                Error(path, "must be a string or a text object ({\"text\":…}).");
+                return null;
+            }
+            CheckUnknownProps(el, path, "a text object", ListItemProps);
+            return ParseTextModel(el, path);
+        }
+
         private TextModel? ParseTextModel(JsonElement el, string path, bool allowEmptyContent = false)
         {
             var hasText = TryGet(el, "text", out var textEl);
@@ -1160,10 +1569,11 @@ public sealed class DocxGenerationDocumentParser : IDocxGenerationParser
                 Error($"{path}.token", $"unknown typography token '{token}'.", Suggest(token, TypographyTokenNames()));
             }
 
+            var role = EnumProp(el, "role", path, TextRoles, (TextRole?)null, "text role");
             var alignment = EnumProp(el, "alignment", path, TextAlignments, (TextAlignment?)null, "alignment");
             var spacing = TryGet(el, "spacing", out var spacingEl) ? ParseParagraphSpacing(spacingEl, $"{path}.spacing") : null;
 
-            return new TextModel { Text = text, Runs = runs, Token = token, Alignment = alignment, Spacing = spacing };
+            return new TextModel { Text = text, Runs = runs, Token = token, Role = role, Alignment = alignment, Spacing = spacing };
         }
 
         private IReadOnlyList<Run>? ParseRuns(JsonElement el, string path)
@@ -1200,7 +1610,8 @@ public sealed class DocxGenerationDocumentParser : IDocxGenerationParser
                         Color = ColorProp(runEl, "color", runPath),
                         Bold = BoolProp(runEl, "bold", runPath),
                         Italic = BoolProp(runEl, "italic", runPath),
-                        Underline = BoolProp(runEl, "underline", runPath)
+                        Underline = BoolProp(runEl, "underline", runPath),
+                        AllCaps = BoolProp(runEl, "allCaps", runPath)
                     });
                 }
                 index++;

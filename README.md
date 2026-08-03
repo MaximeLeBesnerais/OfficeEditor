@@ -5,12 +5,12 @@ A .NET 9 library suite for **creating, editing, generating, and rendering Office
 ## Features
 
 - **Three formats, one model** — Word (DOCX), PowerPoint (PPTX), Excel (XLSX); create from scratch or edit existing files with style preservation
-- **JSON workflows** — PPTX has the full declarative generation vocabulary; XLSX has a working v1 instruction engine; DOCX generation and the richer XLSX vocabulary remain on the roadmap
+- **JSON workflows** — PPTX has the full declarative generation vocabulary; **DOCX has declarative JSON generation** (flow + positioned tiers, design themes, semantic report archetypes, see `docs/docx-generation.md`); **XLSX has a rich instruction/generation engine** (typed cells, named styles with fills/borders, layout, tables) wired into `officeeditor generate --output *.xlsx` (images and row-replication remain)
 - **Rendering** — native TypstBridge (Typst 0.15.1): PPTX PDF/PNG/SVG and DOCX PDF; whole-deck timings are exposed by the PPTX surfaces
 - **Fluent C# APIs** — `DocumentBuilder`, `PresentationBuilder`, `WorkbookBuilder` (file, stream, or in-memory `byte[]`)
 - **Instruction sets** — JSON/YAML DOCX operations, JSON PPTX edit operations, and a v1 JSON XLSX builder vocabulary
 - **Variables & mail merge** — `{{variable}}` detection and replacement across all three formats, plus DOCX batch merge
-- **Markdown → DOCX** — styled conversion via Markdig
+- **Markdown → DOCX** — rich styled conversion via Markdig (headings 1–6, nested emphasis, real hyperlinks through a safe `http`/`https`/`mailto` scheme allowlist with internal-anchor fallback, images, footnotes, tables, task lists, emoji, YAML front matter, custom style maps)
 - **Surfaces** — unified CLI, ASP.NET Core API, MCP stdio host (4 `deck_*` tools), and a web demo app
 - **Brand profiles** — extract theme colors/fonts from existing decks into reusable token sets
 
@@ -30,11 +30,20 @@ officeeditor create output.xlsx --sheet "Sales"
 # Generate a full deck from a JSON vocabulary
 officeeditor generate demo/demo-deck.json --output deck.pptx
 
+# Generate a DOCX report from a JSON vocabulary (design theme optional)
+officeeditor generate report.json --output report.docx --theme corporate
+
+# Generate a workbook from a JSON instruction set
+officeeditor generate workbook.json --output workbook.xlsx
+
 # Detect variables in templates
 officeeditor detect template.docx
 
 # Merge template with data
 officeeditor merge template.pptx data.json output.pptx
+
+# DOCX-only Markdown → DOCX with a template, custom style map, and strict mode
+dotnet run --project DocxEditor.Cli -- markdown guide.md guide.docx --template base.docx --style-map styles.json --strict
 
 # DOCX-only instruction editing is available through the source CLI
 dotnet run --project DocxEditor.Cli -- edit document.docx --instructions instructions.json
@@ -213,7 +222,7 @@ Key design decisions:
 
 ## API & MCP surfaces
 
-**API** (`OfficeEditor.Api`): deck upload/sessions, per-slide previews (`png|svg`, ETag-cached), deck anatomy, edit instructions, JSON generation with timings (`generationMilliseconds`, `totalMilliseconds`), demo endpoints (timed REF renders, upload render, OfficeEditor-vs-LibreOffice compare), `/api/convert` for one-off conversions.
+**API** (`OfficeEditor.Api`): deck upload/sessions, per-slide previews (`png|svg`, ETag-cached), deck anatomy, edit instructions, JSON generation with timings (`generationMilliseconds`, `totalMilliseconds`), demo endpoints (timed REF renders, upload render, OfficeEditor-vs-LibreOffice compare), and `/api/convert` for one-off conversions — JSON → DOCX/XLSX through the declarative generators (empty JSON makes a blank document), Markdown → DOCX, DOCX → PDF, and PPTX → PDF/PNG/SVG.
 
 **MCP** (`OfficeEditor.Mcp`, stdio JSON-RPC): `deck_anatomize`, `deck_replace_element`, `deck_render_slide`, `deck_generate`.
 

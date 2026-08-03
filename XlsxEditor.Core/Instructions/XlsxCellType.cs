@@ -1,0 +1,136 @@
+namespace XlsxEditor.Core.Instructions;
+
+/// <summary>
+/// The discrete cell types the instruction vocabulary understands. <see cref="Auto"/>
+/// lets the planner infer the concrete type from the resolved value.
+/// </summary>
+public enum XlsxCellType
+{
+    Auto,
+    String,
+    Number,
+    Boolean,
+    Date,
+    DateTime
+}
+
+public static class XlsxCellTypeParser
+{
+    /// <summary>
+    /// Parses a case-insensitive vocabulary value ("auto", "string", "number",
+    /// "boolean", "date", "datetime") into a <see cref="XlsxCellType"/>. null, empty
+    /// and "auto" all map to <see cref="XlsxCellType.Auto"/> (the default). Returns
+    /// false for anything unrecognized so the validator can emit a path-qualified
+    /// diagnostic instead of letting an unknown type silently fall back.
+    /// </summary>
+    public static bool TryParse(string? value, out XlsxCellType type)
+    {
+        switch (value?.Trim().ToLowerInvariant())
+        {
+            case null:
+            case "":
+            case "auto":
+                type = XlsxCellType.Auto;
+                return true;
+            case "string":
+            case "str":
+            case "text":
+                type = XlsxCellType.String;
+                return true;
+            case "number":
+            case "num":
+            case "numeric":
+                type = XlsxCellType.Number;
+                return true;
+            case "boolean":
+            case "bool":
+                type = XlsxCellType.Boolean;
+                return true;
+            case "date":
+                type = XlsxCellType.Date;
+                return true;
+            case "datetime":
+            case "date-time":
+            case "dateTime":
+                type = XlsxCellType.DateTime;
+                return true;
+            default:
+                type = default;
+                return false;
+        }
+    }
+
+    /// <summary>
+    /// Applies a declared type to a concrete value, resolving <see cref="XlsxCellType.Auto"/>
+    /// by inspecting the value. The inference mirrors the exact writer formats: a value is a
+    /// date only when it matches the ISO date format the writer accepts ("yyyy-MM-dd"), and
+    /// a datetime only when it matches the ISO datetime formats ("yyyy-MM-ddTHH:mm:ss" or
+    /// "yyyy-MM-ddTHH:mm:ss.fff") — a midnight datetime stays a datetime, never a date.
+    /// Anything the writers cannot represent falls through to a string, so a type inferred
+    /// here is always one the executor can actually write. Formulas ("=…") resolve to a
+    /// string literal, "true"/"false" to booleans, parseable numbers to numbers, everything
+    /// else to a string.
+    /// </summary>
+    public static XlsxCellType ResolveAuto(XlsxCellType declared, string? value)
+    {
+        if (declared != XlsxCellType.Auto)
+        {
+            return declared;
+        }
+
+        if (string.IsNullOrEmpty(value))
+        {
+            return XlsxCellType.String;
+        }
+
+        if (value.StartsWith('='))
+        {
+            return XlsxCellType.String;
+        }
+
+        if (value.Equals("true", StringComparison.OrdinalIgnoreCase)
+            || value.Equals("false", StringComparison.OrdinalIgnoreCase))
+        {
+            return XlsxCellType.Boolean;
+        }
+
+        if (double.TryParse(
+                value,
+                System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out var number)
+            && !double.IsNaN(number)
+            && !double.IsInfinity(number))
+        {
+            return XlsxCellType.Number;
+        }
+
+        // Checked after numbers so a year-only string like "2024" stays a number while a
+        // real ISO date ("2024-01-15") falls through to a date type. These exact formats
+        // are the ones AddCellDate/AddCellDateTime accept, so an inferred date/datetime is
+        // always writable (and a midnight datetime is NOT misclassified as a date).
+        if (System.DateOnly.TryParseExact(
+                value,
+                "yyyy-MM-dd",
+                System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.None,
+                out var date)
+            && date >= new System.DateOnly(1900, 1, 1))
+        {
+            return XlsxCellType.Date;
+        }
+
+        if (System.DateTime.TryParseExact(
+                value,
+                new[] { "yyyy-MM-ddTHH:mm:ss", "yyyy-MM-ddTHH:mm:ss.fff" },
+                System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.None,
+                out var dateTime)
+            && dateTime >= new System.DateTime(1900, 1, 1))
+        {
+            return XlsxCellType.DateTime;
+        }
+
+        return XlsxCellType.String;
+    }
+}

@@ -13,6 +13,8 @@ officeeditor generate examples/Docx/generation/comprehensive.json \
 
 The `.docx` output extension selects DOCX generation. Always pass `--output <name>.docx`; without it, the unified command currently defaults to a `.pptx` output path.
 
+`--theme <name>` applies one of the built-in design themes from `DesignThemeCatalog` (`editorial` default, `corporate`) and is valid only for a `.docx` output; when both the flag and the document's `design.theme` are present, the flag wins. See [Themes and semantic text roles](#themes-and-semantic-text-roles).
+
 ## Document envelope and validation
 
 A minimal document contains a version and at least one section with at least one flow block:
@@ -36,7 +38,7 @@ The root properties are:
 |---|---:|---|
 | `version` | Yes | Must be the string `"1.0"`. |
 | `metadata` | No | Core document properties. |
-| `design` | No | Palette, fonts, typography, spacing, shape, and page defaults. |
+| `design` | No | Named theme reference, palette, fonts, typography, spacing, shapes, layout guardrails, and page defaults. |
 | `template` | No | Local DOCX template path. Omit it to start from a blank package. |
 | `sections` | Yes | Non-empty array of section objects. |
 
@@ -122,15 +124,53 @@ If `design` is present, `design.palette` is required, though it may be empty. Pa
 ```
 
 | Design object | Properties |
-|---|---|
-| `palette` | Arbitrary token name to `#RRGGBB` mappings. Content may reference a token or use a raw hex value; raw hex outside the palette is accepted with a warning. |
+|---|---|---|
+| `theme` | Named built-in theme reference (`design.theme`). The default is `editorial`; `corporate` is the alternative. See [Themes and semantic text roles](#themes-and-semantic-text-roles). |
+| `palette` | Arbitrary token name to `#RRGGBB` mappings. Content may reference a token or use a raw hex value; raw hex outside the palette is accepted with a warning. Merged over the theme palette — the document's tokens win. |
 | `fonts` | `display` and `body` family names. A `font` field may reference either slot or contain a raw family name. An undefined slot falls back to the built-in font with a warning. |
 | `typography.<name>` | Optional `font`, positive `size` in points, `color`, `bold`, `italic`, and `underline`. Text uses it through `token`. |
 | `spacing.<name>` | Non-negative point value. Paragraph `spacing.before` and `spacing.after` may use the name. |
 | `shapes` | Non-negative `cornerRadius`, `defaultFill`, `defaultStroke`, and positive `defaultStrokeWidth`. Fill defaults positioned text boxes and rectangles; stroke also defaults lines; corner radius also defaults positioned callouts. |
+| `layout` | Guardrails and density: `density`, `minBodySizePt`, `maxTableWidthPt`. See [Layout guardrails and density](#layout-guardrails-and-density). |
 | `page` | Named `size`, `orientation`, `margins`, `defaultFont`, and `defaultTextColor`. Geometry applies when a section omits it. The text defaults feed positioned text and generated direct-formatting fallbacks; use `fonts.body` or typography tokens for explicit flow typography. |
 
-Built-in defaults are A4 portrait, 72 pt (1 inch) margins, Calibri 11 pt body text, Calibri Light display text, and square shapes. A section-level page setting overrides the corresponding design page default.
+Built-in defaults are A4 portrait, 72 pt (1 inch) margins, Calibri 11 pt body text, Calibri Light display text, and square shapes. A section-level page setting overrides the corresponding design page default. A document without an explicit `design` block still resolves against the built-in `editorial` theme, so an empty design yields a coherent editorial look rather than bare defaults.
+
+## Themes and semantic text roles
+
+Every document resolves against a built-in theme — the design system's base layer. `design.theme` selects it; unknown names fall back to `editorial` with a deterministic warning, and omitting it selects `editorial`. The shipped catalog (`DesignThemeCatalog`) is:
+
+| Theme | Fonts | Palette character | Default page |
+|---|---|---|---|
+| `editorial` (default) | Georgia display / Arial body | Navy-blue, teal, coral on pale surfaces | A4, 1-inch margins |
+| `corporate` | Trebuchet MS display / Arial body | Corporate blue on pale surfaces | Letter, 1-inch margins |
+
+A theme supplies font slots, a full palette (tokens like `ink`, `paper`, `pale`, `primary`, `accent`, `teal`, `coral`, `muted`, `border`), a default density, a body-size readability floor, and default page geometry. **The theme is the fallback, never the master**: every field in the document's `design` block overrides the theme value field-by-field, and content-level token/direct formatting overrides the resolved roles.
+
+Themes define formatting for every **semantic text role** (`TextRole`) — what text *is* rather than how it looks: `Title`, `Subtitle`, `Eyebrow`, `Heading1`–`Heading6`, `Body`, `Muted`, `Label`, `Metric`, `MetricLabel`, `TableHeader`, `TableBody`, `Callout`, and `Footer`. Roles back the generated semantic paragraph styles and drive the report archetypes (see below): `cover` maps its eyebrow/title/subtitle/metadata/KPI texts to Eyebrow, Title, Subtitle, Muted, and Metric/MetricLabel roles; `section` titles to Heading1; `comparisonTable` columns to TableHeader, the emphasized first column to Label, and body cells to TableBody; and `roadmap`/`kpiRow` to TableBody/Metric/MetricLabel. A role's formatting covers run properties (font slot, size, palette color, emphasis, all-caps) plus paragraph properties (alignment, before/after spacing, line multiple, keep-with-next/keep-lines).
+
+An example of selecting the corporate theme with a small layout override:
+
+```json
+{
+  "design": {
+    "theme": "corporate",
+    "layout": { "density": "compact" }
+  }
+}
+```
+
+## Layout guardrails and density
+
+`design.layout` exposes advisory thresholds plus a density knob. Guardrails warn (they never reject) when the emitter observes a violation; there is no pagination prediction.
+
+| Property | Meaning |
+|---|---|
+| `density` | `compact`, `comfortable` (default), or `spacious`. Scales the theme's paragraph spacing deterministically (~0.75×, 1×, ~1.4×). |
+| `minBodySizePt` | Readability floor for body-size text (default 9 pt from the theme). A run below it in a reading role (body, muted, labels, table cells, footer, callout) warns once per paragraph. |
+| `maxTableWidthPt` | Maximum recommended table width. Wider tables warn; absent, the section's text width is the threshold. |
+
+Role spacing is density-scaled before emitters see it, so switching density restyles spacing without editing content.
 
 ## Sections and page setup
 
@@ -205,6 +245,48 @@ List `kind` defaults to `bullet`; `start` on a bullet list is ignored with a war
 A table row has a required non-empty `cells` array and optional boolean `header`; a header row repeats in Word. Every row must have the same cell count. A cell may be blank or contain `text`/`runs`, `token`, `alignment`, and `fill`. `fill` is a palette token or hex color. The generator does not support merged cells.
 
 Callout `tone` is `note`, `tip`, `warning`, or `error` and defaults to `note`. Flow callouts use fixed tone colors. Use a positioned callout when explicit fill and stroke are needed.
+
+## Semantic report archetypes
+
+Beyond the raw flow blocks, the vocabulary ships five semantic report archetypes. They are authoring sugar: a pure expansion stage (`DocxGenerationExpander`) lowers them into the concrete flow blocks above (paragraphs, headings, tables, page breaks) before emission, using the theme's semantic roles and editorial surfaces — no positioned composition and no second layout engine. A document without archetypes passes through expansion unchanged, and `DocxGenerator` invokes expansion exactly once, after parse/validation and before design resolution/emission.
+
+| `type` | Accepted properties | Expands to |
+|---|---|---|
+| `cover` | `title` (required); optional `eyebrow`, `subtitle`, `metadata`, `kpis`, `pageBreak` | Eyebrow/title/subtitle/metadata paragraphs on the editorial roles, an optional KPI band, and an optional trailing page break. |
+| `kpiRow` | `items` (required, 2–4) | A single pale KPI band table (value row over label row). |
+| `section` | `title` (required); optional `intro`, `blocks` | A level-1 heading, the intro paragraph, then the nested flow (recursively expanded). Not a DOCX page section. |
+| `comparisonTable` | `columns` (required), `rows` (required); optional `emphasisFirstColumn` | A table with a repeating header row of column labels and body rows of cells. |
+| `roadmap` | `phases` (required) | A Phase / Window / Action / Evidence table with tone-tinted phase numbers. |
+
+Example cover:
+
+```json
+{
+  "type": "cover",
+  "eyebrow": "Q3 2026 · Editorial Edition",
+  "title": "State of the Product",
+  "subtitle": "A quarterly review, written for the whole team.",
+  "metadata": "Prepared by the Platform Group · Reviewed 3 August 2026",
+  "kpis": [
+    { "value": "12.4k", "label": "Active workspaces", "tone": "positive" },
+    { "value": "4.2", "label": "Incidents per month", "tone": "negative" }
+  ],
+  "pageBreak": true
+}
+```
+
+Text fields (`title`, `eyebrow`, `subtitle`, `metadata`, `intro`, KPI `value`/`label`, roadmap `window`/`action`/`evidence`, `columns`, and comparison cells) accept either a string or a text object with `text`/`runs`, `token`, `role`, `alignment`, and `spacing`. KPI and roadmap items take a `tone` of `positive`, `neutral`, or `negative`; positive tints toward the theme teal, negative toward the theme coral, and neutral keeps the role default.
+
+Component budgets are advisory: an item or row count outside a budget warns with its JSON path but still renders.
+
+| Component | Budget | Warning when |
+|---|---|---|
+| `cover.kpis` / `kpiRow.items` | 2–4 items | 1 item, or more than 4 |
+| `comparisonTable.columns` | 2–6 | fewer than 2, or more than 6 |
+| `comparisonTable.rows` | 1–12 | more than 12 |
+| `roadmap.phases` | 1–6 | more than 6 |
+
+See the full report example at [`examples/Docx/generation/editorial-report.json`](../examples/Docx/generation/editorial-report.json), which exercises every archetype.
 
 ## Positioned primitives
 

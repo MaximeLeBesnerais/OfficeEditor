@@ -1,5 +1,7 @@
 using System.Reflection;
+using DocumentFormat.OpenXml.Packaging;
 using PptxEditor.Core.Builders;
+using XlsxEditor.Core.Builders;
 using Xunit;
 
 namespace OfficeEditor.Cli.Tests;
@@ -220,6 +222,178 @@ public sealed class CliMainTests : IDisposable
 
         Assert.Equal(0, code);
         Assert.True(File.Exists(outputPath));
+    }
+
+    [Fact]
+    public void Generate_WithValidXlsxJson_ProducesXlsx()
+    {
+        var jsonPath = TempPath("workbook.json");
+        File.WriteAllText(jsonPath, """
+        {
+          "version": "1.0",
+          "worksheets": [
+            { "name": "Sheet1", "headers": ["A", "B"], "rows": [["1", "2"]] }
+          ]
+        }
+        """);
+
+        var outputPath = TempPath("out.xlsx");
+        var code = InvokeMain(["generate", jsonPath, "--output", outputPath]);
+
+        Assert.Equal(0, code);
+        Assert.True(File.Exists(outputPath));
+        using var reader = WorkbookBuilder.Open(outputPath);
+        var ws = reader.GetWorksheet("Sheet1");
+        Assert.Equal("A", ws.GetCellValue("A1"));
+        Assert.Equal("2", ws.GetCellValue("B2"));
+    }
+
+    [Fact]
+    public void Generate_WithValidDocxJson_ProducesDocx()
+    {
+        var jsonPath = TempPath("report.json");
+        File.WriteAllText(jsonPath, """
+        {
+          "version": "1.0",
+          "design": { "theme": "editorial" },
+          "sections": [
+            { "blocks": [ { "type": "paragraph", "text": "Hello DOCX" } ] }
+          ]
+        }
+        """);
+
+        var outputPath = TempPath("out.docx");
+        var code = InvokeMain(["generate", jsonPath, "--output", outputPath]);
+
+        Assert.Equal(0, code);
+        Assert.True(File.Exists(outputPath));
+        using var doc = WordprocessingDocument.Open(outputPath, false);
+        Assert.Contains("Hello DOCX", doc.MainDocumentPart!.Document!.InnerText);
+    }
+
+    [Fact]
+    public void Generate_DocxWithTheme_ProducesDocx()
+    {
+        var jsonPath = TempPath("report.json");
+        File.WriteAllText(jsonPath, """
+        {
+          "version": "1.0",
+          "sections": [
+            { "blocks": [ { "type": "paragraph", "text": "Corporate theme" } ] }
+          ]
+        }
+        """);
+
+        var outputPath = TempPath("themed.docx");
+        var code = InvokeMain(["generate", jsonPath, "--output", outputPath, "--theme", "corporate"]);
+
+        Assert.Equal(0, code);
+        Assert.True(File.Exists(outputPath));
+        using var doc = WordprocessingDocument.Open(outputPath, false);
+        Assert.Contains("Corporate theme", doc.MainDocumentPart!.Document!.InnerText);
+    }
+
+    [Fact]
+    public void Generate_ThemeWithPptx_ReturnsOne()
+    {
+        var jsonPath = TempPath("deck.json");
+        File.WriteAllText(jsonPath, ValidGenerationDocument());
+        var outputPath = TempPath("out.pptx");
+
+        var code = InvokeMain(["generate", jsonPath, "--output", outputPath, "--theme", "editorial"]);
+
+        Assert.Equal(1, code);
+        Assert.False(File.Exists(outputPath));
+    }
+
+    [Fact]
+    public void Generate_UnknownTheme_ReturnsOne()
+    {
+        var jsonPath = TempPath("report.json");
+        File.WriteAllText(jsonPath, """
+        {
+          "version": "1.0",
+          "sections": [
+            { "blocks": [ { "type": "paragraph", "text": "Hello" } ] }
+          ]
+        }
+        """);
+        var outputPath = TempPath("out.docx");
+
+        var code = InvokeMain(["generate", jsonPath, "--output", outputPath, "--theme", "nonexistent"]);
+
+        Assert.Equal(1, code);
+        Assert.False(File.Exists(outputPath));
+    }
+
+    [Fact]
+    public void Generate_UnknownFlag_ReturnsOne()
+    {
+        var jsonPath = TempPath("deck.json");
+        File.WriteAllText(jsonPath, ValidGenerationDocument());
+        var outputPath = TempPath("out.pptx");
+
+        var code = InvokeMain(["generate", jsonPath, "--output", outputPath, "--bogus"]);
+
+        Assert.Equal(1, code);
+    }
+
+    [Fact]
+    public void Generate_UnsupportedExtension_ReturnsOne()
+    {
+        var jsonPath = TempPath("deck.json");
+        File.WriteAllText(jsonPath, ValidGenerationDocument());
+        var outputPath = TempPath("out.pdf");
+
+        var code = InvokeMain(["generate", jsonPath, "--output", outputPath]);
+
+        Assert.Equal(1, code);
+        Assert.False(File.Exists(outputPath));
+    }
+
+    [Fact]
+    public void Generate_InvalidXlsxJson_ReturnsOneAndNoOutput()
+    {
+        var jsonPath = TempPath("bad.json");
+        File.WriteAllText(jsonPath, """{ "version": "9.9", "worksheets": [{"name": "S"}] }""");
+        var outputPath = TempPath("out.xlsx");
+
+        var code = InvokeMain(["generate", jsonPath, "--output", outputPath]);
+
+        Assert.Equal(1, code);
+        Assert.False(File.Exists(outputPath));
+    }
+
+    [Fact]
+    public void Generate_InvalidDocxJson_ReturnsOneAndNoOutput()
+    {
+        var jsonPath = TempPath("bad.json");
+        File.WriteAllText(jsonPath, """{ "version": "1.0", "sections": [] }""");
+        var outputPath = TempPath("out.docx");
+
+        var code = InvokeMain(["generate", jsonPath, "--output", outputPath]);
+
+        Assert.Equal(1, code);
+        Assert.False(File.Exists(outputPath));
+    }
+
+    [Fact]
+    public void Generate_ThemeWithoutValue_ReturnsOne()
+    {
+        var jsonPath = TempPath("report.json");
+        File.WriteAllText(jsonPath, """
+        {
+          "version": "1.0",
+          "sections": [
+            { "blocks": [ { "type": "paragraph", "text": "Hello" } ] }
+          ]
+        }
+        """);
+        var outputPath = TempPath("out.docx");
+
+        var code = InvokeMain(["generate", jsonPath, "--output", outputPath, "--theme"]);
+
+        Assert.Equal(1, code);
     }
 
     private static int InvokeMain(string[] args)

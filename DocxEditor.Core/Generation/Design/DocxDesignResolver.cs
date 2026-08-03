@@ -6,9 +6,10 @@ namespace DocxEditor.Core.Generation.Design;
 
 /// <summary>
 /// Resolves the generation vocabulary's design tokens into plain, immutable values emitters can
-/// write out directly. It merges foundation defaults (<see cref="DocxDesignDefaults"/>, the
-/// model's <see cref="PageSize.Default"/>/<see cref="Margins.Defaults"/>) with the document's
-/// <c>design</c> block, so callers never re-interpret palette/font/token strings at emit time.
+/// write out directly. It merges the active built-in theme (<see cref="DesignThemeCatalog"/>,
+/// default <c>editorial</c>), the model's <see cref="PageSize.Default"/>/<see cref="Margins.Defaults"/>
+/// and the document's <c>design</c> block, so callers never re-interpret palette/font/token
+/// strings at emit time. The document's block overrides theme values field-by-field.
 ///
 /// Resolution contract, deliberately symmetric with the parser's behavior:
 /// <list type="bullet">
@@ -28,11 +29,12 @@ namespace DocxEditor.Core.Generation.Design;
 public sealed class DocxDesignResolver
 {
     private static readonly Regex HexColorPattern = new(@"^#[0-9a-fA-F]{6}$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
-    private static readonly IReadOnlyDictionary<string, string> EmptyPalette = new Dictionary<string, string>();
 
     private readonly DesignTokens? _design;
     private readonly List<DesignResolutionWarning> _warnings = [];
     private ResolvedDesign? _resolved;
+    private DesignTheme? _theme;
+    private IReadOnlyDictionary<string, string>? _mergedPalette;
 
     public DocxDesignResolver(DesignTokens? design = null)
     {
@@ -53,9 +55,9 @@ public sealed class DocxDesignResolver
         _warnings.Add(new DesignResolutionWarning(code, message, context));
 
     /// <summary>
-    /// Resolves the entire design block once and caches the result. Shape and page default tokens
-    /// are resolved softly (warnings, never thrown) because they are fallbacks by nature; explicit
-    /// references in content are resolved strictly through <see cref="ResolveColor"/> and friends.
+    /// Resolves the entire design block once and caches the result. Theme, shape and page default
+    /// tokens are resolved softly (warnings, never thrown) because they are fallbacks by nature;
+    /// explicit references in content are resolved strictly through <see cref="ResolveColor"/> and friends.
     /// </summary>
     public ResolvedDesign ResolveAll()
     {
@@ -64,8 +66,14 @@ public sealed class DocxDesignResolver
             return _resolved;
         }
 
-        var palette = _design?.Palette ?? EmptyPalette;
-        var fonts = _design?.Fonts ?? new FontTokens();
+        var theme = ResolveTheme();
+        var palette = ResolveMergedPalette();
+        var designFonts = _design?.Fonts;
+        var fonts = new FontTokens
+        {
+            Display = designFonts?.Display ?? theme.DisplayFontFamily,
+            Body = designFonts?.Body ?? theme.BodyFontFamily
+        };
 
         var typography = new Dictionary<string, ResolvedRunFormatting>(StringComparer.Ordinal);
         if (_design?.Typography is { } typographyTokens)
@@ -85,43 +93,103 @@ public sealed class DocxDesignResolver
             DefaultStrokeWidthPt = shapes.DefaultStrokeWidthPt
         };
 
+        var layout = ResolveLayout(theme, _design?.Layout);
+
+        var roles = new Dictionary<TextRole, ResolvedRoleFormatting>();
+        foreach (var (role, roleFormatting) in theme.Roles)
+        {
+            roles[role] = ResolveRoleFormatting(roleFormatting, fonts, palette, layout.DensityScale, $"theme '{theme.Name}' role '{role}'");
+        }
+
         var page = _design?.Page ?? new PageDefaults();
         var resolvedPage = new ResolvedPageDefaults
         {
-            PageSize = page.PageSize is { } sizeName ? PageSize.Named(sizeName) : PageSize.Default,
+            PageSize = page.PageSize is { } sizeName ? PageSize.Named(sizeName) : PageSize.Named(theme.PageSize),
             Orientation = page.Orientation,
-            Margins = page.Margins ?? Margins.Defaults,
+            Margins = page.Margins ?? theme.Margins,
             BodyFontFamily = TryResolveFontFamily(page.DefaultFontFamily, "design.page.defaultFont"),
             DefaultTextColorHex = TryResolveColor(page.DefaultTextColor, "design.page.defaultTextColor")
         };
 
         _resolved = new ResolvedDesign
         {
+            ThemeName = theme.Name,
             Palette = palette,
             BodyFontFamily = fonts.Body,
             DisplayFontFamily = fonts.Display,
             Typography = typography,
             Spacing = _design?.Spacing ?? new Dictionary<string, double>(),
+            Roles = roles,
+            Layout = layout,
             Shapes = resolvedShapes,
             Page = resolvedPage
         };
         return _resolved;
     }
 
+    // ---- theme ----
+
+    /// <summary>
+    /// The active built-in theme: <c>design.theme</c> when named and known, otherwise the default
+    /// <c>editorial</c> theme. An unknown name records a deterministic warning and falls back.
+    /// </summary>
+    public DesignTheme ResolveTheme()
+    {
+        if (_theme is not null)
+        {
+            return _theme;
+        }
+        var name = _design?.Theme;
+        if (name is not null && !DesignThemeCatalog.Themes.ContainsKey(name))
+        {
+            RecordWarning(
+                "UnknownTheme",
+                $"unknown theme '{name}'; falling back to the default '{DesignThemeCatalog.DefaultTheme}' theme.",
+                "design.theme");
+        }
+        _theme = DesignThemeCatalog.Resolve(name);
+        return _theme;
+    }
+
+    /// <summary>The theme palette merged with document-level overrides (document wins). Cached.</summary>
+    private IReadOnlyDictionary<string, string> ResolveMergedPalette() =>
+        _mergedPalette ??= ResolveTheme().EffectivePalette(_design?.Palette);
+
+    /// <summary>
+    /// Resolves a semantic text role to its theme-provided formatting. Returns null (with a
+    /// warning) when the role is unknown — role names are validated by the parser, so this only
+    /// fires for programmatically built models. Never throws.
+    /// </summary>
+    public ResolvedRoleFormatting? TryResolveRole(TextRole? role, string? context = null)
+    {
+        if (role is null)
+        {
+            return null;
+        }
+        if (ResolveAll().Roles.TryGetValue(role.Value, out var resolved))
+        {
+            return resolved;
+        }
+        RecordWarning("UnknownTextRole", $"unknown text role '{role}'.", context);
+        return null;
+    }
+
+    /// <summary>Strict role resolution: <see cref="ResolvedRoleFormatting.Empty"/> for unknown roles.</summary>
+    public ResolvedRoleFormatting ResolveRole(TextRole role, string? context = null) =>
+        TryResolveRole(role, context) ?? ResolvedRoleFormatting.Empty;
+
     // ---- colors ----
 
     /// <summary>Resolves a palette token or #RRGGBB literal to a normalized #RRGGBB. Returns null
-    /// (with a warning) when the value is neither; never throws.</summary>
+    /// (with a warning) when the value is neither; never throws. Palette tokens resolve against the
+    /// theme palette merged with the document palette.</summary>
     public string? TryResolveColor(string? value, string? context = null)
     {
         if (value is null)
         {
             return null;
         }
-        // The palette is raw in the model (already #RRGGBB), so read it directly instead of via
-        // ResolveAll() — ResolveAll() itself resolves shape/page defaults through this method, and
-        // going through it again would recurse forever.
-        if (_design?.Palette.TryGetValue(value, out var hex) == true)
+        if (ResolveMergedPalette().TryGetValue(value, out var hex))
         {
             return NormalizeHex(hex);
         }
@@ -158,9 +226,10 @@ public sealed class DocxDesignResolver
         }
         if (string.Equals(value, "display", StringComparison.OrdinalIgnoreCase))
         {
-            if (_design?.Fonts.Display is { } display)
+            var family = _design?.Fonts.Display ?? ResolveTheme().DisplayFontFamily;
+            if (family is not null)
             {
-                return display;
+                return family;
             }
             RecordWarning(
                 "UndefinedFontSlot",
@@ -170,9 +239,10 @@ public sealed class DocxDesignResolver
         }
         if (string.Equals(value, "body", StringComparison.OrdinalIgnoreCase))
         {
-            if (_design?.Fonts.Body is { } body)
+            var family = _design?.Fonts.Body ?? ResolveTheme().BodyFontFamily;
+            if (family is not null)
             {
-                return body;
+                return family;
             }
             RecordWarning(
                 "UndefinedFontSlot",
@@ -221,7 +291,90 @@ public sealed class DocxDesignResolver
             ColorHex = TryResolveColor(token.Color, context),
             Bold = token.Bold ? true : null,
             Italic = token.Italic ? true : null,
-            Underline = token.Underline ? true : null
+            Underline = token.Underline ? true : null,
+            AllCaps = token.AllCaps ? true : null
+        };
+
+    // ---- roles ----
+
+    /// <summary>
+    /// Resolves a role's theme formatting: font slot to the effective (document-merged) family,
+    /// color token to the merged palette hex, and paragraph spacing density-scaled. Theme roles
+    /// are defined in the theme palette, so color/font resolution always succeeds.
+    /// </summary>
+    private static ResolvedRoleFormatting ResolveRoleFormatting(
+        ThemeRoleFormatting formatting,
+        FontTokens fonts,
+        IReadOnlyDictionary<string, string> palette,
+        double densityScale,
+        string context)
+    {
+        var run = new ResolvedRunFormatting
+        {
+            FontFamily = ResolveRoleFont(formatting.FontFamily, fonts),
+            FontSizePt = formatting.SizePt,
+            ColorHex = ResolvePaletteColor(formatting.Color, palette, context),
+            Bold = formatting.Bold ? true : null,
+            Italic = formatting.Italic ? true : null,
+            Underline = formatting.Underline ? true : null,
+            AllCaps = formatting.AllCaps ? true : null
+        };
+        var paragraph = new ResolvedParagraphFormatting
+        {
+            Alignment = formatting.Alignment,
+            SpaceBeforePt = formatting.BeforePt is { } before ? before * densityScale : null,
+            SpaceAfterPt = formatting.AfterPt is { } after ? after * densityScale : null,
+            LineSpacingMultiple = formatting.LineMultiple
+        };
+        return new ResolvedRoleFormatting
+        {
+            Run = run,
+            Paragraph = paragraph,
+            KeepNext = formatting.KeepNext,
+            KeepLines = formatting.KeepLines
+        };
+    }
+
+    /// <summary>Maps a role font slot ("display" | "body") to the effective merged family; raw family names pass through.</summary>
+    private static string? ResolveRoleFont(string? font, FontTokens fonts) =>
+        font is null
+            ? null
+            : string.Equals(font, "display", StringComparison.OrdinalIgnoreCase)
+                ? fonts.Display
+                : string.Equals(font, "body", StringComparison.OrdinalIgnoreCase)
+                    ? fonts.Body
+                    : font;
+
+    private static string? ResolvePaletteColor(string? token, IReadOnlyDictionary<string, string> palette, string context)
+    {
+        if (token is null)
+        {
+            return null;
+        }
+        if (palette.TryGetValue(token, out var hex))
+        {
+            return NormalizeHex(hex);
+        }
+        if (HexColorPattern.IsMatch(token))
+        {
+            return NormalizeHex(token);
+        }
+        // Theme roles always reference palette tokens; this only guards against a document
+        // overriding a token away. Fall back silently to the theme default.
+        return null;
+    }
+
+    /// <summary>
+    /// Resolves the layout guardrails/density: document values win, theme values fill gaps, and
+    /// the density scale is derived deterministically.
+    /// </summary>
+    private static ResolvedLayout ResolveLayout(DesignTheme theme, LayoutDefaults? layout) =>
+        new()
+        {
+            Density = layout?.Density ?? theme.Density,
+            DensityScale = (layout?.Density ?? theme.Density).Scale(),
+            MinBodySizePt = layout?.MinBodySizePt ?? theme.MinBodySizePt,
+            MaxTableWidthPt = layout?.MaxTableWidthPt
         };
 
     // ---- spacing ----
@@ -268,7 +421,8 @@ public sealed class DocxDesignResolver
             ColorHex = TryResolveColor(run.Color, context),
             Bold = run.Bold ? true : null,
             Italic = run.Italic ? true : null,
-            Underline = run.Underline ? true : null
+            Underline = run.Underline ? true : null,
+            AllCaps = run.AllCaps ? true : null
         };
         var tokenFormatting = TryResolveTypography(token, context) ?? ResolvedRunFormatting.Empty;
         return tokenFormatting.Overlay(runFormatting);

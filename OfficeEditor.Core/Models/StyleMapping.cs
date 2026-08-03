@@ -13,6 +13,7 @@ public class StyleMapping
     {
         StyleMap = new Dictionary<string, string>
         {
+            // Headings and body blocks.
             ["heading1"] = "Heading1",
             ["heading2"] = "Heading2",
             ["heading3"] = "Heading3",
@@ -24,7 +25,23 @@ public class StyleMapping
             ["code"] = "Code",
             ["tip"] = "Tip",
             ["warning"] = "Warning",
-            ["note"] = "Note"
+            ["note"] = "Note",
+
+            // Rich markdown semantic keys (additive; the shape above is preserved).
+            // Paragraph styles.
+            ["codeBlock"] = "Code",
+            ["tableHeader"] = "TableHeader",
+            ["list"] = "ListParagraph",
+            ["definitionTerm"] = "DefinitionTerm",
+            ["definitionDescription"] = "DefinitionDescription",
+            ["footnoteText"] = "FootnoteText",
+            ["thematicBreak"] = "ThematicBreak",
+            ["imageCaption"] = "Caption",
+            // Character styles.
+            ["codeInline"] = "CodeChar",
+            ["hyperlink"] = "Hyperlink",
+            // Table style.
+            ["table"] = "TableGrid"
         }
     };
 }

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using DocumentFormat.OpenXml.Spreadsheet;
 using XlsxEditor.Core.Builders;
 using XlsxEditor.Core.Instructions;
 using XlsxEditor.Core.Exceptions;
@@ -355,27 +356,26 @@ public class XlsxInstructionTests : IDisposable
     }
 
     [Fact]
-    public void Validate_ShouldRejectTypeField_AsNotYetSupported()
+    public void Validate_ShouldAcceptTypeField_NowSupported()
     {
-        // 'type' was previously validated then silently dropped by the executor;
-        // it is now rejected loudly until typed cells land (Phase 2 roadmap).
+        // 'type' was previously rejected loudly as "Phase 2, not yet supported"; the rich
+        // model, validator and planner now accept typed cells.
         var json = """
         {
             "version": "1.0",
             "worksheets": [{
                 "name": "S",
-                "cells": [{"address": "A1", "value": "x", "type": "number"}]
+                "cells": [{"address": "A1", "value": "42", "type": "number"}]
             }]
         }
         """;
 
-        var ex = Assert.Throws<XlsxException>(() => XlsxInstructionParser.Parse(json));
-        Assert.Contains("'type'", ex.Message);
-        Assert.Contains("Phase 2", ex.Message);
+        var set = XlsxInstructionParser.Parse(json);
+        Assert.Equal("number", set.Worksheets[0].Cells![0].Type);
     }
 
     [Fact]
-    public void Validate_ShouldRejectNumberFormat_AsNotYetSupported()
+    public void Validate_ShouldAcceptNumberFormat_NowSupported()
     {
         var json = """
         {
@@ -387,16 +387,15 @@ public class XlsxInstructionTests : IDisposable
         }
         """;
 
-        var ex = Assert.Throws<XlsxException>(() => XlsxInstructionParser.Parse(json));
-        Assert.Contains("'numberFormat'", ex.Message);
-        Assert.Contains("Phase 2", ex.Message);
+        var set = XlsxInstructionParser.Parse(json);
+        Assert.Equal("0.00", set.Worksheets[0].Cells![0].NumberFormat);
     }
 
     [Fact]
-    public void Execute_ShouldRejectTypeField_WhenSetBuiltProgrammatically()
+    public void Execute_ShouldApplyTypedCell_WhenSetBuiltProgrammatically()
     {
-        // Defense in depth: instruction sets constructed in code bypass the
-        // parser, so the executor must reject unsupported fields itself.
+        // 'type' was previously rejected loudly as "Phase 2, not yet supported"; the
+        // integrated executor now applies typed cells from programmatic sets too.
         var set = new XlsxInstructionSet
         {
             Version = "1.0",
@@ -405,15 +404,27 @@ public class XlsxInstructionTests : IDisposable
                 new WorksheetInstruction
                 {
                     Name = "S",
-                    Cells = [new CellInstruction { Address = "A1", Value = "x", Type = "date" }]
+                    Cells = [new CellInstruction { Address = "A1", Value = "2024-01-15", Type = "date" }]
                 }
             ]
         };
 
-        using var builder = WorkbookBuilder.Create(_testFilePath);
-        var ex = Assert.Throws<XlsxException>(() => XlsxInstructionExecutor.Execute(set, builder));
-        Assert.Contains("'type'", ex.Message);
-        Assert.Contains("Phase 2", ex.Message);
+        using (var builder = WorkbookBuilder.Create(_testFilePath))
+        {
+            XlsxInstructionExecutor.Execute(set, builder);
+            builder.Save();
+        }
+
+        CellInfo? info;
+        using (var reader = WorkbookBuilder.Open(_testFilePath))
+        {
+            info = reader.GetWorksheet("S").GetCellInfo("A1");
+        }
+
+        Assert.NotNull(info);
+        Assert.Equal(CellValues.Number, info!.DataType);
+        Assert.Null(info.Formula);
+        OpenXmlAssert.NoValidationErrors(_testFilePath);
     }
 
     // ─── Programmatically built sets (bypass the parser) ──────────

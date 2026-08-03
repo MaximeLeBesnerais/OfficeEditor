@@ -1,0 +1,200 @@
+{
+  "version": "1.0",
+  "metadata": {
+    "title": "Northwind Labs — Quarterly Editorial Report",
+    "author": "OfficeEditor",
+    "subject": "Semantic report archetypes example",
+    "keywords": "DOCX, JSON, report, cover, KPI, comparison, roadmap",
+    "description": "A polished editorial report exercising every semantic report archetype: cover, KPI row, semantic section, comparison table and roadmap.",
+    "language": "en-US"
+  },
+  "design": {
+    "theme": "editorial",
+    "palette": {
+      "ink": "#1C2733",
+      "primary": "#1F3A5F",
+      "accent": "#2E6FB7",
+      "teal": "#1F7A6E",
+      "coral": "#E4674A",
+      "muted": "#5A6B7B",
+      "pale": "#EEF2F6",
+      "border": "#D6DEE6",
+      "sky": "#EAF2FA"
+    },
+    "fonts": {
+      "display": "Georgia",
+      "body": "Arial"
+    },
+    "typography": {
+      "body": {
+        "font": "body",
+        "size": 10.5,
+        "color": "ink"
+      },
+      "kicker": {
+        "font": "body",
+        "size": 9,
+        "color": "accent",
+        "bold": true,
+        "allCaps": true
+      }
+    },
+    "page": {
+      "size": "a4",
+      "orientation": "portrait",
+      "margins": {
+        "top": 72,
+        "right": 72,
+        "bottom": 72,
+        "left": 72
+      },
+      "defaultFont": "body",
+      "defaultTextColor": "ink"
+    }
+  },
+  "sections": [
+    {
+      "header": [
+        {
+          "type": "paragraph",
+          "text": "NORTHWIND LABS / QUARTERLY EDITORIAL REPORT",
+          "token": "kicker",
+          "alignment": "right"
+        }
+      ],
+      "footer": [
+        {
+          "type": "paragraph",
+          "text": "Prepared with OfficeEditor · Generated from declarative JSON",
+          "token": "body",
+          "alignment": "center"
+        }
+      ],
+      "blocks": [
+        {
+          "type": "cover",
+          "eyebrow": "Q3 2026 · Editorial Edition",
+          "title": "State of the Product",
+          "subtitle": "A quarterly review of adoption, delivery and the road ahead, written for the whole team.",
+          "metadata": "Prepared by the Platform Group · Reviewed 3 August 2026",
+          "kpis": [
+            { "value": "12.4k", "label": "Active workspaces", "tone": "positive" },
+            { "value": "98%", "label": "On-time delivery", "tone": "positive" },
+            { "value": "4.2", "label": "Incidents per month", "tone": "negative" }
+          ],
+          "pageBreak": true
+        },
+        {
+          "type": "section",
+          "title": "Executive summary",
+          "intro": "Adoption keeps compounding and delivery stayed on plan, but reliability needs attention before the winter release window.",
+          "blocks": [
+            {
+              "type": "kpiRow",
+              "items": [
+                { "value": "+31%", "label": "Workspace growth", "tone": "positive" },
+                { "value": "27", "label": "Shipments this quarter", "tone": "neutral" },
+                { "value": "3", "label": "Open Sev-1 issues", "tone": "negative" }
+              ]
+            },
+            {
+              "type": "paragraph",
+              "text": "The headline story is platform velocity: every target metric except reliability improved quarter over quarter. The reliability dip is confined to a single subsystem, and the roadmap reserves the next two sprints for it.",
+              "token": "body",
+              "spacing": {
+                "before": 6,
+                "after": 10
+              }
+            },
+            {
+              "type": "callout",
+              "tone": "warning",
+              "text": "Decision needed: approve the reliability hardening workstream before the 15th so it lands ahead of the winter freeze.",
+              "token": "body"
+            }
+          ]
+        },
+        {
+          "type": "section",
+          "title": "Adoption comparison",
+          "intro": "How the platform stacks up against the two internal alternatives used before this quarter.",
+          "blocks": [
+            {
+              "type": "comparisonTable",
+              "emphasisFirstColumn": true,
+              "columns": ["Criterion", "OfficeEditor", "Legacy suite"],
+              "rows": [
+                {
+                  "cells": [
+                    "Time to first deck",
+                    "Under a minute",
+                    "About a day"
+                  ]
+                },
+                {
+                  "cells": [
+                    "Fidelity to reference",
+                    "95% RMSE parity",
+                    "Manual retouching"
+                  ]
+                },
+                {
+                  "cells": [
+                    "License cleanliness",
+                    "All REF corpus",
+                    "Vendor tied"
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "section",
+          "title": "Delivery roadmap",
+          "intro": "Four phases take us from reliability recovery through the winter release window.",
+          "blocks": [
+            {
+              "type": "roadmap",
+              "phases": [
+                {
+                  "window": "Aug",
+                  "action": "Ship the reliability hardening workstream and clear the Sev-1 backlog.",
+                  "evidence": "Zero open Sev-1 issues",
+                  "tone": "positive"
+                },
+                {
+                  "window": "Sep",
+                  "action": "Open the report archetype vocabulary to partner preview.",
+                  "evidence": "Design-review sign-off",
+                  "tone": "neutral"
+                },
+                {
+                  "window": "Oct",
+                  "action": "Freeze scope and run the full visual-parity suite against the REF corpus.",
+                  "evidence": "Suite green on CI",
+                  "tone": "neutral"
+                },
+                {
+                  "window": "Nov",
+                  "action": "Ship the winter release to general availability.",
+                  "evidence": "Release notes + migration guide",
+                  "tone": "positive"
+                }
+              ]
+            },
+            {
+              "type": "paragraph",
+              "text": "The quarter told a clear story: the product is compounding, the team is shipping, and the remaining risk is well understood. The roadmap above converts that risk into an explicit plan.",
+              "token": "body",
+              "spacing": {
+                "before": 6,
+                "after": 10
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

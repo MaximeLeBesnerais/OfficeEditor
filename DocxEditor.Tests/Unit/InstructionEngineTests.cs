@@ -429,6 +429,11 @@ public class InstructionEngineTests : IDisposable
 
         public IDocumentBuilder ReplaceWithMarkdown(string targetText, string markdown, StyleMapping? styleMap = null) => this;
 
+        // The rich-markdown members (AddRichMarkdown, ReplaceWithRichMarkdown,
+        // LastRichMarkdownResult) are intentionally not declared here: their default interface
+        // implementations keep this implementation source-compatible with the pre-rich-markdown
+        // surface, and no instruction in this suite routes through them.
+
         public List<VariableInfo> DetectVariables() => [];
 
         public IDocumentBuilder MergeVariables(Dictionary<string, string> data) => this;

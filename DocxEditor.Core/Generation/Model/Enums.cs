@@ -159,6 +159,22 @@ public enum AnchorReference
     Character
 }
 
+/// <summary>
+/// Semantic tone of a report archetype item (KPI value, roadmap phase). Positive/negative
+/// tint the item against the theme palette (teal/coral); neutral keeps the theme default.
+/// </summary>
+public enum ReportTone
+{
+    /// <summary>On-track / favorable; tints toward the theme teal.</summary>
+    Positive,
+
+    /// <summary>Default; keeps the theme's default role color.</summary>
+    Neutral,
+
+    /// <summary>At-risk / unfavorable; tints toward the theme coral.</summary>
+    Negative
+}
+
 /// <summary>Semantic tone of a callout (drives the default fill/emblem treatment).</summary>
 public enum CalloutTone
 {
@@ -183,4 +199,131 @@ public enum LineOrientation
 
     /// <summary>Top to bottom.</summary>
     Vertical
+}
+
+/// <summary>
+/// Semantic text role. A role names what a piece of text <em>is</em> (a title, an eyebrow, a
+/// metric) rather than how it should look; the active design theme supplies the default
+/// formatting for each role, which content may override with a typography <c>token</c> and
+/// direct run formatting. Roles back the generated semantic paragraph styles.
+/// </summary>
+public enum TextRole
+{
+    /// <summary>Document/section title.</summary>
+    Title,
+
+    /// <summary>Subtitle line under a title.</summary>
+    Subtitle,
+
+    /// <summary>Small uppercase kicker above a title.</summary>
+    Eyebrow,
+
+    /// <summary>Heading level 1.</summary>
+    Heading1,
+
+    /// <summary>Heading level 2.</summary>
+    Heading2,
+
+    /// <summary>Heading level 3.</summary>
+    Heading3,
+
+    /// <summary>Heading level 4.</summary>
+    Heading4,
+
+    /// <summary>Heading level 5.</summary>
+    Heading5,
+
+    /// <summary>Heading level 6.</summary>
+    Heading6,
+
+    /// <summary>Body copy (the default reading role).</summary>
+    Body,
+
+    /// <summary>Secondary/supporting body text.</summary>
+    Muted,
+
+    /// <summary>Small field label.</summary>
+    Label,
+
+    /// <summary>Large standalone number or figure.</summary>
+    Metric,
+
+    /// <summary>Caption under a metric.</summary>
+    MetricLabel,
+
+    /// <summary>Table header cell text.</summary>
+    TableHeader,
+
+    /// <summary>Table body cell text.</summary>
+    TableBody,
+
+    /// <summary>Callout/note body text.</summary>
+    Callout,
+
+    /// <summary>Page footer text.</summary>
+    Footer
+}
+
+/// <summary>Helpers for working with <see cref="TextRole"/>.</summary>
+public static class TextRoleExtensions
+{
+    /// <summary>Maps a heading level (1..6) to its heading role.</summary>
+    public static TextRole ForHeading(int level) => level switch
+    {
+        1 => TextRole.Heading1,
+        2 => TextRole.Heading2,
+        3 => TextRole.Heading3,
+        4 => TextRole.Heading4,
+        5 => TextRole.Heading5,
+        _ => TextRole.Heading6
+    };
+
+    /// <summary>True when the role is one of the six heading levels.</summary>
+    public static bool IsHeading(this TextRole role) =>
+        role is >= TextRole.Heading1 and <= TextRole.Heading6;
+
+    /// <summary>The 1-based outline level of a heading role (throws for non-headings).</summary>
+    public static int HeadingLevel(this TextRole role) =>
+        role.IsHeading()
+            ? (role - TextRole.Heading1) + 1
+            : throw new ArgumentOutOfRangeException(nameof(role), role, "only heading roles have a level.");
+
+    /// <summary>True when the role reads as running/reading text that benefits from a body-size
+    /// readability guardrail (body, muted, labels, table cells, footer, callout).</summary>
+    public static bool IsReadingRole(this TextRole role) => role switch
+    {
+        TextRole.Body or TextRole.Muted or TextRole.Label or TextRole.MetricLabel or
+            TextRole.TableHeader or TextRole.TableBody or TextRole.Callout or TextRole.Footer => true,
+        _ => false
+    };
+}
+
+/// <summary>
+/// Typographic density for a document: scales the theme's paragraph spacing roles. Defaults to
+/// <see cref="Comfortable"/> (the editorial baseline); <see cref="Compact"/> tightens and
+/// <see cref="Spacious"/> loosens.
+/// </summary>
+public enum Density
+{
+    /// <summary>Tight spacing (~0.75× the theme baseline).</summary>
+    Compact,
+
+    /// <summary>Editorial baseline spacing (1×).</summary>
+    Comfortable,
+
+    /// <summary>Looser, airier spacing (~1.4× the theme baseline).</summary>
+    Spacious
+}
+
+/// <summary>Helpers for working with <see cref="Density"/>.</summary>
+public static class DensityExtensions
+{
+    /// <summary>Deterministic multiplier applied to theme paragraph spacing roles.</summary>
+    public static double Scale(this Density density) => density switch
+    {
+        Density.Compact => 0.75,
+        Density.Comfortable => 1.0,
+        Density.Spacious => 1.4,
+        _ => 1.0
+    };
 }

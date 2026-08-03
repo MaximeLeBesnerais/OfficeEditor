@@ -192,34 +192,28 @@ public static class ImageSourceResolver
 
     /// <summary>
     /// Symlink-aware canonicalization for an existing path. Walks every component and resolves
-    /// links to their final targets. Any inspection or link-resolution failure is surfaced as
-    /// a typed asset error rather than falling back to an unvalidated lexical path.
+    /// links to their final targets, repeating the walk until the path is stable so that a
+    /// resolved target's own links are canonicalized too (on macOS the temp root is reached
+    /// through /var → /private/var, and a stored link target can keep the /var spelling).
+    /// Any inspection or link-resolution failure — or a symlink cycle — is surfaced as a typed
+    /// asset error rather than falling back to an unvalidated lexical path.
     /// </summary>
     private static string CanonicalizeExistingPath(string path, string displayPath)
     {
         try
         {
-            var full = Path.GetFullPath(path);
-            var root = Path.GetPathRoot(full) ?? string.Empty;
-            var components = full[root.Length..].Split(
-                [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
-                StringSplitOptions.RemoveEmptyEntries);
-
-            var current = root;
-            foreach (var component in components)
+            var current = Path.GetFullPath(path);
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            while (seen.Add(current))
             {
-                current = Path.Combine(current, component);
-                var attributes = File.GetAttributes(current);
-                if ((attributes & FileAttributes.ReparsePoint) != 0)
+                var resolved = ResolvePathLinks(current);
+                if (string.Equals(resolved, current, StringComparison.Ordinal))
                 {
-                    FileSystemInfo info = (attributes & FileAttributes.Directory) != 0
-                        ? new DirectoryInfo(current)
-                        : new FileInfo(current);
-                    current = info.ResolveLinkTarget(true)?.FullName
-                        ?? throw new IOException($"Symbolic link target could not be resolved: '{current}'.");
+                    return current;
                 }
+                current = resolved;
             }
-            return Path.GetFullPath(current);
+            throw new IOException($"Symbolic link cycle detected while canonicalizing '{displayPath}'.");
         }
         catch (Exception ex) when (ex is not ImageSourceException)
         {
@@ -228,5 +222,30 @@ public static class ImageSourceResolver
                 $"Image path could not be canonicalized safely: '{displayPath}'.",
                 ex);
         }
+    }
+
+    private static string ResolvePathLinks(string path)
+    {
+        var full = Path.GetFullPath(path);
+        var root = Path.GetPathRoot(full) ?? string.Empty;
+        var components = full[root.Length..].Split(
+            [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+            StringSplitOptions.RemoveEmptyEntries);
+
+        var current = root;
+        foreach (var component in components)
+        {
+            current = Path.Combine(current, component);
+            var attributes = File.GetAttributes(current);
+            if ((attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                FileSystemInfo info = (attributes & FileAttributes.Directory) != 0
+                    ? new DirectoryInfo(current)
+                    : new FileInfo(current);
+                current = info.ResolveLinkTarget(true)?.FullName
+                    ?? throw new IOException($"Symbolic link target could not be resolved: '{current}'.");
+            }
+        }
+        return Path.GetFullPath(current);
     }
 }

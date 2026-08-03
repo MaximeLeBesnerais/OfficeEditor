@@ -1,5 +1,6 @@
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Wordprocessing;
+using DocxEditor.Core.Generation.Design;
 using DocxEditor.Core.Generation.Model;
 
 namespace DocxEditor.Core.Generation.Emit.Ooxml.Flow;
@@ -7,7 +8,8 @@ namespace DocxEditor.Core.Generation.Emit.Ooxml.Flow;
 /// <summary>
 /// Dispatches flow blocks into a container (body, header, footer). Blocks are resolved
 /// positionally via <c>is</c> pattern matching; the flow <c>group</c> container is flattened
-/// into the parent flow per the vocabulary's authoring-sugar contract.
+/// into the parent flow per the vocabulary's authoring-sugar contract. An optional resolved
+/// page format is forwarded so blocks (tables) can measure guardrails against the real text width.
 /// </summary>
 internal static class FlowBlockEmitter
 {
@@ -15,11 +17,12 @@ internal static class FlowBlockEmitter
         OoxmlEmitContext context,
         OpenXmlCompositeElement container,
         IReadOnlyList<FlowBlock> blocks,
-        string path)
+        string path,
+        ResolvedPageFormat? pageFormat = null)
     {
         for (var i = 0; i < blocks.Count; i++)
         {
-            EmitBlock(context, container, blocks[i], $"{path}[{i}]");
+            EmitBlock(context, container, blocks[i], $"{path}[{i}]", pageFormat);
         }
     }
 
@@ -27,7 +30,8 @@ internal static class FlowBlockEmitter
         OoxmlEmitContext context,
         OpenXmlCompositeElement container,
         FlowBlock block,
-        string path)
+        string path,
+        ResolvedPageFormat? pageFormat)
     {
         switch (block)
         {
@@ -41,7 +45,7 @@ internal static class FlowBlockEmitter
                 ListEmitter.EmitList(context, container, list, path);
                 break;
             case TableBlock table:
-                TableEmitter.EmitTable(context, container, table, path);
+                TableEmitter.EmitTable(context, container, table, path, pageFormat);
                 break;
             case ImageElement image:
                 ImageEmitter.EmitInlineImage(context, container, image, path);
@@ -54,7 +58,7 @@ internal static class FlowBlockEmitter
                 break;
             case FlowContainerBlock group:
                 // Group is authoring sugar: flatten nested blocks into the parent flow.
-                EmitBlocks(context, container, group.Blocks, $"{path}.blocks");
+                EmitBlocks(context, container, group.Blocks, $"{path}.blocks", pageFormat);
                 break;
             default:
                 context.Warn(path, $"unsupported flow block '{block.GetType().Name}'; the block was skipped.");

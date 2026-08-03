@@ -83,7 +83,9 @@ public sealed class DocxStyleManager
     // ---- baseline styles ----
 
     /// <summary>Returns the style ID for a baseline kind, referencing the template's definition when
-    /// present or generating a missing one (lazily, cached, collision-free).</summary>
+    /// present (and of the expected kind) or generating a missing one (lazily, cached, collision-free).
+    /// A template style whose conventional ID/name is reused is only ever referenced when its
+    /// <c>Type</c> matches the baseline kind; a wrong-kind match is never reused.</summary>
     public string GetOrCreateStyle(BaselineStyleKind kind)
     {
         if (_generated.TryGetValue(kind, out var cached))
@@ -92,15 +94,11 @@ public sealed class DocxStyleManager
         }
 
         var (preferredId, preferredName) = Conventional(kind);
-        if (_existingById.ContainsKey(preferredId))
+        var expected = ExpectedKind(kind);
+        if (TryReuseTemplateStyle(preferredId, preferredName, expected, out var reusedId))
         {
-            _generated[kind] = preferredId;
-            return preferredId;
-        }
-        if (_existingByName.TryGetValue(preferredName, out var namedId) && _existingById.ContainsKey(namedId))
-        {
-            _generated[kind] = namedId;
-            return namedId;
+            _generated[kind] = reusedId;
+            return reusedId;
         }
 
         var bodyStyleId = kind == BaselineStyleKind.Body ? string.Empty : GetOrCreateBodyStyle();
@@ -115,6 +113,57 @@ public sealed class DocxStyleManager
         _generated[kind] = styleId;
         return styleId;
     }
+
+    /// <summary>
+    /// Reuses a template style for a baseline kind only when it is defined with the expected
+    /// <see cref="StyleValues"/>. When a style with the conventional ID/name exists but has the
+    /// wrong kind, it records a canonical warning and returns false so a fresh, collision-free
+    /// definition is generated instead — a wrong-kind style is never referenced.
+    /// </summary>
+    private bool TryReuseTemplateStyle(string preferredId, string preferredName, StyleValues expected, out string reusedId)
+    {
+        if (_existingById.TryGetValue(preferredId, out var byId) && StyleKindMatches(byId, expected))
+        {
+            reusedId = preferredId;
+            return true;
+        }
+        if (_existingByName.TryGetValue(preferredName, out var namedId) &&
+            _existingById.TryGetValue(namedId, out var byName) &&
+            StyleKindMatches(byName, expected))
+        {
+            reusedId = namedId;
+            return true;
+        }
+
+        if (TemplateStyleKind(preferredId, preferredName) is { } actualKind && actualKind != expected)
+        {
+            _resolver.RecordWarning(
+                "WrongStyleKind",
+                $"the '{preferredName}' baseline style exists in the document as a {StyleKindName(actualKind)} style, but a {StyleKindName(expected)} style is required here; a fresh baseline style will be generated instead.",
+                null);
+        }
+        reusedId = null!;
+        return false;
+    }
+
+    private static bool StyleKindMatches(Style style, StyleValues expected) =>
+        (style.Type?.Value ?? StyleValues.Paragraph) == expected;
+
+    private StyleValues? TemplateStyleKind(string preferredId, string preferredName)
+    {
+        if (_existingById.TryGetValue(preferredId, out var byId))
+        {
+            return byId.Type?.Value ?? StyleValues.Paragraph;
+        }
+        if (_existingByName.TryGetValue(preferredName, out var namedId) && _existingById.TryGetValue(namedId, out var byName))
+        {
+            return byName.Type?.Value ?? StyleValues.Paragraph;
+        }
+        return null;
+    }
+
+    private static StyleValues ExpectedKind(BaselineStyleKind kind) =>
+        kind == BaselineStyleKind.Table ? StyleValues.Table : StyleValues.Paragraph;
 
     /// <summary>Body/Normal style.</summary>
     public string GetOrCreateBodyStyle() => GetOrCreateStyle(BaselineStyleKind.Body);
@@ -142,35 +191,76 @@ public sealed class DocxStyleManager
 
     /// <summary>
     /// Resolves an author-supplied style reference (from a block's <c>style</c> field) against the
-    /// template's styles by ID or by name. When the reference is unknown it records a deterministic
-    /// warning on the resolver and falls back to the requested baseline style (body by default),
-    /// or skips the reference when <paramref name="fallbackKind"/> is null. Never generates a style
-    /// named after the reference.
+    /// template's styles by ID or by name, validating that the resolved style has the expected
+    /// <paramref name="kind"/> (paragraph, character or table). A wrong-kind reference is never
+    /// applied: it records a canonical warning on the resolver and falls back to the requested
+    /// baseline style instead. When the reference is unknown it records a deterministic warning and
+    /// falls back to the requested baseline style (body by default), or skips the reference when
+    /// <paramref name="fallbackKind"/> is null. Never generates a style named after the reference.
     /// </summary>
     public string? ResolveStyleReference(
         string? styleReference,
+        StyleValues kind,
         string? context = null,
         BaselineStyleKind? fallbackKind = BaselineStyleKind.Body)
     {
         if (string.IsNullOrWhiteSpace(styleReference))
         {
-            return fallbackKind is { } kind ? GetOrCreateStyle(kind) : null;
+            return fallbackKind is { } ? GetOrCreateStyle(fallbackKind.Value) : null;
         }
-        if (_existingById.ContainsKey(styleReference))
+        if (FindStyle(styleReference) is { } existing)
         {
-            return styleReference;
-        }
-        if (_existingByName.TryGetValue(styleReference, out var namedId) && _existingById.ContainsKey(namedId))
-        {
-            return namedId;
+            var actualKind = existing.Type?.Value ?? StyleValues.Paragraph;
+            if (actualKind == kind)
+            {
+                return existing.StyleId?.Value;
+            }
+            _resolver.RecordWarning(
+                "WrongStyleKind",
+                fallbackKind is { }
+                    ? $"style reference '{styleReference}' is a {StyleKindName(actualKind)} style, but a {StyleKindName(kind)} style is required here; falling back to the '{Conventional(fallbackKind.Value).Name}' style instead."
+                    : $"style reference '{styleReference}' is a {StyleKindName(actualKind)} style, but a {StyleKindName(kind)} style is required here; the style reference was skipped.",
+                context);
+            return fallbackKind is { } ? GetOrCreateStyle(fallbackKind.Value) : null;
         }
         _resolver.RecordWarning(
             "UnknownStyleReference",
-            fallbackKind is { } fallback
-                ? $"style reference '{styleReference}' is not defined in the document; falling back to the '{Conventional(fallback).Name}' style."
+            fallbackKind is { }
+                ? $"style reference '{styleReference}' is not defined in the document; falling back to the '{Conventional(fallbackKind.Value).Name}' style."
                 : $"style reference '{styleReference}' is not defined in the document; the style reference was skipped.",
             context);
-        return fallbackKind is { } fallbackKindValue ? GetOrCreateStyle(fallbackKindValue) : null;
+        return fallbackKind is { } ? GetOrCreateStyle(fallbackKind.Value) : null;
+    }
+
+    /// <summary>Looks a style up by ID first, then by name, without applying any kind filtering.</summary>
+    private Style? FindStyle(string styleReference)
+    {
+        if (_existingById.TryGetValue(styleReference, out var byId))
+        {
+            return byId;
+        }
+        if (_existingByName.TryGetValue(styleReference, out var namedId) && _existingById.TryGetValue(namedId, out var byName))
+        {
+            return byName;
+        }
+        return null;
+    }
+
+    private static string StyleKindName(StyleValues kind)
+    {
+        if (kind == StyleValues.Paragraph)
+        {
+            return "paragraph";
+        }
+        if (kind == StyleValues.Character)
+        {
+            return "character";
+        }
+        if (kind == StyleValues.Table)
+        {
+            return "table";
+        }
+        return kind.ToString().ToLowerInvariant();
     }
 
     // ---- internals ----
@@ -257,15 +347,23 @@ public sealed class DocxStyleManager
     {
         BaselineStyleKind.Body => ("Normal", "Normal"),
         BaselineStyleKind.Title => ("Title", "Title"),
+        BaselineStyleKind.Subtitle => ("Subtitle", "Subtitle"),
+        BaselineStyleKind.Eyebrow => ("Eyebrow", "Eyebrow"),
         BaselineStyleKind.Heading1 => ("Heading1", "heading 1"),
         BaselineStyleKind.Heading2 => ("Heading2", "heading 2"),
         BaselineStyleKind.Heading3 => ("Heading3", "heading 3"),
         BaselineStyleKind.Heading4 => ("Heading4", "heading 4"),
         BaselineStyleKind.Heading5 => ("Heading5", "heading 5"),
         BaselineStyleKind.Heading6 => ("Heading6", "heading 6"),
+        BaselineStyleKind.MutedBody => ("MutedBody", "Muted Body"),
+        BaselineStyleKind.Label => ("Label", "Label"),
+        BaselineStyleKind.Metric => ("Metric", "Metric"),
+        BaselineStyleKind.MetricLabel => ("MetricLabel", "Metric Label"),
         BaselineStyleKind.Callout => ("Callout", "Callout"),
+        BaselineStyleKind.Footer => ("Footer", "Footer"),
         BaselineStyleKind.Table => ("TableGrid", "Table Grid"),
         BaselineStyleKind.TableHeader => ("TableHeader", "TableHeader"),
+        BaselineStyleKind.TableBody => ("TableBody", "Table Body"),
         BaselineStyleKind.Code => ("Code", "Code"),
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "unknown baseline style kind.")
     };

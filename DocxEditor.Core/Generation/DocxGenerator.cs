@@ -1,6 +1,7 @@
 using DocxEditor.Core.Generation.Assets;
 using DocxEditor.Core.Generation.Contracts;
 using DocxEditor.Core.Generation.Emit.Ooxml;
+using DocxEditor.Core.Generation.Expand;
 using DocxEditor.Core.Generation.Model;
 using DocxEditor.Core.Generation.Schema;
 
@@ -76,7 +77,9 @@ public sealed class DocxGenerator
 
     /// <summary>
     /// Validates declarative JSON, writes the complete package to <paramref name="output"/>,
-    /// and leaves the caller-owned stream open.
+    /// and leaves the caller-owned stream open at the end of the written bytes. The stream
+    /// is flushed before returning, so the package is immediately readable (e.g. after the
+    /// caller seeks back); its position has advanced by exactly the package length.
     /// </summary>
     public DocxGenerationResult Generate(string json, Stream output, DocxGeneratorOptions? options = null)
     {
@@ -86,7 +89,9 @@ public sealed class DocxGenerator
 
     /// <summary>
     /// Validates a parsed model, writes the complete package to <paramref name="output"/>,
-    /// and leaves the caller-owned stream open.
+    /// and leaves the caller-owned stream open at the end of the written bytes. The stream
+    /// is flushed before returning, so the package is immediately readable (e.g. after the
+    /// caller seeks back); its position has advanced by exactly the package length.
     /// </summary>
     public DocxGenerationResult Generate(
         DocxGenerationDocument document,
@@ -132,9 +137,9 @@ public sealed class DocxGenerator
         IReadOnlyList<DocxGenerationIssue> parserWarnings)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
-        var effectiveDocument = ApplyOptions(document, options);
+        var effectiveDocument = ApplyOptions(ExpandDocument(document, out var expansionWarnings), options);
         using var emitter = CreateEmitter(outputPath, writeOutput: true, options);
-        return MergeWarnings(emitter.Emit(effectiveDocument), parserWarnings);
+        return MergeWarnings(emitter.Emit(effectiveDocument), parserWarnings, expansionWarnings);
     }
 
     private DocxGenerationResult GenerateToStream(
@@ -151,6 +156,7 @@ public sealed class DocxGenerator
 
         var generated = GenerateBytes(document, options, parserWarnings);
         output.Write(generated.Content);
+        output.Flush();
         return generated.Result;
     }
 
@@ -159,9 +165,9 @@ public sealed class DocxGenerator
         DocxGeneratorOptions? options,
         IReadOnlyList<DocxGenerationIssue> parserWarnings)
     {
-        var effectiveDocument = ApplyOptions(document, options);
+        var effectiveDocument = ApplyOptions(ExpandDocument(document, out var expansionWarnings), options);
         using var emitter = CreateEmitter(outputPath: null, writeOutput: false, options);
-        var result = MergeWarnings(emitter.Emit(effectiveDocument), parserWarnings);
+        var result = MergeWarnings(emitter.Emit(effectiveDocument), parserWarnings, expansionWarnings);
         return new GeneratedDocx { Content = emitter.SaveToBytes(), Result = result };
     }
 
@@ -191,11 +197,45 @@ public sealed class DocxGenerator
         return document with { TemplatePath = options.TemplatePath };
     }
 
+    /// <summary>
+    /// Lowers report archetypes into concrete flow blocks. This is the single expansion point of
+    /// the pipeline: it runs once per generation, after parse/validation and before design
+    /// resolution/emission, for both the JSON and the parsed-model overloads (they all funnel
+    /// through here). Documents without archetypes pass through unchanged.
+    ///
+    /// The lowered model is revalidated before it can be emitted: expansion is authoring sugar and
+    /// must never lower an archetype into a malformed table (e.g. an empty KPI row producing a
+    /// zero-column grid) or otherwise weaken the contract the source model already satisfied. The
+    /// source was validated before this call, so any revalidation error is an internal invariant
+    /// violation and surfaces as a loud contract error rather than corrupted OOXML.
+    /// </summary>
+    private static DocxGenerationDocument ExpandDocument(
+        DocxGenerationDocument document,
+        out IReadOnlyList<DocxGenerationIssue> expansionWarnings)
+    {
+        var expansion = DocxGenerationExpander.ExpandWithIssues(document);
+        expansionWarnings = expansion.Warnings;
+        var expanded = expansion.Document;
+        if (!ReferenceEquals(expanded, document))
+        {
+            DocxGenerationModelValidator.Validate(expanded).ThrowIfInvalid();
+        }
+        return expanded;
+    }
+
     private static DocxGenerationResult MergeWarnings(
         DocxGenerationResult result,
-        IReadOnlyList<DocxGenerationIssue> parserWarnings) =>
-        parserWarnings.Count == 0
-            ? result
-            : result with { Warnings = [.. parserWarnings, .. result.Warnings] };
+        IReadOnlyList<DocxGenerationIssue> parserWarnings,
+        IReadOnlyList<DocxGenerationIssue> expansionWarnings)
+    {
+        if (parserWarnings.Count == 0 && expansionWarnings.Count == 0)
+        {
+            return result;
+        }
+        return result with
+        {
+            Warnings = [.. parserWarnings, .. expansionWarnings, .. result.Warnings]
+        };
+    }
 
 }

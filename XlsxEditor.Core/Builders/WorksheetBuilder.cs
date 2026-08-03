@@ -29,6 +29,15 @@ public class WorksheetBuilder : IWorksheetBuilder
     private const double MaxColumnWidth = 255;
     private const double MaxRowHeight = 409.5;
 
+    // Excel's 1900 date system counts days since 1899-12-30 (serial 1 = 1900-01-01).
+    // Dates before 1900-01-01 have no serial and are rejected up front.
+    private static readonly DateOnly ExcelDateEpoch = new(1899, 12, 30);
+    private static readonly DateTime ExcelDateTimeEpoch = new(1899, 12, 30);
+
+    // Default number formats so ISO date/datetime cells render as dates in Excel.
+    internal const string DefaultDateNumberFormat = "yyyy-mm-dd";
+    internal const string DefaultDateTimeNumberFormat = "yyyy-mm-dd h:mm:ss";
+
     public WorksheetPart WorksheetPart => _worksheetPart;
 
     public WorksheetBuilder(WorksheetPart worksheetPart, Worksheet worksheet, WorkbookBuilder workbookBuilder)
@@ -181,6 +190,191 @@ public class WorksheetBuilder : IWorksheetBuilder
             }
         }
 
+        return this;
+    }
+
+    // ─── Typed cell writes ─────────────────────────────────────────
+
+    /// <summary>
+    /// Applies a raw cellXf style index to the cell at <paramref name="cellReference"/>,
+    /// creating the cell if needed. Used by the instruction executor to preserve legacy
+    /// numeric style ids that reference existing cell formats directly (the caller must
+    /// have verified the index via <see cref="WorkbookBuilder.EnsureStyleIndexExists"/>).
+    /// </summary>
+    internal IWorksheetBuilder ApplyStyleIndex(string cellReference, uint styleIndex)
+    {
+        var normalized = NormalizeCellReference(cellReference);
+        var cell = GetOrCreateCell(normalized);
+        cell.StyleIndex = styleIndex;
+        return this;
+    }
+
+    public IWorksheetBuilder AddCellString(string cellReference, string value, string? styleName = null)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+
+        var normalized = NormalizeCellReference(cellReference);
+        var styleIndex = ResolveStyle(styleName, null);
+        var cell = GetOrCreateCell(normalized);
+
+        // Overwriting replaces the cell's content entirely: a previous formula (and its
+        // cached value) must not survive a typed write.
+        cell.CellFormula = null;
+        var sharedStringIndex = _workbookBuilder.GetSharedStringIndex(value);
+        cell.CellValue = new CellValue(sharedStringIndex.ToString());
+        cell.DataType = CellValues.SharedString;
+        ApplyStyle(cell, styleIndex);
+        return this;
+    }
+
+    public IWorksheetBuilder AddCellNumber(string cellReference, double value, string? numberFormat = null, string? styleName = null)
+    {
+        // Excel stores IEEE doubles; NaN and infinities are not representable and would
+        // corrupt the value. Reject them before any cell or stylesheet mutation.
+        if (!double.IsFinite(value))
+        {
+            throw new XlsxException(
+                $"Cell {cellReference} must hold a finite number; NaN and positive or " +
+                "negative infinity are not valid Excel cell values.");
+        }
+
+        var normalized = NormalizeCellReference(cellReference);
+        var styleIndex = ResolveStyle(styleName, numberFormat);
+        var cell = GetOrCreateCell(normalized);
+        cell.CellFormula = null;
+        cell.CellValue = new CellValue(value);
+        cell.DataType = CellValues.Number;
+        ApplyStyle(cell, styleIndex);
+        return this;
+    }
+
+    public IWorksheetBuilder AddCellBoolean(string cellReference, bool value, string? styleName = null)
+    {
+        var normalized = NormalizeCellReference(cellReference);
+        var styleIndex = ResolveStyle(styleName, null);
+        var cell = GetOrCreateCell(normalized);
+        cell.CellFormula = null;
+        cell.CellValue = new CellValue(value ? "1" : "0");
+        cell.DataType = CellValues.Boolean;
+        ApplyStyle(cell, styleIndex);
+        return this;
+    }
+
+    public IWorksheetBuilder AddCellDate(string cellReference, string isoDate, string? numberFormat = null, string? styleName = null)
+    {
+        ArgumentNullException.ThrowIfNull(isoDate);
+
+        if (!DateOnly.TryParseExact(
+                isoDate, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
+        {
+            throw new XlsxException(
+                $"Cell {cellReference} has an invalid ISO date '{isoDate}'. " +
+                "Expected an ISO-8601 date in the form yyyy-MM-dd (for example 2024-01-15).");
+        }
+
+        if (date < new DateOnly(1900, 1, 1))
+        {
+            throw new XlsxException(
+                $"Cell {cellReference} has a date before 1900-01-01 ('{isoDate}'), which " +
+                "Excel's 1900 date system cannot represent.");
+        }
+
+        var serial = date.DayNumber - ExcelDateEpoch.DayNumber;
+        return WriteDateCell(cellReference, serial, numberFormat ?? DefaultDateNumberFormat, styleName);
+    }
+
+    public IWorksheetBuilder AddCellDateTime(string cellReference, string isoDateTime, string? numberFormat = null, string? styleName = null)
+    {
+        ArgumentNullException.ThrowIfNull(isoDateTime);
+
+        if (!DateTime.TryParseExact(
+                isoDateTime,
+                new[] { "yyyy-MM-ddTHH:mm:ss", "yyyy-MM-ddTHH:mm:ss.fff" },
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.None,
+                out var dateTime))
+        {
+            throw new XlsxException(
+                $"Cell {cellReference} has an invalid ISO datetime '{isoDateTime}'. " +
+                "Expected an ISO-8601 datetime in the form yyyy-MM-ddTHH:mm:ss " +
+                "(for example 2024-01-15T14:30:00, optional fractional seconds).");
+        }
+
+        if (dateTime < new DateTime(1900, 1, 1))
+        {
+            throw new XlsxException(
+                $"Cell {cellReference} has a datetime before 1900-01-01 ('{isoDateTime}'), " +
+                "which Excel's 1900 date system cannot represent.");
+        }
+
+        var serial = (dateTime - ExcelDateTimeEpoch).TotalDays;
+        return WriteDateCell(cellReference, serial, numberFormat ?? DefaultDateTimeNumberFormat, styleName);
+    }
+
+    public IWorksheetBuilder AddFormula(string cellReference, string formula, string? styleName = null, string? numberFormat = null)
+    {
+        ArgumentNullException.ThrowIfNull(formula);
+
+        var normalized = NormalizeCellReference(cellReference);
+
+        // SpreadsheetML stores formula text WITHOUT the leading '='; '=' is Excel's
+        // UI/input syntax only. Callers may pass either form.
+        var formulaText = formula.StartsWith('=') ? formula[1..] : formula;
+        if (string.IsNullOrWhiteSpace(formulaText))
+        {
+            throw new XlsxException(
+                $"Cell {normalized} has an empty formula. " +
+                "A formula must contain at least one token.");
+        }
+
+        // All validation runs before any mutation, so a rejected formula or style can
+        // never leave a partially written (empty) cell behind.
+        var styleIndex = ResolveStyle(styleName, numberFormat);
+        var cell = GetOrCreateCell(normalized);
+
+        cell.CellFormula = new CellFormula(formulaText);
+
+        // A formula replaces any previous literal content; the old cached value is stale
+        // until Excel recalculates, so drop it (and the old data type) instead of letting
+        // GetCellValue return it.
+        cell.CellValue = null;
+        cell.DataType = null;
+        ApplyStyle(cell, styleIndex);
+        return this;
+    }
+
+    /// <summary>
+    /// Resolves a named style plus optional number-format override to a cellXf index, or
+    /// null when neither is given (the cell keeps its current style). All validation runs
+    /// before any cell mutation so a bad style name fails loudly and atomically.
+    /// </summary>
+    private uint? ResolveStyle(string? styleName, string? numberFormat)
+    {
+        if (string.IsNullOrWhiteSpace(styleName) && string.IsNullOrWhiteSpace(numberFormat))
+        {
+            return null;
+        }
+
+        return _workbookBuilder.ResolveStyleIndex(styleName, numberFormat);
+    }
+
+    private static void ApplyStyle(Cell cell, uint? styleIndex)
+    {
+        if (styleIndex is { } index)
+        {
+            cell.StyleIndex = index;
+        }
+    }
+
+    private IWorksheetBuilder WriteDateCell(string cellReference, double serial, string numberFormat, string? styleName)
+    {
+        var normalized = NormalizeCellReference(cellReference);
+        var styleIndex = ResolveStyle(styleName, numberFormat);
+        var cell = GetOrCreateCell(normalized);
+        cell.CellFormula = null;
+        cell.CellValue = new CellValue(serial);
+        cell.DataType = CellValues.Number;
+        ApplyStyle(cell, styleIndex);
         return this;
     }
 
@@ -566,6 +760,167 @@ public class WorksheetBuilder : IWorksheetBuilder
         }
 
         return this;
+    }
+
+    // ─── Freeze panes ──────────────────────────────────────────────
+
+    public IWorksheetBuilder FreezePanes(int frozenRows, int frozenColumns)
+    {
+        // Validation before any mutation: a frozen pane needs at least one frozen row or
+        // column, and the pane's top-left cell must exist within Excel's real grid.
+        if (frozenRows < 0 || frozenColumns < 0)
+        {
+            throw new XlsxException(
+                $"Freeze pane dimensions must be non-negative; got rows={frozenRows}, " +
+                $"columns={frozenColumns}.");
+        }
+
+        if (frozenRows == 0 && frozenColumns == 0)
+        {
+            throw new XlsxException(
+                "Freeze pane dimensions cannot both be zero: a frozen pane must freeze at " +
+                "least one row or one column.");
+        }
+
+        if (frozenRows > MaxRowNumber - 1 || frozenColumns > MaxColumnNumber - 1)
+        {
+            throw new XlsxException(
+                $"Freeze pane dimensions are out of range: at most {MaxRowNumber - 1:N0} " +
+                $"rows and {MaxColumnNumber - 1} columns can be frozen. Got rows={frozenRows}, " +
+                $"columns={frozenColumns}.");
+        }
+
+        var sheetViews = GetOrCreateSheetViews();
+        var sheetView = sheetViews.Elements<SheetView>().FirstOrDefault();
+        if (sheetView is null)
+        {
+            sheetView = new SheetView();
+            sheetViews.Append(sheetView);
+        }
+
+        if (sheetView.WorkbookViewId is null)
+        {
+            sheetView.WorkbookViewId = 0;
+        }
+
+        var pane = sheetView.Pane ?? new Pane();
+        pane.HorizontalSplit = (double)frozenColumns;
+        pane.VerticalSplit = (double)frozenRows;
+        pane.State = PaneStateValues.Frozen;
+        pane.TopLeftCell = GetCellReference(frozenColumns, frozenRows + 1);
+        pane.ActivePane = frozenRows > 0 && frozenColumns > 0
+            ? PaneValues.BottomRight
+            : frozenRows > 0 ? PaneValues.BottomLeft : PaneValues.TopRight;
+
+        if (sheetView.Pane is null)
+        {
+            sheetView.Append(pane);
+        }
+
+        // Excel pairs a frozen pane with a selection naming the active pane, so the user
+        // never lands in a frozen (non-scrollable) region.
+        if (!sheetView.Elements<Selection>().Any())
+        {
+            sheetView.Append(new Selection
+            {
+                Pane = pane.ActivePane,
+                ActiveCell = pane.TopLeftCell
+            });
+        }
+
+        return this;
+    }
+
+    public (int FrozenRows, int FrozenColumns)? GetFreezePanes()
+    {
+        var pane = _worksheet.GetFirstChild<SheetViews>()
+            ?.Elements<SheetView>().FirstOrDefault()?.Pane;
+        if (pane?.State?.Value != PaneStateValues.Frozen)
+        {
+            return null;
+        }
+
+        return ((int)(pane.VerticalSplit?.Value ?? 0), (int)(pane.HorizontalSplit?.Value ?? 0));
+    }
+
+    /// <summary>
+    /// Returns the worksheet's &lt;sheetViews&gt; container, creating and inserting it in
+    /// schema position (immediately after sheetPr/dimension, before sheetFormatPr) on
+    /// first use. The element is reused afterwards, so every sheet view lives in one list
+    /// with a Count that stays in sync with its &lt;sheetView&gt; children.
+    /// </summary>
+    private SheetViews GetOrCreateSheetViews()
+    {
+        var existing = _worksheet.GetFirstChild<SheetViews>();
+        if (existing is not null)
+        {
+            return existing;
+        }
+
+        var sheetViews = new SheetViews();
+        InsertWorksheetElementAtSchemaPosition(sheetViews);
+        return sheetViews;
+    }
+
+    // ─── Standalone autofilter ─────────────────────────────────────
+
+    public IWorksheetBuilder SetAutoFilter(string range)
+    {
+        var (start, end) = NormalizeMergeRange(range);
+        var startRow = GetRowIndex(start);
+        var startColumn = GetColumnIndex(start);
+        var endRow = GetRowIndex(end);
+        var endColumn = GetColumnIndex(end);
+
+        if (endRow < startRow || endColumn < startColumn)
+        {
+            throw new XlsxException(
+                $"AutoFilter range '{range}' is reversed: the start cell must be the " +
+                "top-left corner of the range and the end cell the bottom-right corner.");
+        }
+
+        var autoFilter = _worksheet.GetFirstChild<AutoFilter>();
+        if (autoFilter is null)
+        {
+            autoFilter = new AutoFilter();
+            InsertWorksheetElementAtSchemaPosition(autoFilter);
+        }
+
+        autoFilter.Reference = $"{start}:{end}";
+        return this;
+    }
+
+    public string? GetAutoFilterRange()
+    {
+        return _worksheet.GetFirstChild<AutoFilter>()?.Reference?.Value;
+    }
+
+    public IWorksheetBuilder RemoveAutoFilter()
+    {
+        _worksheet.GetFirstChild<AutoFilter>()?.Remove();
+        return this;
+    }
+
+    /// <summary>
+    /// Inserts a new worksheet child at its correct position in the CT_Worksheet child
+    /// sequence (see <see cref="WorksheetChildOrder"/>). Existing children of a reopened
+    /// worksheet are already in schema order, so inserting before the first child that
+    /// must follow is correct whether the worksheet was just created or carries elements
+    /// such as sheetFormatPr, autoFilter, mergeCells or tableParts.
+    /// </summary>
+    private void InsertWorksheetElementAtSchemaPosition(OpenXmlElement element)
+    {
+        var order = GetWorksheetChildOrder(element.LocalName);
+        foreach (var child in _worksheet.ChildElements)
+        {
+            if (GetWorksheetChildOrder(child.LocalName) > order)
+            {
+                _worksheet.InsertBefore(element, child);
+                return;
+            }
+        }
+
+        _worksheet.Append(element);
     }
 
     public List<string> GetMergeRanges()

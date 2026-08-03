@@ -2,7 +2,7 @@
 
 Every example shows **what you start with → the code you run → what you get**.
 
-For complete document generation, see the [declarative DOCX vocabulary guide](../../docs/docx-generation.md) and its [self-contained JSON example](generation/comprehensive.json).
+For complete document generation, see the [declarative DOCX vocabulary guide](../../docs/docx-generation.md) and its [self-contained JSON example](generation/comprehensive.json). For rich Markdown → DOCX, see [§7 — Rich Markdown](#7-rich-markdown-recursive-renderer) below and the [comprehensive markdown fixture](markdown/comprehensive.md).
 
 ---
 
@@ -55,7 +55,7 @@ Getting Started:
 
 ## 2. Markdown → DOCX
 
-**Input:** `sample.md` (excerpt below; the tracked sample also includes Phases 2–3, a budget table, and next steps)
+**Input:** `sample.md` (excerpt below; the tracked sample also includes Phases 2–3, a budget table, and next steps). `AddMarkdown` routes through the rich recursive renderer, so the output uses real Word heading styles, nested inline formatting, numbering-backed lists, tables, quotes, and a horizontal rule.
 
 ```markdown
 # Project Proposal
@@ -230,7 +230,7 @@ Validate instruction JSON before parsing with `DocxInstructionValidator` for fie
 
 **Output:** Document modified according to the instruction set.
 
-**Current limitations:** images, headers/footers, and table styling are not yet available via the builder. Hyperlinks are flattened to plain text in the converter.
+**Current limitations (fluent builder):** images, headers/footers, and table styling are not yet available via the fluent builder API. Hyperlinks are flattened to plain text in the converter. The **rich markdown renderer** does embed local/data-URI images, real hyperlinks, and footnotes (see §7).
 
 
 ---
@@ -269,6 +269,108 @@ Shipment contents
 
 ---
 
+## 7. Rich Markdown (recursive renderer)
+
+`AddRichMarkdown` / `ReplaceWithRichMarkdown` (and `AddMarkdown` / `ReplaceWithMarkdown`, which route through them) parse markdown into a recursive IR and render directly to OOXML — no lossy intermediate pass. Run it on the comprehensive fixture:
+
+```csharp
+var markdown = File.ReadAllText("markdown/comprehensive.md");
+using var builder = DocumentBuilder.Create("07-rich-markdown.docx");
+builder.AddRichMarkdown(markdown);
+builder.Save();
+```
+
+The last conversion is available on `builder.LastRichMarkdownResult` (parse + render diagnostics). The renderer handles **headings 1–6 (ATX + setext), nested emphasis/strong/strike/sub/sup/insert/mark, inline/fenced/indented code, links (real hyperlink relationships), reference links, autolinks, local/data-URI images, recursive blockquotes, bullet/ordered/nested/non-1/task lists, pipe and grid tables with alignment, thematic breaks, hard/soft breaks, escapes and HTML entities, footnotes, definition lists, emoji shortcodes, YAML front matter, and generic attributes.**
+
+**Fixture:** [`markdown/comprehensive.md`](markdown/comprehensive.md) exercises every feature as a readable test report with expected DOCX behaviour; its local image is the self-authored [`markdown/assets/officeeditor-badge.svg`](markdown/assets/officeeditor-badge.svg). [`markdown/style-map.json`](markdown/style-map.json) is a custom style-map example using visible Word style names — note that such visible names only render as their real styles when a matching template is opened (`DocumentBuilder.Open` / `--template`); standalone generation (blank document) instead resolves each name to a generated fallback style of the right kind, so the mapping still applies but with default styling.
+
+### Options
+
+`MarkdownRenderOptions` controls the OOXML half; `MarkdownParseOptions` the parse half (defaults are the standard permissive configuration).
+
+```csharp
+var styleMap = JsonSerializer.Deserialize<Dictionary<string, string>>(
+    File.ReadAllText("markdown/style-map.json"));
+var options = new MarkdownRenderOptions
+{
+    // Parse side.
+    ParseOptions = new MarkdownParseOptions { Strict = true },
+
+    // Custom style names (see style-map.json) instead of StyleMapping.Default.
+    StyleMapping = new StyleMapping { StyleMap = styleMap },
+
+    // Soft newline handling: Space (default) | LineBreak | None.
+    SoftBreakMode = MarkdownSoftBreakMode.Space,
+
+    // YAML front matter -> package core properties (title/author/...), no visible content.
+    MapYamlFrontMatterToCoreProperties = true,
+
+    // Embed images capped to a 6.5" display width (468 pt default).
+    MaxDisplayWidthPt = 468,
+
+    // Safe image policy (defaults: relative-to-CWD, absolute rejected, no network).
+    ImageSourceOptions = new ImageSourceOptions { AllowedRoot = Path.GetFullPath("markdown") },
+
+    // Emit warnings for fallbacks (HTML, unresolved images, non-absolute links, ...).
+    Strict = true
+};
+builder.AddRichMarkdown(markdown, options);
+```
+
+- **Custom style names** — `StyleMapping` maps markdown element keys to Word style references. The rich renderer consumes the paragraph keys **`heading1`–`heading6`, `paragraph`, `blockquote`, `list`, `codeBlock`, `tableHeader`, `definitionTerm`, `definitionDescription`, and `footnoteText`**, the table key **`table`**, and the character keys **`codeInline`** and **`hyperlink`**, writing them as style ids on the emitted OOXML; existing style definitions are never mutated. The remaining `StyleMapping.Default` keys (`thematicBreak`, `imageCaption`, `tip`, `warning`, `note`) are shared with the legacy `ContentBlockRenderer` path and are accepted but not consumed by the rich renderer. The standalone `MarkdownStyleResolver` resolves any of these references against a document's styles part with precedence **exact StyleId → exact style name → unique case-insensitive style name**, rejects ambiguous or kind-mismatched references, and in permissive mode generates a fallback style of the expected kind (paragraph/character/table) — strict mode returns an error instead.
+- **Template** — open an existing document with `DocumentBuilder.Open(template.docx)` and append markdown: style resolution then runs against the template's styles, and hyperlink/image/footnote parts are added to the live package.
+- **Strict** — `MarkdownParseOptions.Strict` and `MarkdownRenderOptions.Strict` turn retained-verbatim constructs and visible fallbacks (raw HTML, math, unresolved images, missing footnote definitions, table spans) into `Warning` diagnostics (read from `LastRichMarkdownResult`); permissive mode produces the same visible output without those diagnostics. Link fallbacks (internal anchors, relative, or disallowed-scheme URLs) always warn in both modes.
+
+### CLI
+
+The DOCX-only CLI exposes the same renderer as `docxeditor markdown`:
+
+```bash
+dotnet run --project DocxEditor.Cli -- markdown guide.md guide.docx \
+  --template base.docx --style-map styles.json --strict
+```
+
+- `--template <path>` — base the document on an existing template; its styles are preserved, and custom style-map names must resolve against it (unresolved names warn, or error under `--strict`).
+- `--style-map <path>` — JSON mapping of markdown element keys to Word style names or StyleIds; both a flat object and a `{ "styleMap": {…} }` wrapper are accepted.
+- `--strict` — treats unresolved constructs and style references as errors and enables strict parsing (permissive by default).
+- Image paths in the markdown resolve relative to the input markdown's directory and are **confined to it** — sources escaping the directory (or absolute paths) are rejected, so conversion never reads outside the source folder.
+- Output is written atomically: the document is built in a sibling temp file and moved into place, so a failed conversion never truncates an existing output.
+
+### Safe image & link policies
+
+| Concern | Policy |
+|---|---|
+| Remote images | **Rejected** — generation never fetches network assets. Accepted sources are `data:` URIs (base64/percent) and local files. |
+| Local paths | Relative paths resolve against `ImageSourceOptions.AllowedRoot` when set, otherwise the process working directory; absolute paths are rejected unless `AllowAbsolutePaths` is true, and stay confined to the root when one is set. |
+| Asset limits | Default 25 MiB encoded/decoded, 16,384 px per side, 268,435,456 px total area; oversized or unsupported payloads fall back (or fail the load policy). |
+| Links | Only absolute URLs with an allowed scheme (`http`, `https`, `mailto`) become hyperlink relationships. Internal anchors (`#…`), relative, empty, and other-scheme URLs render as their plain text with a warning (in both permissive and strict modes). |
+| Unresolved images | A remote/missing/unreadable image renders as a visible `[image: alt]` placeholder — never a dangling reference, never a dropped image. |
+
+### Supported / fallback matrix
+
+| Markdown construct | Behaviour |
+|---|---|
+| Headings 1–6 (ATX + setext) | Heading paragraphs with outline levels; inline formatting preserved |
+| Emphasis: bold, italic, strike, sub, sup, insert, mark | Nested run formatting; combinations merge |
+| Code: inline / fenced / indented | Inline: monospace run (Consolas + shading); blocks: `codeBlock`-mapped paragraphs |
+| Links: inline, reference, shortcut, autolink | Real hyperlink relationships for `http`/`https`/`mailto` URLs; internal anchors, relative, and other-scheme URLs render as plain text |
+| Internal anchors (`#heading`) | **Fallback** — rendered as plain text (bookmarks are not emitted) + warning |
+| Images: local file, `data:` URI | Embedded inline drawing; fit capped to max display width |
+| Blockquotes | Recursively indented; `Quote`-mapped style |
+| Lists: bullet, ordered (non-1 start), nested, task | Collision-free numbering instances; `☑`/`☐` task glyphs |
+| Tables: pipe + grid, alignment, inline cells | Grid-bordered table, shaded bold header row, per-column alignment |
+| Horizontal rules | Paragraph with a single-line bottom border |
+| Hard / soft breaks | Hard → `<w:br/>`; soft → space (or line break / dropped) |
+| Escapes & entities | Backslash escapes neutralised; entities decoded |
+| Footnotes | Footnote references + a real `FootnotesPart` |
+| Definition lists | Terms bold on the `definitionTerm` style; definitions on the `definitionDescription` style |
+| Emoji (Unicode + `:shortcode:`) | Passed through / expanded to Unicode text |
+| YAML front matter | Mapped to core properties; no visible content |
+| Generic attributes | Syntax accepted; **not applied** to OOXML |
+| Raw HTML (block/inline) | **Fallback** — rendered as escaped visible text (+ strict warning) |
+| Math (block/inline) | **Fallback** — block kept as `math`-labelled code block; inline kept verbatim |
+| Table spans | **Fallback** — parsed but rendered without merging (+ strict warning) |
+
 ## Running Examples
 
 ```bash
@@ -276,6 +378,4 @@ cd examples
 dotnet run
 ```
 
-The runner currently executes sections 1–4. Sections 5–6 are library snippets backed by tests but are not yet called from `examples/Program.cs`.
-
-Or run just the DOCX portion by editing `Program.cs` to call only `RunDocxExamples()`.
+The runner currently executes sections 1–4. Sections 5–6 are library snippets backed by tests but are not yet called from `examples/Program.cs`; §7's markdown fixtures are source fixtures for the library (`AddRichMarkdown`), not console-runner inputs.

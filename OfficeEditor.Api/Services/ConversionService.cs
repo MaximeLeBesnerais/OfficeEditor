@@ -1,10 +1,15 @@
 using System.Text;
+using System.Text.Json;
 using DocxEditor.Core.Builders;
 using DocxEditor.Core.Converters;
+using DocxEditor.Core.Generation;
+using DocxEditor.Core.Generation.Schema;
+using DocxEditor.Core.Markdown.Rendering;
 using DocumentFormat.OpenXml.Packaging;
 using OfficeEditor.Core.Services;
 using PptxEditor.Core.Builders;
 using XlsxEditor.Core.Builders;
+using XlsxEditor.Core.Instructions;
 
 namespace OfficeEditor.Api.Services;
 
@@ -24,6 +29,12 @@ public sealed class ConversionService : IConversionService
                 ConversionTargetFormat.Png when sourceFormat == SourceFormat.Pptx => await ConvertPptxToPngAsync(request, messages, ct),
                 ConversionTargetFormat.Svg when sourceFormat == SourceFormat.Pptx => await ConvertPptxToSvgAsync(request, messages, ct),
                 ConversionTargetFormat.Docx when sourceFormat == SourceFormat.Markdown => await ConvertMarkdownToDocxAsync(request, messages, ct),
+                // Non-empty JSON sources route through the declarative generators, never blank
+                // creation; empty JSON falls back to blank-document compatibility.
+                ConversionTargetFormat.Docx when sourceFormat == SourceFormat.Json && !IsEmptyDocument(request) => await ConvertJsonToDocxAsync(request, messages, ct),
+                ConversionTargetFormat.Xlsx when sourceFormat == SourceFormat.Json && !IsEmptyDocument(request) => await ConvertJsonToXlsxAsync(request, messages, ct),
+                ConversionTargetFormat.Docx when sourceFormat == SourceFormat.Json && IsEmptyDocument(request) => await CreateBlankDocxAsync(request, messages, ct),
+                ConversionTargetFormat.Xlsx when sourceFormat == SourceFormat.Json && IsEmptyDocument(request) => await CreateBlankXlsxAsync(request, messages, ct),
                 ConversionTargetFormat.Docx when sourceFormat == SourceFormat.Unknown || (sourceFormat == SourceFormat.Docx && IsEmptyDocument(request)) => await CreateBlankDocxAsync(request, messages, ct),
                 ConversionTargetFormat.Xlsx when sourceFormat == SourceFormat.Unknown || (sourceFormat == SourceFormat.Xlsx && IsEmptyDocument(request)) => await CreateBlankXlsxAsync(request, messages, ct),
                 ConversionTargetFormat.Pptx when sourceFormat == SourceFormat.Unknown || (sourceFormat == SourceFormat.Pptx && IsEmptyDocument(request)) => await CreateBlankPptxAsync(request, messages, ct),
@@ -144,7 +155,12 @@ public sealed class ConversionService : IConversionService
         messages.Add($"Decoded {markdown.Length} characters of Markdown.");
 
         using var builder = DocumentBuilder.Create();
-        builder.AddMarkdown(markdown);
+        // Untrusted uploads must never resolve local-file image sources: the API image policy
+        // (data URIs only) disables every local path while keeping data-URI images embeddable.
+        builder.AddRichMarkdown(markdown, new MarkdownRenderOptions
+        {
+            ImageSourceOptions = ConversionSourcePolicy.DataUriOnlyImageSources
+        });
         messages.Add("Converted Markdown to DOCX content.");
 
         var docxBytes = builder.SaveToBytes();
@@ -157,6 +173,143 @@ public sealed class ConversionService : IConversionService
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             null,
             messages);
+    }
+
+    /// <summary>
+    /// Routes a non-empty JSON source to the declarative DOCX generator. Validation failures
+    /// return every collected path-qualified issue as an actionable error and never produce
+    /// partial output; network image fetching is never enabled. Untrusted input is constrained
+    /// to the API policy: a top-level <c>template</c> path is rejected before generation, and
+    /// image sources are data URIs only.
+    /// </summary>
+    private static async Task<ConversionResult> ConvertJsonToDocxAsync(ConversionRequest request, List<string> messages, CancellationToken ct)
+    {
+        await Task.Yield();
+        ct.ThrowIfCancellationRequested();
+
+        var json = Encoding.UTF8.GetString(request.SourceBytes);
+        messages.Add($"Decoded {json.Length} characters of JSON.");
+
+        if (RejectJsonTemplatePath(json) is { } templateError)
+        {
+            messages.Add("Rejected 'template' in DOCX generation JSON.");
+            return ConversionResultWithError($"Invalid DOCX generation JSON:{Environment.NewLine} - {templateError}", messages);
+        }
+
+        var generator = new DocxGenerator();
+        GeneratedDocx generated;
+        try
+        {
+            generated = generator.GenerateToBytes(json, new DocxGeneratorOptions
+            {
+                ImageSourceOptions = ConversionSourcePolicy.DataUriOnlyImageSources
+            });
+        }
+        catch (DocxGenerationValidationException ex)
+        {
+            var details = string.Join(Environment.NewLine + " - ", ex.Issues);
+            messages.Add("Rejected invalid DOCX generation JSON.");
+            return ConversionResultWithError($"Invalid DOCX generation JSON:{Environment.NewLine} - {details}", messages);
+        }
+
+        foreach (var warning in generated.Result.Warnings)
+        {
+            messages.Add($"Warning: {warning}");
+        }
+
+        messages.Add($"Generated DOCX package ({generated.Content.Length} bytes).");
+        return new ConversionResult(
+            true,
+            generated.Content,
+            ChangeExtension(request.SourceFileName, ".docx"),
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            null,
+            messages);
+    }
+
+    /// <summary>
+    /// Routes a non-empty JSON source to the JSON→XLSX generator. The generator's canonical
+    /// diagnostics (JSON path + message) surface as an actionable error on rejection; nothing
+    /// is written on failure.
+    /// </summary>
+    private static async Task<ConversionResult> ConvertJsonToXlsxAsync(ConversionRequest request, List<string> messages, CancellationToken ct)
+    {
+        await Task.Yield();
+        ct.ThrowIfCancellationRequested();
+
+        var json = Encoding.UTF8.GetString(request.SourceBytes);
+        messages.Add($"Decoded {json.Length} characters of JSON.");
+
+        var result = XlsxGenerator.Generate(json);
+        if (!result.IsValid || result.Bytes is null)
+        {
+            var details = string.Join(Environment.NewLine + " - ", result.Validation.Errors.Select(FormatXlsxDiagnostic));
+            messages.Add("Rejected invalid XLSX instruction JSON.");
+            return ConversionResultWithError($"Invalid XLSX instruction JSON:{Environment.NewLine} - {details}", messages);
+        }
+
+        foreach (var warning in result.Validation.Warnings)
+        {
+            messages.Add($"Warning: {FormatXlsxDiagnostic(warning)}");
+        }
+
+        messages.Add($"Generated XLSX workbook ({result.Bytes.Length} bytes).");
+        return new ConversionResult(
+            true,
+            result.Bytes,
+            ChangeExtension(request.SourceFileName, ".xlsx"),
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            null,
+            messages);
+    }
+
+    private static string FormatXlsxDiagnostic(XlsxDiagnostic diagnostic)
+    {
+        var location = string.IsNullOrEmpty(diagnostic.Path) ? diagnostic.CodeName : $"{diagnostic.Path} ({diagnostic.CodeName})";
+        return $"{diagnostic.Message} at {location}";
+    }
+
+    /// <summary>
+    /// Rejects a top-level <c>template</c> path in untrusted generation JSON. The HTTP
+    /// conversion service must never read a server-local template file that an upload names
+    /// (<see cref="DocxGeneratorOptions.TemplatePath"/> reaches <c>File.ReadAllBytes</c> in the
+    /// emitter). Only a non-empty string <c>template</c> is rejected here; malformed JSON and
+    /// empty/non-string values fall through so the generator reports its own actionable
+    /// validation error. Returns the path-qualified issue message, or null when allowed.
+    /// </summary>
+    private static string? RejectJsonTemplatePath(string json)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            var root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+            {
+                return null;
+            }
+
+            foreach (var property in root.EnumerateObject())
+            {
+                if (!string.Equals(property.Name, "template", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (property.Value.ValueKind == JsonValueKind.String
+                    && !string.IsNullOrWhiteSpace(property.Value.GetString()))
+                {
+                    return "\"$.template\": template files are not allowed for API conversions; remove 'template' to generate from a blank document.";
+                }
+
+                return null;
+            }
+
+            return null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     private static async Task<ConversionResult> CreateBlankDocxAsync(ConversionRequest request, List<string> messages, CancellationToken ct)
@@ -267,6 +420,7 @@ public sealed class ConversionService : IConversionService
             "pptx" => SourceFormat.Pptx,
             "xlsx" => SourceFormat.Xlsx,
             "md" or "markdown" or "txt" => SourceFormat.Markdown,
+            "json" => SourceFormat.Json,
             _ => SourceFormat.Unknown
         };
     }
@@ -324,6 +478,7 @@ public sealed class ConversionService : IConversionService
         Docx,
         Pptx,
         Xlsx,
-        Markdown
+        Markdown,
+        Json
     }
 }

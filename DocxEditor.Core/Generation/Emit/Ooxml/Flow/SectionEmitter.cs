@@ -1,6 +1,7 @@
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
+using DocxEditor.Core.Generation.Design;
 using DocxEditor.Core.Generation.Model;
 using DocxEditor.Core.Generation.Schema;
 using OfficeEditor.Core.Exceptions;
@@ -43,9 +44,10 @@ internal static class SectionEmitter
             PreserveTemplateSections(body);
         }
         var path = "sections[0]";
-        var headerIds = EmitHeaderParts(context, empty, path);
-        var footerIds = EmitFooterParts(context, empty, path);
-        body.Append(BuildSectionProperties(context, empty, index: 0, sections: [empty], headerIds, footerIds, path));
+        var resolvedPage = context.DesignResolver.ResolvePage(empty.PageSetup, path);
+        var headerIds = EmitHeaderParts(context, empty, path, resolvedPage);
+        var footerIds = EmitFooterParts(context, empty, path, resolvedPage);
+        body.Append(BuildSectionProperties(context, empty, index: 0, sections: [empty], headerIds, footerIds, path, resolvedPage));
     }
 
     private static Body GetBody(OoxmlEmitContext context) =>
@@ -57,15 +59,16 @@ internal static class SectionEmitter
         var section = sections[index];
         var path = $"sections[{index}]";
         var isLast = index == sections.Count - 1;
+        var resolvedPage = context.DesignResolver.ResolvePage(section.PageSetup, path);
 
-        var headerIds = EmitHeaderParts(context, section, path);
-        var footerIds = EmitFooterParts(context, section, path);
+        var headerIds = EmitHeaderParts(context, section, path, resolvedPage);
+        var footerIds = EmitFooterParts(context, section, path, resolvedPage);
 
-        FlowBlockEmitter.EmitBlocks(context, body, section.Blocks, $"{path}.blocks");
+        FlowBlockEmitter.EmitBlocks(context, body, section.Blocks, $"{path}.blocks", resolvedPage);
 
         EmitPositioned(context, section, body, path);
 
-        var sectionProperties = BuildSectionProperties(context, section, index, sections, headerIds, footerIds, path);
+        var sectionProperties = BuildSectionProperties(context, section, index, sections, headerIds, footerIds, path, resolvedPage);
 
         if (isLast)
         {
@@ -84,21 +87,11 @@ internal static class SectionEmitter
             return;
         }
 
-        for (var i = 0; i < section.Positioned.Count; i++)
-        {
-            if (section.Positioned[i] is PositionedImage image)
-            {
-                _ = context.Images.Resolve(
-                    context.MainPart,
-                    image.Source,
-                    $"$.{sectionPath}.positioned[{i}].src");
-            }
-        }
-
-        var result = context.PositionedEmitter.Emit(context.MainPart, body, section.Positioned);
+        var positionedPath = $"$.{sectionPath}.positioned";
+        var result = context.PositionedEmitter.Emit(context.MainPart, body, section.Positioned, positionedPath);
         foreach (var warning in result.Warnings)
         {
-            var warningPath = $"$.{sectionPath}.positioned[{warning.Index}]";
+            var warningPath = positionedPath + $"[{warning.Index}]";
             if (!string.IsNullOrEmpty(warning.PathSuffix))
             {
                 warningPath += $".{warning.PathSuffix}";
@@ -111,7 +104,7 @@ internal static class SectionEmitter
         }
     }
 
-    private static IReadOnlyList<string> EmitHeaderParts(OoxmlEmitContext context, Section section, string path)
+    private static IReadOnlyList<string> EmitHeaderParts(OoxmlEmitContext context, Section section, string path, ResolvedPageFormat resolvedPage)
     {
         var headerPart = context.MainPart.AddNewPart<HeaderPart>();
         var header = new Header();
@@ -122,13 +115,13 @@ internal static class SectionEmitter
         }
         else
         {
-            FlowBlockEmitter.EmitBlocks(context, header, section.Header, $"{path}.header");
+            FlowBlockEmitter.EmitBlocks(context, header, section.Header, $"{path}.header", resolvedPage);
         }
         headerPart.Header = header;
         return [context.MainPart.GetIdOfPart(headerPart)];
     }
 
-    private static IReadOnlyList<string> EmitFooterParts(OoxmlEmitContext context, Section section, string path)
+    private static IReadOnlyList<string> EmitFooterParts(OoxmlEmitContext context, Section section, string path, ResolvedPageFormat resolvedPage)
     {
         var footerPart = context.MainPart.AddNewPart<FooterPart>();
         var footer = new Footer();
@@ -139,7 +132,7 @@ internal static class SectionEmitter
         }
         else
         {
-            FlowBlockEmitter.EmitBlocks(context, footer, section.Footer, $"{path}.footer");
+            FlowBlockEmitter.EmitBlocks(context, footer, section.Footer, $"{path}.footer", resolvedPage);
         }
         footerPart.Footer = footer;
         return [context.MainPart.GetIdOfPart(footerPart)];
@@ -152,7 +145,8 @@ internal static class SectionEmitter
         IReadOnlyList<Section> sections,
         IReadOnlyList<string> headerIds,
         IReadOnlyList<string> footerIds,
-        string path)
+        string path,
+        ResolvedPageFormat pageSetup)
     {
         // CT_SectPr child order: headerReference*, footerReference*, type, pgSz, pgMar, cols.
         var sectionProperties = new SectionProperties();
@@ -176,8 +170,6 @@ internal static class SectionEmitter
             var breakType = sections[index + 1].PageSetup?.BreakType ?? SectionBreakType.NextPage;
             sectionProperties.Append(new SectionType { Val = SectionMarkValue(breakType) });
         }
-
-        var pageSetup = context.DesignResolver.ResolvePage(section.PageSetup, path);
 
         sectionProperties.Append(new DocumentFormat.OpenXml.Wordprocessing.PageSize
         {

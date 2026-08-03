@@ -17,9 +17,9 @@ All outputs are written to `examples/output/`.
 
 | Format | Examples | Output Folder |
 |--------|----------|---------------|
-| [DOCX](Docx/README.md) | Basic creation, Markdown → DOCX, JSON instructions, Variable detection, Mail merge | `output/docx/` |
+| [DOCX](Docx/README.md) | Basic creation, Markdown → DOCX (library + `docxeditor markdown` CLI), JSON instructions, Variable detection, Mail merge, **Rich markdown (fixtures)** | `output/docx/` |
 | [PPTX](Pptx/README.md) | Slides, Tables, Variable merge, **→ PDF**, **→ Typst source**, **→ PNG thumbnails** | `output/pptx/` |
-| [XLSX](Xlsx/README.md) | Worksheets, Formulas, Cross-sheet references, Variable detection, Mail merge, JSON instructions, Layout & merges, Read back | `output/xlsx/` |
+| [XLSX](Xlsx/README.md) | Worksheets, Formulas, Cross-sheet references, Variable detection, Mail merge, JSON instructions (rich vocabulary, CLI via `officeeditor generate`), Layout & merges, Read back | `output/xlsx/` |
 
 ## Project Structure
 
@@ -29,8 +29,16 @@ examples/
 ├── Docx/
 │   ├── README.md           # DOCX input/output docs
 │   ├── sample.md           # Markdown source for conversion example
-│   └── instructions/
-│       └── sample.json     # JSON instruction set example
+│   ├── markdown/           # Rich markdown fixtures (source; library-driven)
+│   │   ├── comprehensive.md
+│   │   ├── style-map.json
+│   │   └── assets/
+│   │       └── officeeditor-badge.svg
+│   ├── instructions/
+│   │   └── sample.json     # JSON instruction set example
+│   └── generation/
+│       ├── comprehensive.json   # Declarative DOCX generation sample
+│       └── editorial-report.json# Semantic report archetypes sample
 ├── Pptx/
 │   ├── README.md           # PPTX input/output docs
 │   └── instructions/
@@ -38,7 +46,8 @@ examples/
 ├── Xlsx/
 │   ├── README.md           # XLSX input/output docs
 │   └── instructions/
-│       └── sample.json     # JSON instruction set example
+│       ├── sample.json     # Minimal v1 JSON instruction example
+│       └── rich-report.json# Rich vocabulary: typed cells, styles, layout, tables
 ├── Shared/
 │   └── data.json           # Sample merge data
 └── output/                 # Generated files (created on run)

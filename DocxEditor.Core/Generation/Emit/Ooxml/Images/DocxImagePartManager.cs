@@ -15,14 +15,12 @@ public sealed class DocxImagePartManager
 {
     private readonly OpenXmlPart _owningPart;
     private readonly Dictionary<string, RegisteredImagePart> _byContentHash = new(StringComparer.Ordinal);
-    private uint _nextDocPrId;
 
     /// <summary>Creates a manager over the given main document part.</summary>
     public DocxImagePartManager(MainDocumentPart mainDocumentPart)
     {
         ArgumentNullException.ThrowIfNull(mainDocumentPart);
         _owningPart = mainDocumentPart;
-        _nextDocPrId = ComputeNextDocPrId();
     }
 
     /// <summary>Creates a manager over a header part.</summary>
@@ -30,7 +28,6 @@ public sealed class DocxImagePartManager
     {
         ArgumentNullException.ThrowIfNull(headerPart);
         _owningPart = headerPart;
-        _nextDocPrId = ComputeNextDocPrId();
     }
 
     /// <summary>Creates a manager over a footer part.</summary>
@@ -38,7 +35,6 @@ public sealed class DocxImagePartManager
     {
         ArgumentNullException.ThrowIfNull(footerPart);
         _owningPart = footerPart;
-        _nextDocPrId = ComputeNextDocPrId();
     }
 
     /// <summary>
@@ -87,35 +83,8 @@ public sealed class DocxImagePartManager
         return _byContentHash.GetValueOrDefault(contentHash);
     }
 
-    /// <summary>
-    /// Allocates the next deterministic docPr id. Call once per placed picture (inline or
-    /// positioned) so ids stay unique within the relationship-owning part.
-    /// </summary>
-    public uint NextDocPrId() => _nextDocPrId++;
-
     /// <summary>Every registered part, keyed by content hash, in registration order.</summary>
     public IReadOnlyDictionary<string, RegisteredImagePart> RegisteredImagesByHash => _byContentHash;
-
-    private uint ComputeNextDocPrId()
-    {
-        uint maxId = 0;
-        if (_owningPart.RootElement is { } root)
-        {
-            foreach (var element in root.Descendants())
-            {
-                if (element.LocalName is not ("docPr" or "cNvPr"))
-                {
-                    continue;
-                }
-                var id = element.GetAttribute("id", string.Empty).Value;
-                if (uint.TryParse(id, System.Globalization.CultureInfo.InvariantCulture, out var parsed))
-                {
-                    maxId = Math.Max(maxId, parsed);
-                }
-            }
-        }
-        return maxId + 1;
-    }
 
     /// <summary>
     /// Deterministic relationship id derived from the content hash, bumped with a suffix if

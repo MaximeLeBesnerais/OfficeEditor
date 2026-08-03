@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
+using DocxEditor.Core.Generation.Design;
 using DocxEditor.Core.Generation.Model;
 
 namespace DocxEditor.Core.Generation.Schema;
@@ -25,10 +26,11 @@ internal static class DocxGenerationModelValidator
     {
         private readonly List<DocxGenerationIssue> _errors = [];
         private readonly List<DocxGenerationIssue> _warnings = [];
-        private IReadOnlyDictionary<string, string> _palette = new Dictionary<string, string>();
+        private IReadOnlyDictionary<string, string> _palette = DesignThemeCatalog.Editorial.Palette;
         private IReadOnlyDictionary<string, TypographyToken> _typography = new Dictionary<string, TypographyToken>();
         private FontTokens _fonts = new();
         private PageDefaults _pageDefaults = new();
+        private string? _themeName;
 
         public DocxGenerationValidationResult Validate()
         {
@@ -83,14 +85,18 @@ internal static class DocxGenerationModelValidator
 
         private void ValidateDesign(DesignTokens design)
         {
-            IReadOnlyDictionary<string, string>? palette = design.Palette;
-            if (palette is null)
+            string? themeName = design.Theme;
+            if (themeName is not null && !DesignThemeCatalog.Themes.ContainsKey(themeName))
             {
-                Error("$.design.palette", "must not be null.");
+                Error("$.design.theme", $"unknown theme '{themeName}'. Known themes: {string.Join(", ", DesignThemeCatalog.Themes.Keys)}.", Suggest(themeName, DesignThemeCatalog.Themes.Keys));
             }
-            else
+            _themeName = themeName;
+
+            IReadOnlyDictionary<string, string>? palette = design.Palette;
+            // A null/omitted palette is valid: the active theme's palette applies as the base.
+            _palette = DesignThemeCatalog.Resolve(_themeName).EffectivePalette(palette);
+            if (palette is not null)
             {
-                _palette = palette;
                 foreach (var (name, color) in palette)
                 {
                     string path = $"$.design.palette.{name}";
@@ -102,11 +108,7 @@ internal static class DocxGenerationModelValidator
             }
 
             FontTokens? fonts = design.Fonts;
-            if (fonts is null)
-            {
-                Error("$.design.fonts", "must not be null.");
-            }
-            else
+            if (fonts is not null)
             {
                 _fonts = fonts;
             }
@@ -148,11 +150,7 @@ internal static class DocxGenerationModelValidator
             }
 
             ShapeDefaults? shapes = design.Shapes;
-            if (shapes is null)
-            {
-                Error("$.design.shapes", "must not be null.");
-            }
-            else
+            if (shapes is not null)
             {
                 CheckNonNegative(shapes.CornerRadiusPt, "$.design.shapes.cornerRadius");
                 CheckColor(shapes.DefaultFill, "$.design.shapes.defaultFill");
@@ -176,6 +174,14 @@ internal static class DocxGenerationModelValidator
                 }
                 CheckFontReference(page.DefaultFontFamily, "$.design.page.defaultFont");
                 CheckColor(page.DefaultTextColor, "$.design.page.defaultTextColor");
+            }
+
+            LayoutDefaults? layout = design.Layout;
+            if (layout is not null)
+            {
+                CheckNullableEnum(layout.Density, "$.design.layout.density", "density");
+                CheckOptionalNonNegative(layout.MinBodySizePt, "$.design.layout.minBodySizePt");
+                CheckOptionalPositive(layout.MaxTableWidthPt, "$.design.layout.maxTableWidthPt");
             }
         }
 
@@ -316,6 +322,30 @@ internal static class DocxGenerationModelValidator
                 case FlowContainerBlock group:
                     ValidateFlowList(group.Blocks, $"{path}.blocks", "a group must contain at least one flow block.");
                     break;
+                case CoverBlock cover:
+                    ValidateOptionalText(cover.Eyebrow, $"{path}.eyebrow");
+                    ValidateRequiredText(cover.Title, $"{path}.title");
+                    ValidateOptionalText(cover.Subtitle, $"{path}.subtitle");
+                    ValidateOptionalText(cover.Metadata, $"{path}.metadata");
+                    if (cover.Kpis is not null)
+                    {
+                        ValidateKpiItems(cover.Kpis, $"{path}.kpis");
+                    }
+                    break;
+                case KpiRowBlock kpiRow:
+                    ValidateKpiItems(kpiRow.Items, $"{path}.items");
+                    break;
+                case SemanticSectionBlock section:
+                    ValidateRequiredText(section.Title, $"{path}.title");
+                    ValidateOptionalText(section.Intro, $"{path}.intro");
+                    ValidateFlowList(section.Blocks, $"{path}.blocks", "a semantic section must contain at least one flow block.");
+                    break;
+                case ComparisonTableBlock comparison:
+                    ValidateComparisonTable(comparison, path);
+                    break;
+                case RoadmapBlock roadmap:
+                    ValidateRoadmap(roadmap, path);
+                    break;
                 default:
                     Error(path, $"unsupported flow block type '{block.GetType().Name}'.");
                     break;
@@ -430,6 +460,111 @@ internal static class DocxGenerationModelValidator
             ValidateText(content, path, allowEmpty: false);
         }
 
+        private void ValidateOptionalText(TextModel? content, string path)
+        {
+            if (content is not null)
+            {
+                ValidateText(content, path, allowEmpty: false);
+            }
+        }
+
+        private void ValidateKpiItems(IReadOnlyList<KpiItem>? items, string path)
+        {
+            if (items is null)
+            {
+                Error(path, "must not be null.");
+                return;
+            }
+            if (items.Count == 0)
+            {
+                Error(path, "must contain at least one KPI item.");
+                return;
+            }
+            for (var i = 0; i < items.Count; i++)
+            {
+                KpiItem? item = items[i];
+                string itemPath = $"{path}[{i}]";
+                if (item is null)
+                {
+                    Error(itemPath, "KPI item must not be null.");
+                    continue;
+                }
+                ValidateRequiredText(item.Value, $"{itemPath}.value");
+                ValidateRequiredText(item.Label, $"{itemPath}.label");
+                CheckEnum(item.Tone, $"{itemPath}.tone", "report tone");
+            }
+        }
+
+        private void ValidateComparisonTable(ComparisonTableBlock table, string path)
+        {
+            IReadOnlyList<TextModel>? columns = table.Columns;
+            if (columns is null || columns.Count == 0)
+            {
+                Error($"{path}.columns", "a comparison table must have at least one column.");
+                return;
+            }
+            for (var i = 0; i < columns.Count; i++)
+            {
+                ValidateRequiredText(columns[i], $"{path}.columns[{i}]");
+            }
+
+            IReadOnlyList<ComparisonTableRow>? rows = table.Rows;
+            if (rows is null || rows.Count == 0)
+            {
+                Error($"{path}.rows", "a comparison table must contain at least one row.");
+                return;
+            }
+            int columnCount = columns.Count;
+            for (var r = 0; r < rows.Count; r++)
+            {
+                ComparisonTableRow? row = rows[r];
+                string rowPath = $"{path}.rows[{r}]";
+                if (row is null)
+                {
+                    Error(rowPath, "comparison table row must not be null.");
+                    continue;
+                }
+                IReadOnlyList<TextModel>? cells = row.Cells;
+                if (cells is null || cells.Count == 0)
+                {
+                    Error($"{rowPath}.cells", "a row must contain at least one cell.");
+                    continue;
+                }
+                if (cells.Count != columnCount)
+                {
+                    Error(rowPath, $"row has {cells.Count} cells but the comparison table has {columnCount} columns; all rows must have the same number of cells.");
+                }
+                for (var c = 0; c < cells.Count; c++)
+                {
+                    ValidateRequiredText(cells[c], $"{rowPath}.cells[{c}]");
+                }
+            }
+        }
+
+        private void ValidateRoadmap(RoadmapBlock roadmap, string path)
+        {
+            IReadOnlyList<RoadmapPhase>? phases = roadmap.Phases;
+            if (phases is null || phases.Count == 0)
+            {
+                Error($"{path}.phases", "a roadmap must contain at least one phase.");
+                return;
+            }
+            for (var i = 0; i < phases.Count; i++)
+            {
+                RoadmapPhase? phase = phases[i];
+                string phasePath = $"{path}.phases[{i}]";
+                if (phase is null)
+                {
+                    Error(phasePath, "roadmap phase must not be null.");
+                    continue;
+                }
+                ValidateRequiredText(phase.Window, $"{phasePath}.window");
+                ValidateRequiredText(phase.Action, $"{phasePath}.action");
+                ValidateOptionalText(phase.Evidence, $"{phasePath}.evidence");
+                CheckEnum(phase.Tone, $"{phasePath}.tone", "report tone");
+            }
+        }
+
         private void ValidateText(TextModel? content, string path, bool allowEmpty)
         {
             if (content is null)
@@ -477,6 +612,7 @@ internal static class DocxGenerationModelValidator
             {
                 Error($"{path}.token", $"unknown typography token '{content.Token}'.", Suggest(content.Token, _typography.Keys));
             }
+            CheckNullableEnum(content.Role, $"{path}.role", "text role");
             CheckNullableEnum(content.Alignment, $"{path}.alignment", "alignment");
             if (content.Spacing is not null)
             {
@@ -775,13 +911,16 @@ internal static class DocxGenerationModelValidator
 
         private void CheckFontReference(string? value, string path)
         {
-            if (string.Equals(value, "display", StringComparison.OrdinalIgnoreCase) && string.IsNullOrWhiteSpace(_fonts.Display))
+            var theme = DesignThemeCatalog.Resolve(_themeName);
+            if (string.Equals(value, "display", StringComparison.OrdinalIgnoreCase) &&
+                string.IsNullOrWhiteSpace(_fonts.Display) && string.IsNullOrWhiteSpace(theme.DisplayFontFamily))
             {
-                Warn(path, "font slot 'display' is not defined in 'design.fonts'; emitters fall back to the document default.");
+                Warn(path, "font slot 'display' is not defined in 'design.fonts' nor the active theme; emitters fall back to the document default.");
             }
-            else if (string.Equals(value, "body", StringComparison.OrdinalIgnoreCase) && string.IsNullOrWhiteSpace(_fonts.Body))
+            else if (string.Equals(value, "body", StringComparison.OrdinalIgnoreCase) &&
+                     string.IsNullOrWhiteSpace(_fonts.Body) && string.IsNullOrWhiteSpace(theme.BodyFontFamily))
             {
-                Warn(path, "font slot 'body' is not defined in 'design.fonts'; emitters fall back to the document default.");
+                Warn(path, "font slot 'body' is not defined in 'design.fonts' nor the active theme; emitters fall back to the document default.");
             }
         }
 

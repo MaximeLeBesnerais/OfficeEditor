@@ -194,6 +194,56 @@ public sealed class ApiIntegrationTests : IClassFixture<WebApplicationFactory<Pr
     }
 
     [Fact]
+    public async Task Convert_JsonFileToXlsx_ReturnsDownloadUrl()
+    {
+        var json = """{ "version": "1.0", "worksheets": [ { "name": "S", "headers": ["A"], "rows": [["1"]] } ] }""";
+        using var content = new MultipartFormDataContent();
+        var fileContent = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
+        content.Add(fileContent, "file", "workbook.json");
+        content.Add(new StringContent("xlsx"), "targetFormat");
+
+        var response = await _client.PostAsync("/api/convert", content);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var result = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(result.TryGetProperty("success", out var success) && success.GetBoolean());
+        Assert.True(result.TryGetProperty("downloadUrl", out var url) && !string.IsNullOrEmpty(url.GetString()));
+    }
+
+    [Fact]
+    public async Task Convert_JsonFileToDocx_ReturnsDownloadUrl()
+    {
+        var json = """{ "version": "1.0", "sections": [ { "blocks": [ { "type": "paragraph", "text": "Hello" } ] } ] }""";
+        using var content = new MultipartFormDataContent();
+        var fileContent = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
+        content.Add(fileContent, "file", "report.json");
+        content.Add(new StringContent("docx"), "targetFormat");
+
+        var response = await _client.PostAsync("/api/convert", content);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var result = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(result.TryGetProperty("success", out var success) && success.GetBoolean());
+        Assert.True(result.TryGetProperty("downloadUrl", out var url) && !string.IsNullOrEmpty(url.GetString()));
+    }
+
+    [Fact]
+    public async Task Convert_InvalidJsonToXlsx_ReturnsBadRequestWithError()
+    {
+        var json = """{ "version": "9.9", "worksheets": [] }""";
+        using var content = new MultipartFormDataContent();
+        var fileContent = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
+        content.Add(fileContent, "file", "bad.json");
+        content.Add(new StringContent("xlsx"), "targetFormat");
+
+        var response = await _client.PostAsync("/api/convert", content);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains("Invalid XLSX instruction JSON", body);
+    }
+
+    [Fact]
     public async Task Download_InvalidId_ReturnsNotFound()
     {
         var response = await _client.GetAsync($"/api/download/{Guid.NewGuid()}");

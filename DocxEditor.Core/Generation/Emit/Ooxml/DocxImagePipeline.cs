@@ -41,18 +41,14 @@ internal sealed class DocxImagePipeline : IPositionedImageResolver
         return (asset, GetPartManager(owningPart).Register(asset));
     }
 
-    public string? ResolveEmbedId(OpenXmlPart owningPart, PositionedImage image)
+    public PositionedImagePlacement? Resolve(OpenXmlPart owningPart, PositionedImage image, string? path)
     {
-        var (_, part) = Resolve(owningPart, image.Source, "$.positioned.image");
-        return part.RelationshipId;
-    }
-
-    public bool TryGetNaturalPixelSize(string source, out int width, out int height)
-    {
-        var asset = Load(source, "$.positioned.image");
-        width = asset.Width;
-        height = asset.Height;
-        return true;
+        ArgumentNullException.ThrowIfNull(owningPart);
+        ArgumentNullException.ThrowIfNull(image);
+        var (asset, part) = Resolve(owningPart, image.Source, path ?? "$.positioned.image");
+        var geometry = ResolvedImageGeometry.Resolve(
+            asset, image.Fit, image.Crop, image.Position.WidthPt, image.Position.HeightPt);
+        return new PositionedImagePlacement { EmbedId = part.RelationshipId, Geometry = geometry };
     }
 
     private ImageAsset Load(string source, string path)
