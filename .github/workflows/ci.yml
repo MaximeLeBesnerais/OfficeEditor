@@ -39,6 +39,8 @@ jobs:
             before="${{ github.event.before }}"
             if [ "$before" = "0000000000000000000000000000000000000000" ]; then
               echo "First push (all-zeros before): forcing dotnet=true"
+            elif ! git cat-file -e "$before" 2>/dev/null; then
+              echo "before SHA $before not present in checkout (force-push/rewritten history): forcing dotnet=true"
             else
               files="$(git diff --name-only "$before" "${{ github.sha }}")"
             fi
