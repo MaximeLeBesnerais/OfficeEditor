@@ -1,0 +1,1724 @@
+{
+  "version": "1.0",
+  "description": "Complex financial dashboard exercising borders, fill patterns, cross-sheet formulas, every cell type, and layout features.",
+  "metadata": {
+    "title": "Northwind Labs \u2014 FY2027 Financial Model",
+    "subject": "Strategic planning dashboard",
+    "author": "OfficeEditor",
+    "category": "Finance",
+    "keywords": "northwind, fy2027, dashboard, P&L, capex, headcount",
+    "comments": "Generated declaratively. Borders, fills, cross-sheet formulas, all cell types, freeze panes, tables, merges, autofilter."
+  },
+  "styles": [
+    {
+      "name": "dashboardTitle",
+      "font": {
+        "bold": true,
+        "size": 18,
+        "color": "1F3A5F"
+      },
+      "fill": {
+        "color": "E8F1FF",
+        "pattern": "solid"
+      },
+      "alignment": {
+        "horizontal": "left",
+        "vertical": "center"
+      },
+      "border": {
+        "bottom": {
+          "style": "medium",
+          "color": "1F3A5F"
+        }
+      }
+    },
+    {
+      "name": "sectionHeader",
+      "font": {
+        "bold": true,
+        "size": 12,
+        "color": "FFFFFF"
+      },
+      "fill": {
+        "color": "1F3A5F",
+        "pattern": "solid"
+      },
+      "alignment": {
+        "horizontal": "left",
+        "vertical": "center"
+      },
+      "border": {
+        "top": {
+          "style": "thin",
+          "color": "1F3A5F"
+        },
+        "bottom": {
+          "style": "thin",
+          "color": "1F3A5F"
+        }
+      }
+    },
+    {
+      "name": "colHeader",
+      "font": {
+        "bold": true,
+        "size": 10,
+        "color": "FFFFFF"
+      },
+      "fill": {
+        "color": "4472C4",
+        "pattern": "solid"
+      },
+      "alignment": {
+        "horizontal": "center",
+        "vertical": "center",
+        "wrapText": true
+      },
+      "border": {
+        "top": {
+          "style": "thin",
+          "color": "FFFFFF"
+        },
+        "bottom": {
+          "style": "medium",
+          "color": "1F3A5F"
+        },
+        "left": {
+          "style": "thin",
+          "color": "D6DEE6"
+        },
+        "right": {
+          "style": "thin",
+          "color": "D6DEE6"
+        }
+      }
+    },
+    {
+      "name": "currency",
+      "numberFormat": "$#,##0"
+    },
+    {
+      "name": "currencyDetail",
+      "numberFormat": "$#,##0.00"
+    },
+    {
+      "name": "pct",
+      "numberFormat": "0.0%"
+    },
+    {
+      "name": "pctDelta",
+      "numberFormat": "+0.0%;-0.0%"
+    },
+    {
+      "name": "kpiLabel",
+      "font": {
+        "bold": true,
+        "size": 9,
+        "color": "5A6B7B"
+      },
+      "alignment": {
+        "horizontal": "center"
+      }
+    },
+    {
+      "name": "kpiValue",
+      "font": {
+        "bold": true,
+        "size": 20,
+        "color": "1F3A5F"
+      },
+      "alignment": {
+        "horizontal": "center",
+        "vertical": "center"
+      }
+    },
+    {
+      "name": "kpiPositive",
+      "font": {
+        "bold": true,
+        "size": 20,
+        "color": "1F7A6E"
+      },
+      "alignment": {
+        "horizontal": "center",
+        "vertical": "center"
+      }
+    },
+    {
+      "name": "kpiNegative",
+      "font": {
+        "bold": true,
+        "size": 20,
+        "color": "E4674A"
+      },
+      "alignment": {
+        "horizontal": "center",
+        "vertical": "center"
+      }
+    },
+    {
+      "name": "totalRow",
+      "font": {
+        "bold": true,
+        "size": 10,
+        "color": "1F3A5F"
+      },
+      "fill": {
+        "color": "E8F1FF",
+        "pattern": "solid"
+      },
+      "border": {
+        "top": {
+          "style": "medium",
+          "color": "1F3A5F"
+        },
+        "bottom": {
+          "style": "double",
+          "color": "1F3A5F"
+        }
+      }
+    },
+    {
+      "name": "positiveDelta",
+      "font": {
+        "bold": true,
+        "color": "1F7A6E"
+      },
+      "alignment": {
+        "horizontal": "center"
+      }
+    },
+    {
+      "name": "negativeDelta",
+      "font": {
+        "bold": true,
+        "color": "E4674A"
+      },
+      "alignment": {
+        "horizontal": "center"
+      }
+    },
+    {
+      "name": "dataCell",
+      "border": {
+        "left": {
+          "style": "hair",
+          "color": "D6DEE6"
+        },
+        "right": {
+          "style": "hair",
+          "color": "D6DEE6"
+        },
+        "bottom": {
+          "style": "hair",
+          "color": "D6DEE6"
+        }
+      }
+    },
+    {
+      "name": "dataCenter",
+      "alignment": {
+        "horizontal": "center"
+      },
+      "border": {
+        "left": {
+          "style": "hair",
+          "color": "D6DEE6"
+        },
+        "right": {
+          "style": "hair",
+          "color": "D6DEE6"
+        },
+        "bottom": {
+          "style": "hair",
+          "color": "D6DEE6"
+        }
+      }
+    },
+    {
+      "name": "calloutInfo",
+      "font": {
+        "italic": true,
+        "size": 9,
+        "color": "4472C4"
+      },
+      "fill": {
+        "color": "E8F1FF",
+        "pattern": "solid"
+      },
+      "alignment": {
+        "horizontal": "left",
+        "wrapText": true
+      },
+      "border": {
+        "left": {
+          "style": "medium",
+          "color": "4472C4"
+        }
+      }
+    },
+    {
+      "name": "calloutWarn",
+      "font": {
+        "italic": true,
+        "size": 9,
+        "color": "C0802A"
+      },
+      "fill": {
+        "color": "FFF4D6",
+        "pattern": "solid"
+      },
+      "alignment": {
+        "horizontal": "left",
+        "wrapText": true
+      },
+      "border": {
+        "left": {
+          "style": "medium",
+          "color": "E4A81D"
+        }
+      }
+    },
+    {
+      "name": "subtotal",
+      "font": {
+        "bold": true,
+        "size": 10,
+        "color": "1F3A5F"
+      },
+      "fill": {
+        "color": "F4F7FB",
+        "pattern": "solid"
+      },
+      "border": {
+        "top": {
+          "style": "thin",
+          "color": "1F3A5F"
+        },
+        "bottom": {
+          "style": "thin",
+          "color": "1F3A5F"
+        }
+      }
+    },
+    {
+      "name": "dateCell",
+      "numberFormat": "mmm dd, yyyy"
+    },
+    {
+      "name": "deepRow",
+      "fill": {
+        "color": "F4F7FB",
+        "pattern": "solid"
+      },
+      "border": {
+        "bottom": {
+          "style": "hair",
+          "color": "D6DEE6"
+        }
+      }
+    },
+    {
+      "name": "lightRow",
+      "border": {
+        "bottom": {
+          "style": "hair",
+          "color": "D6DEE6"
+        }
+      }
+    }
+  ],
+  "variables": {
+    "fiscalYear": "FY2027",
+    "modelDate": "2026-08-03",
+    "analyst": "M. Chen"
+  },
+  "worksheets": [
+    {
+      "name": "Dashboard",
+      "startRow": 3,
+      "columns": [
+        {
+          "name": "A",
+          "width": 5
+        },
+        {
+          "name": "B",
+          "width": 26
+        },
+        {
+          "name": "C",
+          "width": 24
+        },
+        {
+          "name": "D",
+          "width": 24
+        },
+        {
+          "name": "E",
+          "width": 24
+        },
+        {
+          "name": "F",
+          "width": 24
+        },
+        {
+          "name": "G",
+          "width": 24
+        },
+        {
+          "name": "H",
+          "width": 26
+        }
+      ],
+      "rowHeights": [
+        {
+          "row": 1,
+          "height": 36
+        },
+        {
+          "row": 2,
+          "height": 22
+        },
+        {
+          "row": 3,
+          "height": 12
+        },
+        {
+          "row": 4,
+          "height": 72
+        },
+        {
+          "row": 5,
+          "height": 36
+        },
+        {
+          "row": 6,
+          "height": 12
+        },
+        {
+          "row": 7,
+          "height": 22
+        },
+        {
+          "row": 8,
+          "height": 12
+        },
+        {
+          "row": 9,
+          "height": 22
+        }
+      ],
+      "merges": [
+        "B1:H1",
+        "B4:D4",
+        "E4:G4",
+        "B7:D7",
+        "B9:H9"
+      ],
+      "cells": [
+        {
+          "address": "B1",
+          "value": "{{fiscalYear}} Financial Dashboard",
+          "style": "dashboardTitle"
+        },
+        {
+          "address": "B2",
+          "value": "Model date: {{modelDate}} \u00b7 Prepared by: {{analyst}} \u00b7 All figures in USD thousands",
+          "style": "kpiLabel"
+        },
+        {
+          "address": "B4",
+          "value": "Total Revenue",
+          "style": "kpiLabel"
+        },
+        {
+          "address": "B5",
+          "type": "string",
+          "value": "$3,260",
+          "style": "kpiValue"
+        },
+        {
+          "address": "E4",
+          "value": "Operating Margin",
+          "style": "kpiLabel"
+        },
+        {
+          "address": "E5",
+          "type": "string",
+          "value": "28.4%",
+          "style": "kpiPositive"
+        },
+        {
+          "address": "H4",
+          "value": "Headcount",
+          "style": "kpiLabel"
+        },
+        {
+          "address": "H5",
+          "type": "string",
+          "value": "847",
+          "style": "kpiValue"
+        },
+        {
+          "address": "B7",
+          "value": "Quarterly Revenue Trend",
+          "style": "sectionHeader"
+        },
+        {
+          "address": "B10",
+          "value": "Q1 2026",
+          "style": "colHeader"
+        },
+        {
+          "address": "C10",
+          "value": "Q2 2026",
+          "style": "colHeader"
+        },
+        {
+          "address": "D10",
+          "value": "Q3 2026",
+          "style": "colHeader"
+        },
+        {
+          "address": "E10",
+          "value": "Q4 2026 (est)",
+          "style": "colHeader"
+        },
+        {
+          "address": "F10",
+          "value": "Q1 2027 (proj)",
+          "style": "colHeader"
+        },
+        {
+          "address": "G10",
+          "value": "Q2 2027 (proj)",
+          "style": "colHeader"
+        },
+        {
+          "address": "H10",
+          "value": "YoY Q2 Growth",
+          "style": "colHeader"
+        },
+        {
+          "address": "B11",
+          "value": "Revenue",
+          "style": "dataCell"
+        },
+        {
+          "address": "C11",
+          "value": "780",
+          "type": "number",
+          "style": "currency",
+          "numberFormat": "$#,##0"
+        },
+        {
+          "address": "D11",
+          "value": "820",
+          "type": "number",
+          "style": "currency",
+          "numberFormat": "$#,##0"
+        },
+        {
+          "address": "E11",
+          "value": "750",
+          "type": "number",
+          "style": "currency",
+          "numberFormat": "$#,##0"
+        },
+        {
+          "address": "F11",
+          "value": "910",
+          "type": "number",
+          "style": "currency",
+          "numberFormat": "$#,##0"
+        },
+        {
+          "address": "G11",
+          "value": "960",
+          "type": "number",
+          "style": "currency",
+          "numberFormat": "$#,##0"
+        },
+        {
+          "address": "H11",
+          "value": "1010",
+          "type": "number",
+          "style": "currency",
+          "numberFormat": "$#,##0"
+        },
+        {
+          "address": "I11",
+          "formula": "=H11/D11-1",
+          "style": "pctDelta"
+        },
+        {
+          "address": "B12",
+          "value": "Expenses",
+          "style": "deepRow"
+        },
+        {
+          "address": "C12",
+          "value": "520",
+          "type": "number",
+          "style": "currency",
+          "numberFormat": "$#,##0"
+        },
+        {
+          "address": "D12",
+          "value": "540",
+          "type": "number",
+          "style": "currency",
+          "numberFormat": "$#,##0"
+        },
+        {
+          "address": "E12",
+          "value": "560",
+          "type": "number",
+          "style": "currency",
+          "numberFormat": "$#,##0"
+        },
+        {
+          "address": "F12",
+          "value": "580",
+          "type": "number",
+          "style": "currency",
+          "numberFormat": "$#,##0"
+        },
+        {
+          "address": "G12",
+          "value": "605",
+          "type": "number",
+          "style": "currency",
+          "numberFormat": "$#,##0"
+        },
+        {
+          "address": "H12",
+          "value": "620",
+          "type": "number",
+          "style": "currency",
+          "numberFormat": "$#,##0"
+        },
+        {
+          "address": "I12",
+          "formula": "=H12/D12-1",
+          "style": "negativeDelta"
+        },
+        {
+          "address": "B13",
+          "value": "Operating Income",
+          "style": "deepRow"
+        },
+        {
+          "address": "C13",
+          "formula": "=C11-C12",
+          "style": "currency",
+          "numberFormat": "$#,##0"
+        },
+        {
+          "address": "D13",
+          "formula": "=D11-D12",
+          "style": "currency",
+          "numberFormat": "$#,##0"
+        },
+        {
+          "address": "E13",
+          "formula": "=E11-E12",
+          "style": "currency",
+          "numberFormat": "$#,##0"
+        },
+        {
+          "address": "F13",
+          "formula": "=F11-F12",
+          "style": "currency",
+          "numberFormat": "$#,##0"
+        },
+        {
+          "address": "G13",
+          "formula": "=G11-G12",
+          "style": "currency",
+          "numberFormat": "$#,##0"
+        },
+        {
+          "address": "H13",
+          "formula": "=H11-H12",
+          "style": "currency",
+          "numberFormat": "$#,##0"
+        },
+        {
+          "address": "I13",
+          "formula": "=H13/D13-1",
+          "style": "pctDelta"
+        },
+        {
+          "address": "B14",
+          "value": "Margin %",
+          "style": "lightRow"
+        },
+        {
+          "address": "C14",
+          "formula": "=C13/C11",
+          "style": "pct"
+        },
+        {
+          "address": "D14",
+          "formula": "=D13/D11",
+          "style": "pct"
+        },
+        {
+          "address": "E14",
+          "formula": "=E13/E11",
+          "style": "pct"
+        },
+        {
+          "address": "F14",
+          "formula": "=F13/F11",
+          "style": "pct"
+        },
+        {
+          "address": "G14",
+          "formula": "=G13/G11",
+          "style": "pct"
+        },
+        {
+          "address": "H14",
+          "formula": "=H13/H11",
+          "style": "pct"
+        },
+        {
+          "address": "I14",
+          "formula": "=H14-D14",
+          "style": "pctDelta"
+        },
+        {
+          "address": "B16",
+          "value": "Key observations",
+          "style": "sectionHeader"
+        },
+        {
+          "address": "B17",
+          "value": "Revenue is tracking ahead of plan across all regions. The $960K Q1 2027 projection reflects the APAC expansion ramp and two new enterprise contracts closing in December.",
+          "style": "calloutInfo"
+        },
+        {
+          "address": "B18",
+          "value": "Expense growth at 14.8% YoY slightly outpaces the 13% target set in the annual operating plan. The primary driver is cloud infrastructure scaling for the EU data residency launch.",
+          "style": "calloutWarn"
+        },
+        {
+          "address": "B20",
+          "value": "Model date: {{modelDate}} | \u00a9 Northwind Labs \u2014 Confidential",
+          "style": "kpiLabel"
+        }
+      ],
+      "freezePanes": {
+        "cell": "A11"
+      }
+    },
+    {
+      "name": "P&L Detail",
+      "startRow": 2,
+      "headerStyle": "colHeader",
+      "columns": [
+        {
+          "name": "Line Item",
+          "width": 32,
+          "type": "string"
+        },
+        {
+          "name": "Q1",
+          "width": 16,
+          "style": "currencyDetail",
+          "type": "number"
+        },
+        {
+          "name": "Q2",
+          "width": 16,
+          "style": "currencyDetail",
+          "type": "number"
+        },
+        {
+          "name": "Q3",
+          "width": 16,
+          "style": "currencyDetail",
+          "type": "number"
+        },
+        {
+          "name": "Q4",
+          "width": 16,
+          "style": "currencyDetail",
+          "type": "number"
+        },
+        {
+          "name": "Total",
+          "width": 18,
+          "style": "currencyDetail",
+          "type": "number"
+        },
+        {
+          "name": "% of Rev",
+          "width": 12,
+          "type": "number"
+        }
+      ],
+      "headers": [
+        "Line Item",
+        "Q1 2026",
+        "Q2 2026",
+        "Q3 2026",
+        "Q4 2026",
+        "FY Total",
+        "% of Revenue"
+      ],
+      "rowHeights": [
+        {
+          "row": 1,
+          "height": 22
+        },
+        {
+          "row": 2,
+          "height": 18
+        },
+        {
+          "row": 11,
+          "height": 18
+        },
+        {
+          "row": 12,
+          "height": 18
+        },
+        {
+          "row": 16,
+          "height": 18
+        },
+        {
+          "row": 17,
+          "height": 18
+        }
+      ],
+      "rows": [
+        [
+          "Revenue",
+          "780000",
+          "820000",
+          "750000",
+          "910000"
+        ],
+        [
+          "  Software licenses",
+          "380000",
+          "410000",
+          "390000",
+          "480000"
+        ],
+        [
+          "  Professional services",
+          "240000",
+          "260000",
+          "210000",
+          "270000"
+        ],
+        [
+          "  Support & maintenance",
+          "160000",
+          "150000",
+          "150000",
+          "160000"
+        ],
+        [
+          "Cost of Revenue",
+          "310000",
+          "330000",
+          "335000",
+          "360000"
+        ],
+        [
+          "  Cloud infrastructure",
+          "120000",
+          "135000",
+          "140000",
+          "150000"
+        ],
+        [
+          "  Personnel",
+          "140000",
+          "140000",
+          "145000",
+          "150000"
+        ],
+        [
+          "  Third-party licenses",
+          "50000",
+          "55000",
+          "50000",
+          "60000"
+        ]
+      ],
+      "cells": [
+        {
+          "address": "F3",
+          "formula": "=SUM(B3:E3)",
+          "style": "subtotal",
+          "numberFormat": "$#,##0.00"
+        },
+        {
+          "address": "F4",
+          "formula": "=SUM(B4:E4)",
+          "style": "subtotal",
+          "numberFormat": "$#,##0.00"
+        },
+        {
+          "address": "F5",
+          "formula": "=SUM(B5:E5)",
+          "style": "subtotal",
+          "numberFormat": "$#,##0.00"
+        },
+        {
+          "address": "F6",
+          "formula": "=SUM(B6:E6)",
+          "style": "subtotal",
+          "numberFormat": "$#,##0.00"
+        },
+        {
+          "address": "F7",
+          "formula": "=SUM(B7:E7)",
+          "style": "subtotal",
+          "numberFormat": "$#,##0.00"
+        },
+        {
+          "address": "F8",
+          "formula": "=SUM(B8:E8)",
+          "style": "subtotal",
+          "numberFormat": "$#,##0.00"
+        },
+        {
+          "address": "F9",
+          "formula": "=SUM(B9:E9)",
+          "style": "subtotal",
+          "numberFormat": "$#,##0.00"
+        },
+        {
+          "address": "F10",
+          "formula": "=SUM(B10:E10)",
+          "style": "subtotal",
+          "numberFormat": "$#,##0.00"
+        },
+        {
+          "address": "G3",
+          "formula": "=F3/$F$3",
+          "style": "pct",
+          "numberFormat": "0.0%"
+        },
+        {
+          "address": "G7",
+          "formula": "=F7/$F$3",
+          "style": "pct",
+          "numberFormat": "0.0%"
+        },
+        {
+          "address": "G4",
+          "formula": "=F4/$F$3",
+          "style": "pct",
+          "numberFormat": "0.0%"
+        },
+        {
+          "address": "G5",
+          "formula": "=F5/$F$3",
+          "style": "pct",
+          "numberFormat": "0.0%"
+        },
+        {
+          "address": "G6",
+          "formula": "=F6/$F$3",
+          "style": "pct",
+          "numberFormat": "0.0%"
+        },
+        {
+          "address": "G8",
+          "formula": "=F8/$F$7",
+          "style": "pct",
+          "numberFormat": "0.0%"
+        },
+        {
+          "address": "G9",
+          "formula": "=F9/$F$7",
+          "style": "pct",
+          "numberFormat": "0.0%"
+        },
+        {
+          "address": "G10",
+          "formula": "=F10/$F$7",
+          "style": "pct",
+          "numberFormat": "0.0%"
+        },
+        {
+          "address": "A11",
+          "value": "Gross Profit",
+          "style": "totalRow",
+          "type": "string"
+        },
+        {
+          "address": "F11",
+          "formula": "=F3-F7",
+          "style": "totalRow",
+          "numberFormat": "$#,##0.00"
+        },
+        {
+          "address": "G11",
+          "formula": "=F11/$F$3",
+          "style": "pct",
+          "numberFormat": "0.0%"
+        },
+        {
+          "address": "A12",
+          "value": "Operating Expenses",
+          "style": "totalRow",
+          "type": "string"
+        },
+        {
+          "address": "F12",
+          "formula": "=SUM(A12:E12)",
+          "style": "totalRow",
+          "numberFormat": "$#,##0.00"
+        },
+        {
+          "address": "B13",
+          "value": "Sales & Marketing",
+          "style": "lightRow",
+          "type": "string"
+        },
+        {
+          "address": "C13",
+          "value": "180000",
+          "type": "number",
+          "style": "currencyDetail"
+        },
+        {
+          "address": "D13",
+          "value": "195000",
+          "type": "number",
+          "style": "currencyDetail"
+        },
+        {
+          "address": "E13",
+          "value": "210000",
+          "type": "number",
+          "style": "currencyDetail"
+        },
+        {
+          "address": "F13",
+          "value": "230000",
+          "type": "number",
+          "style": "currencyDetail"
+        },
+        {
+          "address": "B14",
+          "value": "R&D",
+          "style": "deepRow",
+          "type": "string"
+        },
+        {
+          "address": "C14",
+          "value": "120000",
+          "type": "number",
+          "style": "currencyDetail"
+        },
+        {
+          "address": "D14",
+          "value": "130000",
+          "type": "number",
+          "style": "currencyDetail"
+        },
+        {
+          "address": "E14",
+          "value": "135000",
+          "type": "number",
+          "style": "currencyDetail"
+        },
+        {
+          "address": "F14",
+          "value": "145000",
+          "type": "number",
+          "style": "currencyDetail"
+        },
+        {
+          "address": "B15",
+          "value": "G&A",
+          "style": "lightRow",
+          "type": "string"
+        },
+        {
+          "address": "C15",
+          "value": "70000",
+          "type": "number",
+          "style": "currencyDetail"
+        },
+        {
+          "address": "D15",
+          "value": "72000",
+          "type": "number",
+          "style": "currencyDetail"
+        },
+        {
+          "address": "E15",
+          "value": "71000",
+          "type": "number",
+          "style": "currencyDetail"
+        },
+        {
+          "address": "F15",
+          "value": "73000",
+          "type": "number",
+          "style": "currencyDetail"
+        },
+        {
+          "address": "A16",
+          "value": "Net Operating Income",
+          "style": "totalRow",
+          "type": "string"
+        },
+        {
+          "address": "F16",
+          "formula": "=F11-(F13+F14+F15)",
+          "style": "totalRow",
+          "numberFormat": "$#,##0.00"
+        },
+        {
+          "address": "G16",
+          "formula": "=F16/$F$3",
+          "style": "pct",
+          "numberFormat": "0.0%"
+        },
+        {
+          "address": "A18",
+          "value": "Note: Q4 2026 figures are estimates pending month-end close. Software license revenue includes $85K recognized from the EU multi-year deal signed in October.",
+          "style": "calloutInfo",
+          "type": "string"
+        }
+      ],
+      "merges": [
+        "A11:G11",
+        "A12:G12",
+        "A16:G16",
+        "A18:G18"
+      ],
+      "freezePanes": {
+        "row": 2
+      },
+      "tables": [
+        {
+          "name": "PnLTable",
+          "range": "A2:G10"
+        }
+      ]
+    },
+    {
+      "name": "Headcount",
+      "headerStyle": "colHeader",
+      "columns": [
+        {
+          "name": "Department",
+          "width": 28,
+          "type": "string"
+        },
+        {
+          "name": "Q1",
+          "width": 10,
+          "type": "number"
+        },
+        {
+          "name": "Q2",
+          "width": 10,
+          "type": "number"
+        },
+        {
+          "name": "Q3",
+          "width": 10,
+          "type": "number"
+        },
+        {
+          "name": "Q4 Plan",
+          "width": 12,
+          "type": "number"
+        },
+        {
+          "name": "Q4 vs Q1",
+          "width": 12
+        },
+        {
+          "name": "Attrition",
+          "width": 12
+        },
+        {
+          "name": "Avg Tenure (mo)",
+          "width": 16,
+          "type": "number"
+        }
+      ],
+      "headers": [
+        "Department",
+        "Q1",
+        "Q2",
+        "Q3",
+        "Q4 Plan",
+        "Growth",
+        "Attrition Rate",
+        "Avg Tenure (mo)"
+      ],
+      "rows": [
+        [
+          "Engineering",
+          "215",
+          "228",
+          "242",
+          "260"
+        ],
+        [
+          "Product",
+          "42",
+          "44",
+          "46",
+          "48"
+        ],
+        [
+          "Sales",
+          "85",
+          "82",
+          "79",
+          "88"
+        ],
+        [
+          "Marketing",
+          "38",
+          "40",
+          "41",
+          "44"
+        ],
+        [
+          "G&A",
+          "52",
+          "53",
+          "54",
+          "55"
+        ],
+        [
+          "Professional Services",
+          "110",
+          "115",
+          "118",
+          "125"
+        ]
+      ],
+      "cells": [
+        {
+          "address": "F2",
+          "formula": "=(E2-B2)/B2",
+          "style": "pctDelta",
+          "numberFormat": "+0.0%;-0.0%"
+        },
+        {
+          "address": "F3",
+          "formula": "=(E3-B3)/B3",
+          "style": "pctDelta",
+          "numberFormat": "+0.0%;-0.0%"
+        },
+        {
+          "address": "F4",
+          "formula": "=(E4-B4)/B4",
+          "style": "pctDelta",
+          "numberFormat": "+0.0%;-0.0%"
+        },
+        {
+          "address": "F5",
+          "formula": "=(E5-B5)/B5",
+          "style": "pctDelta",
+          "numberFormat": "+0.0%;-0.0%"
+        },
+        {
+          "address": "F6",
+          "formula": "=(E6-B6)/B6",
+          "style": "pctDelta",
+          "numberFormat": "+0.0%;-0.0%"
+        },
+        {
+          "address": "F7",
+          "formula": "=(E7-B7)/B7",
+          "style": "pctDelta",
+          "numberFormat": "+0.0%;-0.0%"
+        },
+        {
+          "address": "G2",
+          "value": "0.082",
+          "type": "number",
+          "style": "pct",
+          "numberFormat": "0.0%"
+        },
+        {
+          "address": "G3",
+          "value": "0.054",
+          "type": "number",
+          "style": "pct",
+          "numberFormat": "0.0%"
+        },
+        {
+          "address": "G4",
+          "value": "0.121",
+          "type": "number",
+          "style": "negativeDelta",
+          "numberFormat": "0.0%"
+        },
+        {
+          "address": "G5",
+          "value": "0.063",
+          "type": "number",
+          "style": "pct",
+          "numberFormat": "0.0%"
+        },
+        {
+          "address": "G6",
+          "value": "0.025",
+          "type": "number",
+          "style": "pct",
+          "numberFormat": "0.0%"
+        },
+        {
+          "address": "G7",
+          "value": "0.039",
+          "type": "number",
+          "style": "pct",
+          "numberFormat": "0.0%"
+        },
+        {
+          "address": "H2",
+          "value": "28.4",
+          "type": "number",
+          "numberFormat": "0.0"
+        },
+        {
+          "address": "H3",
+          "value": "31.2",
+          "type": "number",
+          "numberFormat": "0.0"
+        },
+        {
+          "address": "H4",
+          "value": "18.7",
+          "type": "number",
+          "numberFormat": "0.0"
+        },
+        {
+          "address": "H5",
+          "value": "22.1",
+          "type": "number",
+          "numberFormat": "0.0"
+        },
+        {
+          "address": "H6",
+          "value": "41.5",
+          "type": "number",
+          "numberFormat": "0.0"
+        },
+        {
+          "address": "H7",
+          "value": "24.8",
+          "type": "number",
+          "numberFormat": "0.0"
+        },
+        {
+          "address": "A9",
+          "value": "Total",
+          "style": "totalRow"
+        },
+        {
+          "address": "B9",
+          "formula": "=SUM(B2:B7)",
+          "style": "totalRow"
+        },
+        {
+          "address": "C9",
+          "formula": "=SUM(C2:C7)",
+          "style": "totalRow"
+        },
+        {
+          "address": "D9",
+          "formula": "=SUM(D2:D7)",
+          "style": "totalRow"
+        },
+        {
+          "address": "E9",
+          "formula": "=SUM(E2:E7)",
+          "style": "totalRow"
+        },
+        {
+          "address": "F9",
+          "formula": "=(E9-B9)/B9",
+          "style": "kpiLabel"
+        },
+        {
+          "address": "G9",
+          "formula": "=SUM((G2*B2)+(G3*B3)+(G4*B4)+(G5*B5)+(G6*B6)+(G7*B7))/B9",
+          "style": "negativeDelta",
+          "numberFormat": "0.0%"
+        }
+      ],
+      "merges": [
+        "A9:G9"
+      ],
+      "rowHeights": [
+        {
+          "row": 1,
+          "height": 22
+        },
+        {
+          "row": 9,
+          "height": 18
+        }
+      ],
+      "autoFilter": "A1:H7",
+      "tables": [
+        {
+          "name": "HeadcountTable",
+          "range": "A1:H7"
+        }
+      ]
+    },
+    {
+      "name": "CapEx Plan",
+      "headerStyle": "colHeader",
+      "columns": [
+        {
+          "name": "Project",
+          "width": 34,
+          "type": "string"
+        },
+        {
+          "name": "Category",
+          "width": 18,
+          "type": "string"
+        },
+        {
+          "name": "Budget",
+          "width": 16,
+          "style": "currency",
+          "type": "number"
+        },
+        {
+          "name": "Spent to Date",
+          "width": 16,
+          "style": "currencyDetail",
+          "type": "number"
+        },
+        {
+          "name": "Remaining",
+          "width": 16,
+          "style": "currencyDetail",
+          "type": "number"
+        },
+        {
+          "name": "% Complete",
+          "width": 12,
+          "type": "number"
+        },
+        {
+          "name": "Target Date",
+          "width": 16,
+          "type": "date"
+        },
+        {
+          "name": "Status",
+          "width": 16,
+          "type": "string"
+        },
+        {
+          "name": "Risk",
+          "width": 40,
+          "type": "string"
+        }
+      ],
+      "headers": [
+        "Project",
+        "Category",
+        "Budget",
+        "Spent to Date",
+        "Remaining",
+        "% Complete",
+        "Target Date",
+        "Status",
+        "Risk / Notes"
+      ],
+      "rows": [
+        [
+          "EU Data Center Build-out",
+          "Infrastructure",
+          "850000",
+          "530000"
+        ],
+        [
+          "APAC Regional Hub",
+          "Infrastructure",
+          "620000",
+          "340000"
+        ],
+        [
+          "ML Inference Platform",
+          "Platform",
+          "450000",
+          "280000"
+        ],
+        [
+          "Observability Stack v2",
+          "Platform",
+          "180000",
+          "168000"
+        ],
+        [
+          "CRM Migration",
+          "Internal Tools",
+          "320000",
+          "220000"
+        ],
+        [
+          "Security Compliance (SOC 2)",
+          "Compliance",
+          "140000",
+          "140000"
+        ],
+        [
+          "Design System Refresh",
+          "Internal Tools",
+          "90000",
+          "24000"
+        ]
+      ],
+      "cells": [
+        {
+          "address": "E2",
+          "formula": "=C2-D2",
+          "style": "currencyDetail",
+          "numberFormat": "$#,##0.00"
+        },
+        {
+          "address": "E3",
+          "formula": "=C3-D3",
+          "style": "currencyDetail",
+          "numberFormat": "$#,##0.00"
+        },
+        {
+          "address": "E4",
+          "formula": "=C4-D4",
+          "style": "currencyDetail",
+          "numberFormat": "$#,##0.00"
+        },
+        {
+          "address": "E5",
+          "formula": "=C5-D5",
+          "style": "currencyDetail",
+          "numberFormat": "$#,##0.00"
+        },
+        {
+          "address": "E6",
+          "formula": "=C6-D6",
+          "style": "currencyDetail",
+          "numberFormat": "$#,##0.00"
+        },
+        {
+          "address": "E7",
+          "formula": "=C7-D7",
+          "style": "currencyDetail",
+          "numberFormat": "$#,##0.00"
+        },
+        {
+          "address": "E8",
+          "formula": "=C8-D8",
+          "style": "currencyDetail",
+          "numberFormat": "$#,##0.00"
+        },
+        {
+          "address": "F2",
+          "formula": "=D2/C2",
+          "style": "pct",
+          "numberFormat": "0%"
+        },
+        {
+          "address": "F3",
+          "formula": "=D3/C3",
+          "style": "pct",
+          "numberFormat": "0%"
+        },
+        {
+          "address": "F4",
+          "formula": "=D4/C4",
+          "style": "pct",
+          "numberFormat": "0%"
+        },
+        {
+          "address": "F5",
+          "formula": "=D5/C5",
+          "style": "pct",
+          "numberFormat": "0%"
+        },
+        {
+          "address": "F6",
+          "formula": "=D6/C6",
+          "style": "pct",
+          "numberFormat": "0%"
+        },
+        {
+          "address": "F7",
+          "formula": "=D7/C7",
+          "style": "pct",
+          "numberFormat": "0%"
+        },
+        {
+          "address": "F8",
+          "formula": "=D8/C8",
+          "style": "pct",
+          "numberFormat": "0%"
+        },
+        {
+          "address": "G2",
+          "value": "2026-12-15",
+          "type": "date",
+          "style": "dateCell"
+        },
+        {
+          "address": "G3",
+          "value": "2027-03-01",
+          "type": "date",
+          "style": "dateCell"
+        },
+        {
+          "address": "G4",
+          "value": "2026-11-30",
+          "type": "date",
+          "style": "dateCell"
+        },
+        {
+          "address": "G5",
+          "value": "2026-10-15",
+          "type": "date",
+          "style": "dateCell"
+        },
+        {
+          "address": "G6",
+          "value": "2027-01-31",
+          "type": "date",
+          "style": "dateCell"
+        },
+        {
+          "address": "G7",
+          "value": "2026-09-30",
+          "type": "date",
+          "style": "dateCell"
+        },
+        {
+          "address": "G8",
+          "value": "2026-11-15",
+          "type": "date",
+          "style": "dateCell"
+        },
+        {
+          "address": "H2",
+          "value": "On Track"
+        },
+        {
+          "address": "H3",
+          "value": "On Track"
+        },
+        {
+          "address": "H4",
+          "value": "On Track"
+        },
+        {
+          "address": "H5",
+          "value": "Complete"
+        },
+        {
+          "address": "H6",
+          "value": "On Track"
+        },
+        {
+          "address": "H7",
+          "value": "Complete"
+        },
+        {
+          "address": "H8",
+          "value": "On Track"
+        },
+        {
+          "address": "I2",
+          "value": "Lease signed. Power and cooling contracts pending."
+        },
+        {
+          "address": "I3",
+          "value": "Site selection in final stage. Vendor RFP in progress."
+        },
+        {
+          "address": "I4",
+          "value": "GPU cluster procurement approved. Training pipeline migration behind schedule."
+        },
+        {
+          "address": "I5",
+          "value": "Deployed to production. Post-launch tuning window open until Oct 31."
+        },
+        {
+          "address": "I6",
+          "value": "Data mapping phase complete. UAT scheduled for November."
+        },
+        {
+          "address": "I7",
+          "value": "Audit passed. Report published. Monitoring dashboard live."
+        },
+        {
+          "address": "I8",
+          "value": "Component library shipped. Remaining: icon set + accessibility audit."
+        },
+        {
+          "address": "A10",
+          "value": "Total",
+          "style": "totalRow"
+        },
+        {
+          "address": "C10",
+          "formula": "=SUM(C2:C8)",
+          "style": "totalRow",
+          "numberFormat": "$#,##0"
+        },
+        {
+          "address": "D10",
+          "formula": "=SUM(D2:D8)",
+          "style": "totalRow",
+          "numberFormat": "$#,##0.00"
+        },
+        {
+          "address": "E10",
+          "formula": "=C10-D10",
+          "style": "totalRow",
+          "numberFormat": "$#,##0.00"
+        },
+        {
+          "address": "F10",
+          "formula": "=D10/C10",
+          "style": "pct",
+          "numberFormat": "0%"
+        }
+      ],
+      "merges": [
+        "A10:B10"
+      ],
+      "rowHeights": [
+        {
+          "row": 1,
+          "height": 22
+        },
+        {
+          "row": 10,
+          "height": 18
+        }
+      ],
+      "freezePanes": {
+        "row": 2
+      }
+    }
+  ]
+}

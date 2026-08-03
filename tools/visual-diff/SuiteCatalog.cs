@@ -17,6 +17,14 @@ internal static class SuiteCatalog
         ("northwind-demo", "examples/REF/PPTX/northwind-demo.pptx", "examples/REF/PPTX/northwind-demo.pdf", "examples/output/ref/pptx/northwind-demo.pdf")
     ];
 
+    // XLSX suite: "ours" is rendered by tools/convert-xlsx (Typst pipeline). The reference
+    // PDFs are produced by LibreOffice headless — TEST-ONLY oracle, never product code.
+    private static readonly (string Name, string Json, string RefPdf, string GenPdf)[] XlsxFixtures =
+    [
+        ("rich-report", "examples/Xlsx/instructions/rich-report.json", "examples/REF/XLSX/rich-report.pdf", "examples/output/ref/xlsx/rich-report.pdf"),
+        ("complex-dashboard", "examples/Xlsx/instructions/complex-dashboard.json", "examples/REF/XLSX/complex-dashboard.pdf", "examples/output/ref/xlsx/complex-dashboard.pdf")
+    ];
+
     public static List<ComparisonInput> BuildInputs(CliOptions options, ToolPaths tools)
     {
         if (options.Suite is not null)
@@ -35,12 +43,17 @@ internal static class SuiteCatalog
                 return BuildPptxSuite(options);
             }
 
+            if (string.Equals(options.Suite, "xlsx", StringComparison.OrdinalIgnoreCase))
+            {
+                return BuildXlsxSuite(options);
+            }
+
             if (string.Equals(options.Suite, "gen", StringComparison.OrdinalIgnoreCase))
             {
                 return GenSuite.BuildInputs(options, tools);
             }
 
-            throw new InvalidOperationException($"Unknown suite '{options.Suite}'. Supported suites: docx, pptx, gen.");
+            throw new InvalidOperationException($"Unknown suite '{options.Suite}'. Supported suites: docx, pptx, xlsx, gen.");
         }
 
         InputKind referenceKind = DetectKind(options.ReferencePath!);
@@ -72,6 +85,13 @@ internal static class SuiteCatalog
         if (string.Equals(options.Suite, "gen", StringComparison.OrdinalIgnoreCase))
         {
             return ToolRequirements.ImageCompare | (options.RenderTypst ? ToolRequirements.Typst : ToolRequirements.None);
+        }
+
+        // The xlsx suite generates its PDFs via tools/convert-xlsx (Typst pipeline in-process),
+        // so --generate needs no external typst CLI; only ImageMagick is required.
+        if (string.Equals(options.Suite, "xlsx", StringComparison.OrdinalIgnoreCase))
+        {
+            return ToolRequirements.ImageCompare;
         }
 
         bool needsRenderer = options.Suite is not null
@@ -158,6 +178,98 @@ internal static class SuiteCatalog
     private static string GenerateCommand(string pptx, string genPdf, string? fontPath) =>
         $"dotnet run --project tools/convert-pptx -- {pptx} {genPdf} --format pdf"
         + (fontPath is null ? string.Empty : $" --font-path {fontPath}");
+
+    private static List<ComparisonInput> BuildXlsxSuite(CliOptions options)
+    {
+        List<ComparisonInput> inputs = [];
+        List<string> skipped = [];
+
+        foreach ((string name, string json, string refPdf, string genPdf) in XlsxFixtures)
+        {
+            if (!File.Exists(refPdf))
+            {
+                Console.Error.WriteLine($"visual-diff: skipping '{name}': committed reference PDF not found: {refPdf}");
+                Console.Error.WriteLine("  Generate it once with LibreOffice (test-only oracle):");
+                Console.Error.WriteLine($"  dotnet run --project OfficeEditor.Cli -- generate {json} --output /tmp/{name}.xlsx");
+                Console.Error.WriteLine($"  soffice --headless --convert-to pdf --outdir examples/REF/XLSX /tmp/{name}.xlsx");
+                skipped.Add(name);
+                continue;
+            }
+
+            if (!File.Exists(genPdf))
+            {
+                if (options.GenerateMissing)
+                {
+                    if (!TryGenerateXlsxPdf(name, json, genPdf))
+                    {
+                        skipped.Add($"{name} (conversion failed)");
+                        continue;
+                    }
+                }
+                else
+                {
+                    skipped.Add(name);
+                    Console.Error.WriteLine($"visual-diff: skipping '{name}': generated PDF not found: {genPdf}");
+                    Console.Error.WriteLine($"  produce it with: {XlsxGenerateCommand(json, genPdf)}");
+                    Console.Error.WriteLine("  or re-run with --generate to let visual-diff build it via tools/convert-xlsx.");
+                    continue;
+                }
+            }
+
+            inputs.Add(new(name, refPdf, genPdf, InputKind.Pdf));
+        }
+
+        if (inputs.Count == 0)
+        {
+            string commands = string.Join(Environment.NewLine,
+                XlsxFixtures.Select(d => $"  {XlsxGenerateCommand(d.Json, d.GenPdf)}"));
+            throw new InvalidOperationException(
+                "No generated XLSX PDFs were available under examples/output/ref/xlsx/. Produce them first:\n"
+                + commands
+                + "\nOr re-run with --generate to let visual-diff invoke tools/convert-xlsx itself.");
+        }
+
+        if (skipped.Count > 0)
+        {
+            Console.Error.WriteLine($"visual-diff: {skipped.Count} fixture(s) skipped: {string.Join(", ", skipped)}");
+        }
+
+        return inputs;
+    }
+
+    private static string XlsxGenerateCommand(string json, string genPdf) =>
+        $"dotnet run --project tools/convert-xlsx -- {json} {genPdf} --format pdf";
+
+    private static bool TryGenerateXlsxPdf(string name, string json, string genPdf)
+    {
+        if (!File.Exists(json))
+        {
+            Console.Error.WriteLine($"visual-diff: cannot generate '{name}': source JSON missing: {json}");
+            return false;
+        }
+
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(genPdf))!);
+        List<string> arguments = ["run", "--project", "tools/convert-xlsx", "--", json, genPdf, "--format", "pdf"];
+
+        Console.WriteLine($"Generating '{name}' PDF via tools/convert-xlsx...");
+        try
+        {
+            ProcessResult result = ComparisonRunner.RunProcess("dotnet", arguments);
+            if (result.ExitCode != 0 || !File.Exists(genPdf))
+            {
+                Console.Error.WriteLine($"visual-diff: convert-xlsx failed for '{name}' (exit {result.ExitCode}).");
+                Console.Error.WriteLine(result.ErrorOrOutput);
+                return false;
+            }
+
+            return true;
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            Console.Error.WriteLine($"visual-diff: could not start 'dotnet' to generate '{name}': {ex.Message}");
+            return false;
+        }
+    }
 
     private static bool TryGeneratePptxPdf(string name, string pptx, string genPdf, string? fontPath)
     {
