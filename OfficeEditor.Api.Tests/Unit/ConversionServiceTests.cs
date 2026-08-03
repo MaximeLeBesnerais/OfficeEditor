@@ -729,6 +729,124 @@ public sealed class ConversionServiceTests
     }
 
     [Fact]
+    public async Task ConvertAsync_JsonToDocx_ProducesValidDocx()
+    {
+        var service = new ConversionService();
+        var json = """{ "version": "1.0", "sections": [ { "blocks": [ { "type": "paragraph", "text": "Hello JSON DOCX" } ] } ] }"""u8.ToArray();
+        var request = new ConversionRequest(json, "report.json", ConversionTargetFormat.Docx);
+
+        var result = await service.ConvertAsync(request);
+
+        Assert.True(result.Success);
+        Assert.NotNull(result.OutputBytes);
+        Assert.True(result.OutputBytes!.Length > 0);
+        Assert.Equal("application/vnd.openxmlformats-officedocument.wordprocessingml.document", result.ContentType);
+        Assert.Equal("report.docx", result.OutputFileName);
+        Assert.Null(result.ErrorMessage);
+        Assert.NotNull(result.Messages);
+        Assert.Contains(result.Messages, m => m.Contains("JSON"));
+    }
+
+    [Fact]
+    public async Task ConvertAsync_JsonToXlsx_ProducesValidXlsx()
+    {
+        var service = new ConversionService();
+        var json = """{ "version": "1.0", "worksheets": [ { "name": "S", "headers": ["A"], "rows": [["1"]] } ] }"""u8.ToArray();
+        var request = new ConversionRequest(json, "data.json", ConversionTargetFormat.Xlsx);
+
+        var result = await service.ConvertAsync(request);
+
+        Assert.True(result.Success);
+        Assert.NotNull(result.OutputBytes);
+        Assert.True(result.OutputBytes!.Length > 0);
+        Assert.Equal("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", result.ContentType);
+        Assert.Equal("data.xlsx", result.OutputFileName);
+        Assert.Null(result.ErrorMessage);
+        Assert.NotNull(result.Messages);
+        Assert.Contains(result.Messages, m => m.Contains("JSON"));
+    }
+
+    [Fact]
+    public async Task ConvertAsync_InvalidJsonToDocx_ReturnsActionableError()
+    {
+        var service = new ConversionService();
+        var json = """{ "version": "1.0", "sections": [] }"""u8.ToArray();
+        var request = new ConversionRequest(json, "report.json", ConversionTargetFormat.Docx);
+
+        var result = await service.ConvertAsync(request);
+
+        Assert.False(result.Success);
+        Assert.Null(result.OutputBytes);
+        Assert.NotNull(result.ErrorMessage);
+        Assert.Contains("Invalid DOCX generation JSON", result.ErrorMessage);
+        Assert.Contains("sections", result.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task ConvertAsync_InvalidJsonToXlsx_ReturnsActionableError()
+    {
+        var service = new ConversionService();
+        var json = """{ "version": "9.9", "worksheets": [{"name": "S"}] }"""u8.ToArray();
+        var request = new ConversionRequest(json, "data.json", ConversionTargetFormat.Xlsx);
+
+        var result = await service.ConvertAsync(request);
+
+        Assert.False(result.Success);
+        Assert.Null(result.OutputBytes);
+        Assert.NotNull(result.ErrorMessage);
+        Assert.Contains("Invalid XLSX instruction JSON", result.ErrorMessage);
+        Assert.Contains("version", result.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task ConvertAsync_MalformedJsonToXlsx_ReturnsActionableError()
+    {
+        var service = new ConversionService();
+        var json = "{ not valid json"u8.ToArray();
+        var request = new ConversionRequest(json, "data.json", ConversionTargetFormat.Xlsx);
+
+        var result = await service.ConvertAsync(request);
+
+        Assert.False(result.Success);
+        Assert.Null(result.OutputBytes);
+        Assert.NotNull(result.ErrorMessage);
+        Assert.Contains("Invalid XLSX instruction JSON", result.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task ConvertAsync_NonEmptyJsonToPptx_ReturnsUnsupportedError()
+    {
+        // JSON sources are routed to the declarative generators for DOCX/XLSX only; a JSON
+        // source targeting PPTX is unsupported rather than silently turned into a blank deck.
+        var service = new ConversionService();
+        var json = """{ "version": "1.0", "worksheets": [] }"""u8.ToArray();
+        var request = new ConversionRequest(json, "data.json", ConversionTargetFormat.Pptx);
+
+        var result = await service.ConvertAsync(request);
+
+        Assert.False(result.Success);
+        Assert.Null(result.OutputBytes);
+        Assert.NotNull(result.ErrorMessage);
+        Assert.Contains("Unsupported conversion", result.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task ConvertAsync_EmptyJsonToDocx_CreatesBlankInstead()
+    {
+        // Empty JSON sources keep the generic blank-document compatibility path.
+        var service = new ConversionService();
+        var request = new ConversionRequest([], "empty.json", ConversionTargetFormat.Docx);
+
+        var result = await service.ConvertAsync(request);
+
+        Assert.True(result.Success);
+        Assert.NotNull(result.OutputBytes);
+        Assert.Equal("empty.docx", result.OutputFileName);
+        Assert.NotNull(result.Messages);
+        Assert.Contains(result.Messages, m => m.Contains("blank DOCX"));
+    }
+
+    [Fact]
     public async Task ConvertAsync_UnsupportedConversion_ErrorResultHasNonNullMessagesList()
     {
         // When the switch _ arm fires, ConversionResultWithError is called without
