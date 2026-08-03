@@ -22,4 +22,11 @@
     <ProjectReference Include="..\TypstBridge\managed\TypstBridge.Managed.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Format cores implement the shared facade's internal IFormatRenderer. -->
+    <InternalsVisibleTo Include="PptxEditor.Core" />
+    <InternalsVisibleTo Include="DocxEditor.Core" />
+    <InternalsVisibleTo Include="XlsxEditor.Core" />
+  </ItemGroup>
+
 </Project>
