@@ -54,6 +54,15 @@ public interface IPresentationBuilder : IDisposable
 public sealed record PdfOptions
 {
     public bool SingleFile { get; init; } = true;
+
+    /// <summary>
+    /// Optional additional font directory (or path-separator-joined list of directories)
+    /// passed to the Typst compiler alongside the deck's embedded fonts, mirroring
+    /// <see cref="ThumbnailOptions.FontDirectory"/>. The embedded-fonts directory always comes
+    /// first — this value is COMBINED, never an override. Null (default) keeps the previous
+    /// behavior: embedded fonts only, or the compiler's built-in fallback fonts.
+    /// </summary>
+    public string? FontDirectory { get; init; }
 }
 
 public sealed record ThumbnailOptions
@@ -501,7 +510,9 @@ public class PresentationBuilder : IPresentationBuilder
         var compileOptions = new OfficeEditor.Core.Services.CompileOptions
         {
             Format = OfficeEditor.Core.Services.OutputFormat.Pdf,
-            FontDirectory = presentation.FontFiles.Count > 0 ? Path.Combine(presentation.TempDirectory, "fonts") : null,
+            FontDirectory = CombineFontDirectories(
+                presentation.FontFiles.Count > 0 ? Path.Combine(presentation.TempDirectory, "fonts") : null,
+                options.FontDirectory),
             WorkingDirectory = presentation.TempDirectory
         };
         
