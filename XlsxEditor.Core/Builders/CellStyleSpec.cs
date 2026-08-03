@@ -1,14 +1,15 @@
 using System.Globalization;
 using DocumentFormat.OpenXml.Spreadsheet;
 using XlsxEditor.Core.Exceptions;
+using XlsxEditor.Core.Styles;
 
 namespace XlsxEditor.Core.Builders;
 
 /// <summary>
 /// Describes the font aspect of a named style. <see cref="ColorArgb"/> accepts a
-/// 6-digit RGB ("FF0000") or 8-digit ARGB ("FFFF0000") hex string and is normalized
-/// to 8-digit ARGB before it is written to the stylesheet. <see cref="Size"/> is in
-/// points and bounded by Excel's font-size range.
+/// 6-digit RGB ("FF0000"), 8-digit ARGB ("FFFF0000") hex string or a common color name
+/// ("red"), normalized to 8-digit ARGB before it is written to the stylesheet.
+/// <see cref="Size"/> is in points and bounded by Excel's font-size range.
 /// </summary>
 public sealed record CellFontSpec
 {
@@ -18,7 +19,7 @@ public sealed record CellFontSpec
     /// <summary>Applies the &lt;i/&gt; (italic) font element.</summary>
     public bool Italic { get; init; }
 
-    /// <summary>Font color as a 6-digit RGB or 8-digit ARGB hex string.</summary>
+    /// <summary>Font color as a 6-digit RGB, 8-digit ARGB hex string or common color name.</summary>
     public string? ColorArgb { get; init; }
 
     /// <summary>Font size in points, between 1 and 409.5 (Excel's font-size limit).</summary>
@@ -53,16 +54,22 @@ public sealed record CellFontSpec
 }
 
 /// <summary>
-/// Describes the solid-fill aspect of a named style. <see cref="SolidColorArgb"/>
-/// accepts a 6-digit RGB or 8-digit ARGB hex string; only solid fills are supported
-/// (gradient and pattern fills are out of scope for the style builder).
+/// Describes the fill aspect of a named style. <see cref="ColorArgb"/> accepts a 6-digit
+/// RGB, 8-digit ARGB hex string or a common color name (normalized to 8-digit ARGB before
+/// it is written to the stylesheet). <see cref="Pattern"/> selects the Excel pattern type
+/// ("solid", "gray125", …); when null and a color is present the fill is solid, matching
+/// the pre-pattern contract. Only pattern fills are supported (gradient fills remain out
+/// of scope for the style builder).
 /// </summary>
 public sealed record CellFillSpec
 {
-    /// <summary>Solid fill color as a 6-digit RGB or 8-digit ARGB hex string.</summary>
+    /// <summary>Foreground fill color as a 6-digit RGB, 8-digit ARGB hex string or color name.</summary>
     public string? SolidColorArgb { get; init; }
 
-    internal bool IsDefault => SolidColorArgb is null;
+    /// <summary>Excel pattern type (solid, gray125, …); null means solid when a color is set.</summary>
+    public PatternValues? Pattern { get; init; }
+
+    internal bool IsDefault => Pattern is null && SolidColorArgb is null;
 
     internal void Validate(string context)
     {
@@ -70,6 +77,61 @@ public sealed record CellFillSpec
         {
             CellStyleSpec.ValidateColorArgb(SolidColorArgb, context);
         }
+    }
+}
+
+/// <summary>
+/// Describes one edge (left/right/top/bottom) of a cell border: an Excel border style
+/// plus an optional color. <see cref="Style"/> uses the SpreadsheetML
+/// <see cref="BorderStyleValues"/> enum ("Thin", "Medium", "Dashed", "Dotted", …); a null
+/// style means the edge carries no border. <see cref="ColorArgb"/> follows the shared
+/// color contract (hex or a common color name).
+/// </summary>
+public sealed record CellEdgeSpec
+{
+    /// <summary>Border style (Thin, Medium, Dashed, Dotted, …); null means no border.</summary>
+    public BorderStyleValues? Style { get; init; }
+
+    /// <summary>Border color as a 6-digit RGB, 8-digit ARGB hex string or color name.</summary>
+    public string? ColorArgb { get; init; }
+
+    internal bool IsDefault => Style is null && ColorArgb is null;
+
+    internal void Validate(string context)
+    {
+        if (ColorArgb is not null)
+        {
+            CellStyleSpec.ValidateColorArgb(ColorArgb, context);
+        }
+    }
+}
+
+/// <summary>
+/// Describes the border aspect of a named style: up to four edges, each with a style and
+/// optional color. An empty border (no edges with a style) is treated as "no border".
+/// </summary>
+public sealed record CellBorderSpec
+{
+    public CellEdgeSpec? Left { get; init; }
+
+    public CellEdgeSpec? Right { get; init; }
+
+    public CellEdgeSpec? Top { get; init; }
+
+    public CellEdgeSpec? Bottom { get; init; }
+
+    internal bool IsDefault =>
+        (Left is null || Left.IsDefault)
+        && (Right is null || Right.IsDefault)
+        && (Top is null || Top.IsDefault)
+        && (Bottom is null || Bottom.IsDefault);
+
+    internal void Validate(string context)
+    {
+        Left?.Validate(context);
+        Right?.Validate(context);
+        Top?.Validate(context);
+        Bottom?.Validate(context);
     }
 }
 
@@ -100,7 +162,7 @@ public sealed record CellAlignmentSpec
 }
 
 /// <summary>
-/// A named cell style: an immutable description of font, solid fill, alignment and
+/// A named cell style: an immutable description of font, fill, border, alignment and
 /// number format. Styles are defined workbook-wide via
 /// <see cref="IWorkbookBuilder.DefineStyle"/> and referenced from cell writes by
 /// <paramref name="Name"/>. Names are a builder-session concept: after a save/reopen,
@@ -122,8 +184,11 @@ public sealed record CellStyleSpec
     /// <summary>Optional font properties (bold, italic, color, size).</summary>
     public CellFontSpec? Font { get; init; }
 
-    /// <summary>Optional solid-fill properties.</summary>
+    /// <summary>Optional fill properties (pattern type + foreground color).</summary>
     public CellFillSpec? Fill { get; init; }
+
+    /// <summary>Optional border properties (per-edge style + color).</summary>
+    public CellBorderSpec? Border { get; init; }
 
     /// <summary>Optional alignment properties (horizontal, vertical, wrap).</summary>
     public CellAlignmentSpec? Alignment { get; init; }
@@ -152,6 +217,7 @@ public sealed record CellStyleSpec
 
         Font?.Validate($"Style '{Name}'");
         Fill?.Validate($"Style '{Name}'");
+        Border?.Validate($"Style '{Name}'");
         Alignment?.Validate($"Style '{Name}'");
 
         if (NumberFormat is not null && string.IsNullOrWhiteSpace(NumberFormat))
@@ -162,27 +228,26 @@ public sealed record CellStyleSpec
         }
     }
 
+    /// <summary>
+    /// Validates a color against the shared style color contract: a 6-digit RGB, an
+    /// 8-digit ARGB hex string, or a common color name. Throws an <see cref="XlsxException"/>
+    /// describing the first invalid aspect.
+    /// </summary>
     internal static void ValidateColorArgb(string color, string context)
     {
-        if (color.Length != 6 && color.Length != 8)
+        if (!ExcelColor.IsValid(color))
         {
             throw new XlsxException(
-                $"{context} color '{color}' must be a 6-digit RGB (e.g. 'FF0000') or " +
-                "8-digit ARGB (e.g. 'FFFF0000') hex string.");
-        }
-
-        foreach (var c in color)
-        {
-            if (!Uri.IsHexDigit(c))
-            {
-                throw new XlsxException(
-                    $"{context} color '{color}' contains non-hex character '{c}'; " +
-                    "colors must be 6-digit RGB or 8-digit ARGB hex strings.");
-            }
+                $"{context} color '{color}' must be a 6-digit RGB (e.g. 'FF0000'), an " +
+                "8-digit ARGB (e.g. 'FFFF0000') hex string, or a common color name " +
+                "(e.g. 'red', 'white', 'darkgray').");
         }
     }
 
-    /// <summary>Normalizes a 6-digit RGB to 8-digit ARGB (opaque alpha).</summary>
-    internal static string NormalizeColorArgb(string color) =>
-        color.Length == 6 ? "FF" + color : color.ToUpperInvariant();
+    /// <summary>
+    /// Normalizes a 6-digit RGB to 8-digit ARGB (opaque alpha), resolves a common color
+    /// name to its hex value, and upper-cases an 8-digit ARGB. The input must already be
+    /// validated by <see cref="ValidateColorArgb"/>.
+    /// </summary>
+    internal static string NormalizeColorArgb(string color) => ExcelColor.ToArgb(color, "Style");
 }

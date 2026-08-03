@@ -224,20 +224,71 @@ public static class XlsxPlanner
                 {
                     var path = $"worksheets[{sheetIndex}].rows[{i}][{j}]";
                     var reference = WorksheetBuilder.GetCellReference(j, rowIndex);
+                    var raw = row[j]!;
                     var resolved = ResolveValue(
-                        variables, row[j]!, path, $"cell {reference} of sheet '{sheetName}'", diagnostics);
+                        variables, raw, path, $"cell {reference} of sheet '{sheetName}'", diagnostics);
                     var column = ColumnAt(columns, j);
-                    var isFormula = resolved.StartsWith('=');
+                    var declaredType = column?.Type ?? XlsxCellType.Auto;
+                    var authoredFormula = raw.StartsWith('=');
+
+                    string? formula = null;
+                    string? value = resolved;
+                    var type = XlsxCellType.Auto;
+
+                    if (authoredFormula)
+                    {
+                        // A row value authored with a leading '=' is an explicit formula;
+                        // variable substitution happens inside it (legacy behaviour).
+                        formula = resolved;
+                        value = null;
+                        type = XlsxCellType.Auto;
+                    }
+                    else if (resolved.StartsWith('='))
+                    {
+                        // Variable substitution produced a formula-like value.
+                        if (declaredType == XlsxCellType.String)
+                        {
+                            // Explicit 'string' typing keeps the value literal; the promotion
+                            // is suppressed so no formula is written.
+                            type = XlsxCellType.String;
+                            diagnostics.Add(new XlsxDiagnostic(
+                                XlsxDiagnosticCode.VariableValueBecameFormula,
+                                XlsxDiagnosticSeverity.Warning,
+                                path,
+                                $"Variable substitution made the value of cell {reference} in " +
+                                $"sheet '{sheetName}' start with '=' ('{resolved}'), but the " +
+                                $"column is typed 'string', so it is written literally. Remove " +
+                                $"the column's 'string' type to treat it as a formula."));
+                        }
+                        else
+                        {
+                            // Legacy behaviour: the value is promoted to a formula, but a
+                            // warning makes the implicit conversion explicit.
+                            formula = resolved;
+                            value = null;
+                            type = XlsxCellType.Auto;
+                            diagnostics.Add(new XlsxDiagnostic(
+                                XlsxDiagnosticCode.VariableValueBecameFormula,
+                                XlsxDiagnosticSeverity.Warning,
+                                path,
+                                $"Variable substitution turned the value of cell {reference} in " +
+                                $"sheet '{sheetName}' into a formula ('{resolved}'). Type the " +
+                                $"column as 'string' to keep it literal."));
+                        }
+                    }
+                    else
+                    {
+                        type = XlsxCellTypeParser.ResolveAuto(declaredType, resolved);
+                    }
+
                     var cell = new XlsxPlanCell
                     {
                         Reference = reference,
                         Row = rowIndex,
                         Column = j + 1,
-                        Value = isFormula ? null : resolved,
-                        Formula = isFormula ? resolved : null,
-                        Type = isFormula
-                            ? XlsxCellType.Auto
-                            : XlsxCellTypeParser.ResolveAuto(column?.Type ?? XlsxCellType.Auto, resolved),
+                        Value = value,
+                        Formula = formula,
+                        Type = type,
                         StyleRef = column?.StyleRef,
                         Source = path
                     };

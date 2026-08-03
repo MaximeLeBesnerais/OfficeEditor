@@ -204,6 +204,83 @@ public class XlsxPlannerTests
         Assert.Equal(XlsxCellType.String, cell.Type);
     }
 
+    [Fact]
+    public void Plan_ShouldWarn_WhenVariablePromotesRowValueToFormula()
+    {
+        var set = XlsxInstructionParser.Parse("""
+        {
+            "version": "1.0",
+            "variables": { "total": "=SUM(B2:D2)" },
+            "worksheets": [{ "name": "S", "rows": [["{{total}}"]] }]
+        }
+        """);
+
+        var result = XlsxPlanner.Plan(set);
+        Assert.True(result.IsValid);
+        var warning = Assert.Single(result.Validation.Warnings, d => d.Code == XlsxDiagnosticCode.VariableValueBecameFormula);
+        Assert.Equal("worksheets[0].rows[0][0]", warning.Path);
+
+        // Legacy behaviour preserved: the value is promoted to a formula.
+        var cell = result.Plan!.Worksheets[0].Rows[0].Cells[0];
+        Assert.Equal("=SUM(B2:D2)", cell.Formula);
+        Assert.Null(cell.Value);
+    }
+
+    [Fact]
+    public void Plan_ShouldKeepVariableValueLiteral_WhenColumnTypedString()
+    {
+        var set = XlsxInstructionParser.Parse("""
+        {
+            "version": "1.0",
+            "variables": { "total": "=SUM(B2:D2)" },
+            "worksheets": [{ "name": "S", "columns": [{ "type": "string" }], "rows": [["{{total}}"]] }]
+        }
+        """);
+
+        var result = XlsxPlanner.Plan(set);
+        Assert.True(result.IsValid);
+        Assert.Single(result.Validation.Warnings, d => d.Code == XlsxDiagnosticCode.VariableValueBecameFormula);
+
+        var cell = result.Plan!.Worksheets[0].Rows[0].Cells[0];
+        Assert.Null(cell.Formula);
+        Assert.Equal("=SUM(B2:D2)", cell.Value);
+        Assert.Equal(XlsxCellType.String, cell.Type);
+    }
+
+    [Fact]
+    public void Plan_ShouldNotWarn_WhenFormulaIsAuthored_NotPromoted()
+    {
+        var set = XlsxInstructionParser.Parse("""
+        {
+            "version": "1.0",
+            "variables": { "range": "B2:D2" },
+            "worksheets": [{ "name": "S", "rows": [["=SUM({{range}})"]] }]
+        }
+        """);
+
+        var result = XlsxPlanner.Plan(set);
+        Assert.True(result.IsValid);
+        Assert.DoesNotContain(result.Validation.Warnings, d => d.Code == XlsxDiagnosticCode.VariableValueBecameFormula);
+        Assert.Equal("=SUM(B2:D2)", result.Plan!.Worksheets[0].Rows[0].Cells[0].Formula);
+    }
+
+    [Theory]
+    [InlineData("2024-01-15", XlsxCellType.Date)]
+    [InlineData("2024-01-15T14:30:00", XlsxCellType.DateTime)]
+    [InlineData("2024-01-15T00:00:00", XlsxCellType.DateTime)]
+    [InlineData("2024-01-15T00:00:00.000", XlsxCellType.DateTime)]
+    [InlineData("01/15/2024", XlsxCellType.String)]
+    [InlineData("2024-01-15 10:30", XlsxCellType.String)]
+    [InlineData("2024", XlsxCellType.Number)]
+    [InlineData("not a date", XlsxCellType.String)]
+    public void Plan_ShouldInferDateTypes_UsingExactWriterFormats(string value, XlsxCellType expected)
+    {
+        // The inferred type must be one the writer can actually produce: only strict ISO
+        // date ("yyyy-MM-dd") and ISO datetime ("yyyy-MM-ddTHH:mm:ss[.fff]") values are
+        // dates; a midnight datetime stays a datetime; anything else is a string.
+        Assert.Equal(expected, XlsxCellTypeParser.ResolveAuto(XlsxCellType.Auto, value));
+    }
+
     // ─── Address / layout ─────────────────────────────────────────
 
     [Fact]

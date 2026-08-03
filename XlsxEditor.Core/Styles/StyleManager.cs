@@ -39,6 +39,9 @@ internal sealed class StyleManager
     private readonly Dictionary<string, uint> _fontKeys = new(StringComparer.Ordinal);
     private readonly Dictionary<string, uint> _fillKeys = new(StringComparer.Ordinal);
 
+    // canonical content key -> border index (dedup within and across appends).
+    private readonly Dictionary<string, uint> _borderKeys = new(StringComparer.Ordinal);
+
     // custom number-format code -> numFmt id (ids >= 164), plus the reverse map needed
     // to build content keys from existing cellXfs.
     private readonly Dictionary<string, uint> _numberFormatIds = new(StringComparer.Ordinal);
@@ -142,8 +145,9 @@ internal sealed class StyleManager
     {
         var fontKey = BuildFontKey(spec.Font);
         var fillKey = BuildFillKey(spec.Fill);
+        var borderKey = BuildBorderKey(spec.Border);
         var numFmtCode = spec.NumberFormat;
-        var key = BuildCellXfKey(fontKey, fillKey, numFmtCode, spec.Alignment);
+        var key = BuildCellXfKey(fontKey, fillKey, borderKey, numFmtCode, spec.Alignment);
 
         if (_cellXfKeys.TryGetValue(key, out var existing))
         {
@@ -153,13 +157,14 @@ internal sealed class StyleManager
         var numFmtId = ResolveNumberFormat(numFmtCode);
         var fontId = ResolveFont(fontKey, spec.Font);
         var fillId = ResolveFill(fillKey, spec.Fill);
+        var borderId = ResolveBorder(borderKey, spec.Border);
 
         var cellFormat = new CellFormat
         {
             NumberFormatId = numFmtId,
             FontId = fontId,
             FillId = fillId,
-            BorderId = 0
+            BorderId = borderId
         };
 
         if (numFmtCode is not null)
@@ -175,6 +180,11 @@ internal sealed class StyleManager
         if (fillKey is not null)
         {
             cellFormat.ApplyFill = true;
+        }
+
+        if (borderKey is not null)
+        {
+            cellFormat.ApplyBorder = true;
         }
 
         if (spec.Alignment is { IsDefault: false } alignment)
@@ -249,11 +259,13 @@ internal sealed class StyleManager
             return existing;
         }
 
-        var newFill = new Fill(new PatternFill
+        var patternFill = new PatternFill { PatternType = fill!.Pattern ?? PatternValues.Solid };
+        if (fill.SolidColorArgb is { } color)
         {
-            PatternType = PatternValues.Solid,
-            ForegroundColor = new ForegroundColor { Rgb = CellStyleSpec.NormalizeColorArgb(fill!.SolidColorArgb!) }
-        });
+            patternFill.ForegroundColor = new ForegroundColor { Rgb = CellStyleSpec.NormalizeColorArgb(color) };
+        }
+
+        var newFill = new Fill(patternFill);
 
         var fills = EnsureFills();
         var id = fills.Count?.Value ?? (uint)fills.Elements<Fill>().Count();
@@ -261,6 +273,70 @@ internal sealed class StyleManager
         fills.Count = id + 1;
         _fillKeys[fillKey] = id;
         return id;
+    }
+
+    private uint ResolveBorder(string? borderKey, CellBorderSpec? border)
+    {
+        if (borderKey is null)
+        {
+            return 0; // border 0 is the schema-required empty border
+        }
+
+        if (_borderKeys.TryGetValue(borderKey, out var existing))
+        {
+            return existing;
+        }
+
+        var newBorder = BuildBorder(border!);
+        var borders = EnsureBorders();
+        var id = borders.Count?.Value ?? (uint)borders.Elements<Border>().Count();
+        borders.Append(newBorder);
+        borders.Count = id + 1;
+        _borderKeys[borderKey] = id;
+        return id;
+    }
+
+    private static Border BuildBorder(CellBorderSpec border)
+    {
+        var result = new Border();
+
+        if (border.Left is { Style: { } leftStyle } left)
+        {
+            result.LeftBorder = new LeftBorder { Style = leftStyle };
+            if (left.ColorArgb is { } leftColor)
+            {
+                result.LeftBorder.Color = new Color { Rgb = CellStyleSpec.NormalizeColorArgb(leftColor) };
+            }
+        }
+
+        if (border.Right is { Style: { } rightStyle } right)
+        {
+            result.RightBorder = new RightBorder { Style = rightStyle };
+            if (right.ColorArgb is { } rightColor)
+            {
+                result.RightBorder.Color = new Color { Rgb = CellStyleSpec.NormalizeColorArgb(rightColor) };
+            }
+        }
+
+        if (border.Top is { Style: { } topStyle } top)
+        {
+            result.TopBorder = new TopBorder { Style = topStyle };
+            if (top.ColorArgb is { } topColor)
+            {
+                result.TopBorder.Color = new Color { Rgb = CellStyleSpec.NormalizeColorArgb(topColor) };
+            }
+        }
+
+        if (border.Bottom is { Style: { } bottomStyle } bottom)
+        {
+            result.BottomBorder = new BottomBorder { Style = bottomStyle };
+            if (bottom.ColorArgb is { } bottomColor)
+            {
+                result.BottomBorder.Color = new Color { Rgb = CellStyleSpec.NormalizeColorArgb(bottomColor) };
+            }
+        }
+
+        return result;
     }
 
     private uint ResolveNumberFormat(string? code)
@@ -339,10 +415,19 @@ internal sealed class StyleManager
             }
         }
 
+        var borders = stylesheet.Borders?.Elements<Border>().ToList() ?? new List<Border>();
+        for (var i = 0; i < borders.Count; i++)
+        {
+            if (BuildBorderKeyFromBorder(borders[i]) is { } borderKey)
+            {
+                _borderKeys.TryAdd(borderKey, (uint)i);
+            }
+        }
+
         var cellFormats = stylesheet.CellFormats?.Elements<CellFormat>().ToList() ?? new List<CellFormat>();
         for (var i = 0; i < cellFormats.Count; i++)
         {
-            if (BuildCellXfKeyFromCellFormat(cellFormats[i], fonts, fills) is { } key)
+            if (BuildCellXfKeyFromCellFormat(cellFormats[i], fonts, fills, borders) is { } key)
             {
                 _cellXfKeys.TryAdd(key, (uint)i);
             }
@@ -370,16 +455,39 @@ internal sealed class StyleManager
             return null;
         }
 
-        return $"solid:{CellStyleSpec.NormalizeColorArgb(fill.SolidColorArgb!)}";
+        var pattern = fill.Pattern ?? PatternValues.Solid;
+        var color = fill.SolidColorArgb is null ? "-" : CellStyleSpec.NormalizeColorArgb(fill.SolidColorArgb);
+        return $"p:{StructValueName(pattern)};c:{color}";
+    }
+
+    private static string? BuildBorderKey(CellBorderSpec? border)
+    {
+        if (border is null || border.IsDefault)
+        {
+            return null;
+        }
+
+        return $"l:{EdgeKey(border.Left)}|r:{EdgeKey(border.Right)}|t:{EdgeKey(border.Top)}|b:{EdgeKey(border.Bottom)}";
+    }
+
+    private static string EdgeKey(CellEdgeSpec? edge)
+    {
+        if (edge is null || edge.Style is null)
+        {
+            return "-";
+        }
+
+        var color = edge.ColorArgb is null ? "-" : CellStyleSpec.NormalizeColorArgb(edge.ColorArgb);
+        return $"{StructValueName(edge.Style.Value)};{color}";
     }
 
     private static string BuildCellXfKey(
-        string? fontKey, string? fillKey, string? numFmtCode, CellAlignmentSpec? alignment)
+        string? fontKey, string? fillKey, string? borderKey, string? numFmtCode, CellAlignmentSpec? alignment)
     {
-        var horizontal = alignment?.Horizontal is null ? "-" : alignment.Horizontal.Value.ToString();
-        var vertical = alignment?.Vertical is null ? "-" : alignment.Vertical.Value.ToString();
+        var horizontal = alignment?.Horizontal is null ? "-" : StructValueName(alignment.Horizontal.Value);
+        var vertical = alignment?.Vertical is null ? "-" : StructValueName(alignment.Vertical.Value);
         var wrap = alignment?.WrapText == true ? 1 : 0;
-        return $"font:{fontKey ?? "-"}|fill:{fillKey ?? "-"}|num:{numFmtCode ?? "-"}|" +
+        return $"font:{fontKey ?? "-"}|fill:{fillKey ?? "-"}|border:{borderKey ?? "-"}|num:{numFmtCode ?? "-"}|" +
                $"align:{horizontal};{vertical};{wrap}";
     }
 
@@ -403,16 +511,73 @@ internal sealed class StyleManager
     private static string? BuildFillKeyFromFill(Fill fill)
     {
         var patternFill = fill.PatternFill;
-        if (patternFill?.PatternType?.Value != PatternValues.Solid)
+        if (patternFill?.PatternType?.Value is not { } pattern)
+        {
+            return null;
+        }
+
+        // The schema-required "no fill" (index 0) keys as no fill, matching a style spec
+        // that sets no fill, so a plain cellXf dedups against it.
+        if (pattern == PatternValues.None)
         {
             return null;
         }
 
         var color = patternFill.ForegroundColor?.Rgb?.Value;
-        return color is null ? null : $"solid:{color.ToUpperInvariant()}";
+        var colorKey = color is null ? "-" : color.ToUpperInvariant();
+        return $"p:{StructValueName(pattern)};c:{colorKey}";
     }
 
-    private string? BuildCellXfKeyFromCellFormat(CellFormat xf, List<Font> fonts, List<Fill> fills)
+    private static string? BuildBorderKeyFromBorder(Border border)
+    {
+        var left = EdgeKeyFromBorder(border.LeftBorder, "left");
+        var right = EdgeKeyFromBorder(border.RightBorder, "right");
+        var top = EdgeKeyFromBorder(border.TopBorder, "top");
+        var bottom = EdgeKeyFromBorder(border.BottomBorder, "bottom");
+
+        if (left is null && right is null && top is null && bottom is null)
+        {
+            return null;
+        }
+
+        return $"l:{left ?? "-"}|r:{right ?? "-"}|t:{top ?? "-"}|b:{bottom ?? "-"}";
+    }
+
+    private static string? EdgeKeyFromBorder(OpenXmlElement? edge, string tag)
+    {
+        if (edge is null)
+        {
+            return null;
+        }
+
+        string? style = null;
+        string? color = null;
+
+        if (edge is LeftBorder leftBorder && leftBorder.Style?.Value is { } leftStyle)
+        {
+            style = StructValueName(leftStyle);
+            color = leftBorder.Color?.Rgb?.Value?.ToUpperInvariant();
+        }
+        else if (edge is RightBorder rightBorder && rightBorder.Style?.Value is { } rightStyle)
+        {
+            style = StructValueName(rightStyle);
+            color = rightBorder.Color?.Rgb?.Value?.ToUpperInvariant();
+        }
+        else if (edge is TopBorder topBorder && topBorder.Style?.Value is { } topStyle)
+        {
+            style = StructValueName(topStyle);
+            color = topBorder.Color?.Rgb?.Value?.ToUpperInvariant();
+        }
+        else if (edge is BottomBorder bottomBorder && bottomBorder.Style?.Value is { } bottomStyle)
+        {
+            style = StructValueName(bottomStyle);
+            color = bottomBorder.Color?.Rgb?.Value?.ToUpperInvariant();
+        }
+
+        return style is null ? null : $"{style};{color ?? "-"}";
+    }
+
+    private string? BuildCellXfKeyFromCellFormat(CellFormat xf, List<Font> fonts, List<Fill> fills, List<Border> borders)
     {
         string? fontKey = null;
         if (xf.FontId?.Value is { } fontId && fontId < fonts.Count)
@@ -424,6 +589,12 @@ internal sealed class StyleManager
         if (xf.FillId?.Value is { } fillId && fillId < fills.Count)
         {
             fillKey = BuildFillKeyFromFill(fills[(int)fillId]);
+        }
+
+        string? borderKey = null;
+        if (xf.BorderId?.Value is { } borderId && borderId < borders.Count)
+        {
+            borderKey = BuildBorderKeyFromBorder(borders[(int)borderId]);
         }
 
         string? numFmtCode = null;
@@ -446,12 +617,33 @@ internal sealed class StyleManager
         }
 
         var alignment = xf.Alignment;
-        var horizontal = alignment?.Horizontal is null ? "-" : alignment.Horizontal.Value.ToString();
-        var vertical = alignment?.Vertical is null ? "-" : alignment.Vertical.Value.ToString();
+        var horizontal = alignment?.Horizontal is null ? "-" : StructValueName(alignment.Horizontal.Value);
+        var vertical = alignment?.Vertical is null ? "-" : StructValueName(alignment.Vertical.Value);
         var wrap = alignment?.WrapText?.Value == true ? 1 : 0;
 
-        return $"font:{fontKey ?? "-"}|fill:{fillKey ?? "-"}|num:{numFmtCode ?? "-"}|" +
+        return $"font:{fontKey ?? "-"}|fill:{fillKey ?? "-"}|border:{borderKey ?? "-"}|num:{numFmtCode ?? "-"}|" +
                $"align:{horizontal};{vertical};{wrap}";
+    }
+
+    /// <summary>
+    /// Stable string form of the SDK's struct-valued style enums (<see cref="PatternValues"/>,
+    /// <see cref="BorderStyleValues"/>, <see cref="HorizontalAlignmentValues"/>, …). These
+    /// structs do not expose a readable value, so the canonical key uses the member's static
+    /// property name (e.g. "Thin", "Gray0625", "CenterContinuous"). Both the spec-built and
+    /// the XML-scanned paths produce the same struct for the same content, so the key
+    /// round-trips and dedup stays correct.
+    /// </summary>
+    private static string StructValueName<T>(T value) where T : struct
+    {
+        foreach (var property in typeof(T).GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static))
+        {
+            if (Equals(property.GetValue(null), value))
+            {
+                return property.Name;
+            }
+        }
+
+        return value.ToString() ?? typeof(T).Name;
     }
 
     private static Alignment BuildAlignment(CellAlignmentSpec alignment)
@@ -542,6 +734,19 @@ internal sealed class StyleManager
         var fills = new Fills();
         InsertStylesheetElementAtSchemaPosition(stylesheet, fills);
         return fills;
+    }
+
+    private Borders EnsureBorders()
+    {
+        var stylesheet = EnsureStylesheet();
+        if (stylesheet.Borders is { } existing)
+        {
+            return existing;
+        }
+
+        var borders = new Borders();
+        InsertStylesheetElementAtSchemaPosition(stylesheet, borders);
+        return borders;
     }
 
     private CellFormats EnsureCellFormats()

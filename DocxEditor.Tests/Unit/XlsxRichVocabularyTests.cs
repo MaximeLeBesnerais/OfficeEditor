@@ -254,6 +254,132 @@ public class XlsxRichVocabularyTests
         Assert.Contains("fill pattern", ex.Message);
     }
 
+    [Theory]
+    [InlineData("darkdiagonal")]
+    [InlineData("darkdowndiagonal")]
+    [InlineData("darkupdiagonal")]
+    [InlineData("lightdiagonal")]
+    [InlineData("lightdowndiagonal")]
+    [InlineData("lightupdiagonal")]
+    public void Parse_ShouldRejectNonStandardFillPatternNames(string pattern)
+    {
+        // These look like Excel patterns but are not real ST_PatternType values; the
+        // executor cannot represent them, so validation must reject them too.
+        var json = $$$"""
+        {
+            "version": "1.0",
+            "styles": [{"name": "S", "fill": {"color": "FF0000", "pattern": "{{{pattern}}}"}}],
+            "worksheets": [{"name": "W", "rows": [["1"]]}]
+        }
+        """;
+
+        var ex = Assert.Throws<XlsxException>(() => XlsxInstructionParser.Parse(json));
+        Assert.Contains("fill pattern", ex.Message);
+    }
+
+    [Fact]
+    public void Parse_ShouldRejectSolidFillWithoutColor()
+    {
+        // A solid fill with no color is silently meaningless; validation rejects it so an
+        // accepted style always produces the fill it promises.
+        var json = """
+        {
+            "version": "1.0",
+            "styles": [{"name": "S", "fill": {"pattern": "solid"}}],
+            "worksheets": [{"name": "W", "rows": [["1"]]}]
+        }
+        """;
+
+        var ex = Assert.Throws<XlsxException>(() => XlsxInstructionParser.Parse(json));
+        Assert.Contains("color", ex.Message);
+    }
+
+    [Fact]
+    public void Parse_ShouldAcceptNamedColors_AndRejectUnknownColorStrings()
+    {
+        var set = XlsxInstructionParser.Parse("""
+        {
+            "version": "1.0",
+            "styles": [{
+                "name": "S",
+                "font": { "color": "red" },
+                "fill": { "color": "white", "pattern": "solid" },
+                "border": { "top": { "style": "thin", "color": "darkgray" } }
+            }],
+            "worksheets": [{"name": "W", "rows": [["1"]]}]
+        }
+        """);
+
+        var style = Assert.Single(set.Styles!);
+        Assert.Equal("red", style.Font!.Color);
+        Assert.Equal("white", style.Fill!.Color);
+        Assert.Equal("darkgray", style.Border!.Top!.Color);
+
+        var ex = Assert.Throws<XlsxException>(() => XlsxInstructionParser.Parse("""
+        {
+            "version": "1.0",
+            "styles": [{"name": "S", "font": { "color": "notacolor" }}],
+            "worksheets": [{"name": "W", "rows": [["1"]]}]
+        }
+        """));
+        Assert.Contains("notacolor", ex.Message);
+    }
+
+    [Theory]
+    [InlineData("thin")]
+    [InlineData("medium")]
+    [InlineData("dashed")]
+    [InlineData("dotted")]
+    [InlineData("dashDotDot")]
+    [InlineData("slantDashDot")]
+    public void Parse_ShouldAcceptEveryImplementedBorderStyle(string style)
+    {
+        var json = """
+        {
+            "version": "1.0",
+            "styles": [{"name": "S", "border": {"top": {"style": "BORDER"}}}],
+            "worksheets": [{"name": "W", "rows": [["1"]]}]
+        }
+        """.Replace("BORDER", style);
+
+        var set = XlsxInstructionParser.Parse(json);
+        Assert.Equal(style, set.Styles![0].Border!.Top!.Style);
+    }
+
+    [Fact]
+    public void Parse_ShouldAcceptEmptyBorderBlock_AsNoBorder()
+    {
+        // A border block with no styled edges carries no border aspect; it is accepted and
+        // produces no border, keeping validation and execution in agreement.
+        var json = """
+        {
+            "version": "1.0",
+            "styles": [{"name": "S", "border": {}}],
+            "worksheets": [{"name": "W", "rows": [["1"]]}]
+        }
+        """;
+
+        var set = XlsxInstructionParser.Parse(json);
+        Assert.NotNull(set.Styles![0].Border);
+    }
+
+    [Fact]
+    public void Parse_ShouldRejectBorderEdgeColor_WithoutAStyle()
+    {
+        // A color with no style would be silently dropped at generation; validation must
+        // reject it so an accepted border always produces the edges it declares.
+        var json = """
+        {
+            "version": "1.0",
+            "styles": [{"name": "S", "border": {"top": {"color": "FF0000"}}}],
+            "worksheets": [{"name": "W", "rows": [["1"]]}]
+        }
+        """;
+
+        var ex = Assert.Throws<XlsxException>(() => XlsxInstructionParser.Parse(json));
+        Assert.Contains("needs a style", ex.Message);
+    }
+
     [Fact]
     public void Parse_ShouldRejectMergeOverlap()
     {
