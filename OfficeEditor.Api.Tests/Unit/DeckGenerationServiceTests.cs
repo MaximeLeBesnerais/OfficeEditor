@@ -7,7 +7,7 @@ using Xunit.Abstractions;
 namespace OfficeEditor.Api.Tests.Unit;
 
 /// <summary>
-/// deck generation surface (P9, plan.md §7.1): JSON in → PPTX + per-slide previews out.
+/// deck generation surface (P9): JSON in → PPTX + per-slide previews out.
 /// Preview rendering needs a Typst backend (TypstBridge/CLI), which this sandbox lacks, so
 /// the render assertions are environment-invariant (previews xor previewError) and the
 /// happy-path render check is opt-in via OE_RUN_TYPST_COMPILE_TESTS=1 (same convention as
@@ -196,7 +196,7 @@ public sealed class DeckGenerationServiceTests
     [Fact]
     public void Generate_LayoutOverflowError_SurfacesAsErrorWithPath()
     {
-        // Two 600pt rects in a 960pt-wide row, default overflow=error (plan.md §3.2).
+        // Two 600pt rects in a 960pt-wide row, default overflow=error.
         var document = """
             {
               "version": "2.0",
@@ -406,7 +406,7 @@ public sealed class DeckGenerationServiceTests
     [Fact]
     public void Generate_SixteenSlides_WarmPathUnderTarget()
     {
-        // plan.md §7.1: warm < 500ms/deck for ≤16 slides (PPTX path; preview render excluded
+        // warm < 500ms/deck for ≤16 slides (PPTX path; preview render excluded
         // — it is backend-dependent and absent in this sandbox).
         var document = BuildDocument(slideCount: 16);
         var service = new DeckGenerationService();

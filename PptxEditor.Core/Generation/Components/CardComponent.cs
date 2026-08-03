@@ -3,11 +3,11 @@ using PptxEditor.Core.Generation.Model;
 namespace PptxEditor.Core.Generation.Components;
 
 /// <summary>
-/// <c>card</c> (plan.md §4): a titled content surface styled by the token card style
+/// <c>card</c> (component layer): a titled content surface styled by the token card style
 /// (<c>shape.cardStyle</c>) and corner radius. Expands to a padded column container with
 /// title / subtitle / body texts; the last present field grows to fill the card.
 /// <para>Overflow contract: texts shrink (default text policy); structural overflow of
-/// the card box errors (default container policy, plan.md §3.2).</para>
+/// the card box errors (default container policy).</para>
 /// </summary>
 public static class CardComponent
 {

@@ -4,8 +4,8 @@ using PptxEditor.Core.Models;
 namespace PptxEditor.Core.Generation.Layout;
 
 /// <summary>
-/// One resolved slide: the absolute draw tree both emitters consume (plan.md §2 rule 1 —
-/// layout is resolved exactly once, in C#). All geometry in points; all fill/stroke/shadow
+/// One resolved slide: the absolute draw tree both emitters consume —
+/// layout is resolved exactly once, in C#. All geometry in points; all fill/stroke/shadow
 /// colors resolved to #RRGGBB; all font slots resolved to family names.
 /// </summary>
 public sealed record ResolvedSlide

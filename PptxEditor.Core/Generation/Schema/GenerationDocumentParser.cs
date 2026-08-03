@@ -7,11 +7,11 @@ using PptxEditor.Core.Models;
 namespace PptxEditor.Core.Generation.Schema;
 
 /// <summary>
-/// Single-pass parser + validator for the generation JSON vocabulary (plan.md §3).
+/// Single-pass parser + validator for the generation JSON vocabulary.
 /// Reads with System.Text.Json, builds the <see cref="GenerationDocument"/> model and
 /// collects loud, actionable errors (JSON path + suggestion) instead of failing fast, so
 /// AI and human authors can fix every problem at once. CSS-isms (flex-wrap, z-index,
-/// percentages, wrap, …) are rejected explicitly — they are v1 non-goals (plan.md §1).
+/// percentages, wrap, …) are rejected explicitly — they are v1 non-goals.
 /// </summary>
 public sealed class GenerationDocumentParser
 {
@@ -78,7 +78,7 @@ public sealed class GenerationDocumentParser
         ["divider"] = "divider", ["badge"] = "badge", ["image_card"] = "image_card", ["table_block"] = "table_block"
     };
 
-    // P10 (archetype slide functions, plan.md §4/§8 Q5): slide-root-only types. The parser
+    // P10 (archetype slide functions): slide-root-only types. The parser
     // wraps them as a bare container holding one archetype-named component marker; the
     // archetype layer (ArchetypeExpander) owns expansion. Archetype names are NOT valid
     // child element types.
@@ -89,10 +89,10 @@ public sealed class GenerationDocumentParser
 
     private static readonly IReadOnlyDictionary<string, string> CssIsms = new Dictionary<string, string>(StringComparer.Ordinal)
     {
-        ["flexwrap"] = "CSS 'flex-wrap' is not supported: layout never wraps (v1 non-goal, plan.md §1).",
-        ["wrap"] = "'wrap' is not supported: layout never wraps (v1 non-goal, plan.md §1).",
-        ["overflowwrap"] = "CSS 'overflow-wrap' is not supported: layout never wraps (v1 non-goal, plan.md §1).",
-        ["zindex"] = "CSS 'z-index' is not supported: paint order = document order (v1 non-goal, plan.md §1).",
+        ["flexwrap"] = "CSS 'flex-wrap' is not supported: layout never wraps (v1 non-goal).",
+        ["wrap"] = "'wrap' is not supported: layout never wraps (v1 non-goal).",
+        ["overflowwrap"] = "CSS 'overflow-wrap' is not supported: layout never wraps (v1 non-goal).",
+        ["zindex"] = "CSS 'z-index' is not supported: paint order = document order (v1 non-goal).",
         ["position"] = "CSS 'position' is not supported: use 'at' ({\"x\":…,\"y\":…}) on children of layout-less parents.",
         ["display"] = "CSS 'display' is not supported: declare layout via 'layout' ({\"mode\":\"row\"|\"column\"|\"grid\"}).",
         ["float"] = "CSS floats are not supported: use row/column/grid layout.",
@@ -109,9 +109,9 @@ public sealed class GenerationDocumentParser
         ["right"] = "CSS absolute offsets are not supported: use 'at' ({\"x\":…,\"y\":…}).",
         ["bottom"] = "CSS absolute offsets are not supported: use 'at' ({\"x\":…,\"y\":…}).",
         ["transform"] = "CSS 'transform' is not supported in v1.",
-        ["style"] = "CSS/HTML input is a v1 non-goal (plan.md §1): style via design tokens and element properties.",
-        ["class"] = "CSS/HTML input is a v1 non-goal (plan.md §1): style via design tokens and element properties.",
-        ["classname"] = "CSS/HTML input is a v1 non-goal (plan.md §1): style via design tokens and element properties.",
+        ["style"] = "CSS/HTML input is a v1 non-goal: style via design tokens and element properties.",
+        ["class"] = "CSS/HTML input is a v1 non-goal: style via design tokens and element properties.",
+        ["classname"] = "CSS/HTML input is a v1 non-goal: style via design tokens and element properties.",
         ["gridtemplatecolumns"] = "CSS grid templates are not supported: use 'layout' ({\"mode\":\"grid\",\"cols\": n}).",
         ["gridtemplaterows"] = "CSS grid templates are not supported: use 'layout' ({\"mode\":\"grid\",\"cols\": n})."
     };
@@ -225,7 +225,7 @@ public sealed class GenerationDocumentParser
         DesignTokens design;
         if (!TryGet(root, "design", out var designEl))
         {
-            Error("$", "'design' is required (design tokens, plan.md §3.1).");
+            Error("$", "'design' is required (design tokens).");
             design = new DesignTokens { Palette = new Dictionary<string, string>() };
         }
         else if (designEl.ValueKind != JsonValueKind.Object)
@@ -282,7 +282,7 @@ public sealed class GenerationDocumentParser
         var palette = new Dictionary<string, string>(StringComparer.Ordinal);
         if (!TryGet(el, "palette", out var paletteEl))
         {
-            Error(path, "'palette' is required (token name → #RRGGBB, plan.md §3.1).");
+            Error(path, "'palette' is required (token name → #RRGGBB).");
         }
         else if (paletteEl.ValueKind != JsonValueKind.Object)
         {
@@ -365,12 +365,12 @@ public sealed class GenerationDocumentParser
     {
         if (el.ValueKind != JsonValueKind.Object)
         {
-            Error(path, "each slide must be a JSON object (a container element, plan.md §3.2).");
+            Error(path, "each slide must be a JSON object (a container element).");
             return null;
         }
         if (!TryGet(el, "type", out var typeEl) || typeEl.ValueKind != JsonValueKind.String)
         {
-            Error(path, "each slide's root requires \"type\": \"container\" (the root is the slide canvas, plan.md §3.2) or an archetype slide type (cover, section, kpi_row, two_col, table_slide, plan.md §4).");
+            Error(path, "each slide's root requires \"type\": \"container\" (the root is the slide canvas) or an archetype slide type (cover, section, kpi_row, two_col, table_slide).");
             return null;
         }
         var slideType = typeEl.GetString()!;
@@ -395,7 +395,7 @@ public sealed class GenerationDocumentParser
         {
             if (contentEl.ValueKind != JsonValueKind.Object)
             {
-                Error($"{path}.content", "must be an object (archetype payload, plan.md §4).");
+                Error($"{path}.content", "must be an object (archetype payload).");
             }
             else
             {
@@ -450,7 +450,7 @@ public sealed class GenerationDocumentParser
                 }
                 if (ArchetypeSlideNames.ContainsKey(type))
                 {
-                    Error(path, $"'{type}' is an archetype slide type: it is only valid as a slide root, not as a child element (plan.md §4).");
+                    Error(path, $"'{type}' is an archetype slide type: it is only valid as a slide root, not as a child element.");
                     return null;
                 }
                 Error(
@@ -689,7 +689,7 @@ public sealed class GenerationDocumentParser
         {
             if (contentEl.ValueKind != JsonValueKind.Object)
             {
-                Error($"{path}.content", "must be an object (component payload, plan.md §4).");
+                Error($"{path}.content", "must be an object (component payload).");
             }
             else
             {
@@ -704,7 +704,7 @@ public sealed class GenerationDocumentParser
     {
         if (TryGet(el, "overflow", out _))
         {
-            Error($"{path}.overflow", "'overflow' is only valid on containers and text elements (plan.md §3.2).");
+            Error($"{path}.overflow", "'overflow' is only valid on containers and text elements.");
         }
     }
 
@@ -833,7 +833,7 @@ public sealed class GenerationDocumentParser
             {
                 if (at is not null)
                 {
-                    Error($"{path}.at", "'at' is not allowed inside a layout container: position via layout mode, grow, justify and align (plan.md §2 rule 3).");
+                    Error($"{path}.at", "'at' is not allowed inside a layout container: position via layout mode, grow, justify and align.");
                 }
             }
             else
@@ -1242,7 +1242,7 @@ public sealed class GenerationDocumentParser
     {
         if (v.ValueKind == JsonValueKind.String && PercentPattern.IsMatch(v.GetString()!))
         {
-            Error(valuePath, $"'{v.GetString()}' is a percentage: percentages are not supported (v1 non-goal, plan.md §1); use pt numbers.");
+            Error(valuePath, $"'{v.GetString()}' is a percentage: percentages are not supported (v1 non-goal); use pt numbers.");
             return null;
         }
         if (v.ValueKind != JsonValueKind.Number || !v.TryGetDouble(out var number))
@@ -1285,7 +1285,7 @@ public sealed class GenerationDocumentParser
     {
         if (v.ValueKind == JsonValueKind.String && PercentPattern.IsMatch(v.GetString()!))
         {
-            Error(valuePath, $"'{v.GetString()}' is a percentage: percentages are not supported (v1 non-goal, plan.md §1); use pt numbers.");
+            Error(valuePath, $"'{v.GetString()}' is a percentage: percentages are not supported (v1 non-goal); use pt numbers.");
             return null;
         }
         if (v.ValueKind != JsonValueKind.Number || !v.TryGetInt32(out var number))
@@ -1367,7 +1367,7 @@ public sealed class GenerationDocumentParser
         }
         if (HexColorPattern.IsMatch(raw))
         {
-            Warn(valuePath, $"raw hex color '{raw}' is off-palette: prefer a design palette token (plan.md §3.1).");
+            Warn(valuePath, $"raw hex color '{raw}' is off-palette: prefer a design palette token.");
             return raw;
         }
         if (raw.StartsWith("#", StringComparison.Ordinal))

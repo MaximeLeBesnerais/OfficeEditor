@@ -180,7 +180,7 @@ public sealed class StyleResolver
         if (schemeClr == null)
             return null;
 
-        // Raw XML attribute read per AGENTS.pptx.md rule 1 — SDK enum parsing is unreliable.
+                // Raw XML attribute read via regex on OuterXml — SDK enum parsing is unreliable.
         var schemeName = GetAttributeValue(schemeClr, "val");
         return string.IsNullOrEmpty(schemeName) ? null : ResolveSchemeColor(schemeName);
     }
@@ -323,7 +323,7 @@ public sealed class StyleResolver
         if (schemeClr == null)
             return null;
 
-        // Raw XML attribute read per AGENTS.pptx.md rule 1 — the SDK enum ToString()
+        // Raw XML attribute read via regex on OuterXml — the SDK enum ToString()
         // yields names like "Text1" which ResolveSchemeColor aliases do not cover.
         var schemeName = GetAttributeValue(schemeClr, "val");
         if (string.IsNullOrEmpty(schemeName))
@@ -519,7 +519,7 @@ public sealed class StyleResolver
             var schemeClr = buClr.Elements<Drawing.SchemeColor>().FirstOrDefault();
             if (schemeClr != null)
             {
-                // Raw XML attribute read per AGENTS.pptx.md rule 1 — SDK enum parsing is unreliable.
+        // Raw XML attribute read via regex on OuterXml — SDK enum parsing is unreliable.
                 var schemeName = GetAttributeValue(schemeClr, "val");
                 if (!string.IsNullOrEmpty(schemeName))
                 {
@@ -750,7 +750,7 @@ public sealed class StyleResolver
         double? marginLeft = null;
         double? indent = null;
 
-        // Raw XML attribute reads per AGENTS.pptx.md rule 1 — SDK attribute access is unreliable.
+        // Raw XML attribute reads via regex on OuterXml — SDK attribute access is unreliable.
         var marLAttr = GetAttributeValue(element, "marL");
         if (!string.IsNullOrEmpty(marLAttr) && int.TryParse(marLAttr, out var marL))
             marginLeft = marL / 12700.0;

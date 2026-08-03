@@ -7,7 +7,7 @@ using PptxEditor.Core.Services;
 namespace DocxEditor.Tests.Generation.Layout;
 
 /// <summary>
-/// P3 golden tests (plan.md §5, §7.5): real font-metric text measurement wired into the
+/// P3 golden tests: real font-metric text measurement wired into the
 /// LayoutResolver overflow seam. Metrics come from the synthetic "TestSans" TTF parsed by
 /// the real OpenTypeFontMetricsReader chain (unitsPerEm 1000, uniform advance 500 → char
 /// width = fontSize/2; TypoAsc − TypoDesc + TypoLineGap → default line factor 1.2), with a
@@ -206,7 +206,7 @@ public sealed class TextMeasureTests : IDisposable
     [Fact]
     public void Resolve_OversizedTextInFixedBox_ShrinksToFit_NeverSilentlyClips()
     {
-        // plan.md §7.5: a deliberately oversized text in a fixed box shrinks (≥ MinScale)
+        // A deliberately oversized text in a fixed box shrinks (≥ MinScale)
         // and the overflow is fully resolved — nothing left to flag, nothing clipped.
         var result = Resolve(RootRow(FixedText(Words(8), 100, 20)));
 

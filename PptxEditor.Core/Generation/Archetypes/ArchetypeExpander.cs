@@ -5,10 +5,10 @@ using PptxEditor.Core.Generation.Model;
 namespace PptxEditor.Core.Generation.Archetypes;
 
 /// <summary>
-/// The archetype layer entry point (plan.md §4, P10): replaces every archetype marker
+/// The archetype layer entry point (component pipeline, P10): replaces every archetype marker
 /// slide in a generation document with the archetype's composed slide. A marker is the
 /// shape the schema layer produces for an archetype slide type (<c>{"type": "kpi_row",
-/// "content": {…}}</c> at slide root, plan.md §8 Q5): a bare root container whose only
+/// "content": {…}}</c> at slide root): a bare root container whose only
 /// child is a <see cref="ComponentElement"/> named after the archetype.
 /// <para>
 /// Runs exactly once, after parsing and BEFORE <see cref="ComponentExpander"/>: the
@@ -42,7 +42,7 @@ public static class ArchetypeExpander
                 if (marker.Size is not null || marker.At is not null)
                 {
                     throw new ComponentException(path,
-                        $"archetype slide '{marker.Name}' fills the whole slide; 'size' and 'at' are not allowed on it (plan.md §2 rule 3).");
+                        $"archetype slide '{marker.Name}' fills the whole slide; 'size' and 'at' are not allowed on it.");
                 }
                 slides.Add(ExpandSlide(marker, document.Design, path));
                 changed = true;
@@ -200,7 +200,7 @@ public static class ArchetypeExpander
         {
             if (contentEl.ValueKind != JsonValueKind.Object)
             {
-                throw new ComponentException(slotPath, $"content.{slotName}.content: must be an object (component payload, plan.md §4).");
+                throw new ComponentException(slotPath, $"content.{slotName}.content: must be an object (component payload).");
             }
             slotContent = contentEl.Clone();
         }

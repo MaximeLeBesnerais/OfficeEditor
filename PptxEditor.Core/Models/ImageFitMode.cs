@@ -22,8 +22,8 @@ public enum ImageFitMode
 }
 
 /// <summary>
-/// Source crop rectangle in 1/1000ths of a percent (same scale family as spcPct,
-/// AGENTS.pptx.md rule 2): 100000 = 100%. Each component is the fraction cropped
+/// Source crop rectangle in 1/1000ths of a percent (same scale family as spcPct):
+/// 100000 = 100%. Each component is the fraction cropped
 /// from that edge of the source image; valid range is 0–100000.
 /// </summary>
 public readonly record struct SourceRect(int Left, int Top, int Right, int Bottom);

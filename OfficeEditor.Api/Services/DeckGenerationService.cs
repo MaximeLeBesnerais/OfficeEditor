@@ -14,7 +14,7 @@ namespace OfficeEditor.Api.Services;
 public sealed record GeneratedSlidePreview(int Slide, string Format, string ContentType, byte[] Bytes);
 
 /// <summary>
-/// Outcome of a deck generation run (plan.md §7.1: JSON in → PPTX + per-slide previews out).
+/// Outcome of a deck generation run (JSON in → PPTX + per-slide previews out).
 /// <see cref="Success"/> is false only when the document itself is rejected — a failed
 /// preview render degrades to <see cref="PreviewError"/> with the PPTX still delivered.
 /// </summary>
@@ -42,7 +42,7 @@ public sealed record DeckGenerationResult
     /// <summary>Set when the Typst preview render was unavailable or failed; the PPTX is still valid.</summary>
     public string? PreviewError { get; init; }
 
-    /// <summary>Warm-path metric (plan.md §7.1 target &lt; 500ms): parse → expand → layout → PPTX, excluding preview render.</summary>
+    /// <summary>Warm-path metric (target &lt; 500ms): parse → expand → layout → PPTX, excluding preview render.</summary>
     public double GenerationMilliseconds { get; init; }
 
     /// <summary>End-to-end wall time including the preview render attempt.</summary>
@@ -54,7 +54,7 @@ public interface IDeckGenerationService
     /// <summary>
     /// Runs the full generation pipeline: P1 validate → component expand → layout resolve →
     /// OOXML PPTX + per-slide Typst previews (SVG live-preview path through TypstBridge, the
-    /// primary backend per AGENTS.typst.md). Preview rendering is best-effort.
+    /// primary backend per the TypstBridge-primary backend convention). Preview rendering is best-effort.
     /// <paramref name="normalizedFormat"/> must already be normalized to "svg" or "png"
     /// (<see cref="DeckPreviewValidators.TryNormalizeFormat"/>).
     /// </summary>

@@ -1,7 +1,7 @@
 namespace PptxEditor.Core.Generation.Model;
 
 /// <summary>
-/// Child size constraints (plan.md §3.2): fixed dimensions, grow share, aspect ratio and
+/// Child size constraints: fixed dimensions, grow share, aspect ratio and
 /// cross-axis self-alignment. All dimensions in points.
 /// </summary>
 public sealed record SizeSpec
@@ -40,7 +40,7 @@ public readonly record struct AspectRatio(double Value)
 }
 
 /// <summary>
-/// Per-container overflow policy (plan.md §3.2). Defaults: <see cref="Shrink"/> for
+/// Per-container overflow policy. Defaults: <see cref="Shrink"/> for
 /// text-bearing leaves, <see cref="Error"/> for layout containers.
 /// </summary>
 public enum OverflowPolicy
@@ -55,5 +55,5 @@ public enum OverflowPolicy
     Clip
 }
 
-/// <summary>Absolute placement escape hatch (plan.md §3.2): only on children of layout-less parents.</summary>
+/// <summary>Absolute placement escape hatch: only on children of layout-less parents.</summary>
 public readonly record struct PointSpec(double X, double Y);

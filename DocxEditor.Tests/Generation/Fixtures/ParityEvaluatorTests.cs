@@ -3,7 +3,7 @@ using PptxEditor.Core.Generation.Fixtures;
 namespace DocxEditor.Tests.Generation.Fixtures;
 
 /// <summary>
-/// Parity gate logic (plan.md §5: thresholds per primitive): per-page and
+/// Parity gate logic (thresholds per primitive): per-page and
 /// per-document-average breaches, unavailable metrics, unconfigured fixtures, page-count
 /// mismatches and the exact boundary — deterministic, renderer-free.
 /// </summary>

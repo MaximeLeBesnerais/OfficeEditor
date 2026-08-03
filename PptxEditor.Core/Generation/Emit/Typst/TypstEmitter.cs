@@ -7,12 +7,12 @@ using PptxEditor.Core.Models;
 namespace PptxEditor.Core.Generation.Emit.Typst;
 
 /// <summary>
-/// Typst emitter (plan.md §2 rule 1 — Typst is a dumb renderer): maps the absolute draw
+/// Typst emitter (Typst is a dumb renderer): maps the absolute draw
 /// tree produced by <see cref="LayoutResolver"/> to Typst source using ONLY
 /// <c>#place(top + left, dx, dy)</c> plus absolute boxes. Typst performs no layout of its
 /// own — every coordinate comes from the resolved tree.
 /// <para>
-/// Primitive mapping (plan.md §3.3): text → <c>#block</c> + <c>#align(anchor + align)</c>
+/// Primitive mapping: text → <c>#block</c> + <c>#align(anchor + align)</c>
 /// with one <c>#text</c> span per run; rect → <c>#rect(radius: (top-left: …))</c> with
 /// per-corner radii in points (the same resolved values P4 maps to round1Rect/round2SameRect
 /// adj — Typst takes pt directly, so no shared mapping table is needed); line → <c>#line</c>
@@ -21,7 +21,7 @@ namespace PptxEditor.Core.Generation.Emit.Typst;
 /// paint order; linear gradient → <c>gradient.linear((color, offset)…, angle:)</c> — the
 /// angle passes through verbatim (OOXML a:lin ang and Typst both measure clockwise from
 /// left→right; the P7 parity fixture settles any residual divergence). Shadows are faked
-/// as an offset copy of the shape/text in the shadow color (plan.md §3.3; blur is Tier-3
+/// as an offset copy of the shape/text in the shadow color (blur is Tier-3
 /// and ignored in the preview). Container <c>overflow: clip</c> maps to
 /// <c>#block(clip: true)</c> with children placed relative to the container.
 /// </para>
@@ -246,7 +246,7 @@ public sealed class TypstEmitter
 
     private void EmitLine(StringBuilder sb, ResolvedLine line, double originX, double originY)
     {
-        // Straight only in v1 (plan.md §3.3): the line spans its box on the orientation axis,
+        // Straight only in v1: the line spans its box on the orientation axis,
         // centered on the cross axis. Connector vs line is an OOXML distinction only.
         var (sx, sy, ex, ey) = line.Orientation == LineOrientation.Vertical
             ? (line.Width / 2, 0.0, line.Width / 2, line.Height)
@@ -304,7 +304,7 @@ public sealed class TypstEmitter
 
     private void EmitCroppedImage(StringBuilder sb, ResolvedImage image, string src, string place, string path)
     {
-        // Caller srcRect (1/1000ths of a percent cropped from each edge, AGENTS.pptx.md rule 2
+        // Caller srcRect (1/1000ths of a percent cropped from each edge, spcPct
         // scale family): PowerPoint stretches the remaining source region into the frame.
         // Emulated with a clipped block containing the image scaled so the visible region
         // covers the box, offset by the cropped left/top fractions.
@@ -336,7 +336,7 @@ public sealed class TypstEmitter
         {
             SolidFill solid => $"rgb(\"{solid.Color}\")",
             // Angle passes through verbatim: OOXML a:lin ang and Typst both measure degrees
-            // clockwise from the left→right axis (plan.md §3.3; parity settled by P7 fixtures).
+            // clockwise from the left→right axis (parity settled by P7 fixtures).
             LinearGradientFill gradient =>
                 $"gradient.linear({string.Join(", ", gradient.Stops.Select(s => $"(rgb(\"{WithAlpha(s.Color, s.Alpha)}\"), {Fmt(s.Offset * 100)}%)"))}, angle: {Fmt(gradient.Angle)}deg)",
             _ => throw new TypstEmitException("fill", $"unsupported fill type '{fill.GetType().Name}'.")

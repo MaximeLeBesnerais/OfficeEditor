@@ -38,7 +38,7 @@ public readonly record struct PptxReplaceResult
 
 public class PptxElementReplacer
 {
-    // Guarded attribute read per AGENTS.pptx.md rule 1: OpenXmlElement.GetAttribute()
+    // Guarded attribute read via regex on OuterXml: OpenXmlElement.GetAttribute()
     // can crash on unreliable OOXML attributes, so read them via regex on OuterXml
     // (canonical pattern: StyleResolver.GetAttributeValue).
     private static readonly Regex IdAttributePattern = new(

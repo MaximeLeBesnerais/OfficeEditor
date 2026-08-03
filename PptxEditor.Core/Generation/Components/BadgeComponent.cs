@@ -3,7 +3,7 @@ using PptxEditor.Core.Generation.Model;
 namespace PptxEditor.Core.Generation.Components;
 
 /// <summary>
-/// <c>badge</c> (plan.md §4): a small pill label — an accent-filled container with a
+/// <c>badge</c> (component layer): a small pill label — an accent-filled container with a
 /// radius of exactly half its height and a centered bold label. Height is computed from
 /// the body-size line estimate plus padding unless the author fixes it; width (or grow)
 /// is the author's to give on the parent's layout axis (no hug-content in v1).

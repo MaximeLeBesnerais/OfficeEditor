@@ -3,11 +3,11 @@ using PptxEditor.Core.Generation.Model;
 namespace PptxEditor.Core.Generation.Layout;
 
 /// <summary>
-/// Pure layout engine (plan.md §2 rule 1 — layout is resolved exactly once, in C#; §3.2
+/// Pure layout engine (layout is resolved exactly once, in C#; size/overflow
 /// semantics). Maps a container tree plus design tokens to an absolute draw tree where every
 /// element has x/y/w/h in points and resolved fills/fonts. No OOXML or Typst imports.
 /// <para>
-/// Semantics summary (plan.md §3.2):
+/// Semantics summary:
 /// grow shares the space remaining on the layout axis after fixed children and gaps;
 /// aspect resolves against the dimension the parent constrains first (row → width,
 /// column → height, grid → cell width, free canvas → whichever of w/h is fixed);
@@ -17,7 +17,7 @@ namespace PptxEditor.Core.Generation.Layout;
 /// </summary>
 public sealed class LayoutResolver
 {
-    /// <summary>Smallest font scale accepted before a shrink warning is raised (plan.md §3.2).</summary>
+    /// <summary>Smallest font scale accepted before a shrink warning is raised.</summary>
     public const double MinFontScale = 0.5;
 
     private const double Eps = 0.001;
@@ -102,7 +102,7 @@ public sealed class LayoutResolver
             },
             GroupElement g => ResolveGroup(g, rect, path),
             ComponentElement c => throw new LayoutException(path,
-                $"component '{c.Name}' must be expanded into primitives by the component layer before layout (plan.md §4)."),
+                $"component '{c.Name}' must be expanded into primitives by the component layer before layout."),
             _ => throw new LayoutException(path, $"unsupported element type '{element.GetType().Name}'.")
         };
     }
@@ -274,7 +274,7 @@ public sealed class LayoutResolver
             else
             {
                 throw new LayoutException(childPath,
-                    "undetermined main-axis size: give the child a fixed main dimension, 'grow', or 'aspect' (plan.md §3.2).");
+                    "undetermined main-axis size: give the child a fixed main dimension, 'grow', or 'aspect'.");
             }
         }
 
@@ -374,7 +374,7 @@ public sealed class LayoutResolver
         }
         if (layout.Columns is not { } cols || cols < 1)
         {
-            throw new LayoutException(path, "grid layout requires 'cols' ≥ 1 (rows derive from child count, plan.md §3.2).");
+            throw new LayoutException(path, "grid layout requires 'cols' ≥ 1 (rows derive from child count).");
         }
 
         var rows = (n + cols - 1) / cols;
@@ -403,7 +403,7 @@ public sealed class LayoutResolver
             if (size?.Grow is not null)
             {
                 throw new LayoutException(childPath,
-                    "'grow' is not supported in grid layout: size rows via fixed 'h' or 'aspect' (plan.md §3.2).");
+                    "'grow' is not supported in grid layout: size rows via fixed 'h' or 'aspect'.");
             }
             if (size?.Aspect is not null && size.Width is not null && size.Height is not null)
             {
@@ -559,11 +559,11 @@ public sealed class LayoutResolver
             var fit = Math.Clamp(_textMeasurer.FitScale(request), 0.01, 1.0);
             if (text.Overflow == OverflowPolicy.Clip)
             {
-                // Clip passes through unscaled, but never silently (plan.md §7.5).
+                // Clip passes through unscaled, but never silently.
                 if (fit < 1 - Eps)
                 {
                     _warnings.Add(
-                        $"{path}: text does not fit its box ({Round(rect.W)}×{Round(rect.H)} pt) and its overflow policy is \"clip\"; content is clipped at the box edge (plan.md §3.2).");
+                        $"{path}: text does not fit its box ({Round(rect.W)}×{Round(rect.H)} pt) and its overflow policy is \"clip\"; content is clipped at the box edge.");
                 }
             }
             else
@@ -577,7 +577,7 @@ public sealed class LayoutResolver
                 if (scale < MinFontScale - Eps && text.Overflow == OverflowPolicy.Shrink)
                 {
                     _warnings.Add(
-                        $"{path}: text shrunk to fontScale {Round(scale)} below MinScale {MinFontScale}; content may still overflow (plan.md §3.2).");
+                        $"{path}: text shrunk to fontScale {Round(scale)} below MinScale {MinFontScale}; content may still overflow.");
                 }
             }
         }
@@ -601,7 +601,7 @@ public sealed class LayoutResolver
         {
             throw new LayoutException(path,
                 $"children overflow the container by {Round(overflowBy)} pt on the layout axis " +
-                "(plan.md §3.2: overflow \"error\" is the default for layout containers; " +
+                "(overflow \"error\" is the default for layout containers; " +
                 "reduce sizes/gaps or set \"overflow\": \"clip\").");
         }
     }

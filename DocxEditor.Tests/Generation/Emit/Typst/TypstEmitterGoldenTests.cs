@@ -5,7 +5,7 @@ using PptxEditor.Core.Generation.Schema;
 namespace DocxEditor.Tests.Generation.Emit.Typst;
 
 /// <summary>
-/// Golden-file tests for the Typst emitter (plan.md §5): a generation document in →
+/// Golden-file tests for the Typst emitter: a generation document in →
 /// Typst source out, compared against committed snapshots. These deterministic source
 /// snapshots carry the acceptance weight: actual Typst compilation is covered by
 /// <see cref="TypstEmitterCompileTests"/> and is opt-in (no typst CLI / TypstBridge

@@ -3,7 +3,7 @@ using PptxEditor.Core.Generation.Model;
 namespace PptxEditor.Core.Generation.Archetypes;
 
 /// <summary>
-/// Strongly typed payloads for the archetype slide functions (plan.md §4 — cover,
+/// Strongly typed payloads for the archetype slide functions (cover,
 /// section, kpi_row, two_col, table_slide). Archetypes are thin compositions of the
 /// v1 component set: these records carry only content, never geometry — the archetype
 /// functions supply the layout. All strings are plain text; component-level styling
@@ -49,7 +49,7 @@ public sealed record SectionContent : ArchetypeContent
 
 /// <summary>
 /// <c>kpi_row</c> payload: an optional heading over a row of KPI cards sharing the
-/// slide width equally (plan.md §7.5's shrink contract applies per KPI value).
+/// slide width equally (the shrink contract applies per KPI value).
 /// </summary>
 public sealed record KpiRowContent : ArchetypeContent
 {

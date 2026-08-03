@@ -58,7 +58,7 @@ Default report output is `examples/output/visual-diff/<suite>/`.
 
 ### The gen suite (Phase 5 parity harness)
 
-`--suite gen` is the parity harness for the from-scratch generation vocabulary (plan.md §5, rule 2): every Tier-1 primitive + linear gradient has one fixture deck (catalog: `PptxEditor.Core/Generation/Fixtures/FixtureCatalog`), emitted by BOTH emitters from the same resolved layout, then diffed as **PowerPoint render (ground truth) vs Typst render (spec of record)** per fixture.
+`--suite gen` is the parity harness for the from-scratch generation vocabulary: every Tier-1 primitive + linear gradient has one fixture deck (catalog: `PptxEditor.Core/Generation/Fixtures/FixtureCatalog`), emitted by BOTH emitters from the same resolved layout, then diffed as **PowerPoint render (ground truth) vs Typst render (spec of record)** per fixture.
 
 The pipeline has three steps; the two render steps are external and opt-in by design:
 

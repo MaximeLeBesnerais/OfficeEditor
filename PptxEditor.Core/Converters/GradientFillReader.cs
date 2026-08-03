@@ -484,7 +484,7 @@ internal static class GradientFillReader
             : null;
     }
 
-    // Raw XML attribute read per AGENTS.pptx.md rule 1 — SDK attribute parsing is
+        // Raw XML attribute read via regex on OuterXml — SDK attribute parsing is
     // unreliable on missing attributes and on untyped (dsp:*) elements.
     private static string? ReadAttribute(OpenXmlElement element, string attributeName)
     {

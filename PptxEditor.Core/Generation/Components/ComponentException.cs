@@ -1,8 +1,8 @@
 namespace PptxEditor.Core.Generation.Components;
 
 /// <summary>
-/// Loud failure for invalid component content or expansion input (plan.md §3.4 loud
-/// errors, §4 components). Carries the element path (e.g. "slides[0].children[2]").
+/// Loud failure for invalid component content or expansion input (loud
+/// errors, component layer). Carries the element path (e.g. "slides[0].children[2]").
 /// </summary>
 public sealed class ComponentException : Exception
 {

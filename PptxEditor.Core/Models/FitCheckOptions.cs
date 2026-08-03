@@ -25,7 +25,7 @@ public sealed record FitCheckOptions
     /// When true (default), a successful shrink persists
     /// <c>&lt;a:normAutofit fontScale="…" lnSpcReduction="…"/&gt;</c> on the
     /// <b>slide shape's</b> bodyPr only — never on layout/master parts and
-    /// never as a global setting (AGENTS.pptx.md rule 5).
+    /// never as a global setting.
     /// </summary>
     public bool PersistAutoFit { get; init; } = true;
 }

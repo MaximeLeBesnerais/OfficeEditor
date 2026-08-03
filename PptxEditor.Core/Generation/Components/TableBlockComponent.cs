@@ -3,14 +3,14 @@ using PptxEditor.Core.Generation.Model;
 namespace PptxEditor.Core.Generation.Components;
 
 /// <summary>
-/// <c>table_block</c> (plan.md §4): a header row plus body rows. Per plan.md the table
+/// <c>table_block</c> (component layer): a header row plus body rows. The table
 /// look is delegated to the existing emission path — the component expands to plain
 /// row/column containers with cell texts (the same primitives every table renders as),
 /// with no OOXML/Typst calls of its own. Rows take a deterministic height (the body-size
 /// line estimate plus cell padding, overridable via <c>rowHeight</c>); the header row is
 /// filled with the "primary" token, body rows are unfilled.
 /// <para>Overflow contract: cell texts shrink; rows that do not fit the box are a
-/// structural error (default container policy, plan.md §3.2).</para>
+/// structural error (default container policy).</para>
 /// </summary>
 public static class TableBlockComponent
 {

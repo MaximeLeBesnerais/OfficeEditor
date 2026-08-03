@@ -4,7 +4,7 @@ using PptxEditor.Core.Services;
 namespace PptxEditor.Core.Generation.Layout;
 
 /// <summary>
-/// Real font-metric <see cref="ITextMeasurer"/> (P3, plan.md §3.2 overflow pass). Measures
+/// Real font-metric <see cref="ITextMeasurer"/> (P3, overflow pass). Measures
 /// resolved runs against their box on top of TextFitService's font metrics — the shared
 /// <see cref="FontMetricsCatalog"/> — rather than a second metrics stack.
 /// <para>
@@ -14,13 +14,13 @@ namespace PptxEditor.Core.Generation.Layout;
 /// <see cref="TextFitService"/> so a generation-side fit verdict matches the F6 edit-side
 /// verdict for the same content. OOXML paragraph concepts that do not exist in the
 /// generation vocabulary (marL/indent, bullets, spcBef/spcAft, lnSpcReduction) are not
-/// emulated — the generation shrink contract is a pure fontScale (plan.md §3.2).
+/// emulated — the generation shrink contract is a pure fontScale.
 /// </para>
 /// <para>
 /// The shrink search steps 99% → <see cref="TextMeasureRequest.MinScale"/> at 1% steps
 /// (TextFitService's PowerPoint-order search). When nothing fits at MinScale the search
 /// continues below it, so the resolver applies the true scale and raises its MinScale
-/// warning with real numbers (plan.md §7.5 — oversized text shrinks or errors loudly,
+/// warning with real numbers (oversized text shrinks or errors loudly,
 /// never silently clips); the return value bottoms out at 0.01, never 0.
 /// </para>
 /// </summary>
@@ -86,7 +86,7 @@ public sealed class TextMeasure : ITextMeasurer
         }
 
         // MinScale violated: keep searching below it so the resolver applies the true scale
-        // and warns loudly (plan.md §7.5) instead of silently clipping at a bottomed value.
+        // and warns loudly instead of silently clipping at a bottomed value.
         for (var pct = minPct - 1; pct >= 1; pct--)
         {
             if (Fits(text, request.BoxWidthPt, request.BoxHeightPt, pct / 100.0))

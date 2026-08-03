@@ -4,7 +4,7 @@ namespace DocxEditor.Tests.Generation;
 
 /// <summary>
 /// Adversarial documents the validator must reject with actionable errors
-/// (plan.md §7.4: CSS-isms, percentages, wrap, typos with near-match suggestions).
+/// (CSS-isms, percentages, wrap, typos with near-match suggestions).
 /// </summary>
 public class GenerationValidatorAdversarialTests
 {
@@ -22,7 +22,7 @@ public class GenerationValidatorAdversarialTests
 
     public static IEnumerable<object[]> AdversarialDocuments()
     {
-        // CSS-isms — explicitly rejected v1 non-goals (plan.md §1).
+        // CSS-isms — explicitly rejected v1 non-goals.
         yield return Doc("""{"version":"2.0","design":{"palette":{}},"slides":[{"type":"container","layout":{"mode":"row","flex-wrap":true},"children":[]}]}""", "flex-wrap");
         yield return Doc("""{"version":"2.0","design":{"palette":{}},"slides":[{"type":"container","layout":{"mode":"row","flexWrap":true},"children":[]}]}""", "flex-wrap");
         yield return Doc("""{"version":"2.0","design":{"palette":{}},"slides":[{"type":"container","z-index":2,"children":[]}]}""", "z-index");

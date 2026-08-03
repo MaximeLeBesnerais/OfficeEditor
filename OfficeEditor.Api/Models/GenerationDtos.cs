@@ -7,7 +7,7 @@ public record GenerationIssueDto(string Path, string Message, string? Suggestion
 public record GeneratedSlidePreviewDto(int Slide, string Format, string ContentType, string ContentBase64);
 
 /// <summary>
-/// Response for POST /api/decks/generate (plan.md §7.1). Mirrors the MCP deck_generate
+/// Response for POST /api/decks/generate. Mirrors the MCP deck_generate
 /// payload: same fields, transport-appropriate deck reference (deckId + downloadUrl here,
 /// deckHandle + pptxBase64 in MCP).
 /// </summary>

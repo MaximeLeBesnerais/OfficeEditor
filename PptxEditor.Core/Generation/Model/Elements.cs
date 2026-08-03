@@ -4,9 +4,9 @@ using PptxEditor.Core.Models;
 namespace PptxEditor.Core.Generation.Model;
 
 /// <summary>
-/// Base of every node in the slide tree (plan.md §3.2/§3.3). <see cref="Size"/> constrains
+/// Base of every node in the slide tree (size and overflow semantics). <see cref="Size"/> constrains
 /// the node inside a layout container; <see cref="At"/> is the absolute-placement escape
-/// hatch, allowed only on children of layout-less parents (plan.md §2 rule 3).
+/// hatch, allowed only on children of layout-less parents.
 /// </summary>
 public abstract record GenElement
 {
@@ -18,7 +18,7 @@ public abstract record GenElement
 }
 
 /// <summary>
-/// Layout container (plan.md §3.2). With <see cref="Layout"/> it resolves children via
+/// Layout container. With <see cref="Layout"/> it resolves children via
 /// row/column/grid; without it, it is a free canvas whose children must use
 /// <see cref="GenElement.At"/>. The root of every slide is a container.
 /// </summary>
@@ -30,10 +30,10 @@ public sealed record ContainerElement : GenElement
     /// <summary>Inner padding in points.</summary>
     public EdgeInsets? Padding { get; init; }
 
-    /// <summary>Overflow policy. Defaults to <see cref="OverflowPolicy.Error"/> (plan.md §3.2).</summary>
+    /// <summary>Overflow policy. Defaults to <see cref="OverflowPolicy.Error"/>.</summary>
     public OverflowPolicy Overflow { get; init; } = OverflowPolicy.Error;
 
-    /// <summary>Children in document order — which is also the paint order (plan.md §1: no z-index).</summary>
+    /// <summary>Children in document order — which is also the paint order (no z-index).</summary>
     public required IReadOnlyList<GenElement> Children { get; init; }
 
     /// <summary>Background fill (e.g. slide paper color, styled card surface).</summary>
@@ -50,7 +50,7 @@ public sealed record ContainerElement : GenElement
 }
 
 /// <summary>
-/// Text primitive (plan.md §3.3): box + anchor + align + insets. Exactly one of
+/// Text primitive: box + anchor + align + insets. Exactly one of
 /// <see cref="Value"/> / <see cref="Runs"/>. <see cref="TextAlign"/> lives here — never
 /// confuse it with container align.
 /// </summary>
@@ -86,7 +86,7 @@ public sealed record TextElement : GenElement
     /// <summary>Text box insets in points.</summary>
     public EdgeInsets? Insets { get; init; }
 
-    /// <summary>Overflow policy. Defaults to <see cref="OverflowPolicy.Shrink"/> (plan.md §3.2).</summary>
+    /// <summary>Overflow policy. Defaults to <see cref="OverflowPolicy.Shrink"/>.</summary>
     public OverflowPolicy Overflow { get; init; } = OverflowPolicy.Shrink;
 
     /// <summary>Drop shadow.</summary>
@@ -141,7 +141,7 @@ public enum TextAnchor
     Bottom
 }
 
-/// <summary>Rectangle primitive (plan.md §3.3) with per-corner radius.</summary>
+/// <summary>Rectangle primitive with per-corner radius.</summary>
 public sealed record RectElement : GenElement
 {
     /// <summary>Fill; null = no fill.</summary>
@@ -157,7 +157,7 @@ public sealed record RectElement : GenElement
     public ShadowSpec? Shadow { get; init; }
 }
 
-/// <summary>Ellipse primitive (plan.md §3.3).</summary>
+/// <summary>Ellipse primitive.</summary>
 public sealed record EllipseElement : GenElement
 {
     /// <summary>Fill; null = no fill.</summary>
@@ -170,7 +170,7 @@ public sealed record EllipseElement : GenElement
     public ShadowSpec? Shadow { get; init; }
 }
 
-/// <summary>Straight line or connector (plan.md §3.3: straight only in v1).</summary>
+/// <summary>Straight line or connector (straight only in v1).</summary>
 public sealed record LineElement : GenElement
 {
     /// <summary>True when authored as "connector" (OOXML cxnSp), false for "line".</summary>
@@ -193,7 +193,7 @@ public enum LineOrientation
     Vertical
 }
 
-/// <summary>Image primitive (plan.md §3.3) with fit modes from F7.</summary>
+/// <summary>Image primitive with fit modes from F7.</summary>
 public sealed record ImageElement : GenElement
 {
     /// <summary>Image source (path, URL or base64 payload — interpreted by emitters). Required.</summary>
@@ -210,7 +210,7 @@ public sealed record ImageElement : GenElement
 }
 
 /// <summary>
-/// Group primitive (plan.md §3.3): layout-less container whose children paint in document
+/// Group primitive: layout-less container whose children paint in document
 /// order. Children are placed with <see cref="GenElement.At"/> in group coordinates.
 /// </summary>
 public sealed record GroupElement : GenElement
@@ -220,14 +220,14 @@ public sealed record GroupElement : GenElement
 }
 
 /// <summary>
-/// Prebuilt component node (plan.md §4: card, kpi, title_block, bullet_list, divider,
+/// Prebuilt component node (card, kpi, title_block, bullet_list, divider,
 /// badge, image_card, table_block). P1 carries it as a name plus raw content bag; the
 /// component implementations (P6) are C# functions over primitives, not a second layout
 /// system.
 /// </summary>
 public sealed record ComponentElement : GenElement
 {
-    /// <summary>Known v1 component names (plan.md §4, max 8).</summary>
+    /// <summary>Known v1 component names (max 8).</summary>
     public static readonly IReadOnlySet<string> KnownNames = new HashSet<string>(StringComparer.Ordinal)
     {
         "card", "kpi", "title_block", "bullet_list", "divider", "badge", "image_card", "table_block"

@@ -1,7 +1,7 @@
 namespace PptxEditor.Core.Generation.Layout;
 
 /// <summary>
-/// Text measurement seam for the overflow pass (plan.md §3.2). P3 implements this in
+/// Text measurement seam for the overflow pass. P3 implements this in
 /// <c>Generation/Layout/TextMeasure.cs</c> on top of TextFitService's font metrics;
 /// the resolver consumes it without any OOXML dependency of its own.
 /// </summary>
@@ -27,6 +27,6 @@ public sealed record TextMeasureRequest
     /// <summary>Box height available to text in points (element height minus vertical insets).</summary>
     public required double BoxHeightPt { get; init; }
 
-    /// <summary>Smallest acceptable scale (plan.md §3.2 fontScale ≥ MinScale). Defaults to 0.5.</summary>
+    /// <summary>Smallest acceptable scale (fontScale ≥ MinScale). Defaults to 0.5.</summary>
     public double MinScale { get; init; } = 0.5;
 }

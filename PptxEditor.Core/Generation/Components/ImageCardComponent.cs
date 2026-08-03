@@ -4,12 +4,12 @@ using PptxEditor.Core.Models;
 namespace PptxEditor.Core.Generation.Components;
 
 /// <summary>
-/// <c>image_card</c> (plan.md §4): an image growing into the card's space above an
+/// <c>image_card</c> (component layer): an image growing into the card's space above an
 /// optional caption block (title + muted subtitle) on a token-styled card surface.
 /// Expands to a column container; the caption block height is computed from the line
 /// estimates so the image takes the rest.
 /// <para>Overflow contract: the image is clipped by its fit mode (default crop — the
-/// fixed-canvas policy, plan.md §1); caption texts shrink; structural overflow errors.</para>
+/// fixed-canvas policy); caption texts shrink; structural overflow errors.</para>
 /// </summary>
 public static class ImageCardComponent
 {

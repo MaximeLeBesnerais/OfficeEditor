@@ -6,7 +6,7 @@ namespace DocxEditor.Tests.Generation.Emit.Ooxml;
 
 /// <summary>
 /// Per-corner radius → OOXML preset/adj mapping (P4 acceptance). adj values are
-/// 1/100000ths of min(w, h), clamped at 50000 (AGENTS.pptx.md spcPct family).
+/// 1/100000ths of min(w, h), clamped at 50000 (the spcPct family).
 /// </summary>
 public sealed class RadiusGeometryMapperTests
 {

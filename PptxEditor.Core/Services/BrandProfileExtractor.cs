@@ -157,7 +157,7 @@ public sealed class BrandProfileExtractor
         var remapped = new List<string>();
         foreach (var (attribute, identity) in ColorMapSlots)
         {
-            // Regex-on-OuterXml per AGENTS.pptx.md rule 1 (optional attributes).
+            // Regex-on-OuterXml attribute reads (optional attributes).
             var value = ReadAttribute(outerXml, attribute);
             if (value != null && !string.Equals(value, identity, StringComparison.OrdinalIgnoreCase))
                 remapped.Add($"{attribute}->{value}");

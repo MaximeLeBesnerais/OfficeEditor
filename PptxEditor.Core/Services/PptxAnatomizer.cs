@@ -168,7 +168,7 @@ public class PptxAnatomizer
     /// Reads x/y/cx/cy (EMU) from an xfrm element (a:xfrm on shapes/pictures,
     /// p:xfrm on graphic frames, a:xfrm on groups). Typed SDK access locates the
     /// off/ext child elements (structurally safe), but attribute VALUES are read
-    /// via the guarded regex-on-OuterXml pattern per AGENTS.pptx.md rule 1
+    /// via the guarded regex-on-OuterXml attribute-read pattern
     /// (canonical: StyleResolver.GetAttributeValue) — OpenXmlElement.GetAttribute
     /// is unreliable for OOXML attributes. A missing xfrm (or missing off/ext)
     /// yields nulls: placeholders without an explicit transform inherit their

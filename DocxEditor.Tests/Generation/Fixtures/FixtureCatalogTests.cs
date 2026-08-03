@@ -3,7 +3,7 @@ using PptxEditor.Core.Generation.Fixtures;
 namespace DocxEditor.Tests.Generation.Fixtures;
 
 /// <summary>
-/// Fixture catalog acceptance (plan.md §2 rule 2): every Tier-1 primitive + linear
+/// Fixture catalog acceptance: every Tier-1 primitive + linear
 /// gradient has exactly one parity fixture with a per-primitive RMSE threshold, and the
 /// committed thresholds file (the CI-facing record) never drifts from the catalog (the
 /// single source of truth).

@@ -4,7 +4,7 @@ using PptxEditor.Core.Models;
 namespace PptxEditor.Core.Generation.Fixtures;
 
 /// <summary>
-/// The parity fixture set (plan.md §5, §2 rule 2): one generated deck per Tier-1
+/// The parity fixture set: one generated deck per Tier-1
 /// primitive plus linear gradient, each with its per-primitive RMSE threshold.
 /// The Typst render is the spec of record — OOXML is matched TO the preview.
 /// Thresholds are mirrored in tools/visual-diff/baselines/gen/thresholds.json; a drift

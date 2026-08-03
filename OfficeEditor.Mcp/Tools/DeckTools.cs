@@ -63,7 +63,7 @@ public sealed class DeckTools
     }
 
     /// <summary>
-    /// deck_generate (plan.md §7.1): generation JSON in → PPTX + per-slide previews out.
+    /// deck_generate: generation JSON in → PPTX + per-slide previews out.
     /// The pipeline is the P1–P5 chain (validate → expand → layout → OOXML; previews via the
     /// Typst emitter → TypstBridge-first compiler). Preview rendering is best-effort: with no
     /// Typst backend available the deck still succeeds and previewError carries the reason.
@@ -74,7 +74,7 @@ public sealed class DeckTools
         if (documentElement.ValueKind != JsonValueKind.Object)
         {
             throw new McpException(JsonRpcErrorCodes.InvalidParams,
-                "'document' must be a JSON object (the generation document, plan.md §3.4).");
+                "'document' must be a JSON object (the generation document).");
         }
         // Raw text keeps the P1 validator's error paths byte-accurate.
         var documentJson = documentElement.GetRawText();

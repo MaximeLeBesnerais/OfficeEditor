@@ -3,11 +3,11 @@ using PptxEditor.Core.Generation.Model;
 namespace PptxEditor.Core.Generation.Components;
 
 /// <summary>
-/// <c>bullet_list</c> (plan.md §4): an optional bold heading over single-line items,
+/// <c>bullet_list</c> (component layer): an optional bold heading over single-line items,
 /// each a row with a small accent ellipse marker and a growing text. Item rows take a
 /// deterministic line height; the list's own height comes from the author (grow or fixed).
 /// <para>Overflow contract: item texts shrink (long items get smaller, never silently
-/// clip — plan.md §7.5); more items than the box holds is a structural error (default
+/// clip); more items than the box holds is a structural error (default
 /// container policy).</para>
 /// </summary>
 public static class BulletListComponent

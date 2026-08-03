@@ -1,6 +1,6 @@
 namespace PptxEditor.Core.Generation.Model;
 
-/// <summary>Layout algorithm of a container (plan.md §3.2). Absence of layout = free canvas.</summary>
+/// <summary>Layout algorithm of a container. Absence of layout = free canvas.</summary>
 public enum LayoutMode
 {
     /// <summary>Children along the horizontal axis.</summary>
@@ -49,7 +49,7 @@ public enum AlignItems
 }
 
 /// <summary>
-/// Layout declaration of a container (plan.md §3.2): mode, gaps and axis alignment.
+/// Layout declaration of a container: mode, gaps and axis alignment.
 /// <see cref="RowGap"/>/<see cref="ColumnGap"/> are grid-only refinements of <see cref="Gap"/>.
 /// </summary>
 public sealed record LayoutSpec

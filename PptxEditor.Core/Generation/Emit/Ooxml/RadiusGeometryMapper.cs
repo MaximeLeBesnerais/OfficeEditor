@@ -5,7 +5,7 @@ namespace PptxEditor.Core.Generation.Emit.Ooxml;
 
 /// <summary>
 /// Maps per-corner radii (points) to the OOXML preset-geometry family and its adj values
-/// (plan.md §3.3 rect; AGENTS.pptx.md round1Rect/round2SameRect semantics). Pure module —
+/// (rect; round1Rect/round2SameRect semantics per the PPTX converter conventions). Pure module —
 /// unit-tested directly. adj values live in the spcPct unit family (1/1000ths of a percent
 /// of <c>min(w, h)</c>, clamped to the preset maximum 50000 = 50%).
 /// </summary>
@@ -25,7 +25,7 @@ public static class RadiusGeometryMapper
     /// is square-cornered (caller emits plain <c>rect</c>). Supported native families:
     /// uniform → roundRect; one corner distinct (top-right carries adj1) → round1Rect;
     /// top pair vs bottom pair → round2SameRect; diagonals → round2DiagRect. Anything else
-    /// is not expressible without custGeom (Tier 2, plan.md §3.3) and throws loudly.
+    /// is not expressible without custGeom (Tier 2) and throws loudly.
     /// </summary>
     /// <exception cref="ArgumentOutOfRangeException">Non-positive box dimension.</exception>
     /// <exception cref="ArgumentException">Corner combination outside the native families.</exception>
@@ -82,6 +82,6 @@ public static class RadiusGeometryMapper
             "is not expressible with native OOXML presets. Supported families: uniform (roundRect), " +
             "top-right distinct from the other three (round1Rect), top pair vs bottom pair " +
             "(round2SameRect), diagonals (round2DiagRect). Arbitrary per-corner radii require " +
-            "custGeom, which is Tier 2 (plan.md §3.3).");
+             "custGeom, which is Tier 2.");
     }
 }

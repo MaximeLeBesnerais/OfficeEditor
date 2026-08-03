@@ -8,7 +8,7 @@ using PptxEditor.Core.Models;
 namespace DocxEditor.Tests.Generation.Layout;
 
 /// <summary>
-/// Golden-file tests (plan.md §5): a generation document in → the absolute draw tree out,
+/// Golden-file tests: a generation document in → the absolute draw tree out,
 /// compared against committed JSON snapshots. Set OE_UPDATE_SNAPSHOTS=1 to regenerate the
 /// expected files (review the diff before committing).
 /// </summary>

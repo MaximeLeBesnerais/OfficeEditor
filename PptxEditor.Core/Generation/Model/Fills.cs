@@ -1,7 +1,7 @@
 namespace PptxEditor.Core.Generation.Model;
 
 /// <summary>
-/// Fill of a shape (plan.md §3.3): a solid color reference or a linear gradient.
+/// Fill of a shape: a solid color reference or a linear gradient.
 /// JSON: a color string (palette token or #RRGGBB) for <see cref="SolidFill"/>, or an
 /// object with "angle" + "stops" for <see cref="LinearGradientFill"/>.
 /// </summary>
@@ -13,7 +13,7 @@ public abstract record FillSpec
 /// <summary>Solid fill. <see cref="Color"/> is a palette token name or a validated #RRGGBB literal.</summary>
 public sealed record SolidFill(string Color) : FillSpec;
 
-/// <summary>Linear gradient fill — linear only in v1 (Tier-3 gradients are a non-goal, plan.md §1).</summary>
+/// <summary>Linear gradient fill — linear only in v1 (Tier-3 gradients are a non-goal).</summary>
 public sealed record LinearGradientFill : FillSpec
 {
     /// <summary>Gradient axis angle in degrees (OOXML a:lin ang ↔ Typst gradient.linear angle).</summary>
@@ -47,8 +47,8 @@ public sealed record StrokeSpec
 }
 
 /// <summary>
-/// Drop shadow (plan.md §3.3): native a:effectLst/outerShdw in OOXML, faked offset rect
-/// in the Typst preview. Never a preview trick inside the PPTX (plan.md §2 rule 4).
+/// Drop shadow: native a:effectLst/outerShdw in OOXML, faked offset rect
+/// in the Typst preview. Never a preview trick inside the PPTX.
 /// </summary>
 public sealed record ShadowSpec
 {
@@ -69,7 +69,7 @@ public sealed record ShadowSpec
 }
 
 /// <summary>
-/// Per-corner radius in points (plan.md §3.3 rect; §8 Q3 object form). JSON: a single
+/// Per-corner radius in points (rect; per-corner object form). JSON: a single
 /// number (all corners) or {"tl", "tr", "br", "bl"} — missing corners default to 0.
 /// Maps to OOXML round1Rect/round2SameRect adj values ↔ Typst rect radius corners.
 /// </summary>

@@ -19,7 +19,7 @@ namespace PptxEditor.Core.Services;
 /// <c>&lt;a:normAutofit&gt;</c> (or the caller passes <c>autoShrink</c>), it emulates
 /// PowerPoint's shrink: line-spacing reduction 10%/20% first, then font scale 99%→MinScale
 /// at 1% steps, and persists the result on the <b>slide shape's</b> bodyPr only
-/// (never master/layout; never any global autofit — AGENTS.pptx.md rule 5).
+/// (never master/layout; never any global autofit).
 ///
 /// Re-baseline note: any <c>fontScale</c> already stored on a shape reflects
 /// <i>previous</i> text. Measurement always starts at 100%; the stored value is
@@ -39,7 +39,7 @@ public sealed class TextFitService
     private const long DefaultVerticalInsetEmu = 45720;
     private const double EmuPerPoint = 12700.0;
 
-    // Attribute reads follow AGENTS.pptx.md rule 1 (regex on OuterXml; SDK
+    // Attribute reads follow the regex-on-OuterXml pattern (SDK
     // GetAttribute crashes on unreliable attributes such as marL/indent/char/idx).
     private static readonly Regex IdAttributePattern = new(@"\bid\s*=\s*""([^""]*)""", RegexOptions.Compiled);
 

@@ -6,7 +6,7 @@ using PptxEditor.Core.Models;
 namespace DocxEditor.Tests.Generation.Components;
 
 /// <summary>
-/// Structural tests for the v1 component set (plan.md §4): each component expands to the
+/// Structural tests for the v1 component set (component layer): each component expands to the
 /// expected primitive subtree with token-driven styling and the author's size/at
 /// transferred to the expansion root.
 /// </summary>
@@ -27,7 +27,7 @@ public sealed class ComponentExpanderTests
             },
             Fonts = new FontTokens { Display = "Aptos Display", Body = "Aptos" },
             Shape = new ShapeTokens { CornerRadius = cornerRadius, CardStyle = cardStyle },
-            Metrics = new MetricTokens() // 43 / 18 / 30 / 14 (plan.md §3.1 defaults)
+            Metrics = new MetricTokens() // 43 / 18 / 30 / 14 (defaults)
         };
 
     private static JsonElement Content(string json) => JsonDocument.Parse(json).RootElement.Clone();
@@ -430,11 +430,11 @@ public sealed class ComponentExpanderTests
                 {
                     case TextElement text:
                         Assert.True(text.Overflow == OverflowPolicy.Shrink,
-                            $"{name}: text '{text.Value}' must shrink (plan.md §3.2).");
+                            $"{name}: text '{text.Value}' must shrink.");
                         break;
                     case ContainerElement container:
                         Assert.True(container.Overflow == OverflowPolicy.Error,
-                            $"{name}: a container must error on structural overflow (plan.md §3.2).");
+                            $"{name}: a container must error on structural overflow.");
                         break;
                 }
             }

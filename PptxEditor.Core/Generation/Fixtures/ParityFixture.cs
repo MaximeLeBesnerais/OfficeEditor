@@ -3,7 +3,7 @@ using PptxEditor.Core.Generation.Model;
 namespace PptxEditor.Core.Generation.Fixtures;
 
 /// <summary>
-/// One parity fixture (plan.md §5, §2 rule 2): a generated deck exercising a single
+/// One parity fixture: a generated deck exercising a single
 /// primitive family, diffed as PowerPoint-render (ground truth) vs Typst-render (the
 /// spec of record). <see cref="ThresholdRmse"/> is the per-primitive normalized-RMSE
 /// ceiling applied per page and per document average.

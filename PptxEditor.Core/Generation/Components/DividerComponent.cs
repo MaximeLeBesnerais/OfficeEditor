@@ -3,11 +3,11 @@ using PptxEditor.Core.Generation.Model;
 namespace PptxEditor.Core.Generation.Components;
 
 /// <summary>
-/// <c>divider</c> (plan.md §4): a straight rule. Expands to a single line primitive.
+/// <c>divider</c> (component layer): a straight rule. Expands to a single line primitive.
 /// Defaults: horizontal, "muted", 1 pt; when the author does not fix the cross-axis
 /// dimension it defaults to the stroke width (a horizontal divider is 1 pt tall).
 /// <para>Overflow contract: no text — geometry overflow is governed by the parent
-/// container's policy (plan.md §3.2).</para>
+/// container's policy.</para>
 /// </summary>
 public static class DividerComponent
 {

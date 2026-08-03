@@ -4,8 +4,8 @@ using PptxEditor.Core.Generation.Model;
 namespace DocxEditor.Tests.Generation.Layout;
 
 /// <summary>
-/// Loud-failure and seam tests for <see cref="LayoutResolver"/> (plan.md §3.2 overflow
-/// policies, §3.4 loud errors). Models are built in C# to bypass the JSON validator, which
+/// Loud-failure and seam tests for <see cref="LayoutResolver"/> (overflow
+/// policies, loud errors). Models are built in C# to bypass the JSON validator, which
 /// already rejects some of these shapes — the resolver must defend itself.
 /// </summary>
 public sealed class LayoutResolverErrorTests

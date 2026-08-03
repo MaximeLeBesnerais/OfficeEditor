@@ -51,7 +51,7 @@ internal sealed class ComponentContentReader
         }
         if (c.ValueKind != JsonValueKind.Object)
         {
-            reader._errors.Add($"{path}.content: must be an object (component '{componentName}' payload, plan.md §4).");
+            reader._errors.Add($"{path}.content: must be an object (component '{componentName}' payload).");
             return reader;
         }
         foreach (var property in c.EnumerateObject())
@@ -95,7 +95,7 @@ internal sealed class ComponentContentReader
         }
         if (v.ValueKind == JsonValueKind.String && v.GetString() is { } s && s.EndsWith('%'))
         {
-            Error(name, $"'{s}' is a percentage: percentages are not supported (v1 non-goal, plan.md §1); use pt numbers.");
+            Error(name, $"'{s}' is a percentage: percentages are not supported (v1 non-goal); use pt numbers.");
             return null;
         }
         if (v.ValueKind != JsonValueKind.Number || !v.TryGetDouble(out var number))

@@ -8,7 +8,7 @@ public class GenerationDocumentParserTests
 {
     private readonly GenerationDocumentParser _parser = new();
 
-    /// <summary>The sample document from plan.md §3.4, with the §3.1 token set filled in.</summary>
+    /// <summary>The sample document from the generation vocabulary, with the design token set filled in.</summary>
     private const string PlanSample = """
         {
           "version": "2.0",

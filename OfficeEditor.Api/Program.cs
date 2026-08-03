@@ -335,7 +335,7 @@ app.MapPost("/api/decks/generate", async (
     var body = await reader.ReadToEndAsync(ct);
 
     // Envelope mirrors the MCP deck_generate arguments:
-    // { "document": {…generation JSON, plan.md §3.4…}, "previewFormat": "svg"|"png", "ppi": 150 }.
+    // { "document": {…generation JSON…}, "previewFormat": "svg"|"png", "ppi": 150 }.
     string? documentJson = null;
     string? requestedFormat = null;
     int? requestedPpi = null;
@@ -372,7 +372,7 @@ app.MapPost("/api/decks/generate", async (
     {
         return Results.BadRequest(new GenerateDeckResponse(
             Success: false,
-            ErrorMessage: "Request body must be a JSON object with a 'document' property containing the generation document (plan.md §3.4)."));
+            ErrorMessage: "Request body must be a JSON object with a 'document' property containing the generation document."));
     }
 
     // The generation surface is the SVG live-preview path (P9), so it defaults to svg —

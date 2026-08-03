@@ -11,11 +11,11 @@ using P = DocumentFormat.OpenXml.Presentation;
 namespace PptxEditor.Core.Generation.Emit.Ooxml;
 
 /// <summary>
-/// OOXML emitter (plan.md §2): turns the absolute draw tree (<see cref="LayoutResult"/>)
+/// OOXML emitter: turns the absolute draw tree (<see cref="LayoutResult"/>)
 /// into a native .pptx. Every element is emitted at its resolved absolute geometry —
 /// no layout happens here (rule 1), and no preview tricks enter the PPTX (rule 4).
 /// Units: points → EMU (×12700); spcPct-family values (gradient stops, alpha, adj,
-/// srcRect) are 1/1000ths of a percent (AGENTS.pptx.md rule 2). Autofit is never emitted:
+/// srcRect) are 1/1000ths of a percent (spcPct family). Autofit is never emitted:
 /// the shrink pass (P3) resolves <see cref="ResolvedText.FontScale"/> and run sizes are
 /// scaled literally, so no renderer-dependent normAutofit is needed. Clip overflow is a
 /// no-op in OOXML — an spTree does not clip its children (PowerPoint behavior).

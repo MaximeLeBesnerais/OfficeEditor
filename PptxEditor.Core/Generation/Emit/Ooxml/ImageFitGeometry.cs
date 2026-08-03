@@ -7,7 +7,7 @@ namespace PptxEditor.Core.Generation.Emit.Ooxml;
 /// of <see cref="PptxEditor.Core.Services.PptxElementReplacer"/>'s private ApplyFit — that
 /// service is owned by another workstream and operates on existing pictures, so the pure
 /// number-crunching lives here for the emitter (and is unit-tested directly).
-/// srcRect components are 1/1000ths of a percent (spcPct family, AGENTS.pptx.md rule 2).
+/// srcRect components are 1/1000ths of a percent (spcPct family).
 /// </summary>
 public static class ImageFitGeometry
 {

@@ -1,7 +1,7 @@
 # gen parity baselines (Phase 5, P7)
 
-The `gen` suite is the parity harness for the from-scratch generation vocabulary
-(plan.md §5, rule 2): every Tier-1 primitive + linear gradient has one fixture deck,
+The `gen` suite is the parity harness for the from-scratch generation vocabulary:
+every Tier-1 primitive + linear gradient has one fixture deck,
 emitted by BOTH emitters from the same resolved layout, then diffed as
 
 ```

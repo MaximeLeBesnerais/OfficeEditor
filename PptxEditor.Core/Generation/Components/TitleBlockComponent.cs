@@ -3,7 +3,7 @@ using PptxEditor.Core.Generation.Model;
 namespace PptxEditor.Core.Generation.Components;
 
 /// <summary>
-/// <c>title_block</c> (plan.md §4): a slide heading group — optional accent kicker over
+/// <c>title_block</c> (component layer): a slide heading group — optional accent kicker over
 /// the display-font title over an optional muted subtitle. Expands to a plain column
 /// container (no surface); slack stays at the bottom (justify start).
 /// <para>Overflow contract: texts shrink; structural overflow errors.</para>

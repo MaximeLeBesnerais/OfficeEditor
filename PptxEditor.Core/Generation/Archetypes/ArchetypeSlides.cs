@@ -5,23 +5,23 @@ using PptxEditor.Core.Generation.Model;
 namespace PptxEditor.Core.Generation.Archetypes;
 
 /// <summary>
-/// Archetype slide functions (plan.md §4, P10): the prompt-friendly authoring surface.
+/// Archetype slide functions (component pipeline, P10): the prompt-friendly authoring surface.
 /// Each function composes a whole slide (<see cref="ContainerElement"/> root) exclusively
 /// out of v1 components — container glue plus <see cref="ComponentElement"/> nodes; no
 /// direct primitive construction, no emitter calls (enforced by test inspection). The
 /// components expand in the regular <see cref="ComponentExpander"/> pass, so there is
-/// exactly one component expansion code path (plan.md §2 rule 1's spirit: one layout,
+/// exactly one component expansion code path (one layout,
 /// one expansion).
 /// <para>
 /// The composition vocabulary is: a paper-filled slide root padded by
 /// <c>metrics.marginPt</c>, a column flow gapped by <c>metrics.gutterPt</c>, and the
 /// components themselves. Sizing uses grow weights only — coordinates stay the escape
-/// hatch, never the API (plan.md §2 rule 3).
+/// hatch, never the API.
 /// </para>
 /// </summary>
 public static class ArchetypeSlides
 {
-    /// <summary>The five v1 archetype slide type names (JSON slide types, plan.md §8 Q5).</summary>
+    /// <summary>The five v1 archetype slide type names (JSON slide types).</summary>
     public static readonly IReadOnlySet<string> Names = new HashSet<string>(StringComparer.Ordinal)
     {
         "cover", "section", "kpi_row", "two_col", "table_slide"
@@ -257,7 +257,7 @@ public static class ArchetypeSlides
         if (slot.Size is not null || slot.At is not null)
         {
             throw new ComponentException(archetype,
-                $"content.{slotName}: the archetype assigns slot geometry — 'size' and 'at' are not allowed on a two_col slot (plan.md §2 rule 3).");
+                $"content.{slotName}: the archetype assigns slot geometry — 'size' and 'at' are not allowed on a two_col slot.");
         }
         return slot with { Size = new SizeSpec { Grow = grow } };
     }

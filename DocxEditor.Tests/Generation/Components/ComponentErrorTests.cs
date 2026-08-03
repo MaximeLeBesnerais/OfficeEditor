@@ -7,7 +7,7 @@ using PptxEditor.Core.Generation.Schema;
 namespace DocxEditor.Tests.Generation.Components;
 
 /// <summary>
-/// Validation and pipeline tests for the component layer (plan.md §3.4 loud errors, §4):
+/// Validation and pipeline tests for the component layer (loud errors, pipeline):
 /// malformed content fails with actionable <see cref="ComponentException"/>s (path +
 /// "Did you mean …?"), and a component-bearing document flows parse → expand → layout.
 /// </summary>
@@ -202,7 +202,7 @@ public sealed class ComponentErrorTests
     }
 
     [Fact]
-    public void UnexpandedComponent_IsRejectedByLayout() // the pipeline contract, plan.md §4
+    public void UnexpandedComponent_IsRejectedByLayout() // the pipeline contract
     {
         var document = new GenerationDocument
         {

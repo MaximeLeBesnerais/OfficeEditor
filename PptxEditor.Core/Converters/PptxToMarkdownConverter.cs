@@ -18,7 +18,7 @@ namespace PptxEditor.Core.Converters;
 ///
 /// Slide read patterns mirror <see cref="PptxToTypstConverter"/> (slide iteration via
 /// <c>SlideIdList</c>/<c>GetPartById</c>; unreliable attributes read via regex on
-/// OuterXml per AGENTS.pptx.md rule 1). Only the slide's own shape tree is read — layout
+/// OuterXml per the PPTX converter conventions). Only the slide's own shape tree is read — layout
 /// and master shapes are deliberately skipped so deck furniture (logos, footers) does not
 /// pollute the outline.
 ///
@@ -431,7 +431,7 @@ public sealed class PptxToMarkdownConverter
 
     /// <summary>
     /// Reads the placeholder <c>type</c> attribute of a shape's <c>p:ph</c> element via
-    /// regex on OuterXml (AGENTS.pptx.md rule 1); returns null for non-placeholder shapes.
+    /// regex on OuterXml (raw XML attribute reads); returns null for non-placeholder shapes.
     /// </summary>
     private static string? GetPlaceholderType(P.Shape shape)
     {

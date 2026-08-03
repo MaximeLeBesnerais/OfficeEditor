@@ -3,15 +3,15 @@ using PptxEditor.Core.Generation.Model;
 namespace PptxEditor.Core.Generation.Components;
 
 /// <summary>
-/// Shared styling helpers for the v1 components (plan.md §3.1 tokens, §4 components).
+/// Shared styling helpers for the v1 components (design tokens, components).
 /// Everything here is expressed in palette token names and font slot names — resolution
-/// to hex/families happens exactly once, in the layout resolver (plan.md §2 rule 1).
+/// to hex/families happens exactly once, in the layout resolver.
 /// </summary>
 internal static class ComponentStyle
 {
     /// <summary>
     /// Line-height estimate used to give single-line texts a deterministic box height
-    /// (the layout engine sizes boxes, not text; plan.md §3.2). Generous vs. the typical
+    /// (the layout engine sizes boxes, not text). Generous vs. the typical
     /// 1.2–1.35 font pitch so texts do not shrink unnecessarily.
     /// </summary>
     public const double LineHeightFactor = 1.35;
@@ -68,7 +68,7 @@ internal static class ComponentStyle
 
     /// <summary>
     /// One single-line text element with a deterministic box height (the line estimate).
-    /// Overflow stays at the text default — shrink (plan.md §3.2).
+    /// Overflow stays at the text default — shrink.
     /// </summary>
     public static TextElement Line(string value, string font, double fontSizePt, string color, bool bold = false, TextAlign align = TextAlign.Left)
         => new()

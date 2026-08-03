@@ -17,7 +17,7 @@ namespace DocxEditor.Tests.Generation.Emit.Ooxml;
 /// OOXML emitter acceptance (P4): every Tier-1 primitive + linear gradient emits valid
 /// OOXML (OpenXmlValidator-clean = opens without repair), radius adj mapping through real
 /// XML, spcPct units, no autofit anywhere. Attribute read-backs use regex on OuterXml
-/// (AGENTS.pptx.md rule 1).
+/// (raw XML attribute reads via regex on OuterXml).
 /// </summary>
 public sealed class OoxmlEmitterTests : IDisposable
 {
@@ -28,7 +28,7 @@ public sealed class OoxmlEmitterTests : IDisposable
         try { Directory.Delete(_testDir, recursive: true); } catch { /* best effort */ }
     }
 
-    #region Helpers (regex attribute reads per AGENTS.pptx.md rule 1)
+    #region Helpers (regex attribute reads on OuterXml)
 
     private static string? Attr(OpenXmlElement element, string attr)
     {
@@ -481,7 +481,7 @@ public sealed class OoxmlEmitterTests : IDisposable
     [Fact]
     public void Text_NoAutofitAnywhere()
     {
-        // AGENTS.pptx.md rule 5: never global autofit. The emitter applies FontScale
+        // Never apply global autofit. The emitter applies FontScale
         // literally, so no normAutofit element may appear at all.
         var layout = LayoutWith(new ResolvedText
         {

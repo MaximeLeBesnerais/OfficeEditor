@@ -3,7 +3,7 @@ using PptxEditor.Core.Generation.Fixtures;
 namespace VisualDiff;
 
 /// <summary>
-/// The Phase 5 parity suite (plan.md §5, P7): for every fixture in
+/// The Phase 5 parity suite (P7): for every fixture in
 /// <see cref="FixtureCatalog"/>, diff the PowerPoint ground-truth render
 /// (<c>ground-truth/*.png</c>) against the Typst preview render (<c>typst/*.png</c>)
 /// in PNG-pair mode. Decks and Typst sources are produced in-process via

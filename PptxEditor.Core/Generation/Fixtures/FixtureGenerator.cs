@@ -62,7 +62,7 @@ public sealed record FixtureManifest
 }
 
 /// <summary>
-/// Fixture generator (plan.md §5, P7): resolves each catalog fixture once and runs the
+/// Fixture generator (P7): resolves each catalog fixture once and runs the
 /// absolute draw tree through BOTH emitters (rule 2), writing fixture.pptx, fixture.typ
 /// and manifest.json per fixture. Deterministic and dependency-free — the PowerPoint and
 /// typst render steps that turn these artifacts into diffable PNGs live in

@@ -4,7 +4,7 @@ using PptxEditor.Core.Models;
 namespace PptxEditor.Core.Generation.Components;
 
 /// <summary>
-/// Strongly typed payloads for the v1 component set (plan.md §4). The schema layer
+/// Strongly typed payloads for the v1 component set (component layer). The schema layer
 /// (<see cref="Model.ComponentElement"/>) carries component content as a raw JSON bag;
 /// these records are the contract the component layer validates it against (P1 handoff
 /// note on <see cref="Model.ComponentElement.Content"/>). All color strings are palette
@@ -141,7 +141,7 @@ public sealed record ImageCardContent : ComponentContent
 
 /// <summary>
 /// <c>table_block</c> payload: a header row plus body rows over the primitive grid
-/// (plan.md §4 delegates the table look to the existing row/column emission path — the
+/// (the component layer delegates the table look to the existing row/column emission path — the
 /// component expands to plain row containers and cell texts, no OOXML/Typst calls of its
 /// own). Overflow contract: cell texts shrink; rows that do not fit the box are a
 /// structural error.

@@ -5,7 +5,7 @@ using OfficeEditor.Mcp.Tools;
 namespace OfficeEditor.Mcp.Tests;
 
 /// <summary>
-/// deck_generate (P9, plan.md §7.1): generation JSON in → PPTX + per-slide previews out,
+/// deck_generate (P9): generation JSON in → PPTX + per-slide previews out,
 /// invalid documents rejected with the P1 validator's errors verbatim. Preview rendering
 /// needs a Typst backend (absent in this sandbox), so render assertions are
 /// environment-invariant (previews xor previewError) with an opt-in happy-path check via

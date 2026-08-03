@@ -7,7 +7,7 @@ namespace DocxEditor.Tests.Generation.Emit.Typst;
 
 /// <summary>
 /// Compile smoke test for emitted Typst source via the TypstBridge → CLI chain
-/// (AGENTS.typst.md backend order). OPT-IN: set OE_RUN_TYPST_COMPILE_TESTS=1 to enable.
+/// (TypstBridge-primary backend convention). OPT-IN: set OE_RUN_TYPST_COMPILE_TESTS=1 to enable.
 /// Skipped by default because sandboxed environments have neither the typst CLI nor the
 /// TypstBridge native library — the deterministic golden snapshots in
 /// <see cref="TypstEmitterGoldenTests"/> carry the acceptance weight there.

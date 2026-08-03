@@ -7,7 +7,7 @@ public sealed record ParityPageSample(int PageNumber, double? NormalizedRmse);
 public sealed record ParityDocumentSample(string Name, bool PageCountMismatch, IReadOnlyList<ParityPageSample> Pages);
 
 /// <summary>
-/// Pure parity gate (plan.md §5: "visual-diff RMSE per fixture … thresholds per
+/// Pure parity gate ("visual-diff RMSE per fixture … thresholds per
 /// primitive"): evaluates per-page and per-document-average normalized RMSE against the
 /// per-primitive thresholds and returns one loud failure line per breach. An empty
 /// result means the suite is green. A value exactly at the threshold passes; anything

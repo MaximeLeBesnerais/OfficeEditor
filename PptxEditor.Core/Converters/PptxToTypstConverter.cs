@@ -2835,8 +2835,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
         }
         // OOXML bodyPr inset defaults (ECMA-376: lIns/rIns = 91440 EMU = 0.1",
         // tIns/bIns = 45720 EMU = 0.05") apply whenever an attribute is absent —
-        // including when bodyPr itself is missing. Read via regex on OuterXml per
-        // AGENTS.pptx.md rule 1.
+        // including when bodyPr itself is missing. Read via regex on OuterXml.
         var padLeft = GetEmuAttributeAsPt(bodyPr, "lIns") ?? EmuToPt(DefaultHorizontalInsetEmu);
         var padTop = GetEmuAttributeAsPt(bodyPr, "tIns") ?? EmuToPt(DefaultVerticalInsetEmu);
         var padRight = GetEmuAttributeAsPt(bodyPr, "rIns") ?? EmuToPt(DefaultHorizontalInsetEmu);
@@ -3070,7 +3069,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
     /// </summary>
     private static string? ResolveFieldText(Drawing.Field field, int? slideIndex)
     {
-        // Raw XML attribute read per AGENTS.pptx.md rule 1 — SDK attribute access is unreliable.
+        // Raw XML attribute read via regex on OuterXml — SDK attribute access is unreliable.
         var typeMatch = System.Text.RegularExpressions.Regex.Match(field.OuterXml, @"\btype\s*=\s*""([^""]*)""");
         var fieldType = typeMatch.Success ? typeMatch.Groups[1].Value : null;
 
@@ -3095,7 +3094,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
         if (normalAutoFit == null)
             return false;
 
-        // Raw XML attribute reads per AGENTS.pptx.md rule 1.
+        // Raw XML attribute reads via regex on OuterXml.
         var fontScaleMatch = System.Text.RegularExpressions.Regex.Match(normalAutoFit.OuterXml, @"\bfontScale\s*=\s*""([^""]*)""");
         var reductionMatch = System.Text.RegularExpressions.Regex.Match(normalAutoFit.OuterXml, @"\blnSpcReduction\s*=\s*""([^""]*)""");
 
@@ -3695,7 +3694,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
         double? marginLeft = null;
         double? indent = null;
 
-        // Raw XML attribute reads per AGENTS.pptx.md rule 1 — SDK attribute access is unreliable.
+        // Raw XML attribute reads via regex on OuterXml — SDK attribute access is unreliable.
         var marLAttr = GetAttributeValue(pPrLike, "marL");
         if (!string.IsNullOrEmpty(marLAttr) && int.TryParse(marLAttr, out var marL))
             marginLeft = EmuToPt(marL);

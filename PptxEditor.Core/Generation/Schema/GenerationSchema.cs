@@ -1,7 +1,7 @@
 namespace PptxEditor.Core.Generation.Schema;
 
 /// <summary>
-/// The JSON Schema contract of the generation vocabulary (plan.md §3.4), handed to
+/// The JSON Schema contract of the generation vocabulary, handed to
 /// structured-outputs/tool-calling consumers. <see cref="SchemaJson"/> mirrors the
 /// canonical <see cref="FileName"/> artifact next to this file — a test keeps them in
 /// sync (the project file is outside P1 ownership, so no embedded resource is used).
@@ -21,7 +21,7 @@ public static class GenerationSchema
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "$id": "https://officeeditor.dev/schemas/deck-2.0.json",
           "title": "OfficeEditor deck generation document",
-          "description": "Generation vocabulary v2.0 (plan.md §3): design tokens + container tree + Tier-1 primitives + linear gradients. Layout is resolved once in C#; pt units only. Non-goals: percentages, wrap, z-index, CSS input, Tier-3 rendering. Unknown properties are rejected.",
+          "description": "Generation vocabulary v2.0: design tokens + container tree + Tier-1 primitives + linear gradients. Layout is resolved once in C#; pt units only. Non-goals: percentages, wrap, z-index, CSS input, Tier-3 rendering. Unknown properties are rejected.",
           "type": "object",
           "additionalProperties": false,
           "required": ["version", "design", "slides"],
@@ -38,7 +38,7 @@ public static class GenerationSchema
           "$defs": {
             "color": {
               "type": "string",
-              "description": "Palette token name (preferred) or #RRGGBB hex literal (accepted, warned: off-token drift, plan.md §3.1)."
+              "description": "Palette token name (preferred) or #RRGGBB hex literal (accepted, warned: off-token drift)."
             },
             "design": {
               "type": "object",
@@ -95,7 +95,7 @@ public static class GenerationSchema
             "size": {
               "type": "object",
               "additionalProperties": false,
-              "description": "Child size constraints (plan.md §3.2). All dimensions in pt.",
+              "description": "Child size constraints. All dimensions in pt.",
               "properties": {
                 "w": { "type": "number", "exclusiveMinimum": 0 },
                 "h": { "type": "number", "exclusiveMinimum": 0 },
@@ -108,7 +108,7 @@ public static class GenerationSchema
               "type": "object",
               "additionalProperties": false,
               "required": ["x", "y"],
-              "description": "Absolute placement escape hatch; only on children of layout-less parents (plan.md §2 rule 3).",
+              "description": "Absolute placement escape hatch; only on children of layout-less parents.",
               "properties": {
                 "x": { "type": "number", "minimum": 0 },
                 "y": { "type": "number", "minimum": 0 }
@@ -177,7 +177,7 @@ public static class GenerationSchema
               ]
             },
             "radius": {
-              "description": "Per-corner radius in pt: a single number or per-corner object (plan.md §8 Q3).",
+              "description": "Per-corner radius in pt: a single number or per-corner object.",
               "oneOf": [
                 { "type": "number", "minimum": 0 },
                 {
@@ -207,7 +207,7 @@ public static class GenerationSchema
             },
             "overflow": {
               "enum": ["error", "shrink", "clip"],
-              "description": "Per-container overflow policy. Defaults: shrink for text, error for layout containers (plan.md §3.2)."
+              "description": "Per-container overflow policy. Defaults: shrink for text, error for layout containers."
             },
             "textRun": {
               "type": "object",
@@ -252,7 +252,7 @@ public static class GenerationSchema
                 { "required": ["text"] },
                 { "required": ["runs"] }
               ],
-              "description": "Box + anchor + align + insets; textAlign lives here, never on containers (plan.md §3.3).",
+              "description": "Box + anchor + align + insets; textAlign lives here, never on containers.",
               "properties": {
                 "type": { "const": "text" },
                 "text": { "type": "string" },
@@ -306,7 +306,7 @@ public static class GenerationSchema
               "type": "object",
               "additionalProperties": false,
               "required": ["type"],
-              "description": "Straight line or connector; straight only in v1 (plan.md §3.3).",
+              "description": "Straight line or connector; straight only in v1.",
               "properties": {
                 "type": { "enum": ["line", "connector"] },
                 "orientation": { "enum": ["horizontal", "vertical"], "default": "horizontal" },
@@ -359,7 +359,7 @@ public static class GenerationSchema
               "type": "object",
               "additionalProperties": false,
               "required": ["type"],
-              "description": "Prebuilt component (plan.md §4): C# function over primitives, not a second layout system.",
+              "description": "Prebuilt component: C# function over primitives, not a second layout system.",
               "properties": {
                 "type": { "enum": ["card", "kpi", "title_block", "bullet_list", "divider", "badge", "image_card", "table_block"] },
                 "content": { "type": "object", "description": "Component payload; strongly typed by the component layer." },

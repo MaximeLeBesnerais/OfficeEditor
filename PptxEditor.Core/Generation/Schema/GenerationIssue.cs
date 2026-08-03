@@ -3,7 +3,7 @@ namespace PptxEditor.Core.Generation.Schema;
 /// <summary>Severity of a <see cref="GenerationIssue"/>.</summary>
 public enum GenerationIssueSeverity
 {
-    /// <summary>Non-fatal caveat (e.g. raw hex color off-palette, plan.md §3.1). Document still validates.</summary>
+    /// <summary>Non-fatal caveat (e.g. raw hex color off-palette). Document still validates.</summary>
     Warning,
 
     /// <summary>Contract violation. Document is rejected.</summary>

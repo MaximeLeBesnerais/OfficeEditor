@@ -3,7 +3,7 @@ using PptxEditor.Core.Generation.Model;
 namespace PptxEditor.Core.Generation.Components;
 
 /// <summary>
-/// The component layer entry point (plan.md §4): replaces every
+/// The component layer entry point (component layer): replaces every
 /// <see cref="ComponentElement"/> in a generation document with its primitive subtree
 /// (containers, texts, shapes — never direct OOXML/Typst calls). Expansion happens
 /// exactly once, between parsing and layout; the layout resolver rejects unexpanded
@@ -11,7 +11,7 @@ namespace PptxEditor.Core.Generation.Components;
 /// <para>
 /// Each component expands to a subtree rooted at an element that inherits the
 /// component's <c>size</c>/<c>at</c>, so components compose with row/column/grid layout
-/// exactly like primitives (plan.md §2 rule 3). Component content is validated against
+/// exactly like primitives (absolute placement is an escape hatch only). Component content is validated against
 /// the strongly typed payloads in <c>ComponentContents.cs</c> with loud, actionable
 /// errors (<see cref="ComponentException"/>).
 /// </para>

@@ -7,7 +7,7 @@ namespace DocxEditor.Tests.Generation.Fixtures;
 
 /// <summary>
 /// Fixture generator acceptance (P7): every catalog fixture flows through the shared
-/// layout resolution into BOTH emitters (plan.md §2 rule 2) — producing an
+/// layout resolution into BOTH emitters — producing an
 /// OpenXmlValidator-clean .pptx, a non-empty Typst source, a manifest and the
 /// deterministic image asset — with zero layout/emission warnings and fully
 /// deterministic output.

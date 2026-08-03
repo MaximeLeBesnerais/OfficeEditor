@@ -3,10 +3,10 @@ using PptxEditor.Core.Generation.Model;
 namespace PptxEditor.Core.Generation.Components;
 
 /// <summary>
-/// <c>kpi</c> (plan.md §4): a big number, its label and an optional accent delta,
+/// <c>kpi</c> (component layer): a big number, its label and an optional accent delta,
 /// centered on a card surface. Expands to a centered column container; the value renders
 /// in the display font at <c>metrics.titleSizePt</c> in the "primary" token color.
-/// <para>Overflow contract: all texts shrink (the value especially — plan.md §7.5);
+/// <para>Overflow contract: all texts shrink (the value especially);
 /// structural overflow of the surface errors.</para>
 /// </summary>
 public static class KpiComponent

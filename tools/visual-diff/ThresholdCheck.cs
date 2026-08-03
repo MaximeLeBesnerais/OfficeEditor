@@ -3,7 +3,7 @@ using PptxEditor.Core.Generation.Fixtures;
 namespace VisualDiff;
 
 /// <summary>
-/// Per-primitive threshold gate for the gen parity suite (plan.md §5: "thresholds per
+/// Per-primitive threshold gate for the gen parity suite ("thresholds per
 /// primitive"). Unlike <see cref="BaselineCheck"/> (machine-dependent baseline + margin),
 /// thresholds are absolute authored RMSE ceilings per fixture. Exits 2 on any breach so
 /// CI fails loudly; a missing metrics or thresholds file is an operational error (exit
