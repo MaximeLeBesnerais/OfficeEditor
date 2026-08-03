@@ -113,6 +113,31 @@ public class DocxGenerationArchetypeEmitTests
     }
 
     [Fact]
+    public void Report_ArchetypeHeaderRows_EmitCantSplitBeforeTableHeader()
+    {
+        // Comparison and roadmap tables carry repeating headers; CT_TrPr requires cantSplit
+        // to precede tblHeader (Word opens the reversed order "with repair").
+        using var temp = new TempDirectory();
+        var path = DocxTestHarness.GenerateToTempFile(DocxTestHarness.ReadEditorialReport());
+        var mainPart = DocxTestHarness.OpenMainPart(path);
+
+        var comparison = mainPart.Document!.Body!.Descendants<WordTable>().ElementAt(3);
+        var roadmap = mainPart.Document!.Body!.Descendants<WordTable>().ElementAt(4);
+
+        foreach (var headerRow in new[] { comparison.Elements<WordRow>().First(), roadmap.Elements<WordRow>().First() })
+        {
+            var children = headerRow.TableRowProperties!.ChildElements.ToList();
+            var cantSplitIndex = children.FindIndex(c => c is CantSplit);
+            var headerIndex = children.FindIndex(c => c is TableHeader);
+
+            Assert.True(cantSplitIndex >= 0, "header row must carry cantSplit");
+            Assert.True(headerIndex >= 0, "header row must carry tblHeader");
+            Assert.True(cantSplitIndex < headerIndex,
+                $"expected cantSplit (index {cantSplitIndex}) before tblHeader (index {headerIndex})");
+        }
+    }
+
+    [Fact]
     public void Report_RoadmapTableListsPhasesInOrder()
     {
         using var temp = new TempDirectory();

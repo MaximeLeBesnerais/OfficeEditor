@@ -92,12 +92,12 @@ internal static class TableEmitter
             var tableRow = new DocumentFormat.OpenXml.Wordprocessing.TableRow();
 
             var rowProperties = new TableRowProperties();
+            // CT_TrPr sequence: cantSplit precedes tblHeader — match the Markdown renderer.
+            rowProperties.Append(new CantSplit());
             if (row.IsHeader)
             {
                 rowProperties.Append(new TableHeader());
             }
-            // Never split a row across pages.
-            rowProperties.Append(new CantSplit());
             tableRow.TableRowProperties = rowProperties;
 
             var banded = !row.IsHeader && (bodyRowIndex % 2) == 0;

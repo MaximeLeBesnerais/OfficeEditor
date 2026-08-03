@@ -100,10 +100,10 @@ internal static class BaselineStyles
         properties.Append(new ParagraphBorders(new LeftBorder
         {
             Val = BorderValues.Single,
-            Color = Primary(design) ?? "808080",
+            Color = ToColor(Primary(design)) ?? "808080",
             Size = 16
         }));
-        properties.Append(new Shading { Fill = PaletteColor(design, "pale") ?? "F2F2F2" });
+        properties.Append(new Shading { Fill = ToColor(PaletteColor(design, "pale")) ?? "F2F2F2" });
         if (BuildSpacing(role) is { } spacing)
         {
             properties.Append(spacing);

@@ -98,7 +98,7 @@ public sealed class DocxDesignResolver
         var roles = new Dictionary<TextRole, ResolvedRoleFormatting>();
         foreach (var (role, roleFormatting) in theme.Roles)
         {
-            roles[role] = ResolveRoleFormatting(roleFormatting, theme, palette, layout.DensityScale, $"theme '{theme.Name}' role '{role}'");
+            roles[role] = ResolveRoleFormatting(roleFormatting, fonts, palette, layout.DensityScale, $"theme '{theme.Name}' role '{role}'");
         }
 
         var page = _design?.Page ?? new PageDefaults();
@@ -298,20 +298,20 @@ public sealed class DocxDesignResolver
     // ---- roles ----
 
     /// <summary>
-    /// Resolves a role's theme formatting: font slot to the resolved family, color token to the
-    /// merged palette hex, and paragraph spacing density-scaled. Theme roles are defined in the
-    /// theme palette, so color/font resolution always succeeds.
+    /// Resolves a role's theme formatting: font slot to the effective (document-merged) family,
+    /// color token to the merged palette hex, and paragraph spacing density-scaled. Theme roles
+    /// are defined in the theme palette, so color/font resolution always succeeds.
     /// </summary>
     private static ResolvedRoleFormatting ResolveRoleFormatting(
         ThemeRoleFormatting formatting,
-        DesignTheme theme,
+        FontTokens fonts,
         IReadOnlyDictionary<string, string> palette,
         double densityScale,
         string context)
     {
         var run = new ResolvedRunFormatting
         {
-            FontFamily = ResolveRoleFont(formatting.FontFamily, theme),
+            FontFamily = ResolveRoleFont(formatting.FontFamily, fonts),
             FontSizePt = formatting.SizePt,
             ColorHex = ResolvePaletteColor(formatting.Color, palette, context),
             Bold = formatting.Bold ? true : null,
@@ -335,13 +335,14 @@ public sealed class DocxDesignResolver
         };
     }
 
-    private static string? ResolveRoleFont(string? font, DesignTheme theme) =>
+    /// <summary>Maps a role font slot ("display" | "body") to the effective merged family; raw family names pass through.</summary>
+    private static string? ResolveRoleFont(string? font, FontTokens fonts) =>
         font is null
             ? null
             : string.Equals(font, "display", StringComparison.OrdinalIgnoreCase)
-                ? theme.DisplayFontFamily
+                ? fonts.Display
                 : string.Equals(font, "body", StringComparison.OrdinalIgnoreCase)
-                    ? theme.BodyFontFamily
+                    ? fonts.Body
                     : font;
 
     private static string? ResolvePaletteColor(string? token, IReadOnlyDictionary<string, string> palette, string context)
