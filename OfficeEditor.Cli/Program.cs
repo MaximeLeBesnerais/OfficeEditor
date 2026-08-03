@@ -2,6 +2,8 @@ using System.Text.Json;
 using DocxEditor.Core.Builders;
 using DocxEditor.Core.Generation;
 using DocxEditor.Core.Generation.Assets;
+using DocxEditor.Core.Generation.Design;
+using DocxEditor.Core.Generation.Model;
 using DocxEditor.Core.Generation.Schema;
 using PptxEditor.Core.Builders;
 using PptxEditor.Core.Generation.Archetypes;
@@ -10,6 +12,7 @@ using PptxEditor.Core.Generation.Emit.Ooxml;
 using PptxEditor.Core.Generation.Layout;
 using PptxEditor.Core.Generation.Schema;
 using XlsxEditor.Core.Builders;
+using XlsxEditor.Core.Instructions;
 using OfficeEditor.Core.Models;
 using Spectre.Console;
 
@@ -64,28 +67,61 @@ class Program
         if (args.Length < 2)
         {
             AnsiConsole.MarkupLine("[red]Input JSON file path is required.[/]");
-            AnsiConsole.MarkupLine("Usage: officeeditor generate <input.json> [--output <output.pptx|output.docx>]");
+            AnsiConsole.MarkupLine("Usage: officeeditor generate <input.json> [--output <output.pptx|output.docx|output.xlsx>] [--theme <name>]");
             return false;
         }
 
         var inputPath = args[1];
-        var outputArgumentIndex = Array.FindIndex(
-            args,
-            argument => argument.Equals("--output", StringComparison.OrdinalIgnoreCase));
-        if (outputArgumentIndex == args.Length - 1)
+        string? outputPath = null;
+        string? theme = null;
+
+        for (var i = 2; i < args.Length; i++)
         {
-            AnsiConsole.MarkupLine("[red]--output requires a file path ending in .pptx or .docx.[/]");
+            var arg = args[i];
+            if (arg.Equals("--output", StringComparison.OrdinalIgnoreCase))
+            {
+                if (i + 1 >= args.Length)
+                {
+                    AnsiConsole.MarkupLine("[red]--output requires a file path ending in .pptx, .docx, or .xlsx.[/]");
+                    return false;
+                }
+                outputPath = args[++i];
+            }
+            else if (arg.Equals("--theme", StringComparison.OrdinalIgnoreCase))
+            {
+                if (i + 1 >= args.Length)
+                {
+                    AnsiConsole.MarkupLine("[red]--theme requires a theme name.[/]");
+                    return false;
+                }
+                theme = args[++i];
+            }
+            else
+            {
+                AnsiConsole.MarkupLine($"[red]Unknown option: {Markup.Escape(arg)}[/]");
+                return false;
+            }
+        }
+
+        var resolvedOutputPath = outputPath ?? Path.ChangeExtension(inputPath, ".pptx");
+        var outputExtension = Path.GetExtension(resolvedOutputPath);
+        if (!outputExtension.Equals(".pptx", StringComparison.OrdinalIgnoreCase) &&
+            !outputExtension.Equals(".docx", StringComparison.OrdinalIgnoreCase) &&
+            !outputExtension.Equals(".xlsx", StringComparison.OrdinalIgnoreCase))
+        {
+            AnsiConsole.MarkupLine("[red]Unsupported output format. Use a file path ending in .pptx, .docx, or .xlsx.[/]");
             return false;
         }
 
-        var outputPath = outputArgumentIndex >= 0
-            ? args[outputArgumentIndex + 1]
-            : Path.ChangeExtension(inputPath, ".pptx");
-        var outputExtension = Path.GetExtension(outputPath);
-        if (!outputExtension.Equals(".pptx", StringComparison.OrdinalIgnoreCase) &&
-            !outputExtension.Equals(".docx", StringComparison.OrdinalIgnoreCase))
+        if (theme is not null && !outputExtension.Equals(".docx", StringComparison.OrdinalIgnoreCase))
         {
-            AnsiConsole.MarkupLine("[red]Unsupported output format. Use a file path ending in .pptx or .docx.[/]");
+            AnsiConsole.MarkupLine("[red]--theme is only supported for DOCX output (a .docx output path).[/]");
+            return false;
+        }
+
+        if (theme is not null && DesignThemeCatalog.TryGet(theme) is null)
+        {
+            AnsiConsole.MarkupLine($"[red]Unknown theme '{Markup.Escape(theme)}'. Known themes: {string.Join(", ", DesignThemeCatalog.Themes.Keys)}.[/]");
             return false;
         }
 
@@ -98,7 +134,10 @@ class Program
         var json = File.ReadAllText(inputPath);
 
         if (outputExtension.Equals(".docx", StringComparison.OrdinalIgnoreCase))
-            return GenerateDocx(inputPath, outputPath, json);
+            return GenerateDocx(inputPath, resolvedOutputPath, json, theme);
+
+        if (outputExtension.Equals(".xlsx", StringComparison.OrdinalIgnoreCase))
+            return GenerateXlsx(resolvedOutputPath, json);
 
         var generated = false;
 
@@ -119,7 +158,7 @@ class Program
                 var componentized = ComponentExpander.Expand(archetyped);
                 var layout = new LayoutResolver().Resolve(componentized);
                 var emitResult = new OoxmlEmitter().Emit(layout);
-                File.WriteAllBytes(outputPath, emitResult.Bytes);
+                File.WriteAllBytes(resolvedOutputPath, emitResult.Bytes);
 
                 AnsiConsole.MarkupLine($"[green]{layout.Slides.Count} slides[/]  " +
                     $"[green]{emitResult.Bytes.Length} bytes[/]  " +
@@ -132,11 +171,11 @@ class Program
         if (!generated)
             return false;
 
-        AnsiConsole.MarkupLine($"[green]Saved: {Markup.Escape(outputPath)}[/]");
+        AnsiConsole.MarkupLine($"[green]Saved: {Markup.Escape(resolvedOutputPath)}[/]");
         return true;
     }
 
-    static bool GenerateDocx(string inputPath, string outputPath, string json)
+    static bool GenerateDocx(string inputPath, string outputPath, string json, string? theme)
     {
         var validation = new DocxGenerationDocumentParser().Validate(json);
         if (!validation.IsValid)
@@ -147,10 +186,17 @@ class Program
             return false;
         }
 
+        var document = validation.Document!;
+        if (theme is not null)
+        {
+            var design = document.Design ?? new DesignTokens();
+            document = document with { Design = design with { Theme = theme } };
+        }
+
         var inputDirectory = Path.GetDirectoryName(Path.GetFullPath(inputPath))!;
         var sourceOptions = new ImageSourceOptions { AllowedRoot = inputDirectory };
         string? templatePath = null;
-        if (validation.Document!.TemplatePath is { } configuredTemplate)
+        if (document.TemplatePath is { } configuredTemplate)
             templatePath = ResolveTemplatePath(configuredTemplate, sourceOptions, inputDirectory);
 
         DocxEditor.Core.Generation.Contracts.DocxGenerationResult? result = null;
@@ -158,7 +204,7 @@ class Program
             .Start("Generating DOCX...", _ =>
             {
                 result = new DocxGenerator().Generate(
-                    validation.Document,
+                    document,
                     outputPath,
                     new DocxGeneratorOptions
                     {
@@ -173,6 +219,40 @@ class Program
 
         AnsiConsole.MarkupLine($"[green]{result.Document.Sections.Count} sections[/]  " +
             (warnings.Count == 0 ? "[green]0 warnings[/]" : $"[yellow]{warnings.Count} warnings[/]"));
+        AnsiConsole.MarkupLine($"[green]Saved: {Markup.Escape(outputPath)}[/]");
+        return true;
+    }
+
+    static bool GenerateXlsx(string outputPath, string json)
+    {
+        XlsxGenerateResult? result = null;
+        AnsiConsole.Status()
+            .Start("Generating XLSX...", _ =>
+            {
+                result = XlsxGenerator.GenerateToFile(json, outputPath);
+            });
+
+        foreach (var diagnostic in result!.Validation.Errors)
+        {
+            var location = string.IsNullOrEmpty(diagnostic.Path) ? string.Empty : $" at {diagnostic.Path}";
+            AnsiConsole.MarkupLine($"[red]{Markup.Escape(diagnostic.Message)}{Markup.Escape(location)}[/]");
+        }
+        foreach (var diagnostic in result.Validation.Warnings)
+        {
+            var location = string.IsNullOrEmpty(diagnostic.Path) ? string.Empty : $" at {diagnostic.Path}";
+            AnsiConsole.MarkupLine($"[yellow]Warning: {Markup.Escape(diagnostic.Message)}{Markup.Escape(location)}[/]");
+        }
+
+        if (!result.IsValid || result.Bytes is null)
+        {
+            AnsiConsole.MarkupLine("[red]XLSX generation failed; no output was written.[/]");
+            return false;
+        }
+
+        AnsiConsole.MarkupLine($"[green]{result.Bytes.Length} bytes[/]  " +
+            (result.Validation.Warnings.Any()
+                ? $"[yellow]{result.Validation.Warnings.Count()} warnings[/]"
+                : "[green]0 warnings[/]"));
         AnsiConsole.MarkupLine($"[green]Saved: {Markup.Escape(outputPath)}[/]");
         return true;
     }
@@ -203,9 +283,14 @@ class Program
         AnsiConsole.WriteLine();
         AnsiConsole.WriteLine("Usage:");
         AnsiConsole.WriteLine("  officeeditor create <output.file> [--type docx|pptx|xlsx] [--text \"content\"] [--title \"title\"] [--sheet \"name\"]");
-        AnsiConsole.WriteLine("  officeeditor generate <input.json> [--output <output.pptx|output.docx>]");
+        AnsiConsole.WriteLine("  officeeditor generate <input.json> [--output <output.pptx|output.docx|output.xlsx>] [--theme <name>]");
         AnsiConsole.WriteLine("  officeeditor detect <template.file>");
         AnsiConsole.WriteLine("  officeeditor merge <template.file> <data.json> <output.file>");
+        AnsiConsole.WriteLine();
+        AnsiConsole.WriteLine("generate options:");
+        AnsiConsole.WriteLine("  --output <path>  Output file. Extension selects the format (.pptx|.docx|.xlsx);");
+        AnsiConsole.WriteLine("                   defaults to <input.json> with a .pptx extension.");
+        AnsiConsole.WriteLine("  --theme <name>   DOCX only: named design theme to apply (editorial|corporate).");
         AnsiConsole.WriteLine();
         AnsiConsole.WriteLine("Supported formats: .docx (Word), .pptx (PowerPoint), .xlsx (Excel)");
         AnsiConsole.WriteLine("Format is auto-detected from file extension.");
