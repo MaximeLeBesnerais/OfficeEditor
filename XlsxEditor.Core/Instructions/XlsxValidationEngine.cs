@@ -541,6 +541,15 @@ public static class XlsxValidationEngine
                     $"maximum row {XlsxRangeUtilities.MaxRows:N0}.");
             }
 
+            // A row wider than Excel's sheet is rejected here (semantic validation) so the
+            // planner never reaches the address math that would throw past column XFD.
+            if (row.Count > XlsxRangeUtilities.MaxColumns)
+            {
+                Error(diagnostics, XlsxDiagnosticCode.RowTooManyCells, path,
+                    $"Row {i + 1} of worksheet '{ws.Name}' has {row.Count} cells, but Excel only has " +
+                    $"{XlsxRangeUtilities.MaxColumns} columns (A-XFD).");
+            }
+
             for (var j = 0; j < row.Count; j++)
             {
                 if (row[j] is null)

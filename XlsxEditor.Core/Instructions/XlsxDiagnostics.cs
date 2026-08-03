@@ -25,6 +25,7 @@ public enum XlsxDiagnosticCode
     NullVariableValue,
     UndefinedVariableReference,
     VariableCycle,
+    VariableExpansionTooLarge,
 
     // Worksheet
     SheetNameRequired,
@@ -40,6 +41,7 @@ public enum XlsxDiagnosticCode
     // Headers / rows / cells
     HeaderNull,
     RowNull,
+    RowTooManyCells,
     RowCellNull,
     CellNull,
     CellAddressRequired,
@@ -88,6 +90,7 @@ public enum XlsxDiagnosticCode
 
     // Generator
     GenerationFailed,
+    PlanningFailed,
     PackageInvalid
 }
 

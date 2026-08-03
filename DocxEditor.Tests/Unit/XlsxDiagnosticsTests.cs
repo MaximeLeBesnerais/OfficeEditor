@@ -214,6 +214,22 @@ public class XlsxDiagnosticsTests
         Assert.Equal(XlsxDiagnosticCode.SheetEmpty, error.Code);
     }
 
+    [Fact]
+    public void Validate_ShouldRejectRowWiderThanXfd_AtSemanticValidation()
+    {
+        var set = new XlsxInstructionSet
+        {
+            Version = "1.0",
+            Worksheets = [new WorksheetInstruction { Name = "S", Rows = [Enumerable.Range(0, 16_385).Select(_ => "x").ToList()] }]
+        };
+
+        var result = XlsxValidationEngine.Validate(set);
+        var error = Assert.Single(result.Errors, d => d.Code == XlsxDiagnosticCode.RowTooManyCells);
+        Assert.Equal(XlsxDiagnosticSeverity.Error, error.Severity);
+        Assert.Equal("worksheets[0].rows[0]", error.Path);
+        Assert.Contains("16384 columns", error.Message);
+    }
+
     // ─── Parser adapter ───────────────────────────────────────────
 
     [Fact]

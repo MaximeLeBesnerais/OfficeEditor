@@ -30,31 +30,49 @@ public interface IWorkbookBuilder : IDisposable
     /// The style is append-only and deduplicated: an identical style — defined earlier
     /// or already present in a reopened workbook — is reused instead of duplicated, and
     /// existing style definitions are never mutated. See <see cref="CellStyleSpec"/>.
+    /// The default implementation throws <see cref="NotSupportedException"/>: only
+    /// <see cref="WorkbookBuilder"/> (and implementations that support named styles) can
+    /// apply named styles; a minimal external implementation remains source-compatible by
+    /// inheriting this default and failing loudly if styles are actually used.
     /// </summary>
-    uint DefineStyle(CellStyleSpec style);
+    uint DefineStyle(CellStyleSpec style) =>
+        throw new NotSupportedException(
+            "This IWorkbookBuilder implementation does not support named styles; use WorkbookBuilder.");
 
     /// <summary>Returns the cellXf index of a previously defined named style.</summary>
-    uint GetStyleIndex(string styleName);
+    uint GetStyleIndex(string styleName) =>
+        throw new NotSupportedException(
+            "This IWorkbookBuilder implementation does not support named styles; use WorkbookBuilder.");
 
     /// <summary>Names of all named styles defined on this workbook, in definition order.</summary>
-    IReadOnlyList<string> GetDefinedStyleNames();
+    IReadOnlyList<string> GetDefinedStyleNames() => Array.Empty<string>();
 
     // Core metadata
-    /// <summary>Replaces the workbook's core (Dublin Core) package properties.</summary>
-    IWorkbookBuilder SetCoreProperties(WorkbookCoreProperties properties);
+    /// <summary>
+    /// Replaces the workbook's core (Dublin Core) package properties. The default
+    /// implementation throws <see cref="NotSupportedException"/>; see
+    /// <see cref="DefineStyle"/> for the compatibility rationale.
+    /// </summary>
+    IWorkbookBuilder SetCoreProperties(WorkbookCoreProperties properties) =>
+        throw new NotSupportedException(
+            "This IWorkbookBuilder implementation does not support core properties; use WorkbookBuilder.");
 
     /// <summary>Reads back the workbook's current core package properties.</summary>
-    WorkbookCoreProperties GetCoreProperties();
+    WorkbookCoreProperties GetCoreProperties() => new();
 
     // Calculation
     /// <summary>
     /// Sets the workbook's calculation properties (&lt;calcPr&gt;), used to force formula
     /// recalculation when the workbook opens. See <see cref="WorkbookCalculationProperties"/>.
+    /// The default implementation throws <see cref="NotSupportedException"/>; see
+    /// <see cref="DefineStyle"/> for the compatibility rationale.
     /// </summary>
-    IWorkbookBuilder SetCalculationProperties(WorkbookCalculationProperties properties);
+    IWorkbookBuilder SetCalculationProperties(WorkbookCalculationProperties properties) =>
+        throw new NotSupportedException(
+            "This IWorkbookBuilder implementation does not support calculation properties; use WorkbookBuilder.");
 
     /// <summary>Reads back the workbook's current calculation properties.</summary>
-    WorkbookCalculationProperties GetCalculationProperties();
+    WorkbookCalculationProperties GetCalculationProperties() => new();
 
     static abstract IWorkbookBuilder Create();
     static abstract IWorkbookBuilder Open(Stream stream);
@@ -76,35 +94,54 @@ public interface IWorksheetBuilder
     // Typed cell writes (Phase 2/3 vocabulary). The style argument is a named style
     // registered via IWorkbookBuilder.DefineStyle; numberFormat is an Excel
     // number-format code applied to the cell. Neither is required.
-    /// <summary>Writes a typed string cell (shared-string table), clearing any stale formula.</summary>
-    IWorksheetBuilder AddCellString(string cellReference, string value, string? styleName = null);
+    /// <summary>
+    /// Writes a typed string cell (shared-string table), clearing any stale formula.
+    /// The default implementation throws <see cref="NotSupportedException"/>; see
+    /// <see cref="IWorkbookBuilder.DefineStyle"/> for the compatibility rationale.
+    /// </summary>
+    IWorksheetBuilder AddCellString(string cellReference, string value, string? styleName = null) =>
+        throw new NotSupportedException(
+            "This IWorksheetBuilder implementation does not support typed cell writes; use WorksheetBuilder.");
 
-    /// <summary>Writes a typed number cell; the value must be finite (NaN/±Infinity are rejected).</summary>
-    IWorksheetBuilder AddCellNumber(string cellReference, double value, string? numberFormat = null, string? styleName = null);
+    /// <summary>
+    /// Writes a typed number cell; the value must be finite (NaN/±Infinity are rejected).
+    /// Default-implemented (throws) for external-implementation compatibility.
+    /// </summary>
+    IWorksheetBuilder AddCellNumber(string cellReference, double value, string? numberFormat = null, string? styleName = null) =>
+        throw new NotSupportedException(
+            "This IWorksheetBuilder implementation does not support typed cell writes; use WorksheetBuilder.");
 
-    /// <summary>Writes a typed boolean cell (t="b", 0/1).</summary>
-    IWorksheetBuilder AddCellBoolean(string cellReference, bool value, string? styleName = null);
+    /// <summary>Writes a typed boolean cell (t="b", 0/1). Default-implemented (throws) for compatibility.</summary>
+    IWorksheetBuilder AddCellBoolean(string cellReference, bool value, string? styleName = null) =>
+        throw new NotSupportedException(
+            "This IWorksheetBuilder implementation does not support typed cell writes; use WorksheetBuilder.");
 
     /// <summary>
     /// Writes an ISO-8601 date (yyyy-MM-dd) as an Excel serial number with a date number
     /// format, so it renders as a date in Excel. <paramref name="numberFormat"/> overrides
-    /// the default "yyyy-mm-dd" format.
+    /// the default "yyyy-mm-dd" format. Default-implemented (throws) for compatibility.
     /// </summary>
-    IWorksheetBuilder AddCellDate(string cellReference, string isoDate, string? numberFormat = null, string? styleName = null);
+    IWorksheetBuilder AddCellDate(string cellReference, string isoDate, string? numberFormat = null, string? styleName = null) =>
+        throw new NotSupportedException(
+            "This IWorksheetBuilder implementation does not support typed cell writes; use WorksheetBuilder.");
 
     /// <summary>
     /// Writes an ISO-8601 datetime (yyyy-MM-ddTHH:mm:ss, optional fractional seconds) as an
     /// Excel serial number with a datetime number format. <paramref name="numberFormat"/>
-    /// overrides the default "yyyy-mm-dd h:mm:ss" format.
+    /// overrides the default "yyyy-mm-dd h:mm:ss" format. Default-implemented (throws) for compatibility.
     /// </summary>
-    IWorksheetBuilder AddCellDateTime(string cellReference, string isoDateTime, string? numberFormat = null, string? styleName = null);
+    IWorksheetBuilder AddCellDateTime(string cellReference, string isoDateTime, string? numberFormat = null, string? styleName = null) =>
+        throw new NotSupportedException(
+            "This IWorksheetBuilder implementation does not support typed cell writes; use WorksheetBuilder.");
 
     /// <summary>
     /// Writes a formula cell, stripping a leading '=' from the stored form, clearing any
     /// stale cached value and data type, and optionally applying a named style and/or
-    /// number format.
+    /// number format. Default-implemented (throws) for compatibility.
     /// </summary>
-    IWorksheetBuilder AddFormula(string cellReference, string formula, string? styleName = null, string? numberFormat = null);
+    IWorksheetBuilder AddFormula(string cellReference, string formula, string? styleName = null, string? numberFormat = null) =>
+        throw new NotSupportedException(
+            "This IWorksheetBuilder implementation does not support typed cell writes; use WorksheetBuilder.");
 
     // Layout
     /// <summary>
@@ -112,26 +149,33 @@ public interface IWorksheetBuilder
     /// columns above/to the left of the scrollable area. At least one of the two must be
     /// non-zero. Frozen panes are written to the sheet's &lt;sheetViews&gt; element in
     /// schema position; repeated calls update the pane in place.
+    /// Default-implemented (throws) for external-implementation compatibility.
     /// </summary>
-    IWorksheetBuilder FreezePanes(int frozenRows, int frozenColumns);
+    IWorksheetBuilder FreezePanes(int frozenRows, int frozenColumns) =>
+        throw new NotSupportedException(
+            "This IWorksheetBuilder implementation does not support freeze panes; use WorksheetBuilder.");
 
     /// <summary>
     /// Returns the current frozen-pane dimensions, or null when the sheet has no frozen pane.
     /// </summary>
-    (int FrozenRows, int FrozenColumns)? GetFreezePanes();
+    (int FrozenRows, int FrozenColumns)? GetFreezePanes() => null;
 
     /// <summary>
     /// Applies a standalone autofilter (a worksheet-level &lt;autoFilter&gt;) to the given
     /// A1-style range, e.g. "A1:D10", independent of any table. Replaces any existing
-    /// standalone autofilter in place.
+    /// standalone autofilter in place. Default-implemented (throws) for compatibility.
     /// </summary>
-    IWorksheetBuilder SetAutoFilter(string range);
+    IWorksheetBuilder SetAutoFilter(string range) =>
+        throw new NotSupportedException(
+            "This IWorksheetBuilder implementation does not support autofilters; use WorksheetBuilder.");
 
     /// <summary>Returns the standalone autofilter range in A1 notation, or null when none is set.</summary>
-    string? GetAutoFilterRange();
+    string? GetAutoFilterRange() => null;
 
-    /// <summary>Removes the standalone autofilter, if any.</summary>
-    IWorksheetBuilder RemoveAutoFilter();
+    /// <summary>Removes the standalone autofilter, if any. Default-implemented (throws) for compatibility.</summary>
+    IWorksheetBuilder RemoveAutoFilter() =>
+        throw new NotSupportedException(
+            "This IWorksheetBuilder implementation does not support autofilters; use WorksheetBuilder.");
 
     /// <summary>
     /// Sets the explicit width of a single column, in Excel column-width units (the

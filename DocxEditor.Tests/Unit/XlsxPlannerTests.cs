@@ -432,4 +432,118 @@ public class XlsxPlannerTests
         Assert.Equal("S", worksheet.Name);
         Assert.Equal("Renamed", rebound.Name);
     }
+
+    // ─── Variable expansion budget (memory-exhaustion guard) ───────
+
+    [Fact]
+    public void Plan_ShouldRejectExponentialVariableExpansion_WhenReferenced()
+    {
+        // A doubling chain doubles at every level: the referenced terminal variable would
+        // need ~2^40 characters if fully materialized. The budget aborts expansion with a
+        // structured diagnostic instead of ever building the value.
+        var variables = new Dictionary<string, string> { ["a0"] = "x" };
+        for (var i = 1; i <= 40; i++)
+        {
+            variables[$"a{i}"] = $"{{{{a{i - 1}}}}}{{{{a{i - 1}}}}}";
+        }
+
+        var set = new XlsxInstructionSet
+        {
+            Version = "1.0",
+            Variables = variables,
+            Worksheets = [new WorksheetInstruction { Name = "S", Rows = [["{{a40}}"]] }]
+        };
+
+        var result = XlsxPlanner.Plan(set, maxVariableLength: 10_000);
+        Assert.False(result.IsValid);
+        Assert.Null(result.Plan);
+        // Several independent variables in the chain cross the budget (a14, a25, a36…);
+        // each is reported once with a path-qualified diagnostic.
+        var errors = result.Validation.Errors.Where(d => d.Code == XlsxDiagnosticCode.VariableExpansionTooLarge).ToList();
+        Assert.NotEmpty(errors);
+        Assert.All(errors, e => Assert.Contains("variables.", e.Path));
+        Assert.Contains("10,000", errors[0].Message);
+    }
+
+    [Fact]
+    public void Plan_ShouldNotExpandUnreferencedVariables()
+    {
+        // A hostile doubling chain that is defined but never referenced by the sheet must
+        // stay inert: only the variable the sheet actually uses is resolved.
+        var variables = new Dictionary<string, string> { ["a0"] = "x" };
+        for (var i = 1; i <= 60; i++)
+        {
+            variables[$"a{i}"] = $"{{{{a{i - 1}}}}}{{{{a{i - 1}}}}}";
+        }
+        variables["used"] = "hello";
+
+        var set = new XlsxInstructionSet
+        {
+            Version = "1.0",
+            Variables = variables,
+            Worksheets = [new WorksheetInstruction { Name = "S", Rows = [["{{used}}"]] }]
+        };
+
+        var result = XlsxPlanner.Plan(set);
+        Assert.True(result.IsValid, string.Join("; ", result.Validation.Errors.Select(e => e.Message)));
+        Assert.Equal("hello", result.Plan!.Worksheets[0].Rows[0].Cells[0].Value);
+        // The unused chain was never expanded into the resolved set.
+        Assert.False(result.Plan.Variables.ContainsKey("a60"));
+    }
+
+    [Fact]
+    public void Plan_ShouldRejectCellResolution_OverLengthBudget()
+    {
+        // A cell that combines two budget-sized placeholders crosses the budget during
+        // cell resolution; the abort is path-qualified to the offending cell.
+        var set = new XlsxInstructionSet
+        {
+            Version = "1.0",
+            Variables = new Dictionary<string, string> { ["big"] = new string('x', 6_000) },
+            Worksheets = [new WorksheetInstruction { Name = "S", Rows = [["{{big}}{{big}}"]] }]
+        };
+
+        var result = XlsxPlanner.Plan(set, maxVariableLength: 10_000);
+        Assert.False(result.IsValid);
+        Assert.Null(result.Plan);
+        var error = Assert.Single(result.Validation.Errors, d => d.Code == XlsxDiagnosticCode.VariableExpansionTooLarge);
+        Assert.Equal("worksheets[0].rows[0][0]", error.Path);
+    }
+
+    // ─── Row width (XFD) limits ────────────────────────────────────
+
+    [Fact]
+    public void Plan_ShouldRejectRowWiderThanExcel_WithPathQualifiedDiagnostic()
+    {
+        var wideRow = Enumerable.Range(0, 16_385).Select(_ => "x").ToList();
+        var set = new XlsxInstructionSet
+        {
+            Version = "1.0",
+            Worksheets = [new WorksheetInstruction { Name = "S", Rows = [wideRow] }]
+        };
+
+        var result = XlsxPlanner.Plan(set);
+        Assert.False(result.IsValid);
+        Assert.Null(result.Plan);
+        var error = Assert.Single(result.Validation.Errors, d => d.Code == XlsxDiagnosticCode.RowTooManyCells);
+        Assert.Equal("worksheets[0].rows[0]", error.Path);
+        Assert.Contains("16384 columns", error.Message);
+    }
+
+    [Fact]
+    public void Plan_ShouldAcceptRowExactlyAtColumnLimit()
+    {
+        var maxRow = Enumerable.Range(0, 16_384).Select(_ => "x").ToList();
+        var set = new XlsxInstructionSet
+        {
+            Version = "1.0",
+            Worksheets = [new WorksheetInstruction { Name = "S", Rows = [maxRow] }]
+        };
+
+        var result = XlsxPlanner.Plan(set);
+        Assert.True(result.IsValid);
+        Assert.NotNull(result.Plan);
+        Assert.Equal(16_384, result.Plan!.Worksheets[0].Rows[0].Cells.Count);
+        Assert.Equal("XFD1", result.Plan.Worksheets[0].Rows[0].Cells[^1].Reference);
+    }
 }
