@@ -1,21 +1,23 @@
 using System.Text;
 using System.Text.Json;
 using DocxEditor.Core.Builders;
-using DocxEditor.Core.Converters;
 using DocxEditor.Core.Generation;
 using DocxEditor.Core.Generation.Schema;
 using DocxEditor.Core.Markdown.Rendering;
-using DocumentFormat.OpenXml.Packaging;
-using OfficeEditor.Core.Services;
+using OfficeEditor.Core.Rendering;
 using PptxEditor.Core.Builders;
 using XlsxEditor.Core.Builders;
 using XlsxEditor.Core.Instructions;
-using XlsxEditor.Core.Rendering;
 
 namespace OfficeEditor.Api.Services;
 
 public sealed class ConversionService : IConversionService
 {
+    // All PDF/PNG/SVG rendering delegates to the shared render facade (CLI/API/MCP parity).
+    // Constructed lazily because renderer discovery scans loaded assemblies, and the vast
+    // majority of conversions are generation-only.
+    private readonly Lazy<IDocumentRenderer> _renderer = new(() => new DocumentRenderer());
+
     public async Task<ConversionResult> ConvertAsync(ConversionRequest request, CancellationToken ct = default)
     {
         var messages = new List<string>();
@@ -26,9 +28,9 @@ public sealed class ConversionService : IConversionService
 
             return request.TargetFormat switch
             {
-                ConversionTargetFormat.Pdf when sourceFormat == SourceFormat.Pptx => await ConvertPptxToPdfAsync(request, messages, ct),
-                ConversionTargetFormat.Png when sourceFormat == SourceFormat.Pptx => await ConvertPptxToPngAsync(request, messages, ct),
-                ConversionTargetFormat.Svg when sourceFormat == SourceFormat.Pptx => await ConvertPptxToSvgAsync(request, messages, ct),
+                ConversionTargetFormat.Pdf when sourceFormat == SourceFormat.Pptx => await RenderViaFacadeAsync(request, sourceFormat, DocumentOutputFormat.Pdf, ".pdf", "application/pdf", messages, ct),
+                ConversionTargetFormat.Png when sourceFormat == SourceFormat.Pptx => await RenderViaFacadeAsync(request, sourceFormat, DocumentOutputFormat.Png, ".png", "image/png", messages, ct),
+                ConversionTargetFormat.Svg when sourceFormat == SourceFormat.Pptx => await RenderViaFacadeAsync(request, sourceFormat, DocumentOutputFormat.Svg, ".svg", "image/svg+xml", messages, ct),
                 ConversionTargetFormat.Docx when sourceFormat == SourceFormat.Markdown => await ConvertMarkdownToDocxAsync(request, messages, ct),
                 // Non-empty JSON sources route through the declarative generators, never blank
                 // creation; empty JSON falls back to blank-document compatibility.
@@ -39,10 +41,12 @@ public sealed class ConversionService : IConversionService
                 ConversionTargetFormat.Docx when sourceFormat == SourceFormat.Unknown || (sourceFormat == SourceFormat.Docx && IsEmptyDocument(request)) => await CreateBlankDocxAsync(request, messages, ct),
                 ConversionTargetFormat.Xlsx when sourceFormat == SourceFormat.Unknown || (sourceFormat == SourceFormat.Xlsx && IsEmptyDocument(request)) => await CreateBlankXlsxAsync(request, messages, ct),
                 ConversionTargetFormat.Pptx when sourceFormat == SourceFormat.Unknown || (sourceFormat == SourceFormat.Pptx && IsEmptyDocument(request)) => await CreateBlankPptxAsync(request, messages, ct),
-                ConversionTargetFormat.Pdf when sourceFormat == SourceFormat.Docx => await ConvertDocxToPdfAsync(request, messages, ct),
-                ConversionTargetFormat.Pdf when sourceFormat == SourceFormat.Xlsx => await ConvertXlsxToRenderAsync(request, OutputFormat.Pdf, "pdf", messages, ct),
-                ConversionTargetFormat.Png when sourceFormat == SourceFormat.Xlsx => await ConvertXlsxToRenderAsync(request, OutputFormat.Png, "png", messages, ct),
-                ConversionTargetFormat.Svg when sourceFormat == SourceFormat.Xlsx => await ConvertXlsxToRenderAsync(request, OutputFormat.Svg, "svg", messages, ct),
+                ConversionTargetFormat.Pdf when sourceFormat == SourceFormat.Docx => await RenderViaFacadeAsync(request, sourceFormat, DocumentOutputFormat.Pdf, ".pdf", "application/pdf", messages, ct),
+                ConversionTargetFormat.Png when sourceFormat == SourceFormat.Docx => await RenderViaFacadeAsync(request, sourceFormat, DocumentOutputFormat.Png, "-1.png", "image/png", messages, ct),
+                ConversionTargetFormat.Svg when sourceFormat == SourceFormat.Docx => await RenderViaFacadeAsync(request, sourceFormat, DocumentOutputFormat.Svg, "-1.svg", "image/svg+xml", messages, ct),
+                ConversionTargetFormat.Pdf when sourceFormat == SourceFormat.Xlsx => await RenderViaFacadeAsync(request, sourceFormat, DocumentOutputFormat.Pdf, ".pdf", "application/pdf", messages, ct),
+                ConversionTargetFormat.Png when sourceFormat == SourceFormat.Xlsx => await RenderViaFacadeAsync(request, sourceFormat, DocumentOutputFormat.Png, "-1.png", "image/png", messages, ct),
+                ConversionTargetFormat.Svg when sourceFormat == SourceFormat.Xlsx => await RenderViaFacadeAsync(request, sourceFormat, DocumentOutputFormat.Svg, "-1.svg", "image/svg+xml", messages, ct),
                 _ => ConversionResultWithError($"Unsupported conversion: {sourceFormat} to {request.TargetFormat}.")
             };
         }
@@ -52,102 +56,85 @@ public sealed class ConversionService : IConversionService
         }
     }
 
-    private static async Task<ConversionResult> ConvertPptxToPdfAsync(ConversionRequest request, List<string> messages, CancellationToken ct)
+    /// <summary>
+    /// Renders a binary source (PPTX/DOCX/XLSX) to PDF/PNG/SVG through the shared render facade
+    /// (<see cref="IDocumentRenderer"/>). The facade takes a source file path, so the uploaded
+    /// bytes are staged in a uniquely named temp file under the process temp root (following the
+    /// repo's <c>officeeditor-*</c> convention) and deleted in a finally block. PNG/SVG yield one
+    /// buffer per page but the API contract is a single buffer, so the first page is returned;
+    /// <paramref name="outputExtension"/> carries the exact suffix (".png" for PPTX, "-1.png" for
+    /// DOCX/XLSX, …). Failures are returned as failed results, never thrown.
+    /// </summary>
+    private async Task<ConversionResult> RenderViaFacadeAsync(
+        ConversionRequest request,
+        SourceFormat sourceFormat,
+        DocumentOutputFormat format,
+        string outputExtension,
+        string contentType,
+        List<string> messages,
+        CancellationToken ct)
     {
         await Task.Yield();
         ct.ThrowIfCancellationRequested();
 
-        using var builder = PresentationBuilder.Open(request.SourceBytes);
-        messages.Add("Opened PPTX presentation.");
-
-        byte[] pdfBytes;
+        string? tempPath = null;
         try
         {
-            pdfBytes = builder.ExportToPdf();
-            messages.Add("Exported PPTX to PDF.");
-        }
-        catch
-        {
-            ct.ThrowIfCancellationRequested();
-            var typstSource = builder.ExportToTypst();
-            messages.Add("Falling back: exported PPTX to Typst source.");
-
-            using var compiler = new TypstCompilerService();
-            var options = new CompileOptions { Format = OutputFormat.Pdf };
-            var result = compiler.Compile(typstSource, options);
-
-            if (!result.Success || result.Pages.Length == 0)
+            tempPath = WriteSourceToTempFile(request);
+            var result = _renderer.Value.Render(new DocumentRenderRequest
             {
-                return ConversionResultWithError($"PDF compilation failed: {result.ErrorMessage}", messages);
+                SourcePath = tempPath,
+                Format = format,
+                Ppi = GetPpi(request.Options)
+            });
+
+            if (!result.Success)
+            {
+                return ConversionResultWithError($"Conversion failed: {result.ErrorMessage}", messages);
             }
 
-            pdfBytes = result.Pages[0];
-            messages.Add("Compiled Typst source to PDF.");
-        }
+            if (result.Pages.Length == 0)
+            {
+                return ConversionResultWithError("Conversion failed: the render produced no output.", messages);
+            }
 
-        return new ConversionResult(
-            true,
-            pdfBytes,
-            ChangeExtension(request.SourceFileName, ".pdf"),
-            "application/pdf",
-            null,
-            messages);
+            messages.Add($"Rendered {sourceFormat.ToString().ToUpperInvariant()} to {format} via the shared render facade (Typst pipeline).");
+            return new ConversionResult(
+                true,
+                result.Pages[0],
+                ChangeExtension(request.SourceFileName, outputExtension),
+                contentType,
+                null,
+                messages);
+        }
+        finally
+        {
+            if (tempPath is not null)
+            {
+                try
+                {
+                    File.Delete(tempPath);
+                }
+                catch
+                {
+                    // Best-effort cleanup: a lingering temp file is preferable to failing an
+                    // otherwise successful conversion over cleanup.
+                }
+            }
+        }
     }
 
-    private static async Task<ConversionResult> ConvertPptxToPngAsync(ConversionRequest request, List<string> messages, CancellationToken ct)
+    private static string WriteSourceToTempFile(ConversionRequest request)
     {
-        await Task.Yield();
-        ct.ThrowIfCancellationRequested();
-
-        using var builder = PresentationBuilder.Open(request.SourceBytes);
-        messages.Add("Opened PPTX presentation.");
-
-        var ppi = GetPpi(request.Options);
-        var thumbnails = builder.ExportThumbnails(new ThumbnailOptions { Ppi = ppi, Format = "png" });
-        messages.Add($"Exported {thumbnails.Length} slide thumbnail(s).");
-
-        if (thumbnails.Length == 0)
+        var extension = Path.GetExtension(request.SourceFileName);
+        if (string.IsNullOrWhiteSpace(extension))
         {
-            return ConversionResultWithError("PNG export produced no images.", messages);
+            extension = "." + request.TargetFormat.ToString().ToLowerInvariant();
         }
 
-        messages.Add($"Slide 1 of {thumbnails.Length} rendered.");
-        return new ConversionResult(
-            true,
-            thumbnails[0],
-            ChangeExtension(request.SourceFileName, ".png"),
-            "image/png",
-            null,
-            messages);
-    }
-
-    private static async Task<ConversionResult> ConvertPptxToSvgAsync(ConversionRequest request, List<string> messages, CancellationToken ct)
-    {
-        await Task.Yield();
-        ct.ThrowIfCancellationRequested();
-
-        using var builder = PresentationBuilder.Open(request.SourceBytes);
-        messages.Add("Opened PPTX presentation.");
-
-        var typstSource = builder.ExportToTypst();
-        messages.Add("Exported PPTX to Typst source.");
-
-        using var compiler = new TypstCompilerService();
-        var result = compiler.Compile(typstSource, new CompileOptions { Format = OutputFormat.Svg });
-
-        if (!result.Success || result.Pages.Length == 0)
-        {
-            return ConversionResultWithError($"SVG compilation failed: {result.ErrorMessage}", messages);
-        }
-
-        messages.Add($"Compiled Typst source to SVG ({result.Pages.Length} page(s)).");
-        return new ConversionResult(
-            true,
-            result.Pages[0],
-            ChangeExtension(request.SourceFileName, ".svg"),
-            "image/svg+xml",
-            null,
-            messages);
+        var tempPath = Path.Combine(Path.GetTempPath(), "officeeditor-convert-" + Guid.NewGuid().ToString("N") + extension);
+        File.WriteAllBytes(tempPath, request.SourceBytes);
+        return tempPath;
     }
 
     private static async Task<ConversionResult> ConvertMarkdownToDocxAsync(ConversionRequest request, List<string> messages, CancellationToken ct)
@@ -377,82 +364,6 @@ public sealed class ConversionService : IConversionService
             "application/vnd.openxmlformats-officedocument.presentationml.presentation",
             null,
             messages);
-    }
-
-    private static async Task<ConversionResult> ConvertDocxToPdfAsync(ConversionRequest request, List<string> messages, CancellationToken ct)
-    {
-        await Task.Yield();
-        ct.ThrowIfCancellationRequested();
-
-        using var stream = new MemoryStream(request.SourceBytes, writable: false);
-        using var document = WordprocessingDocument.Open(stream, false);
-        messages.Add("Opened DOCX document.");
-
-        using var converter = new DocxToTypstConverter(document);
-        var typstDocument = converter.Convert();
-        var typstSource = converter.GenerateTypstSource(typstDocument);
-        messages.Add("Converted DOCX to Typst source.");
-
-        using var compiler = new TypstCompilerService();
-        var result = compiler.Compile(typstSource, new CompileOptions
-        {
-            Format = OutputFormat.Pdf,
-            WorkingDirectory = typstDocument.TempDirectory
-        });
-
-        if (!result.Success || result.Pages.Length == 0)
-        {
-            return ConversionResultWithError($"PDF compilation failed: {result.ErrorMessage}", messages);
-        }
-
-        messages.Add("Compiled Typst source to PDF.");
-        return new ConversionResult(
-            true,
-            result.Pages[0],
-            ChangeExtension(request.SourceFileName, ".pdf"),
-            "application/pdf",
-            null,
-            messages);
-    }
-
-    private static async Task<ConversionResult> ConvertXlsxToRenderAsync(ConversionRequest request, OutputFormat format, string ext, List<string> messages, CancellationToken ct)
-    {
-        await Task.Yield();
-        ct.ThrowIfCancellationRequested();
-
-        var options = new CompileOptions
-        {
-            Format = format,
-            Ppi = GetPpi(request.Options)
-        };
-
-        var result = XlsxRenderer.RenderBytes(request.SourceBytes, options);
-        messages.Add("Rendered XLSX via the OfficeEditor Typst pipeline.");
-
-        if (!result.Success || result.Compile.Pages.Length == 0)
-        {
-            return ConversionResultWithError($"Rendering failed: {result.Compile.ErrorMessage}", messages);
-        }
-
-        var mime = format switch
-        {
-            OutputFormat.Png => "image/png",
-            OutputFormat.Svg => "image/svg+xml",
-            _ => "application/pdf"
-        };
-
-        if (format == OutputFormat.Pdf)
-        {
-            return new ConversionResult(true, result.Compile.Pages[0], ChangeExtension(request.SourceFileName, ".pdf"), mime, null, messages);
-        }
-
-        // PNG/SVG produce one buffer per page; return them as a single multi-frame-style
-        // collection is not supported by the API contract, so return the first page.
-        var firstPage = result.Compile.Pages[0];
-        var fileName = format == OutputFormat.Png
-            ? ChangeExtension(request.SourceFileName, "-1.png")
-            : ChangeExtension(request.SourceFileName, "-1.svg");
-        return new ConversionResult(true, firstPage, fileName, mime, null, messages);
     }
 
     private static SourceFormat DetectSourceFormat(string? fileName)

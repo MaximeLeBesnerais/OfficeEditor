@@ -1,4 +1,5 @@
 using System.Text;
+using DocxEditor.Core.Builders;
 using DocumentFormat.OpenXml.Packaging;
 using OfficeEditor.Api.Services;
 using XlsxEditor.Core.Builders;
@@ -391,6 +392,80 @@ public sealed class ConversionServiceTests
         var result = await service.ConvertAsync(request);
 
         Assert.False(result.Success);
+        Assert.NotNull(result.ErrorMessage);
+        Assert.Contains("Conversion failed", result.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task ConvertAsync_DocxToPng_WithValidDocx_ProducesPng()
+    {
+        if (Environment.GetEnvironmentVariable(EnableRenderEnvVar) != "1")
+        {
+            return;
+        }
+
+        var service = new ConversionService();
+        var request = new ConversionRequest(BuildDocxBytes(), "report.docx", ConversionTargetFormat.Png);
+
+        var result = await service.ConvertAsync(request);
+
+        Assert.True(result.Success, result.ErrorMessage);
+        Assert.NotNull(result.OutputBytes);
+        Assert.True(result.OutputBytes!.Length > 0);
+        Assert.Equal("image/png", result.ContentType);
+        Assert.EndsWith("-1.png", result.OutputFileName);
+        Assert.NotNull(result.Messages);
+        Assert.Contains(result.Messages, m => m.Contains("DOCX"));
+    }
+
+    [Fact]
+    public async Task ConvertAsync_DocxToSvg_WithValidDocx_ProducesSvg()
+    {
+        if (Environment.GetEnvironmentVariable(EnableRenderEnvVar) != "1")
+        {
+            return;
+        }
+
+        var service = new ConversionService();
+        var request = new ConversionRequest(BuildDocxBytes(), "report.docx", ConversionTargetFormat.Svg);
+
+        var result = await service.ConvertAsync(request);
+
+        Assert.True(result.Success, result.ErrorMessage);
+        Assert.NotNull(result.OutputBytes);
+        Assert.True(result.OutputBytes!.Length > 0);
+        Assert.Equal("image/svg+xml", result.ContentType);
+        Assert.EndsWith("-1.svg", result.OutputFileName);
+        Assert.NotNull(result.Messages);
+        Assert.Contains(result.Messages, m => m.Contains("DOCX"));
+    }
+
+    [Fact]
+    public async Task ConvertAsync_DocxToPng_CorruptDocx_ReturnsError()
+    {
+        var service = new ConversionService();
+        var garbage = "not a valid docx file"u8.ToArray();
+        var request = new ConversionRequest(garbage, "bad.docx", ConversionTargetFormat.Png);
+
+        var result = await service.ConvertAsync(request);
+
+        Assert.False(result.Success);
+        Assert.Null(result.OutputBytes);
+        Assert.NotNull(result.ErrorMessage);
+        Assert.Contains("Conversion failed", result.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task ConvertAsync_DocxToSvg_CorruptDocx_ReturnsError()
+    {
+        var service = new ConversionService();
+        var garbage = "not a valid docx file"u8.ToArray();
+        var request = new ConversionRequest(garbage, "bad.docx", ConversionTargetFormat.Svg);
+
+        var result = await service.ConvertAsync(request);
+
+        Assert.False(result.Success);
+        Assert.Null(result.OutputBytes);
         Assert.NotNull(result.ErrorMessage);
         Assert.Contains("Conversion failed", result.ErrorMessage);
     }
@@ -1071,6 +1146,13 @@ public sealed class ConversionServiceTests
         sheet.AddCellNumber("B1", 1250000, numberFormat: "$#,##0.00");
         sheet.AddCellString("A2", "North America");
         return workbook.SaveToBytes();
+    }
+
+    private static byte[] BuildDocxBytes()
+    {
+        using var builder = DocumentBuilder.Create();
+        builder.AddParagraph("Hello from OfficeEditor.");
+        return builder.SaveToBytes();
     }
 
     private static int CountImageParts(byte[] docxBytes)
