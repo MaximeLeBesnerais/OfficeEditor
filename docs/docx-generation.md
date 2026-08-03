@@ -13,6 +13,8 @@ officeeditor generate examples/Docx/generation/comprehensive.json \
 
 The `.docx` output extension selects DOCX generation. Always pass `--output <name>.docx`; without it, the unified command currently defaults to a `.pptx` output path.
 
+`--theme <name>` applies one of the built-in design themes from `DesignThemeCatalog` (`editorial` default, `corporate`) and is valid only for a `.docx` output; when both the flag and the document's `design.theme` are present, the flag wins. See [Themes and semantic text roles](#themes-and-semantic-text-roles).
+
 ## Document envelope and validation
 
 A minimal document contains a version and at least one section with at least one flow block:

@@ -317,9 +317,24 @@ var options = new MarkdownRenderOptions
 builder.AddRichMarkdown(markdown, options);
 ```
 
-- **Custom style names** — `StyleMapping` maps markdown element keys to Word style references. The rich renderer reads **`heading1`–`heading6`, `paragraph`, `blockquote`, and `code`** and writes them as paragraph style ids on the emitted OOXML; existing style definitions are never mutated. The remaining keys in `StyleMapping.Default` (`codeBlock`, `tableHeader`, `list`, `definitionTerm`, `definitionDescription`, `footnoteText`, `thematicBreak`, `imageCaption`, `codeInline`, `hyperlink`, `table`, `tip`, `warning`, `note`) are shared with the legacy `ContentBlockRenderer` path and are accepted but not consumed by the rich renderer. The standalone `MarkdownStyleResolver` resolves any of these references against a document's styles part with precedence **exact StyleId → exact style name → unique case-insensitive style name**, rejects ambiguous or kind-mismatched references, and in permissive mode generates a fallback style of the expected kind (paragraph/character/table) — strict mode returns an error instead.
+- **Custom style names** — `StyleMapping` maps markdown element keys to Word style references. The rich renderer consumes the paragraph keys **`heading1`–`heading6`, `paragraph`, `blockquote`, `list`, `codeBlock`, `tableHeader`, `definitionTerm`, `definitionDescription`, and `footnoteText`**, the table key **`table`**, and the character keys **`codeInline`** and **`hyperlink`**, writing them as style ids on the emitted OOXML; existing style definitions are never mutated. The remaining `StyleMapping.Default` keys (`thematicBreak`, `imageCaption`, `tip`, `warning`, `note`) are shared with the legacy `ContentBlockRenderer` path and are accepted but not consumed by the rich renderer. The standalone `MarkdownStyleResolver` resolves any of these references against a document's styles part with precedence **exact StyleId → exact style name → unique case-insensitive style name**, rejects ambiguous or kind-mismatched references, and in permissive mode generates a fallback style of the expected kind (paragraph/character/table) — strict mode returns an error instead.
 - **Template** — open an existing document with `DocumentBuilder.Open(template.docx)` and append markdown: style resolution then runs against the template's styles, and hyperlink/image/footnote parts are added to the live package.
-- **Strict** — `MarkdownParseOptions.Strict` and `MarkdownRenderOptions.Strict` turn retained-verbatim constructs and visible fallbacks into `Warning` diagnostics (read from `LastRichMarkdownResult`); permissive mode produces the same visible output without diagnostics.
+- **Strict** — `MarkdownParseOptions.Strict` and `MarkdownRenderOptions.Strict` turn retained-verbatim constructs and visible fallbacks (raw HTML, math, unresolved images, missing footnote definitions, table spans) into `Warning` diagnostics (read from `LastRichMarkdownResult`); permissive mode produces the same visible output without those diagnostics. Link fallbacks (internal anchors, relative, or disallowed-scheme URLs) always warn in both modes.
+
+### CLI
+
+The DOCX-only CLI exposes the same renderer as `docxeditor markdown`:
+
+```bash
+dotnet run --project DocxEditor.Cli -- markdown guide.md guide.docx \
+  --template base.docx --style-map styles.json --strict
+```
+
+- `--template <path>` — base the document on an existing template; its styles are preserved, and custom style-map names must resolve against it (unresolved names warn, or error under `--strict`).
+- `--style-map <path>` — JSON mapping of markdown element keys to Word style names or StyleIds; both a flat object and a `{ "styleMap": {…} }` wrapper are accepted.
+- `--strict` — treats unresolved constructs and style references as errors and enables strict parsing (permissive by default).
+- Image paths in the markdown resolve relative to the input markdown's directory and are **confined to it** — sources escaping the directory (or absolute paths) are rejected, so conversion never reads outside the source folder.
+- Output is written atomically: the document is built in a sibling temp file and moved into place, so a failed conversion never truncates an existing output.
 
 ### Safe image & link policies
 
@@ -328,7 +343,7 @@ builder.AddRichMarkdown(markdown, options);
 | Remote images | **Rejected** — generation never fetches network assets. Accepted sources are `data:` URIs (base64/percent) and local files. |
 | Local paths | Relative paths resolve against `ImageSourceOptions.AllowedRoot` when set, otherwise the process working directory; absolute paths are rejected unless `AllowAbsolutePaths` is true, and stay confined to the root when one is set. |
 | Asset limits | Default 25 MiB encoded/decoded, 16,384 px per side, 268,435,456 px total area; oversized or unsupported payloads fall back (or fail the load policy). |
-| Links | Only absolute URLs (`http(s)`, …) become hyperlink relationships. A relative/empty link URL renders as its plain text (strict-mode warning). |
+| Links | Only absolute URLs with an allowed scheme (`http`, `https`, `mailto`) become hyperlink relationships. Internal anchors (`#…`), relative, empty, and other-scheme URLs render as their plain text with a warning (in both permissive and strict modes). |
 | Unresolved images | A remote/missing/unreadable image renders as a visible `[image: alt]` placeholder — never a dangling reference, never a dropped image. |
 
 ### Supported / fallback matrix
@@ -337,8 +352,9 @@ builder.AddRichMarkdown(markdown, options);
 |---|---|
 | Headings 1–6 (ATX + setext) | Heading paragraphs with outline levels; inline formatting preserved |
 | Emphasis: bold, italic, strike, sub, sup, insert, mark | Nested run formatting; combinations merge |
-| Code: inline / fenced / indented | Inline: monospace run (Consolas + shading); blocks: `code`-mapped paragraphs |
-| Links: inline, reference, shortcut, autolink | Real hyperlink relationships (absolute URLs only) |
+| Code: inline / fenced / indented | Inline: monospace run (Consolas + shading); blocks: `codeBlock`-mapped paragraphs |
+| Links: inline, reference, shortcut, autolink | Real hyperlink relationships for `http`/`https`/`mailto` URLs; internal anchors, relative, and other-scheme URLs render as plain text |
+| Internal anchors (`#heading`) | **Fallback** — rendered as plain text (bookmarks are not emitted) + warning |
 | Images: local file, `data:` URI | Embedded inline drawing; fit capped to max display width |
 | Blockquotes | Recursively indented; `Quote`-mapped style |
 | Lists: bullet, ordered (non-1 start), nested, task | Collision-free numbering instances; `☑`/`☐` task glyphs |
@@ -347,7 +363,7 @@ builder.AddRichMarkdown(markdown, options);
 | Hard / soft breaks | Hard → `<w:br/>`; soft → space (or line break / dropped) |
 | Escapes & entities | Backslash escapes neutralised; entities decoded |
 | Footnotes | Footnote references + a real `FootnotesPart` |
-| Definition lists | Terms bold on the `paragraph` style; definitions indented (`definitionTerm`/`definitionDescription` keys are accepted, not consumed) |
+| Definition lists | Terms bold on the `definitionTerm` style; definitions on the `definitionDescription` style |
 | Emoji (Unicode + `:shortcode:`) | Passed through / expanded to Unicode text |
 | YAML front matter | Mapped to core properties; no visible content |
 | Generic attributes | Syntax accepted; **not applied** to OOXML |
