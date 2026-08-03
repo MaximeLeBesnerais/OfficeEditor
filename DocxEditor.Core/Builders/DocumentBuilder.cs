@@ -33,9 +33,24 @@ public interface IDocumentBuilder : IDisposable
     IDocumentBuilder ReplaceWithMarkdown(string targetText, string markdown, StyleMapping? styleMap = null);
     
     // Rich Markdown (v2 IR, recursive rendering)
-    IDocumentBuilder AddRichMarkdown(string markdown, Markdown.Rendering.MarkdownRenderOptions? options = null);
-    IDocumentBuilder ReplaceWithRichMarkdown(string targetText, string markdown, Markdown.Rendering.MarkdownRenderOptions? options = null);
-    Markdown.Rendering.MarkdownRenderResult? LastRichMarkdownResult { get; }
+    // These members have default implementations so external IDocumentBuilder implementations
+    // written against the pre-rich-markdown surface stay source-compatible: they compile
+    // without implementing the new members, and only the default (a descriptive
+    // NotSupportedException) runs for them. DocumentBuilder overrides all three, so its
+    // behavior is unchanged.
+    IDocumentBuilder AddRichMarkdown(string markdown, Markdown.Rendering.MarkdownRenderOptions? options = null)
+    {
+        throw new NotSupportedException(
+            "This IDocumentBuilder implementation does not support rich markdown rendering (AddRichMarkdown).");
+    }
+
+    IDocumentBuilder ReplaceWithRichMarkdown(string targetText, string markdown, Markdown.Rendering.MarkdownRenderOptions? options = null)
+    {
+        throw new NotSupportedException(
+            "This IDocumentBuilder implementation does not support rich markdown rendering (ReplaceWithRichMarkdown).");
+    }
+
+    Markdown.Rendering.MarkdownRenderResult? LastRichMarkdownResult => null;
     
     // Variables
     List<VariableInfo> DetectVariables();
@@ -925,11 +940,33 @@ public class DocumentBuilder : IDocumentBuilder
             (ordered, start) => AllocateNumberingInstance(ordered, start));
         var elements = renderer.Render(targetBody, parseResult.Document);
 
+        // The renderer may have appended generated fallback styles to the styles part so every
+        // referenced style exists. Merge them into the style cache so a later EnsureStyle call
+        // reuses those styles instead of appending a duplicate style id.
+        RefreshCachedStyles();
+
         var result = new MarkdownRenderResult(
             parseResult,
             parseResult.Diagnostics.Concat(renderer.Diagnostics).ToArray());
         LastRichMarkdownResult = result;
         return new RichRenderOutcome(elements, result);
+    }
+
+    private void RefreshCachedStyles()
+    {
+        var stylesPart = _document.MainDocumentPart?.StyleDefinitionsPart;
+        if (stylesPart?.Styles is not { } styles)
+        {
+            return;
+        }
+
+        foreach (var style in styles.Elements<Style>())
+        {
+            if (style.StyleId?.Value is { } id)
+            {
+                _cachedStyles[id] = style;
+            }
+        }
     }
 
     public List<VariableInfo> DetectVariables()

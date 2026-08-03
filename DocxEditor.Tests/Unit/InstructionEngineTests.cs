@@ -1,6 +1,5 @@
 using DocxEditor.Core.Builders;
 using DocxEditor.Core.Instructions;
-using DocxEditor.Core.Markdown.Rendering;
 using DocxEditor.Core.Models;
 using DocxEditor.Core.Serialization;
 using OfficeEditor.Core.Models;
@@ -430,11 +429,10 @@ public class InstructionEngineTests : IDisposable
 
         public IDocumentBuilder ReplaceWithMarkdown(string targetText, string markdown, StyleMapping? styleMap = null) => this;
 
-        public IDocumentBuilder AddRichMarkdown(string markdown, MarkdownRenderOptions? options = null) => this;
-
-        public IDocumentBuilder ReplaceWithRichMarkdown(string targetText, string markdown, MarkdownRenderOptions? options = null) => this;
-
-        public MarkdownRenderResult? LastRichMarkdownResult => null;
+        // The rich-markdown members (AddRichMarkdown, ReplaceWithRichMarkdown,
+        // LastRichMarkdownResult) are intentionally not declared here: their default interface
+        // implementations keep this implementation source-compatible with the pre-rich-markdown
+        // surface, and no instruction in this suite routes through them.
 
         public List<VariableInfo> DetectVariables() => [];
 
