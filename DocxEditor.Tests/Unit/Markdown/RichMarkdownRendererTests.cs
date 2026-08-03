@@ -3,8 +3,10 @@ using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using DocxEditor.Core.Builders;
+using DocxEditor.Core.Markdown;
 using DocxEditor.Core.Markdown.Rendering;
 using DocxEditor.Tests.Generation.Docx;
+using OfficeEditor.Core.Models;
 using A = DocumentFormat.OpenXml.Drawing;
 using Wp = DocumentFormat.OpenXml.Drawing.Wordprocessing;
 using W = DocumentFormat.OpenXml.Wordprocessing;
@@ -481,7 +483,7 @@ public class RichMarkdownRendererTests
         var cp = "http://schemas.openxmlformats.org/package/2006/metadata/core-properties";
         Assert.Equal("My Title", xml.Root!.Element(XNamespace.Get(dc) + "title")!.Value);
         Assert.Equal("Jane Doe", xml.Root.Element(XNamespace.Get(dc) + "creator")!.Value);
-        Assert.Equal("Test Subject", xml.Root.Element(XNamespace.Get(cp) + "subject")!.Value);
+        Assert.Equal("Test Subject", xml.Root.Element(XNamespace.Get(dc) + "subject")!.Value);
         Assert.Equal("one, two", xml.Root.Element(XNamespace.Get(cp) + "keywords")!.Value);
         Assert.Equal("A description", xml.Root.Element(XNamespace.Get(dc) + "description")!.Value);
         Assert.Equal("en-US", xml.Root.Element(XNamespace.Get(dc) + "language")!.Value);
@@ -629,8 +631,13 @@ public class RichMarkdownRendererTests
         using var builder = DocumentBuilder.Create();
         builder.AddRichMarkdown("<div>raw</div>");
         Assert.NotNull(builder.LastRichMarkdownResult);
-        Assert.False(builder.LastRichMarkdownResult!.HasWarnings);
+        // Style resolution is always surfaced: the fresh document has no styles, so the
+        // "Normal" paragraph reference resolves to a generated fallback with a warning.
+        Assert.True(builder.LastRichMarkdownResult!.HasWarnings);
         Assert.False(builder.LastRichMarkdownResult.HasErrors);
+        Assert.Contains(
+            builder.LastRichMarkdownResult.Diagnostics,
+            d => d.Message.Contains("fallback style", StringComparison.OrdinalIgnoreCase));
 
         builder.AddRichMarkdown("<div>raw</div>", new MarkdownRenderOptions { Strict = true });
         Assert.True(builder.LastRichMarkdownResult!.HasWarnings);
@@ -651,6 +658,254 @@ public class RichMarkdownRendererTests
         Assert.NotEmpty(doc.MainDocumentPart!.HyperlinkRelationships);
     }
 
+    // ---- Style resolution / existence ------------------------------------
+
+    [Fact]
+    public void CodeBlock_UsesParagraphStyle_InlineCodeUsesCharacterStyle()
+    {
+        var bytes = Build("""
+        ```csharp
+        var x = 1;
+        ```
+
+        Use `inline` code.
+        """);
+
+        using var doc = Open(bytes);
+        var mainPart = doc.MainDocumentPart!;
+        var styles = mainPart.StyleDefinitionsPart!.Styles!;
+        var body = mainPart.Document!.Body!;
+
+        // Code blocks bind to a paragraph style; inline code binds to a character style.
+        var codeParagraph = body.Elements<W.Paragraph>()
+            .Single(p => p.ParagraphProperties?.ParagraphStyleId?.Val?.Value == "Code");
+        Assert.Equal("Code", codeParagraph.ParagraphProperties!.ParagraphStyleId!.Val!.Value);
+        Assert.Equal(
+            StyleValues.Paragraph,
+            styles.Elements<Style>().Single(s => s.StyleId!.Value == "Code").Type!.Value);
+
+        var inlineRun = body.Descendants<W.Run>().Single(r => r.RunProperties?.RunStyle is not null);
+        Assert.Equal("CodeChar", inlineRun.RunProperties!.RunStyle!.Val!.Value);
+        Assert.Equal(
+            StyleValues.Character,
+            styles.Elements<Style>().Single(s => s.StyleId!.Value == "CodeChar").Type!.Value);
+    }
+
+    [Fact]
+    public void Hyperlink_ResolvesCharacterStyle()
+    {
+        var bytes = Build("[link](https://example.com)");
+
+        using var doc = Open(bytes);
+        var mainPart = doc.MainDocumentPart!;
+        var styles = mainPart.StyleDefinitionsPart!.Styles!;
+
+        var hyperlinkRun = mainPart.Document!.Body!.Descendants<W.Run>()
+            .Single(r => r.RunProperties?.RunStyle is not null);
+        Assert.Equal("Hyperlink", hyperlinkRun.RunProperties!.RunStyle!.Val!.Value);
+        Assert.Equal(
+            StyleValues.Character,
+            styles.Elements<Style>().Single(s => s.StyleId!.Value == "Hyperlink").Type!.Value);
+    }
+
+    [Fact]
+    public void EveryReferencedStyleExistsInStylesPart()
+    {
+        var bytes = Build("""
+        # H1
+
+        Para with `code` and [link](https://example.com).
+
+        - item
+
+        | A | B |
+        |---|---|
+        | 1 | 2 |
+
+        ```cs
+        code
+        ```
+
+        Term
+        :   Def
+
+        Note[^1].
+
+        [^1]: Footnote text.
+        """);
+
+        using var doc = Open(bytes);
+        var mainPart = doc.MainDocumentPart!;
+        var styles = mainPart.StyleDefinitionsPart!.Styles!;
+        var definedIds = styles.Elements<Style>().Select(s => s.StyleId!.Value).ToHashSet();
+
+        var referenced = new List<string?>();
+        foreach (var paragraph in mainPart.Document!.Body!.Descendants<W.Paragraph>())
+        {
+            referenced.Add(paragraph.ParagraphProperties?.ParagraphStyleId?.Val?.Value);
+            referenced.AddRange(paragraph.Descendants<W.Run>().Select(r => r.RunProperties?.RunStyle?.Val?.Value));
+        }
+        referenced.AddRange(
+            mainPart.Document.Body.Descendants<W.Table>().Select(t => t.TableProperties?.TableStyle?.Val?.Value));
+        foreach (var footnoteParagraph in mainPart.FootnotesPart?.Footnotes?.Descendants<W.Paragraph>() ?? [])
+        {
+            referenced.Add(footnoteParagraph.ParagraphProperties?.ParagraphStyleId?.Val?.Value);
+        }
+
+        foreach (var id in referenced.Where(id => id is not null))
+        {
+            Assert.True(definedIds.Contains(id), $"referenced style '{id}' is not defined in the styles part");
+        }
+    }
+
+    [Fact]
+    public void CustomVisibleStyleName_ResolvesAgainstDocumentStyles()
+    {
+        var templateStyles = new Styles(
+            new Style(new StyleName { Val = "Custom Para" }) { Type = StyleValues.Paragraph, StyleId = "CustPara" });
+
+        var options = new MarkdownRenderOptions
+        {
+            StyleMapping = new StyleMapping
+            {
+                StyleMap = new Dictionary<string, string> { ["paragraph"] = "Custom Para" }
+            }
+        };
+        var bytes = RenderWithStyles("Body paragraph text.", templateStyles, options);
+
+        using var doc = Open(bytes);
+        var body = doc.MainDocumentPart!.Document!.Body!;
+        var paragraph = body.Elements<W.Paragraph>().Single();
+        Assert.Equal("CustPara", paragraph.ParagraphProperties!.ParagraphStyleId!.Val!.Value);
+
+        // The visible name resolved to the real style id: no fallback was generated, so the
+        // styles part still holds exactly the single template style.
+        Assert.Single(doc.MainDocumentPart!.StyleDefinitionsPart!.Styles!.Elements<Style>());
+    }
+
+    [Fact]
+    public void WrongKind_CodeBlockUsesParagraphFallback_NotCharacterStyle()
+    {
+        var templateStyles = new Styles(
+            new Style(new StyleName { Val = "Code" }) { Type = StyleValues.Character, StyleId = "Code" });
+
+        var bytes = RenderWithStyles("```cs\ncode\n```", templateStyles);
+
+        using var doc = Open(bytes);
+        var mainPart = doc.MainDocumentPart!;
+        var styles = mainPart.StyleDefinitionsPart!.Styles!;
+
+        // The template defines "Code" as a character style, but a code block needs a paragraph
+        // style; the renderer must not emit the wrong kind — it appends a paragraph fallback
+        // under a fresh id and leaves the template style untouched.
+        var codeParagraph = mainPart.Document!.Body!.Elements<W.Paragraph>().Single();
+        var appliedId = codeParagraph.ParagraphProperties!.ParagraphStyleId!.Val!.Value;
+        Assert.NotEqual("Code", appliedId);
+        Assert.Equal(
+            StyleValues.Paragraph,
+            styles.Elements<Style>().Single(s => s.StyleId!.Value == appliedId).Type!.Value);
+        Assert.Equal(
+            StyleValues.Character,
+            styles.Elements<Style>().Single(s => s.StyleId!.Value == "Code").Type!.Value);
+    }
+
+    // ---- Safe link schemes -------------------------------------------------
+
+    [Fact]
+    public void Link_UnsafeSchemes_RenderAsPlainTextWithDiagnostic()
+    {
+        using var builder = DocumentBuilder.Create();
+        builder.AddRichMarkdown("[a](javascript:alert(1)) [b](file:///etc/passwd) [c](ftp://example.com)");
+        var bytes = builder.SaveToBytes();
+
+        Assert.True(builder.LastRichMarkdownResult!.HasWarnings);
+        Assert.Contains(
+            builder.LastRichMarkdownResult.Diagnostics,
+            d => d.Message.Contains("not an allowed external link scheme", StringComparison.Ordinal));
+
+        using var doc = WordprocessingDocument.Open(new MemoryStream(bytes), false);
+        var mainPart = doc.MainDocumentPart!;
+        Assert.Empty(mainPart.HyperlinkRelationships);
+        var text = mainPart.Document!.Body!.InnerText;
+        Assert.Contains("a", text);
+        Assert.Contains("b", text);
+        Assert.Contains("c", text);
+    }
+
+    [Fact]
+    public void Link_Mailto_CreatesExternalHyperlink()
+    {
+        var bytes = Build("[mail](mailto:someone@example.com)");
+
+        using var doc = Open(bytes);
+        var mainPart = doc.MainDocumentPart!;
+        var uri = Assert.Single(mainPart.HyperlinkRelationships).Uri;
+        Assert.Equal("mailto:someone@example.com", uri.OriginalString);
+    }
+
+    [Fact]
+    public void Link_InternalAnchor_RendersAsPlainTextWithDiagnostic()
+    {
+        using var builder = DocumentBuilder.Create();
+        builder.AddRichMarkdown("[jump](#section)");
+        var bytes = builder.SaveToBytes();
+
+        Assert.Contains(
+            builder.LastRichMarkdownResult!.Diagnostics,
+            d => d.Message.Contains("internal anchor", StringComparison.Ordinal));
+
+        using var doc = WordprocessingDocument.Open(new MemoryStream(bytes), false);
+        var mainPart = doc.MainDocumentPart!;
+        Assert.Empty(mainPart.HyperlinkRelationships);
+        Assert.Contains("jump", mainPart.Document!.Body!.InnerText);
+    }
+
+    // ---- List markers ------------------------------------------------------
+
+    [Fact]
+    public void List_FirstBlockNestedList_StillEmitsMarker()
+    {
+        var bytes = Build("""
+        - - nested one
+          - nested two
+        - sibling
+        """);
+
+        using var doc = Open(bytes);
+        var mainPart = doc.MainDocumentPart!;
+        var paragraphs = mainPart.Document!.Body!.Elements<W.Paragraph>().ToList();
+
+        // The outer item's first block is a nested list (not a paragraph); a numbered marker
+        // paragraph is emitted so the item still gets a visible bullet/number.
+        var marker = paragraphs[0];
+        Assert.Equal(string.Empty, marker.InnerText);
+        Assert.NotNull(marker.ParagraphProperties!.NumberingProperties);
+        Assert.Contains("nested one", paragraphs[1].InnerText);
+        Assert.Contains("nested two", paragraphs[2].InnerText);
+        Assert.Contains("sibling", paragraphs[3].InnerText);
+    }
+
+    [Fact]
+    public void List_FirstBlockCode_StillEmitsMarker()
+    {
+        var bytes = Build("""
+        - ```
+          code line
+          ```
+        - sibling
+        """);
+
+        using var doc = Open(bytes);
+        var mainPart = doc.MainDocumentPart!;
+        var paragraphs = mainPart.Document!.Body!.Elements<W.Paragraph>().ToList();
+
+        var marker = paragraphs[0];
+        Assert.Equal(string.Empty, marker.InnerText);
+        Assert.NotNull(marker.ParagraphProperties!.NumberingProperties);
+        Assert.Contains("code line", paragraphs[1].InnerText);
+        Assert.Contains("sibling", paragraphs[2].InnerText);
+    }
+
     // ---- Helpers -----------------------------------------------------------
 
     private static byte[] Build(string markdown, MarkdownRenderOptions? options = null)
@@ -662,4 +917,29 @@ public class RichMarkdownRendererTests
 
     private static WordprocessingDocument Open(byte[] bytes) =>
         WordprocessingDocument.Open(new MemoryStream(bytes), false);
+
+    /// <summary>
+    /// Renders markdown directly against a freshly created package whose styles part is
+    /// pre-populated with <paramref name="templateStyles"/>, so resolution against existing
+    /// template styles can be exercised without routing through the builder.
+    /// </summary>
+    private static byte[] RenderWithStyles(string markdown, Styles? templateStyles, MarkdownRenderOptions? options = null)
+    {
+        using var stream = new MemoryStream();
+        using (var doc = WordprocessingDocument.Create(stream, WordprocessingDocumentType.Document))
+        {
+            var mainPart = doc.AddMainDocumentPart();
+            mainPart.Document = new Document(new Body());
+            if (templateStyles is not null)
+            {
+                var stylesPart = mainPart.AddNewPart<StyleDefinitionsPart>();
+                stylesPart.Styles = templateStyles;
+            }
+
+            var parse = new RichMarkdownParser().Parse(markdown);
+            var renderer = new RichMarkdownRenderer(mainPart, options);
+            renderer.Render(mainPart.Document.Body!, parse.Document);
+        }
+        return stream.ToArray();
+    }
 }

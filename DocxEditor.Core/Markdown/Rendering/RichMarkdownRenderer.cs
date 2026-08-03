@@ -50,6 +50,10 @@ public sealed class RichMarkdownRenderer
     private readonly DocxImagePartManager _imagePartManager;
     private readonly Func<bool, int, int>? _allocateNumbering;
     private readonly NumberingAllocator? _fallbackNumbering;
+    private readonly MarkdownStyleResolver _styleResolver;
+    private readonly HashSet<string> _appendedFallbackStyleIds = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _surfacedStyleDiagnostics = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string?> _characterStyleIds = new(StringComparer.Ordinal);
 
     private readonly List<MarkdownDiagnostic> _diagnostics = [];
     private readonly List<OpenXmlElement> _rendered = [];
@@ -82,6 +86,9 @@ public sealed class RichMarkdownRenderer
         {
             _fallbackNumbering = new NumberingAllocator();
         }
+        _styleResolver = _options.StyleResolver ?? new MarkdownStyleResolver(
+            mainDocumentPart.StyleDefinitionsPart,
+            _options.Strict ? MarkdownStyleResolverOptions.StrictMode : MarkdownStyleResolverOptions.Default);
     }
 
     /// <summary>Render diagnostics produced by the last <see cref="Render"/> call.</summary>
@@ -109,6 +116,85 @@ public sealed class RichMarkdownRenderer
 
         RenderBlocks(body, document.Blocks, depth: 0);
         return _rendered;
+    }
+
+    // ---- Style resolution -------------------------------------------------
+
+    /// <summary>
+    /// Resolves the style reference for a paragraph/table semantic key against the document
+    /// styles and returns the style id to emit (or null when no style applies). Diagnostics
+    /// from the resolver surface into <see cref="Diagnostics"/>, and a generated fallback of
+    /// the expected kind is appended to the document styles part exactly once.
+    /// </summary>
+    private string? ResolveStyle(string key)
+    {
+        var reference = _options.StyleMapping?.GetStyle(key);
+        if (reference is null)
+        {
+            return null;
+        }
+        return ApplyResolution(_styleResolver.ResolveElement(key, reference));
+    }
+
+    /// <summary>
+    /// Resolves a character style (inline code, hyperlink) once per key and caches the result,
+    /// applying the same diagnostic/fallback plumbing as <see cref="ResolveStyle"/>.
+    /// </summary>
+    private string? ResolveCharacterStyle(string key)
+    {
+        if (_characterStyleIds.TryGetValue(key, out var cached))
+        {
+            return cached;
+        }
+
+        string? id = null;
+        var reference = _options.StyleMapping?.GetStyle(key);
+        if (reference is not null)
+        {
+            id = ApplyResolution(_styleResolver.ResolveElement(key, reference));
+        }
+        _characterStyleIds[key] = id;
+        return id;
+    }
+
+    private string? ApplyResolution(MarkdownStyleResolution resolution)
+    {
+        foreach (var diagnostic in resolution.Diagnostics)
+        {
+            // A single unresolved reference is reported once even when it applies to many
+            // elements (every paragraph would otherwise re-emit the same fallback warning).
+            if (_surfacedStyleDiagnostics.Add(diagnostic.Message))
+            {
+                _diagnostics.Add(diagnostic.ToMarkdownDiagnostic());
+            }
+        }
+
+        if (resolution.FallbackStyle is { } fallback
+            && resolution.StyleId is { } id
+            && _appendedFallbackStyleIds.Add(id))
+        {
+            AppendFallbackStyle(fallback);
+        }
+
+        return resolution.StyleId;
+    }
+
+    /// <summary>
+    /// Appends a generated fallback style to the document styles part so every style
+    /// referenced in the rendered output actually exists. Existing template styles are
+    /// never modified — only this new, resolver-owned style is added.
+    /// </summary>
+    private void AppendFallbackStyle(Style style)
+    {
+        var stylesPart = _mainPart.StyleDefinitionsPart;
+        if (stylesPart is null)
+        {
+            stylesPart = _mainPart.AddNewPart<StyleDefinitionsPart>();
+            stylesPart.Styles = new Styles();
+        }
+
+        stylesPart.Styles ??= new Styles();
+        stylesPart.Styles.Append(style);
     }
 
     // ---- Blocks ----------------------------------------------------------
@@ -170,7 +256,7 @@ public sealed class RichMarkdownRenderer
     private void RenderHeading(OpenXmlCompositeElement container, MarkdownHeading heading, int depth)
     {
         var paragraph = new Paragraph();
-        var style = _options.StyleMapping?.GetStyle($"heading{heading.Level}");
+        var style = ResolveStyle($"heading{heading.Level}");
         var pPr = new ParagraphProperties();
         if (!string.IsNullOrEmpty(style))
         {
@@ -196,14 +282,13 @@ public sealed class RichMarkdownRenderer
         bool quote = false,
         int? numberingId = null,
         JustificationValues? alignment = null,
-        MarkdownRunFlags forced = MarkdownRunFlags.None)
+        MarkdownRunFlags forced = MarkdownRunFlags.None,
+        string? styleKey = null)
     {
         var p = new Paragraph();
         var pPr = new ParagraphProperties();
 
-        var style = quote
-            ? _options.StyleMapping?.GetStyle("blockquote")
-            : _options.StyleMapping?.GetStyle("paragraph");
+        var style = ResolveStyle(styleKey ?? (quote ? "blockquote" : "paragraph"));
         if (!string.IsNullOrEmpty(style))
         {
             pPr.Append(new ParagraphStyleId { Val = style });
@@ -256,13 +341,13 @@ public sealed class RichMarkdownRenderer
         if (blocks.Count == 0)
         {
             // An empty list item still carries its bullet/number marker.
-            RenderParagraph(container, new MarkdownParagraph(), depth, numberingId: numberingId);
+            RenderParagraph(container, new MarkdownParagraph(), depth, numberingId: numberingId, styleKey: "list");
             return;
         }
 
         if (blocks[0] is MarkdownParagraph first)
         {
-            RenderParagraph(container, first, depth, numberingId: numberingId);
+            RenderParagraph(container, first, depth, numberingId: numberingId, styleKey: "list");
             for (var i = 1; i < blocks.Count; i++)
             {
                 RenderBlock(container, blocks[i], depth + 1);
@@ -270,6 +355,11 @@ public sealed class RichMarkdownRenderer
         }
         else
         {
+            // A list item whose first block is not a paragraph (fenced code, a nested list,
+            // a table, …) would otherwise lose its bullet/number marker entirely. Emit an
+            // empty numbered paragraph first so the visible marker survives, then render the
+            // item's blocks.
+            RenderParagraph(container, new MarkdownParagraph(), depth, numberingId: numberingId, styleKey: "list");
             foreach (var block in blocks)
             {
                 RenderBlock(container, block, depth + 1);
@@ -315,7 +405,7 @@ public sealed class RichMarkdownRenderer
 
     private void RenderCodeBlock(OpenXmlCompositeElement container, MarkdownCodeBlock code, int depth)
     {
-        var style = _options.StyleMapping?.GetStyle("code");
+        var style = ResolveStyle("codeBlock");
         foreach (var line in SplitLines(code.Text))
         {
             var paragraph = new Paragraph();
@@ -351,13 +441,21 @@ public sealed class RichMarkdownRenderer
         }
 
         var tbl = new Table();
-        tbl.Append(new TableProperties(new TableBorders(
+        var tableStyle = ResolveStyle("table");
+        var tblPr = new TableProperties();
+        if (!string.IsNullOrEmpty(tableStyle))
+        {
+            // CT_TblPr requires tblStyle to precede tblBorders.
+            tblPr.Append(new TableStyle { Val = tableStyle });
+        }
+        tblPr.Append(new TableBorders(
             new TopBorder { Val = BorderValues.Single, Size = 4 },
             new LeftBorder { Val = BorderValues.Single, Size = 4 },
             new BottomBorder { Val = BorderValues.Single, Size = 4 },
             new RightBorder { Val = BorderValues.Single, Size = 4 },
             new InsideHorizontalBorder { Val = BorderValues.Single, Size = 4 },
-            new InsideVerticalBorder { Val = BorderValues.Single, Size = 4 })));
+            new InsideVerticalBorder { Val = BorderValues.Single, Size = 4 }));
+        tbl.Append(tblPr);
 
         var grid = new TableGrid();
         for (var i = 0; i < columnCount; i++)
@@ -393,7 +491,13 @@ public sealed class RichMarkdownRenderer
                 {
                     if (block is MarkdownParagraph paragraph)
                     {
-                        RenderParagraph(tableCell, paragraph, depth: 0, alignment: alignment, forced: forced);
+                        RenderParagraph(
+                            tableCell,
+                            paragraph,
+                            depth: 0,
+                            alignment: alignment,
+                            forced: forced,
+                            styleKey: row.IsHeader ? "tableHeader" : null);
                     }
                     else
                     {
@@ -429,15 +533,15 @@ public sealed class RichMarkdownRenderer
 
     private void RenderDefinitionList(OpenXmlCompositeElement container, MarkdownDefinitionList definitionList, int depth)
     {
-        var paragraphStyle = _options.StyleMapping?.GetStyle("paragraph");
         foreach (var item in definitionList.Items)
         {
             foreach (var term in item.Terms)
             {
                 var paragraph = new Paragraph();
-                if (!string.IsNullOrEmpty(paragraphStyle))
+                var termStyle = ResolveStyle("definitionTerm");
+                if (!string.IsNullOrEmpty(termStyle))
                 {
-                    paragraph.ParagraphProperties = new ParagraphProperties(new ParagraphStyleId { Val = paragraphStyle });
+                    paragraph.ParagraphProperties = new ParagraphProperties(new ParagraphStyleId { Val = termStyle });
                 }
                 RenderInlines(paragraph, term.Inlines, MarkdownRunFlags.Bold);
                 AppendBlock(container, paragraph);
@@ -447,7 +551,7 @@ public sealed class RichMarkdownRenderer
             {
                 if (definition is MarkdownParagraph paragraph)
                 {
-                    RenderParagraph(container, paragraph, depth + 1);
+                    RenderParagraph(container, paragraph, depth + 1, styleKey: "definitionDescription");
                 }
                 else
                 {
@@ -472,7 +576,7 @@ public sealed class RichMarkdownRenderer
     private void RenderFallbackTextBlock(OpenXmlCompositeElement container, string text)
     {
         var paragraph = new Paragraph();
-        var style = _options.StyleMapping?.GetStyle("paragraph");
+        var style = ResolveStyle("paragraph");
         if (!string.IsNullOrEmpty(style))
         {
             paragraph.ParagraphProperties = new ParagraphProperties(new ParagraphStyleId { Val = style });
@@ -515,9 +619,16 @@ public sealed class RichMarkdownRenderer
             }
 
             var footnoteElement = new Footnote { Id = id };
-            for (var i = 0; i < footnote.Blocks.Count; i++)
+            foreach (var footnoteBlock in footnote.Blocks)
             {
-                RenderBlock(footnoteElement, footnote.Blocks[i], depth: 0);
+                if (footnoteBlock is MarkdownParagraph paragraph)
+                {
+                    RenderParagraph(footnoteElement, paragraph, depth: 0, styleKey: "footnoteText");
+                }
+                else
+                {
+                    RenderBlock(footnoteElement, footnoteBlock, depth: 0);
+                }
             }
             if (footnoteElement.ChildElements.Count == 0)
             {
@@ -676,7 +787,7 @@ public sealed class RichMarkdownRenderer
 
         Set("title", DublinCoreNamespace, title);
         Set("creator", DublinCoreNamespace, author);
-        Set("subject", CorePropertiesNamespace, subject);
+        Set("subject", DublinCoreNamespace, subject);
         Set("keywords", CorePropertiesNamespace, keywords);
         Set("description", DublinCoreNamespace, description);
         Set("language", DublinCoreNamespace, language);
@@ -753,16 +864,36 @@ public sealed class RichMarkdownRenderer
 
     private void RenderLink(OpenXmlCompositeElement container, MarkdownLink link, MarkdownRunFlags flags)
     {
-        if (string.IsNullOrWhiteSpace(link.Url))
+        var url = link.Url;
+        if (string.IsNullOrWhiteSpace(url))
         {
             RenderInlines(container, link.Children, flags);
             return;
         }
 
-        if (!Uri.TryCreate(link.Url, UriKind.Absolute, out var uri))
+        if (IsInternalAnchor(url))
         {
-            Warn($"Link URL '{link.Url}' is not absolute; rendered as plain text.");
-            RenderInlines(container, link.Children, flags);
+            // Internal anchors are not supported (no bookmark emission); the label renders
+            // as plain text with a diagnostic instead of a dangling external relationship.
+            RenderLinkAsPlainText(
+                container, link, flags,
+                $"Link URL '{url}' is an internal anchor, which is not supported; rendered as plain text.");
+            return;
+        }
+
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        {
+            RenderLinkAsPlainText(
+                container, link, flags,
+                $"Link URL '{url}' is not absolute; rendered as plain text.");
+            return;
+        }
+
+        if (!IsSafeExternalScheme(uri.Scheme))
+        {
+            RenderLinkAsPlainText(
+                container, link, flags,
+                $"Link URL '{url}' uses scheme '{uri.Scheme}', which is not an allowed external link scheme (http, https, mailto); rendered as plain text.");
             return;
         }
 
@@ -771,6 +902,24 @@ public sealed class RichMarkdownRenderer
         RenderInlines(hyperlink, link.Children, flags | MarkdownRunFlags.Hyperlink);
         container.Append(hyperlink);
     }
+
+    private void RenderLinkAsPlainText(
+        OpenXmlCompositeElement container,
+        MarkdownLink link,
+        MarkdownRunFlags flags,
+        string message)
+    {
+        _diagnostics.Add(new MarkdownDiagnostic(MarkdownDiagnosticSeverity.Warning, message));
+        RenderInlines(container, link.Children, flags);
+    }
+
+    private static bool IsInternalAnchor(string url) =>
+        url.StartsWith("#", StringComparison.Ordinal);
+
+    private static bool IsSafeExternalScheme(string scheme) =>
+        scheme.Equals("http", StringComparison.OrdinalIgnoreCase)
+        || scheme.Equals("https", StringComparison.OrdinalIgnoreCase)
+        || scheme.Equals("mailto", StringComparison.OrdinalIgnoreCase);
 
     private void RenderImage(OpenXmlCompositeElement container, MarkdownImage image, MarkdownRunFlags flags)
     {
@@ -898,12 +1047,23 @@ public sealed class RichMarkdownRenderer
 
     // ---- Formatting helpers ----------------------------------------------
 
-    private static RunProperties? BuildRunProperties(MarkdownRunFlags flags)
+    private RunProperties? BuildRunProperties(MarkdownRunFlags flags)
     {
         // CT_RPr child order: rStyle, rFonts, b, bCs, i, iCs, …, strike, …, color, …,
         // highlight, u, …, shd, …, vertAlign, …
         var rPr = new RunProperties();
 
+        if (flags.HasFlag(MarkdownRunFlags.Code) || flags.HasFlag(MarkdownRunFlags.Hyperlink))
+        {
+            // Inline code and hyperlinks are character styles, so the resolved style id goes
+            // into rStyle (the first run-property element) rather than into paragraph styles.
+            var key = flags.HasFlag(MarkdownRunFlags.Code) ? "codeInline" : "hyperlink";
+            var styleId = ResolveCharacterStyle(key);
+            if (styleId is not null)
+            {
+                rPr.Append(new RunStyle { Val = styleId });
+            }
+        }
         if (flags.HasFlag(MarkdownRunFlags.Code))
         {
             rPr.Append(new RunFonts { Ascii = "Consolas", HighAnsi = "Consolas", ComplexScript = "Consolas" });

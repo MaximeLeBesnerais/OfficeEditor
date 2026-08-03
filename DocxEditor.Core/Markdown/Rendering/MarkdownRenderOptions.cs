@@ -43,11 +43,21 @@ public sealed record MarkdownRenderOptions
     public MarkdownParseOptions? ParseOptions { get; init; }
 
     /// <summary>
-    /// Resolves markdown element names ("heading1", "paragraph", "blockquote", "code", …) to
-    /// document style ids. Null uses <see cref="StyleMapping.Default"/>. The mapping is read
+    /// Resolves markdown element names ("heading1", "paragraph", "blockquote", "codeBlock", …)
+    /// to document style ids. Null uses <see cref="StyleMapping.Default"/>. The mapping is read
     /// only; existing style definitions are never mutated.
     /// </summary>
     public StyleMapping? StyleMapping { get; init; } = StyleMapping.Default;
+
+    /// <summary>
+    /// Style resolver used to map the style references produced by <see cref="StyleMapping"/>
+    /// to actual document styles. When null, the renderer builds a resolver over the document's
+    /// styles part, using <see cref="Strict"/> to choose permissive (fallback-generated) or
+    /// strict (error, no style) resolution. Generated fallback styles are appended to the
+    /// document styles part so every emitted reference exists in the output; existing styles
+    /// are never mutated. An injected resolver must be built over the same document styles part.
+    /// </summary>
+    public MarkdownStyleResolver? StyleResolver { get; init; }
 
     /// <summary>
     /// When true, render fallbacks (unresolved images, HTML and unknown nodes converted to
