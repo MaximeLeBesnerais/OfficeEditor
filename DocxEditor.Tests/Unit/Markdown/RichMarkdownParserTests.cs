@@ -493,6 +493,43 @@ public class RichMarkdownParserTests
         Assert.Contains("content", unknown.Raw, StringComparison.Ordinal);
     }
 
+    // ---- Nesting depth limit ---------------------------------------------
+
+    [Fact]
+    public void Parse_NestingWithinLimit_IsFullyStructured()
+    {
+        // Markdig's own parser enforces a 128-level container depth limit; the conversion
+        // carries the same MaxNestingDepth counter, so a comfortably nested document is
+        // structured without diagnostics.
+        var markdown = new string('>', 50) + " leaf";
+
+        var result = Parser().Parse(markdown);
+
+        Assert.Empty(result.Diagnostics);
+        Assert.IsType<MarkdownQuote>(result.Document.Blocks[0]);
+    }
+
+    [Fact]
+    public void Parse_ExcessivelyDeepNesting_IsRejectedWithoutOverflow()
+    {
+        // Input nesting beyond the depth limit is rejected up front (as a domain parse
+        // exception wrapping Markdig's own depth check) rather than overflowing the conversion
+        // stack. This is the "reject" half of the depth-limit contract.
+        var markdown = new string('>', 10_000) + " leaf";
+
+        Assert.Throws<MarkdownParseException>(() => Parser().Parse(markdown));
+    }
+
+    [Fact]
+    public void Parse_DeeplyNestedLists_AreRejectedWithoutOverflow()
+    {
+        // Nested list markers (one "- " per level, all on the same line) build the same deep
+        // container tree as blockquotes; they too must fail as a clean parse rejection.
+        var markdown = string.Concat(Enumerable.Repeat("- ", 10_000)) + "x";
+
+        Assert.Throws<MarkdownParseException>(() => Parser().Parse(markdown));
+    }
+
     [Fact]
     public void Parse_UnmatchedDelimiter_FlattensToLiteralText()
     {

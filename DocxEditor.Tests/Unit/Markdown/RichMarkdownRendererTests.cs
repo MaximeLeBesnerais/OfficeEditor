@@ -5,6 +5,7 @@ using DocumentFormat.OpenXml.Validation;
 using DocumentFormat.OpenXml.Wordprocessing;
 using DocxEditor.Core.Builders;
 using DocxEditor.Core.Markdown;
+using DocxEditor.Core.Markdown.Model;
 using DocxEditor.Core.Markdown.Rendering;
 using DocxEditor.Tests.Generation.Docx;
 using OfficeEditor.Core.Models;
@@ -1108,6 +1109,209 @@ public class RichMarkdownRendererTests
         Assert.NotNull(marker.ParagraphProperties!.NumberingProperties);
         Assert.Contains("code line", paragraphs[1].InnerText);
         Assert.Contains("sibling", paragraphs[2].InnerText);
+    }
+
+    // ---- Strict mode on blank documents ----------------------------------
+
+    [Fact]
+    public void StrictMode_BlankDocument_SeedsTrustedFallbacksForReferencedStyles()
+    {
+        using var builder = DocumentBuilder.Create();
+        var result = builder.AddRichMarkdown(
+            "# Title\n\nBody **bold**.",
+            new MarkdownRenderOptions { Strict = true, ParseOptions = MarkdownParseOptions.StrictMode })
+            .LastRichMarkdownResult!;
+
+        Assert.False(result.HasErrors);
+
+        var bytes = builder.SaveToBytes();
+        using var doc = WordprocessingDocument.Open(new MemoryStream(bytes), false);
+        var styles = doc.MainDocumentPart!.StyleDefinitionsPart!.Styles!;
+        var ids = styles.Elements<Style>().Select(s => s.StyleId!.Value).ToHashSet();
+        Assert.Contains("Normal", ids);
+        Assert.Contains("Heading1", ids);
+
+        var body = doc.MainDocumentPart.Document!.Body!;
+        var heading = body.Elements<W.Paragraph>()
+            .First(p => p.ParagraphProperties?.ParagraphStyleId?.Val?.Value == "Heading1");
+        Assert.Contains("Title", heading.InnerText);
+        Assert.Contains(body.Elements<W.Paragraph>(),
+            p => p.ParagraphProperties?.ParagraphStyleId?.Val?.Value == "Normal");
+    }
+
+    [Fact]
+    public void StrictMode_BlankDocument_SeedsOnlyReferencedStyles()
+    {
+        using var builder = DocumentBuilder.Create();
+        builder.AddRichMarkdown(
+            "Plain body text.",
+            new MarkdownRenderOptions { Strict = true, ParseOptions = MarkdownParseOptions.StrictMode });
+
+        var bytes = builder.SaveToBytes();
+        using var doc = WordprocessingDocument.Open(new MemoryStream(bytes), false);
+        var styles = doc.MainDocumentPart!.StyleDefinitionsPart!.Styles!;
+        var ids = styles.Elements<Style>().Select(s => s.StyleId!.Value).ToHashSet();
+
+        Assert.Contains("Normal", ids);
+        Assert.DoesNotContain("Heading1", ids);
+        Assert.DoesNotContain("TableGrid", ids);
+        Assert.DoesNotContain("CodeChar", ids);
+    }
+
+    [Fact]
+    public void StrictMode_BlankDocument_UserReferenceUnresolved_StillErrors()
+    {
+        using var builder = DocumentBuilder.Create();
+        builder.AddRichMarkdown(
+            "Hello.",
+            new MarkdownRenderOptions
+            {
+                Strict = true,
+                ParseOptions = MarkdownParseOptions.StrictMode,
+                StyleMapping = new StyleMapping
+                {
+                    StyleMap = new Dictionary<string, string> { ["paragraph"] = "DoesNotExist" }
+                }
+            });
+
+        // A user-supplied mapping is the author's explicit intent: strict mode must report a
+        // reference it names even on a blank document, instead of silently trusting it.
+        Assert.True(builder.LastRichMarkdownResult!.HasErrors);
+    }
+
+    // ---- Referenced style key collection ----------------------------------
+
+    [Fact]
+    public void CollectReferencedStyleKeys_ReturnsOnlyConstructsActuallyUsed()
+    {
+        var parse = new RichMarkdownParser().Parse("# H\n\nPara with `code`.\n\n- item\n");
+        var keys = RichMarkdownRenderer.CollectReferencedStyleKeys(parse.Document);
+
+        Assert.Contains("heading1", keys);
+        Assert.Contains("paragraph", keys);
+        Assert.Contains("codeInline", keys);
+        Assert.Contains("list", keys);
+
+        Assert.DoesNotContain("table", keys);
+        Assert.DoesNotContain("tableHeader", keys);
+        Assert.DoesNotContain("blockquote", keys);
+        Assert.DoesNotContain("hyperlink", keys);
+    }
+
+    [Fact]
+    public void CollectReferencedStyleKeys_TableAndQuoteContexts_AreCollected()
+    {
+        var parse = new RichMarkdownParser().Parse("""
+        > a quote
+
+        | A | B |
+        |---|---|
+        | 1 | 2 |
+        """);
+        var keys = RichMarkdownRenderer.CollectReferencedStyleKeys(parse.Document);
+
+        Assert.Contains("blockquote", keys);
+        Assert.Contains("table", keys);
+        Assert.Contains("tableHeader", keys);
+        Assert.DoesNotContain("list", keys);
+        Assert.DoesNotContain("codeInline", keys);
+    }
+
+    // ---- Nesting depth limit (renderer defense in depth) ------------------
+
+    [Fact]
+    public void Render_DeeplyNestedQuotes_FlattensInsteadOfOverflowing()
+    {
+        MarkdownBlock leaf = new MarkdownParagraph { Inlines = [new MarkdownText { Text = "leaf" }] };
+        for (var i = 0; i < RichMarkdownParser.MaxNestingDepth + 200; i++)
+        {
+            leaf = new MarkdownQuote { Blocks = [leaf] };
+        }
+        var document = new MarkdownDocument { Blocks = [leaf] };
+
+        using var stream = new MemoryStream();
+        using (var doc = WordprocessingDocument.Create(stream, WordprocessingDocumentType.Document))
+        {
+            var mainPart = doc.AddMainDocumentPart();
+            mainPart.Document = new Document(new Body());
+
+            var renderer = new RichMarkdownRenderer(mainPart, new MarkdownRenderOptions { Strict = true });
+            renderer.Render(mainPart.Document.Body!, document);
+
+            Assert.Contains(
+                renderer.Diagnostics,
+                d => d.Message.Contains("maximum supported depth", StringComparison.Ordinal));
+        }
+    }
+
+    [Fact]
+    public void Render_DeeplyNestedEmphasis_FlattensInsteadOfOverflowing()
+    {
+        MarkdownInline leaf = new MarkdownText { Text = "leaf" };
+        for (var i = 0; i < RichMarkdownParser.MaxNestingDepth + 200; i++)
+        {
+            leaf = new MarkdownEmphasis { Kind = EmphasisKind.Bold, Children = [leaf] };
+        }
+        var document = new MarkdownDocument
+        {
+            Blocks = [new MarkdownParagraph { Inlines = [leaf] }]
+        };
+
+        using var stream = new MemoryStream();
+        using (var doc = WordprocessingDocument.Create(stream, WordprocessingDocumentType.Document))
+        {
+            var mainPart = doc.AddMainDocumentPart();
+            mainPart.Document = new Document(new Body());
+
+            var renderer = new RichMarkdownRenderer(mainPart, new MarkdownRenderOptions { Strict = true });
+            renderer.Render(mainPart.Document.Body!, document);
+
+            Assert.Contains(
+                renderer.Diagnostics,
+                d => d.Message.Contains("maximum supported depth", StringComparison.Ordinal));
+            Assert.Contains("leaf", mainPart.Document.Body!.InnerText);
+        }
+    }
+
+    // ---- Template section-property ordering -------------------------------
+
+    [Fact]
+    public void AddRichMarkdown_TemplateWithTrailingSectPr_InsertsContentBeforeIt()
+    {
+        using var temp = new TempDirectory();
+        var path = temp.File("template.docx");
+        using (var doc = WordprocessingDocument.Create(path, WordprocessingDocumentType.Document))
+        {
+            var mainPart = doc.AddMainDocumentPart();
+            mainPart.Document = new Document(new Body(
+                new Paragraph(new Run(new Text("Existing template paragraph"))),
+                new SectionProperties(
+                    new PageSize { Width = 12240, Height = 15840 },
+                    new PageMargin { Top = 1440, Right = 1440, Bottom = 1440, Left = 1440 })));
+            mainPart.Document.Save();
+        }
+
+        using (var builder = DocumentBuilder.Open(path))
+        {
+            builder.AddRichMarkdown("# Added heading\n\nAdded body text.");
+            builder.Save();
+        }
+
+        using (var doc = WordprocessingDocument.Open(path, false))
+        {
+            var body = doc.MainDocumentPart!.Document!.Body!;
+            var children = body.Elements().ToList();
+
+            // The body-level sectPr remains the very last child; the appended markdown content
+            // sits strictly before it.
+            Assert.IsType<SectionProperties>(children[^1]);
+            var addedIndex = children.FindIndex(e => e is W.Paragraph p && p.InnerText.Contains("Added body text."));
+            var sectPrIndex = children.FindIndex(e => e is SectionProperties);
+            Assert.True(addedIndex >= 0, "markdown body content was not found in the body");
+            Assert.True(addedIndex < sectPrIndex, "markdown content must precede the trailing section properties");
+        }
+
+        OpenXmlAssert.NoDocxValidationErrors(path);
     }
 
     // ---- Helpers -----------------------------------------------------------

@@ -7,6 +7,7 @@ using DocxEditor.Core.Generation.Emit.Ooxml.Flow;
 using DocxEditor.Core.Generation.Emit.Ooxml.Images;
 using DocxEditor.Core.Markdown.Model;
 using DocxGenerationModel = DocxEditor.Core.Generation.Model;
+using OfficeEditor.Core.Models;
 using YamlDotNet.Core;
 using YamlDotNet.RepresentationModel;
 using A = DocumentFormat.OpenXml.Drawing;
@@ -50,7 +51,7 @@ public sealed class RichMarkdownRenderer
     private readonly DocxImagePartManager _imagePartManager;
     private readonly Func<bool, int, int>? _allocateNumbering;
     private readonly NumberingAllocator? _fallbackNumbering;
-    private readonly MarkdownStyleResolver _styleResolver;
+    private MarkdownStyleResolver _styleResolver;
     private readonly HashSet<string> _appendedFallbackStyleIds = new(StringComparer.Ordinal);
     private readonly HashSet<string> _surfacedStyleDiagnostics = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string?> _characterStyleIds = new(StringComparer.Ordinal);
@@ -114,8 +115,223 @@ public sealed class RichMarkdownRenderer
         _nextDrawingId = ComputeNextDrawingId(_mainPart);
         _footnoteIdsByLabel = BuildFootnoteIdMap(document);
 
+        EnsureTrustedFallbackStyles(document);
+
         RenderBlocks(body, document.Blocks, depth: 0);
         return _rendered;
+    }
+
+    // ---- Trusted built-in styles (blank documents in strict mode) ----------
+
+    /// <summary>
+    /// Collects the semantic style keys (e.g. "heading1", "paragraph", "codeInline") the
+    /// renderer actually resolves while rendering <paramref name="document"/>. Used to scope
+    /// strict template style validation to the constructs an input really uses, and to seed
+    /// trusted built-in fallback styles on blank documents. Must mirror the <c>ResolveStyle</c> /
+    /// <c>ResolveCharacterStyle</c> call sites below.
+    /// </summary>
+    public static IReadOnlySet<string> CollectReferencedStyleKeys(MarkdownDocument document)
+    {
+        var keys = new HashSet<string>(StringComparer.Ordinal);
+        CollectBlockStyleKeys(document.Blocks, ParagraphStyleContext.Default, keys);
+        return keys;
+    }
+
+    private enum ParagraphStyleContext
+    {
+        Default,
+        Quote,
+        List,
+        TableHeader,
+        Footnote,
+        DefinitionDescription
+    }
+
+    private static string ParagraphKeyFor(ParagraphStyleContext context) => context switch
+    {
+        ParagraphStyleContext.Quote => "blockquote",
+        ParagraphStyleContext.List => "list",
+        ParagraphStyleContext.TableHeader => "tableHeader",
+        ParagraphStyleContext.Footnote => "footnoteText",
+        ParagraphStyleContext.DefinitionDescription => "definitionDescription",
+        _ => "paragraph"
+    };
+
+    private static void CollectBlockStyleKeys(IEnumerable<MarkdownBlock> blocks, ParagraphStyleContext context, ISet<string> keys)
+    {
+        foreach (var block in blocks)
+        {
+            switch (block)
+            {
+                case MarkdownHeading heading:
+                    keys.Add($"heading{heading.Level}");
+                    CollectInlineStyleKeys(heading.Inlines, keys);
+                    break;
+                case MarkdownParagraph paragraph:
+                    keys.Add(ParagraphKeyFor(context));
+                    CollectInlineStyleKeys(paragraph.Inlines, keys);
+                    break;
+                case MarkdownList list:
+                    keys.Add("list");
+                    foreach (var item in list.Items)
+                    {
+                        if (item.Blocks.Count > 0 && item.Blocks[0] is MarkdownParagraph first)
+                        {
+                            // The first block of a list item renders with the "list" key; the
+                            // remaining blocks render under their own (default) context.
+                            CollectInlineStyleKeys(first.Inlines, keys);
+                            CollectBlockStyleKeys(item.Blocks.Skip(1), ParagraphStyleContext.Default, keys);
+                        }
+                        else
+                        {
+                            CollectBlockStyleKeys(item.Blocks, ParagraphStyleContext.Default, keys);
+                        }
+                    }
+                    break;
+                case MarkdownQuote quote:
+                    keys.Add("blockquote");
+                    CollectBlockStyleKeys(quote.Blocks, ParagraphStyleContext.Quote, keys);
+                    break;
+                case MarkdownCodeBlock:
+                    keys.Add("codeBlock");
+                    break;
+                case MarkdownTable table:
+                    keys.Add("table");
+                    foreach (var row in table.Rows)
+                    {
+                        var cellContext = row.IsHeader ? ParagraphStyleContext.TableHeader : ParagraphStyleContext.Default;
+                        if (row.IsHeader)
+                        {
+                            keys.Add("tableHeader");
+                        }
+                        foreach (var cell in row.Cells)
+                        {
+                            CollectBlockStyleKeys(cell.Blocks, cellContext, keys);
+                        }
+                    }
+                    break;
+                case MarkdownDefinitionList definitionList:
+                    foreach (var item in definitionList.Items)
+                    {
+                        keys.Add("definitionTerm");
+                        foreach (var definition in item.Definitions)
+                        {
+                            if (definition is MarkdownParagraph definitionParagraph)
+                            {
+                                keys.Add("definitionDescription");
+                                CollectInlineStyleKeys(definitionParagraph.Inlines, keys);
+                            }
+                            else
+                            {
+                                CollectBlockStyleKeys([definition], ParagraphStyleContext.Default, keys);
+                            }
+                        }
+                    }
+                    break;
+                case MarkdownFootnotesBlock footnotes:
+                    keys.Add("footnoteText");
+                    foreach (var footnote in footnotes.Footnotes)
+                    {
+                        CollectBlockStyleKeys(footnote.Blocks, ParagraphStyleContext.Footnote, keys);
+                    }
+                    break;
+                case MarkdownHtmlBlock:
+                case MarkdownUnknownBlock:
+                    // Raw/unknown blocks render through RenderFallbackTextBlock, which resolves
+                    // the plain "paragraph" style.
+                    keys.Add("paragraph");
+                    break;
+                case MarkdownYamlFrontMatter:
+                case MarkdownThematicBreak:
+                case MarkdownLinkReferenceDefinitions:
+                    break;
+            }
+        }
+    }
+
+    private static void CollectInlineStyleKeys(IEnumerable<MarkdownInline> inlines, ISet<string> keys)
+    {
+        foreach (var inline in inlines)
+        {
+            switch (inline)
+            {
+                case MarkdownCode:
+                    keys.Add("codeInline");
+                    break;
+                case MarkdownLink link:
+                    keys.Add("hyperlink");
+                    CollectInlineStyleKeys(link.Children, keys);
+                    break;
+                case MarkdownEmphasis emphasis:
+                    CollectInlineStyleKeys(emphasis.Children, keys);
+                    break;
+                case MarkdownImage image:
+                    CollectInlineStyleKeys(image.Children, keys);
+                    break;
+            }
+        }
+    }
+
+    /// <summary>
+    /// In strict mode a freshly created (blank) document has no styles part, so every reference
+    /// from the style mapping would be "unresolved" and the whole conversion would fail. Before
+    /// strict resolution runs, the trusted built-in fallback styles for exactly the constructs
+    /// the document uses are appended to a new styles part, making them real document styles the
+    /// strict resolver finds. Only references that match the built-in default mapping are seeded:
+    /// a user-supplied style map carries the author's explicit intent, so a reference it names
+    /// must exist or strict mode reports it, even on a blank document. Existing template styles
+    /// are never touched — this path only ever runs when the document has no styles part at all.
+    /// </summary>
+    private void EnsureTrustedFallbackStyles(MarkdownDocument document)
+    {
+        if (!_options.Strict)
+        {
+            return;
+        }
+        if (_options.StyleResolver is not null)
+        {
+            // A caller-injected resolver owns its style view; do not replace it.
+            return;
+        }
+        if (_mainPart.StyleDefinitionsPart is not null)
+        {
+            return;
+        }
+
+        var styles = new Styles();
+        foreach (var key in CollectReferencedStyleKeys(document))
+        {
+            var reference = _options.StyleMapping?.GetStyle(key);
+            if (string.IsNullOrWhiteSpace(reference))
+            {
+                continue;
+            }
+
+            // Only the built-in default references are trusted on a blank document. Custom
+            // mappings must resolve against a real styles part (or fail in strict mode).
+            var defaultValue = StyleMapping.Default.GetStyle(key);
+            if (!string.Equals(reference, defaultValue, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (styles.Elements<Style>().Any(s => s.StyleId?.Value == reference))
+            {
+                continue;
+            }
+
+            styles.Append(MarkdownFallbackStyles.Create(
+                reference, reference, MarkdownStyleKinds.ForElement(key), key));
+        }
+
+        if (styles.ChildElements.Count == 0)
+        {
+            return;
+        }
+
+        var stylesPart = _mainPart.AddNewPart<StyleDefinitionsPart>();
+        stylesPart.Styles = styles;
+        _styleResolver = new MarkdownStyleResolver(stylesPart, MarkdownStyleResolverOptions.StrictMode);
     }
 
     // ---- Style resolution -------------------------------------------------
@@ -209,6 +425,14 @@ public sealed class RichMarkdownRenderer
 
     private void RenderBlock(OpenXmlCompositeElement container, MarkdownBlock block, int depth)
     {
+        if (depth > RichMarkdownParser.MaxNestingDepth)
+        {
+            // The parser already flattens beyond the limit; this guard is defense in depth for
+            // hand-constructed IR so rendering can never recurse past the process stack.
+            FlattenBlock(container);
+            return;
+        }
+
         switch (block)
         {
             case MarkdownHeading heading:
@@ -271,7 +495,7 @@ public sealed class RichMarkdownRenderer
             paragraph.ParagraphProperties = pPr;
         }
 
-        RenderInlines(paragraph, heading.Inlines, MarkdownRunFlags.None);
+        RenderInlines(paragraph, heading.Inlines, MarkdownRunFlags.None, depth: depth);
         AppendBlock(container, paragraph);
     }
 
@@ -326,7 +550,7 @@ public sealed class RichMarkdownRenderer
             p.ParagraphProperties = pPr;
         }
 
-        RenderInlines(p, paragraph.Inlines, MarkdownRunFlags.None, forced);
+        RenderInlines(p, paragraph.Inlines, MarkdownRunFlags.None, forced, depth);
         AppendBlock(container, p);
     }
 
@@ -375,6 +599,14 @@ public sealed class RichMarkdownRenderer
 
     private void RenderQuote(OpenXmlCompositeElement container, MarkdownQuote quote, int depth)
     {
+        if (depth > RichMarkdownParser.MaxNestingDepth)
+        {
+            // Nested quotes recurse through RenderQuote (bypassing the RenderBlock guard), so the
+            // depth bound is enforced here as well; see FlattenBlock.
+            FlattenBlock(container);
+            return;
+        }
+
         foreach (var block in quote.Blocks)
         {
             RenderQuoteInner(container, block, depth);
@@ -560,7 +792,7 @@ public sealed class RichMarkdownRenderer
                 {
                     paragraph.ParagraphProperties = new ParagraphProperties(new ParagraphStyleId { Val = termStyle });
                 }
-                RenderInlines(paragraph, term.Inlines, MarkdownRunFlags.Bold);
+                RenderInlines(paragraph, term.Inlines, MarkdownRunFlags.Bold, depth: depth);
                 AppendBlock(container, paragraph);
             }
 
@@ -600,6 +832,19 @@ public sealed class RichMarkdownRenderer
         }
         paragraph.Append(new Run(new Text(text) { Space = SpaceProcessingModeValues.Preserve }));
         AppendBlock(container, paragraph);
+    }
+
+    /// <summary>
+    /// Renders a block whose nesting exceeded <see cref="RichMarkdownParser.MaxNestingDepth"/> as
+    /// a single visible marker plus a diagnostic instead of recursing. Extracting the block's
+    /// text would itself recurse over its (deep) children, so the marker is deliberately flat.
+    /// </summary>
+    private void FlattenBlock(OpenXmlCompositeElement container)
+    {
+        _diagnostics.Add(new MarkdownDiagnostic(
+            MarkdownDiagnosticSeverity.Warning,
+            $"Markdown nesting exceeds the maximum supported depth of {RichMarkdownParser.MaxNestingDepth}; block content omitted."));
+        RenderFallbackTextBlock(container, $"[omitted: markdown nesting exceeds the maximum supported depth of {RichMarkdownParser.MaxNestingDepth}]");
     }
 
     private void RenderYamlFrontMatter(MarkdownYamlFrontMatter yaml)
@@ -826,16 +1071,29 @@ public sealed class RichMarkdownRenderer
         OpenXmlCompositeElement container,
         IEnumerable<MarkdownInline> inlines,
         MarkdownRunFlags flags,
-        MarkdownRunFlags forced = MarkdownRunFlags.None)
+        MarkdownRunFlags forced = MarkdownRunFlags.None,
+        int depth = 0)
     {
         foreach (var inline in inlines)
         {
-            RenderInline(container, inline, flags | forced);
+            RenderInline(container, inline, flags | forced, depth);
         }
     }
 
-    private void RenderInline(OpenXmlCompositeElement container, MarkdownInline inline, MarkdownRunFlags flags)
+    private void RenderInline(OpenXmlCompositeElement container, MarkdownInline inline, MarkdownRunFlags flags, int depth)
     {
+        if (depth > RichMarkdownParser.MaxNestingDepth)
+        {
+            // Inline nesting (emphasis inside emphasis, links, images) is bounded by the same
+            // depth cap so adversarial or hand-constructed IR can never overflow the stack; the
+            // content degrades to plain text instead of recursing further.
+            _diagnostics.Add(new MarkdownDiagnostic(
+                MarkdownDiagnosticSeverity.Warning,
+                $"Markdown nesting exceeds the maximum supported depth of {RichMarkdownParser.MaxNestingDepth}; inline content rendered as plain text."));
+            AppendTextRun(container, PlainText([inline]), flags);
+            return;
+        }
+
         switch (inline)
         {
             case MarkdownText text:
@@ -848,13 +1106,13 @@ public sealed class RichMarkdownRenderer
                 AppendTextRun(container, emoji.Text, flags);
                 break;
             case MarkdownEmphasis emphasis:
-                RenderInlines(container, emphasis.Children, flags | FlagFor(emphasis.Kind));
+                RenderInlines(container, emphasis.Children, flags | FlagFor(emphasis.Kind), depth: depth + 1);
                 break;
             case MarkdownCode code:
                 AppendCodeRun(container, code.Content, flags);
                 break;
             case MarkdownLink link:
-                RenderLink(container, link, flags);
+                RenderLink(container, link, flags, depth);
                 break;
             case MarkdownImage image:
                 RenderImage(container, image, flags);
@@ -885,12 +1143,12 @@ public sealed class RichMarkdownRenderer
         }
     }
 
-    private void RenderLink(OpenXmlCompositeElement container, MarkdownLink link, MarkdownRunFlags flags)
+    private void RenderLink(OpenXmlCompositeElement container, MarkdownLink link, MarkdownRunFlags flags, int depth)
     {
         var url = link.Url;
         if (string.IsNullOrWhiteSpace(url))
         {
-            RenderInlines(container, link.Children, flags);
+            RenderInlines(container, link.Children, flags, depth: depth + 1);
             return;
         }
 
@@ -899,7 +1157,7 @@ public sealed class RichMarkdownRenderer
             // Internal anchors are not supported (no bookmark emission); the label renders
             // as plain text with a diagnostic instead of a dangling external relationship.
             RenderLinkAsPlainText(
-                container, link, flags,
+                container, link, flags, depth,
                 $"Link URL '{url}' is an internal anchor, which is not supported; rendered as plain text.");
             return;
         }
@@ -907,7 +1165,7 @@ public sealed class RichMarkdownRenderer
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
         {
             RenderLinkAsPlainText(
-                container, link, flags,
+                container, link, flags, depth,
                 $"Link URL '{url}' is not absolute; rendered as plain text.");
             return;
         }
@@ -915,14 +1173,14 @@ public sealed class RichMarkdownRenderer
         if (!IsSafeExternalScheme(uri.Scheme))
         {
             RenderLinkAsPlainText(
-                container, link, flags,
+                container, link, flags, depth,
                 $"Link URL '{url}' uses scheme '{uri.Scheme}', which is not an allowed external link scheme (http, https, mailto); rendered as plain text.");
             return;
         }
 
         var relationship = _mainPart.AddHyperlinkRelationship(uri, isExternal: true);
         var hyperlink = new Hyperlink { Id = relationship.Id, History = true };
-        RenderInlines(hyperlink, link.Children, flags | MarkdownRunFlags.Hyperlink);
+        RenderInlines(hyperlink, link.Children, flags | MarkdownRunFlags.Hyperlink, depth: depth + 1);
         container.Append(hyperlink);
     }
 
@@ -930,10 +1188,11 @@ public sealed class RichMarkdownRenderer
         OpenXmlCompositeElement container,
         MarkdownLink link,
         MarkdownRunFlags flags,
+        int depth,
         string message)
     {
         _diagnostics.Add(new MarkdownDiagnostic(MarkdownDiagnosticSeverity.Warning, message));
-        RenderInlines(container, link.Children, flags);
+        RenderInlines(container, link.Children, flags, depth: depth + 1);
     }
 
     private static bool IsInternalAnchor(string url) =>
@@ -1058,12 +1317,32 @@ public sealed class RichMarkdownRenderer
         container.Append(run);
     }
 
+    /// <summary>
+    /// Appends <paramref name="element"/> to <paramref name="container"/>. When the container is
+    /// the document body, the element is inserted immediately before the final body-level
+    /// <c>w:sectPr</c> instead of after it: CT_Body requires the section properties to be the
+    /// last child, so content appended after a template's trailing <c>w:sectPr</c> would be
+    /// schema-invalid. Section breaks nested inside paragraphs (paragraph-level <c>w:sectPr</c>)
+    /// are not body children and are unaffected.
+    /// </summary>
     private void AppendBlock(OpenXmlCompositeElement container, OpenXmlElement element)
     {
-        container.Append(element);
         if (ReferenceEquals(container, _body))
         {
+            var finalSectionProperties = _body?.Elements<SectionProperties>().LastOrDefault();
+            if (finalSectionProperties is not null)
+            {
+                _body!.InsertBefore(element, finalSectionProperties);
+            }
+            else
+            {
+                container.Append(element);
+            }
             _rendered.Add(element);
+        }
+        else
+        {
+            container.Append(element);
         }
     }
 
