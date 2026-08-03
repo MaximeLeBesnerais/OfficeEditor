@@ -1,6 +1,7 @@
 using DocxEditor.Core.Generation.Assets;
 using DocxEditor.Core.Generation.Contracts;
 using DocxEditor.Core.Generation.Emit.Ooxml;
+using DocxEditor.Core.Generation.Expand;
 using DocxEditor.Core.Generation.Model;
 using DocxEditor.Core.Generation.Schema;
 
@@ -136,9 +137,9 @@ public sealed class DocxGenerator
         IReadOnlyList<DocxGenerationIssue> parserWarnings)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
-        var effectiveDocument = ApplyOptions(document, options);
+        var effectiveDocument = ApplyOptions(ExpandDocument(document, out var expansionWarnings), options);
         using var emitter = CreateEmitter(outputPath, writeOutput: true, options);
-        return MergeWarnings(emitter.Emit(effectiveDocument), parserWarnings);
+        return MergeWarnings(emitter.Emit(effectiveDocument), parserWarnings, expansionWarnings);
     }
 
     private DocxGenerationResult GenerateToStream(
@@ -164,9 +165,9 @@ public sealed class DocxGenerator
         DocxGeneratorOptions? options,
         IReadOnlyList<DocxGenerationIssue> parserWarnings)
     {
-        var effectiveDocument = ApplyOptions(document, options);
+        var effectiveDocument = ApplyOptions(ExpandDocument(document, out var expansionWarnings), options);
         using var emitter = CreateEmitter(outputPath: null, writeOutput: false, options);
-        var result = MergeWarnings(emitter.Emit(effectiveDocument), parserWarnings);
+        var result = MergeWarnings(emitter.Emit(effectiveDocument), parserWarnings, expansionWarnings);
         return new GeneratedDocx { Content = emitter.SaveToBytes(), Result = result };
     }
 
@@ -196,11 +197,34 @@ public sealed class DocxGenerator
         return document with { TemplatePath = options.TemplatePath };
     }
 
+    /// <summary>
+    /// Lowers report archetypes into concrete flow blocks. This is the single expansion point of
+    /// the pipeline: it runs once per generation, after parse/validation and before design
+    /// resolution/emission, for both the JSON and the parsed-model overloads (they all funnel
+    /// through here). Documents without archetypes pass through unchanged.
+    /// </summary>
+    private static DocxGenerationDocument ExpandDocument(
+        DocxGenerationDocument document,
+        out IReadOnlyList<DocxGenerationIssue> expansionWarnings)
+    {
+        var expansion = DocxGenerationExpander.ExpandWithIssues(document);
+        expansionWarnings = expansion.Warnings;
+        return expansion.Document;
+    }
+
     private static DocxGenerationResult MergeWarnings(
         DocxGenerationResult result,
-        IReadOnlyList<DocxGenerationIssue> parserWarnings) =>
-        parserWarnings.Count == 0
-            ? result
-            : result with { Warnings = [.. parserWarnings, .. result.Warnings] };
+        IReadOnlyList<DocxGenerationIssue> parserWarnings,
+        IReadOnlyList<DocxGenerationIssue> expansionWarnings)
+    {
+        if (parserWarnings.Count == 0 && expansionWarnings.Count == 0)
+        {
+            return result;
+        }
+        return result with
+        {
+            Warnings = [.. parserWarnings, .. expansionWarnings, .. result.Warnings]
+        };
+    }
 
 }

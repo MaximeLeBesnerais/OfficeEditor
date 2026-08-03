@@ -159,6 +159,22 @@ public enum AnchorReference
     Character
 }
 
+/// <summary>
+/// Semantic tone of a report archetype item (KPI value, roadmap phase). Positive/negative
+/// tint the item against the theme palette (teal/coral); neutral keeps the theme default.
+/// </summary>
+public enum ReportTone
+{
+    /// <summary>On-track / favorable; tints toward the theme teal.</summary>
+    Positive,
+
+    /// <summary>Default; keeps the theme's default role color.</summary>
+    Neutral,
+
+    /// <summary>At-risk / unfavorable; tints toward the theme coral.</summary>
+    Negative
+}
+
 /// <summary>Semantic tone of a callout (drives the default fill/emblem treatment).</summary>
 public enum CalloutTone
 {

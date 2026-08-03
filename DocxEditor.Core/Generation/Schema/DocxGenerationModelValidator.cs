@@ -322,6 +322,30 @@ internal static class DocxGenerationModelValidator
                 case FlowContainerBlock group:
                     ValidateFlowList(group.Blocks, $"{path}.blocks", "a group must contain at least one flow block.");
                     break;
+                case CoverBlock cover:
+                    ValidateOptionalText(cover.Eyebrow, $"{path}.eyebrow");
+                    ValidateRequiredText(cover.Title, $"{path}.title");
+                    ValidateOptionalText(cover.Subtitle, $"{path}.subtitle");
+                    ValidateOptionalText(cover.Metadata, $"{path}.metadata");
+                    if (cover.Kpis is not null)
+                    {
+                        ValidateKpiItems(cover.Kpis, $"{path}.kpis");
+                    }
+                    break;
+                case KpiRowBlock kpiRow:
+                    ValidateKpiItems(kpiRow.Items, $"{path}.items");
+                    break;
+                case SemanticSectionBlock section:
+                    ValidateRequiredText(section.Title, $"{path}.title");
+                    ValidateOptionalText(section.Intro, $"{path}.intro");
+                    ValidateFlowList(section.Blocks, $"{path}.blocks", "a semantic section must contain at least one flow block.");
+                    break;
+                case ComparisonTableBlock comparison:
+                    ValidateComparisonTable(comparison, path);
+                    break;
+                case RoadmapBlock roadmap:
+                    ValidateRoadmap(roadmap, path);
+                    break;
                 default:
                     Error(path, $"unsupported flow block type '{block.GetType().Name}'.");
                     break;
@@ -434,6 +458,106 @@ internal static class DocxGenerationModelValidator
                 return;
             }
             ValidateText(content, path, allowEmpty: false);
+        }
+
+        private void ValidateOptionalText(TextModel? content, string path)
+        {
+            if (content is not null)
+            {
+                ValidateText(content, path, allowEmpty: false);
+            }
+        }
+
+        private void ValidateKpiItems(IReadOnlyList<KpiItem>? items, string path)
+        {
+            if (items is null)
+            {
+                Error(path, "must not be null.");
+                return;
+            }
+            for (var i = 0; i < items.Count; i++)
+            {
+                KpiItem? item = items[i];
+                string itemPath = $"{path}[{i}]";
+                if (item is null)
+                {
+                    Error(itemPath, "KPI item must not be null.");
+                    continue;
+                }
+                ValidateRequiredText(item.Value, $"{itemPath}.value");
+                ValidateRequiredText(item.Label, $"{itemPath}.label");
+                CheckEnum(item.Tone, $"{itemPath}.tone", "report tone");
+            }
+        }
+
+        private void ValidateComparisonTable(ComparisonTableBlock table, string path)
+        {
+            IReadOnlyList<TextModel>? columns = table.Columns;
+            if (columns is null || columns.Count == 0)
+            {
+                Error($"{path}.columns", "a comparison table must have at least one column.");
+                return;
+            }
+            for (var i = 0; i < columns.Count; i++)
+            {
+                ValidateRequiredText(columns[i], $"{path}.columns[{i}]");
+            }
+
+            IReadOnlyList<ComparisonTableRow>? rows = table.Rows;
+            if (rows is null || rows.Count == 0)
+            {
+                Error($"{path}.rows", "a comparison table must contain at least one row.");
+                return;
+            }
+            int columnCount = columns.Count;
+            for (var r = 0; r < rows.Count; r++)
+            {
+                ComparisonTableRow? row = rows[r];
+                string rowPath = $"{path}.rows[{r}]";
+                if (row is null)
+                {
+                    Error(rowPath, "comparison table row must not be null.");
+                    continue;
+                }
+                IReadOnlyList<TextModel>? cells = row.Cells;
+                if (cells is null || cells.Count == 0)
+                {
+                    Error($"{rowPath}.cells", "a row must contain at least one cell.");
+                    continue;
+                }
+                if (cells.Count != columnCount)
+                {
+                    Error(rowPath, $"row has {cells.Count} cells but the comparison table has {columnCount} columns; all rows must have the same number of cells.");
+                }
+                for (var c = 0; c < cells.Count; c++)
+                {
+                    ValidateRequiredText(cells[c], $"{rowPath}.cells[{c}]");
+                }
+            }
+        }
+
+        private void ValidateRoadmap(RoadmapBlock roadmap, string path)
+        {
+            IReadOnlyList<RoadmapPhase>? phases = roadmap.Phases;
+            if (phases is null || phases.Count == 0)
+            {
+                Error($"{path}.phases", "a roadmap must contain at least one phase.");
+                return;
+            }
+            for (var i = 0; i < phases.Count; i++)
+            {
+                RoadmapPhase? phase = phases[i];
+                string phasePath = $"{path}.phases[{i}]";
+                if (phase is null)
+                {
+                    Error(phasePath, "roadmap phase must not be null.");
+                    continue;
+                }
+                ValidateRequiredText(phase.Window, $"{phasePath}.window");
+                ValidateRequiredText(phase.Action, $"{phasePath}.action");
+                ValidateOptionalText(phase.Evidence, $"{phasePath}.evidence");
+                CheckEnum(phase.Tone, $"{phasePath}.tone", "report tone");
+            }
         }
 
         private void ValidateText(TextModel? content, string path, bool allowEmpty)

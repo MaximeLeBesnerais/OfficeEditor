@@ -206,6 +206,48 @@ A table row has a required non-empty `cells` array and optional boolean `header`
 
 Callout `tone` is `note`, `tip`, `warning`, or `error` and defaults to `note`. Flow callouts use fixed tone colors. Use a positioned callout when explicit fill and stroke are needed.
 
+## Semantic report archetypes
+
+Beyond the raw flow blocks, the vocabulary ships five semantic report archetypes. They are authoring sugar: a pure expansion stage (`DocxGenerationExpander`) lowers them into the concrete flow blocks above (paragraphs, headings, tables, page breaks) before emission, using the theme's semantic roles and editorial surfaces — no positioned composition and no second layout engine. A document without archetypes passes through expansion unchanged, and `DocxGenerator` invokes expansion exactly once, after parse/validation and before design resolution/emission.
+
+| `type` | Accepted properties | Expands to |
+|---|---|---|
+| `cover` | `title` (required); optional `eyebrow`, `subtitle`, `metadata`, `kpis`, `pageBreak` | Eyebrow/title/subtitle/metadata paragraphs on the editorial roles, an optional KPI band, and an optional trailing page break. |
+| `kpiRow` | `items` (required, 2–4) | A single pale KPI band table (value row over label row). |
+| `section` | `title` (required); optional `intro`, `blocks` | A level-1 heading, the intro paragraph, then the nested flow (recursively expanded). Not a DOCX page section. |
+| `comparisonTable` | `columns` (required), `rows` (required); optional `emphasisFirstColumn` | A table with a repeating header row of column labels and body rows of cells. |
+| `roadmap` | `phases` (required) | A Phase / Window / Action / Evidence table with tone-tinted phase numbers. |
+
+Example cover:
+
+```json
+{
+  "type": "cover",
+  "eyebrow": "Q3 2026 · Editorial Edition",
+  "title": "State of the Product",
+  "subtitle": "A quarterly review, written for the whole team.",
+  "metadata": "Prepared by the Platform Group · Reviewed 3 August 2026",
+  "kpis": [
+    { "value": "12.4k", "label": "Active workspaces", "tone": "positive" },
+    { "value": "4.2", "label": "Incidents per month", "tone": "negative" }
+  ],
+  "pageBreak": true
+}
+```
+
+Text fields (`title`, `eyebrow`, `subtitle`, `metadata`, `intro`, KPI `value`/`label`, roadmap `window`/`action`/`evidence`, `columns`, and comparison cells) accept either a string or a text object with `text`/`runs`, `token`, `role`, `alignment`, and `spacing`. KPI and roadmap items take a `tone` of `positive`, `neutral`, or `negative`; positive tints toward the theme teal, negative toward the theme coral, and neutral keeps the role default.
+
+Component budgets are advisory: an item or row count outside a budget warns with its JSON path but still renders.
+
+| Component | Budget | Warning when |
+|---|---|---|
+| `cover.kpis` / `kpiRow.items` | 2–4 items | 1 item, or more than 4 |
+| `comparisonTable.columns` | 2–6 | fewer than 2, or more than 6 |
+| `comparisonTable.rows` | 1–12 | more than 12 |
+| `roadmap.phases` | 1–6 | more than 6 |
+
+See the full report example at [`examples/Docx/generation/editorial-report.json`](../examples/Docx/generation/editorial-report.json), which exercises every archetype.
+
 ## Positioned primitives
 
 Positioned elements are section-scoped floating objects. Geometry fields are flattened onto each element; there is no nested `position` JSON object.
