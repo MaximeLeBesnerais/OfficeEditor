@@ -104,7 +104,7 @@ convert:
 		$(DOTNET_RUN) "$(CONVERT_DLL)" "$(REF_PPTX)" "$(RENDER_DIR)/sales_acceleration_deck" --format png --font-path "$(FONT_PATH)"; \
 		$(DOTNET_RUN) "$(CONVERT_DLL)" "$(REF_PPTX)" "$(RENDER_DIR)/sales_acceleration_deck.pdf" --font-path "$(FONT_PATH)"; \
 		end=$$(perl -MTime::HiRes=time -e 'printf "%d", time() * 1000'); \
-		slides=$$(ls "$(RENDER_DIR)"/sales_acceleration_deck/slide-*.png | wc -l | tr -d ' '); \
+		slides=$$(ls "$(RENDER_DIR)"/sales_acceleration_deck/page-*.png | wc -l | tr -d ' '); \
 		ms=$$((end - start)); \
 		per_slide=$$(awk "BEGIN { printf \"%.1f\", $$ms / $$slides }"); \
 		echo ""; \
@@ -125,7 +125,7 @@ generate:
 		$(DOTNET_RUN) "$(CONVERT_DLL)" "$(DECK_PPTX)" "$(GEN_DIR)/render" --format png --font-path "$(FONT_PATH)"; \
 		$(DOTNET_RUN) "$(CONVERT_DLL)" "$(DECK_PPTX)" "$(GEN_DIR)/office-editor-demo.pdf" --font-path "$(FONT_PATH)"; \
 		r_end=$$(perl -MTime::HiRes=time -e 'printf "%d", time() * 1000'); \
-		slides=$$(ls "$(GEN_DIR)"/render/slide-*.png | wc -l | tr -d ' '); \
+		slides=$$(ls "$(GEN_DIR)"/render/page-*.png | wc -l | tr -d ' '); \
 		b_ms=$$((b_end - b_start)); \
 		r_ms=$$((r_end - r_start)); \
 		b_per=$$(awk "BEGIN { printf \"%.1f\", $$b_ms / $$slides }"); \

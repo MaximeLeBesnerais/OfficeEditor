@@ -75,7 +75,9 @@ internal sealed class DocxFormatRenderer : IFormatRenderer
         if (!string.Equals(Path.GetExtension(request.SourcePath), ".json", StringComparison.OrdinalIgnoreCase))
         {
             warnings = Array.Empty<string>();
-            return (DocumentBuilder)DocumentBuilder.Open(request.SourcePath);
+            // Rendering must never mutate the source document: open from an in-memory copy so
+            // the read-write OpenXML document is discarded when the builder is disposed.
+            return (DocumentBuilder)DocumentBuilder.Open(File.ReadAllBytes(request.SourcePath));
         }
 
         var generated = new DocxGenerator().GenerateToBytes(File.ReadAllText(request.SourcePath));

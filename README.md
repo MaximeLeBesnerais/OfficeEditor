@@ -183,7 +183,7 @@ cd OfficeEditor && dotnet build        # 0 warnings, 0 errors (enforced)
 | Web demo | `make dev` → http://localhost:5173/ (`/demo` = the app) |
 | MCP host (JSON-RPC stdio) | `dotnet run --project OfficeEditor.Mcp` |
 | Examples | `dotnet run --project examples` |
-| Convert / diff / bench tools | `dotnet run --project tools/convert-pptx -- <in> <out> [--format pdf\|png]` · `dotnet run --project tools/convert-docx -- <in> <out> [--format pdf\|typ]` · `dotnet run --project tools/convert-xlsx -- <in> <out> [--format pdf\|png\|svg\|typ\|json]` · `dotnet run --project tools/visual-diff -- --suite pptx\|gen\|xlsx` · `dotnet run --project tools/pptx-benchmark` |
+| Convert / diff / bench tools | `dotnet run --project tools/convert-pptx -- <in> <out> [--format pdf\|png\|svg\|typ]` · `dotnet run --project tools/convert-docx -- <in> <out> [--format pdf\|png\|svg\|typ]` · `dotnet run --project tools/convert-xlsx -- <in> <out> [--format pdf\|png\|svg\|typ\|json]` · `dotnet run --project tools/visual-diff -- --suite pptx\|gen\|xlsx` · `dotnet run --project tools/pptx-benchmark` |
 | CLI demo | `make -f Makefile.demo demo` (preflight → convert REF deck → generate deck, prints timings, opens PDFs) |
 
 ### The demo
