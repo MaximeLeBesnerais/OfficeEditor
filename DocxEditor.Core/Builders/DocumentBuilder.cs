@@ -3,6 +3,8 @@ using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using DocxEditor.Core.Content;
+using DocxEditor.Core.Markdown;
+using DocxEditor.Core.Markdown.Rendering;
 using DocxEditor.Core.Models;
 using OfficeEditor.Core.Exceptions;
 using OfficeEditor.Core.Models;
@@ -30,6 +32,11 @@ public interface IDocumentBuilder : IDisposable
     IDocumentBuilder AddMarkdown(string markdown, StyleMapping? styleMap = null);
     IDocumentBuilder ReplaceWithMarkdown(string targetText, string markdown, StyleMapping? styleMap = null);
     
+    // Rich Markdown (v2 IR, recursive rendering)
+    IDocumentBuilder AddRichMarkdown(string markdown, Markdown.Rendering.MarkdownRenderOptions? options = null);
+    IDocumentBuilder ReplaceWithRichMarkdown(string targetText, string markdown, Markdown.Rendering.MarkdownRenderOptions? options = null);
+    Markdown.Rendering.MarkdownRenderResult? LastRichMarkdownResult { get; }
+    
     // Variables
     List<VariableInfo> DetectVariables();
     IDocumentBuilder MergeVariables(Dictionary<string, string> data);
@@ -52,7 +59,7 @@ public class DocumentBuilder : IDocumentBuilder
     private readonly Body _body;
     private readonly bool _isNewDocument;
     private readonly Dictionary<string, Style> _cachedStyles;
-    private readonly Dictionary<bool, int> _generatedAbstractNumberingIds;
+    private readonly Dictionary<(bool Ordered, int Start), int> _generatedAbstractNumberingIds;
     private readonly string? _filePath;
     private readonly MemoryStream? _documentStream;
 
@@ -71,7 +78,7 @@ public class DocumentBuilder : IDocumentBuilder
             ?? throw new OfficeEditorException(
                 "The document does not contain a <w:body> element, so it cannot be edited.");
         _cachedStyles = LoadStyles();
-        _generatedAbstractNumberingIds = new Dictionary<bool, int>();
+        _generatedAbstractNumberingIds = new Dictionary<(bool Ordered, int Start), int>();
     }
 
     /// <summary>
@@ -587,14 +594,16 @@ public class DocumentBuilder : IDocumentBuilder
     /// gets its own instance so its counter restarts at 1 and bullets can never bind to a
     /// decimal (or vice versa) definition from the host document. The abstract numbering
     /// definition behind the instance is reused across lists with matching semantics: one
-    /// generated definition per kind (ordered / bullet) is created on demand and shared by
+    /// generated definition per (ordered, start) kind is created on demand and shared by
     /// every later list of the same kind instead of duplicating identical definitions.
     /// Existing numbering in the document is never touched or reused (its formatting and
     /// levels may differ); ids are allocated as max(existing) + 1 so they can never collide,
     /// and the abstractNum is inserted before the first numbering instance because
     /// CT_Numbering requires all abstractNum elements to precede all num elements.
     /// </summary>
-    private int AllocateNumberingInstance(bool ordered)
+    private int AllocateNumberingInstance(bool ordered) => AllocateNumberingInstance(ordered, 1);
+
+    private int AllocateNumberingInstance(bool ordered, int start)
     {
         var mainPart = _document.MainDocumentPart!;
         var numberingPart = mainPart.NumberingDefinitionsPart;
@@ -611,8 +620,10 @@ public class DocumentBuilder : IDocumentBuilder
         }
 
         // Reuse the abstract definition this builder generated for the same list semantics
-        // (ordered vs bullet); create a fresh one only on first use of that kind.
-        if (!_generatedAbstractNumberingIds.TryGetValue(ordered, out int abstractNumId))
+        // (ordered vs bullet, with the same start value); create a fresh one only on first
+        // use of that kind.
+        var key = (ordered, start);
+        if (!_generatedAbstractNumberingIds.TryGetValue(key, out int abstractNumId))
         {
             abstractNumId = numbering.Elements<AbstractNum>()
                 .Select(n => n.AbstractNumberId?.Value ?? -1)
@@ -620,7 +631,7 @@ public class DocumentBuilder : IDocumentBuilder
                 .Max() + 1;
 
             var abstractNum = ordered
-                ? CreateOrderedAbstractNum(abstractNumId)
+                ? CreateOrderedAbstractNum(abstractNumId, start)
                 : CreateBulletAbstractNum(abstractNumId);
 
             var firstInstance = numbering.Elements<NumberingInstance>().FirstOrDefault();
@@ -633,7 +644,7 @@ public class DocumentBuilder : IDocumentBuilder
                 numbering.Append(abstractNum);
             }
 
-            _generatedAbstractNumberingIds[ordered] = abstractNumId;
+            _generatedAbstractNumberingIds[key] = abstractNumId;
         }
 
         int numberingId = numbering.Elements<NumberingInstance>()
@@ -648,11 +659,11 @@ public class DocumentBuilder : IDocumentBuilder
         return numberingId;
     }
 
-    private static AbstractNum CreateOrderedAbstractNum(int abstractNumId)
+    private static AbstractNum CreateOrderedAbstractNum(int abstractNumId, int start)
     {
         return new AbstractNum(
             new Level(
-                new StartNumberingValue { Val = 1 },
+                new StartNumberingValue { Val = start },
                 new NumberingFormat { Val = NumberFormatValues.Decimal },
                 new LevelText { Val = "%1." },
                 new LevelJustification { Val = LevelJustificationValues.Left },
@@ -833,16 +844,92 @@ public class DocumentBuilder : IDocumentBuilder
 
     public IDocumentBuilder AddMarkdown(string markdown, StyleMapping? styleMap = null)
     {
-        var parser = new Markdown.MarkdownParser();
-        var blocks = parser.Parse(markdown, styleMap);
-        return AddRichContent(blocks);
+        // Routed through the rich recursive renderer: markdown parses into the structured
+        // Markdown IR and renders directly to OOXML (headings with inline formatting, nested
+        // lists, tables, footnotes, images, hyperlinks) without the lossy ContentBlock pass.
+        return AddRichMarkdown(markdown, new MarkdownRenderOptions
+        {
+            StyleMapping = styleMap ?? StyleMapping.Default
+        });
     }
 
     public IDocumentBuilder ReplaceWithMarkdown(string targetText, string markdown, StyleMapping? styleMap = null)
     {
-        var parser = new Markdown.MarkdownParser();
-        var blocks = parser.Parse(markdown, styleMap);
-        return ReplaceWithRichContent(targetText, blocks);
+        return ReplaceWithRichMarkdown(targetText, markdown, new MarkdownRenderOptions
+        {
+            StyleMapping = styleMap ?? StyleMapping.Default
+        });
+    }
+
+    /// <summary>
+    /// Appends rich markdown to the document with the given rendering options. The last
+    /// conversion outcome (parse + render diagnostics) is exposed via
+    /// <see cref="LastRichMarkdownResult"/>.
+    /// </summary>
+    public IDocumentBuilder AddRichMarkdown(string markdown, MarkdownRenderOptions? options = null)
+    {
+        RenderRichCore(markdown, options, _body);
+        return this;
+    }
+
+    /// <summary>
+    /// Replaces the paragraph containing <paramref name="targetText"/> with rich markdown.
+    /// Content renders into a detached body so relationships (hyperlinks, images, the
+    /// footnotes part) are created against the live main part — where every <c>r:id</c>
+    /// resolves — and the resulting elements are cloned into the target's place, keeping the
+    /// caller's package relationships valid.
+    /// </summary>
+    public IDocumentBuilder ReplaceWithRichMarkdown(string targetText, string markdown, MarkdownRenderOptions? options = null)
+    {
+        // Resolve the target before rendering so an empty/missing target fails fast without
+        // touching the document (the empty target is rejected by FindParagraphByText).
+        var targetParagraph = FindParagraphByText(targetText);
+        if (targetParagraph == null)
+        {
+            throw new InvalidOperationException($"Paragraph containing '{targetText}' not found.");
+        }
+
+        var outcome = RenderRichCore(markdown, options, new Body());
+
+        var parent = targetParagraph.Parent;
+        if (parent != null)
+        {
+            // Insert after the last inserted node so block order is preserved, then drop
+            // the target. Cloning preserves the relationship ids created during render.
+            OpenXmlElement insertAfter = targetParagraph;
+            foreach (var element in outcome.Elements)
+            {
+                insertAfter = parent.InsertAfter(element.CloneNode(true), insertAfter)!;
+            }
+            targetParagraph.Remove();
+        }
+
+        return this;
+    }
+
+    public MarkdownRenderResult? LastRichMarkdownResult { get; private set; }
+
+    private sealed record RichRenderOutcome(IReadOnlyList<OpenXmlElement> Elements, MarkdownRenderResult Result);
+
+    private RichRenderOutcome RenderRichCore(string markdown, MarkdownRenderOptions? options, Body targetBody)
+    {
+        ArgumentNullException.ThrowIfNull(markdown);
+
+        var renderOptions = options ?? MarkdownRenderOptions.Default;
+        var parser = new Markdown.RichMarkdownParser(renderOptions.ParseOptions ?? MarkdownParseOptions.Default);
+        var parseResult = parser.Parse(markdown);
+
+        var renderer = new RichMarkdownRenderer(
+            _document.MainDocumentPart!,
+            renderOptions,
+            (ordered, start) => AllocateNumberingInstance(ordered, start));
+        var elements = renderer.Render(targetBody, parseResult.Document);
+
+        var result = new MarkdownRenderResult(
+            parseResult,
+            parseResult.Diagnostics.Concat(renderer.Diagnostics).ToArray());
+        LastRichMarkdownResult = result;
+        return new RichRenderOutcome(elements, result);
     }
 
     public List<VariableInfo> DetectVariables()

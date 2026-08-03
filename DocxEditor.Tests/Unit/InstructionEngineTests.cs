@@ -1,5 +1,6 @@
 using DocxEditor.Core.Builders;
 using DocxEditor.Core.Instructions;
+using DocxEditor.Core.Markdown.Rendering;
 using DocxEditor.Core.Models;
 using DocxEditor.Core.Serialization;
 using OfficeEditor.Core.Models;
@@ -428,6 +429,12 @@ public class InstructionEngineTests : IDisposable
         public IDocumentBuilder AddMarkdown(string markdown, StyleMapping? styleMap = null) => this;
 
         public IDocumentBuilder ReplaceWithMarkdown(string targetText, string markdown, StyleMapping? styleMap = null) => this;
+
+        public IDocumentBuilder AddRichMarkdown(string markdown, MarkdownRenderOptions? options = null) => this;
+
+        public IDocumentBuilder ReplaceWithRichMarkdown(string targetText, string markdown, MarkdownRenderOptions? options = null) => this;
+
+        public MarkdownRenderResult? LastRichMarkdownResult => null;
 
         public List<VariableInfo> DetectVariables() => [];
 
