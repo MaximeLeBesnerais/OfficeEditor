@@ -202,6 +202,12 @@ public sealed class DocxGenerator
     /// the pipeline: it runs once per generation, after parse/validation and before design
     /// resolution/emission, for both the JSON and the parsed-model overloads (they all funnel
     /// through here). Documents without archetypes pass through unchanged.
+    ///
+    /// The lowered model is revalidated before it can be emitted: expansion is authoring sugar and
+    /// must never lower an archetype into a malformed table (e.g. an empty KPI row producing a
+    /// zero-column grid) or otherwise weaken the contract the source model already satisfied. The
+    /// source was validated before this call, so any revalidation error is an internal invariant
+    /// violation and surfaces as a loud contract error rather than corrupted OOXML.
     /// </summary>
     private static DocxGenerationDocument ExpandDocument(
         DocxGenerationDocument document,
@@ -209,7 +215,12 @@ public sealed class DocxGenerator
     {
         var expansion = DocxGenerationExpander.ExpandWithIssues(document);
         expansionWarnings = expansion.Warnings;
-        return expansion.Document;
+        var expanded = expansion.Document;
+        if (!ReferenceEquals(expanded, document))
+        {
+            DocxGenerationModelValidator.Validate(expanded).ThrowIfInvalid();
+        }
+        return expanded;
     }
 
     private static DocxGenerationResult MergeWarnings(

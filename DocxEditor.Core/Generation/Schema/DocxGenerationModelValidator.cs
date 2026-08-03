@@ -475,6 +475,11 @@ internal static class DocxGenerationModelValidator
                 Error(path, "must not be null.");
                 return;
             }
+            if (items.Count == 0)
+            {
+                Error(path, "must contain at least one KPI item.");
+                return;
+            }
             for (var i = 0; i < items.Count; i++)
             {
                 KpiItem? item = items[i];
