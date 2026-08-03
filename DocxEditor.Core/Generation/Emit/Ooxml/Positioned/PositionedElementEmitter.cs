@@ -350,7 +350,10 @@ public sealed class PositionedElementEmitter
                 id, $"Picture {id}", position.Alt, geometry.WidthPt, geometry.HeightPt, position.Rotation,
                 placement.EmbedId, ToSrcRect(geometry.SourceRect), geometry.OffsetXEmu, geometry.OffsetYEmu);
 
-            AppendAnchor(context, index, "image", "Picture", position, geometry.WidthPt, geometry.HeightPt, picture);
+            var offsetXPt = (position.WidthPt!.Value - geometry.WidthPt) / 2.0;
+            var offsetYPt = (position.HeightPt!.Value - geometry.HeightPt) / 2.0;
+            PositionSpec shiftedPosition = position with { X = position.X + offsetXPt, Y = position.Y + offsetYPt };
+            AppendAnchor(context, index, "image", "Picture", shiftedPosition, geometry.WidthPt, geometry.HeightPt, picture);
         }
 
         private void AppendAnchor(

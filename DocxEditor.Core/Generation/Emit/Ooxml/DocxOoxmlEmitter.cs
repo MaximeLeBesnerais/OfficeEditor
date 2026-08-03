@@ -213,7 +213,7 @@ public sealed class DocxOoxmlEmitter : IDocxDocumentEmitter, IDisposable
         {
             bytes = File.ReadAllBytes(templatePath);
         }
-        catch (FileNotFoundException ex)
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
         {
             throw new OfficeEditorException(
                 $"The template file '{templatePath}' does not exist; generate from a blank document by omitting 'template'.", ex);

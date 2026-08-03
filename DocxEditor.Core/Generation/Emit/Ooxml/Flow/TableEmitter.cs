@@ -76,10 +76,12 @@ internal static class TableEmitter
         var grid = new TableGrid();
         for (var c = 0; c < columnCount; c++)
         {
-            grid.Append(new GridColumn
+            if (widths is null)
             {
-                Width = widths is not null ? FormattingHelpers.Twips(widths[c]) : null
-            });
+                grid.Append(new GridColumn());
+                continue;
+            }
+            grid.Append(new GridColumn { Width = FormattingHelpers.Twips(widths[c]) });
         }
         docTable.Append(grid);
 
