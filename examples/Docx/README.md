@@ -282,7 +282,7 @@ builder.Save();
 
 The last conversion is available on `builder.LastRichMarkdownResult` (parse + render diagnostics). The renderer handles **headings 1–6 (ATX + setext), nested emphasis/strong/strike/sub/sup/insert/mark, inline/fenced/indented code, links (real hyperlink relationships), reference links, autolinks, local/data-URI images, recursive blockquotes, bullet/ordered/nested/non-1/task lists, pipe and grid tables with alignment, thematic breaks, hard/soft breaks, escapes and HTML entities, footnotes, definition lists, emoji shortcodes, YAML front matter, and generic attributes.**
 
-**Fixture:** [`markdown/comprehensive.md`](markdown/comprehensive.md) exercises every feature as a readable test report with expected DOCX behaviour; its local image is the self-authored [`markdown/assets/officeeditor-badge.svg`](markdown/assets/officeeditor-badge.svg). [`markdown/style-map.json`](markdown/style-map.json) is a custom style-map example using visible Word style names.
+**Fixture:** [`markdown/comprehensive.md`](markdown/comprehensive.md) exercises every feature as a readable test report with expected DOCX behaviour; its local image is the self-authored [`markdown/assets/officeeditor-badge.svg`](markdown/assets/officeeditor-badge.svg). [`markdown/style-map.json`](markdown/style-map.json) is a custom style-map example using visible Word style names — note that such visible names only render as their real styles when a matching template is opened (`DocumentBuilder.Open` / `--template`); standalone generation (blank document) instead resolves each name to a generated fallback style of the right kind, so the mapping still applies but with default styling.
 
 ### Options
 
