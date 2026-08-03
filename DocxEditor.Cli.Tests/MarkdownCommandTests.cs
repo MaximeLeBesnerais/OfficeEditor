@@ -124,6 +124,74 @@ public sealed class MarkdownCommandTests : IDisposable
     }
 
     [Fact]
+    public void Markdown_Strict_RenderStyleError_DoesNotCreateOutput()
+    {
+        // Without a template, unresolved style references surface during render, not in the
+        // pre-render template check. A strict render error must not publish any output.
+        var styleMap = TempPath("styles.json");
+        File.WriteAllText(styleMap, """{ "paragraph": "DoesNotExist" }""");
+        var input = WriteInput("render-strict.md", "Hello.");
+        var output = TempPath("render-strict.docx");
+
+        var code = InvokeMain(["markdown", input, output, "--style-map", styleMap, "--strict"]);
+
+        Assert.Equal(1, code);
+        Assert.False(File.Exists(output));
+        Assert.Empty(TempLeftovers());
+    }
+
+    [Fact]
+    public void Markdown_Strict_RenderStyleError_PreservesExistingOutputByteForByte()
+    {
+        var styleMap = TempPath("styles.json");
+        File.WriteAllText(styleMap, """{ "paragraph": "DoesNotExist" }""");
+        var input = WriteInput("render-atomic.md", "Hello.");
+        var output = TempPath("render-atomic.docx");
+        var previous = new byte[] { 0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x02, 0x03 };
+        File.WriteAllBytes(output, previous);
+
+        var code = InvokeMain(["markdown", input, output, "--style-map", styleMap, "--strict"]);
+
+        Assert.Equal(1, code);
+        Assert.True(File.Exists(output));
+        Assert.Equal(previous, File.ReadAllBytes(output));
+        Assert.Empty(TempLeftovers());
+    }
+
+    [Fact]
+    public void Markdown_Strict_RenderStyleError_LeavesNoTempFiles()
+    {
+        var styleMap = TempPath("styles.json");
+        File.WriteAllText(styleMap, """{ "paragraph": "DoesNotExist" }""");
+        var input = WriteInput("render-tmp.md", "Hello.");
+        var output = TempPath("render-tmp.docx");
+
+        var code = InvokeMain(["markdown", input, output, "--style-map", styleMap, "--strict"]);
+
+        Assert.Equal(1, code);
+        Assert.Empty(Directory.EnumerateFiles(_tempDir, "*.tmp"));
+    }
+
+    [Fact]
+    public void Markdown_Permissive_RenderStyleWarning_PublishesOutput()
+    {
+        // In permissive mode an unresolved render-time style is only a warning; the conversion
+        // must still publish atomically and leave no temp file behind.
+        var styleMap = TempPath("styles.json");
+        File.WriteAllText(styleMap, """{ "paragraph": "MissingPermissiveRender" }""");
+        var input = WriteInput("perm-render.md", "Hello.");
+        var output = TempPath("perm-render.docx");
+
+        var code = InvokeMain(["markdown", input, output, "--style-map", styleMap]);
+
+        Assert.Equal(0, code);
+        Assert.True(File.Exists(output));
+        using var doc = WordprocessingDocument.Open(output, false);
+        Assert.Contains("Hello", doc.MainDocumentPart!.Document!.InnerText);
+        Assert.Empty(TempLeftovers());
+    }
+
+    [Fact]
     public void Markdown_InvalidStyleMapJson_ReturnsOne()
     {
         var styleMap = TempPath("bad.json");
@@ -234,6 +302,11 @@ public sealed class MarkdownCommandTests : IDisposable
     }
 
     private string TempPath(string fileName) => Path.Combine(_tempDir, fileName);
+
+    private IReadOnlyList<string> TempLeftovers() =>
+        Directory.Exists(_tempDir)
+            ? Directory.EnumerateFiles(_tempDir).Where(p => Path.GetFileName(p).EndsWith(".tmp", StringComparison.Ordinal)).ToList()
+            : [];
 
     private static byte[] OnePixelPng() =>
         Convert.FromBase64String(
