@@ -338,7 +338,7 @@ officeeditor generate examples/Xlsx/instructions/rich-report.json --output rich-
 
 ## 7. Rendering & Conversion (XLSX → PDF/PNG/SVG)
 
-The renderer (`XlsxEditor.Core/Rendering/`) converts spreadsheets to **PDF / PNG / SVG** using the repository's own Typst pipeline: `XlsxReader` → `XlsxToTypstConverter` (native Typst `table` emitter) → `TypstCompilerService` (TypstBridge primary, typst CLI safety net). **No external office suite is used in product code** — LibreOffice appears only as a test-only oracle in `visual-diff --suite xlsx`. It covers typed cells, number formats (`$#,##0.00`, `0.0%`, dates, `[Red]` negatives), fills/borders/fonts/alignment, merges, explicit column widths & row heights, freeze-pane header repetition, and auto-pagination. See the [XLSX roadmap](../docs/roadmap-xlsx.md) "Out of scope" note for the current scope and limits.
+The renderer (`XlsxEditor.Core/Rendering/`) converts spreadsheets to **PDF / PNG / SVG** using the repository's own Typst pipeline: `XlsxReader` → `XlsxToTypstConverter` (native Typst `table` emitter) → `TypstCompilerService` (TypstBridge primary, typst CLI safety net). **No external office suite is used in product code** — LibreOffice appears only as a test-only oracle in `visual-diff --suite xlsx`. It covers typed cells, number formats (`$#,##0.00`, `0.0%`, dates, `[Red]` negatives), fills/borders/fonts/alignment, merges, explicit column widths & row heights, freeze-pane header repetition, and auto-pagination. Scope and limits: images and the row-replication loop are not yet in the JSON vocabulary.
 
 ### `tools/convert-xlsx` — all five formats
 

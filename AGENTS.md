@@ -1,10 +1,8 @@
 # OfficeEditor - Agent Guidelines
 
-> **Load first, always.** Domain-specific rules live in `agent-instructions/AGENTS.pptx.md` and `agent-instructions/AGENTS.typst.md` — load those only when the task touches PPTX or Typst code. 
-
 ## Project Overview
 
-.NET 9 (9.0.313) suite for creating and editing Office documents — **DOCX, PPTX** via instruction sets (JSON/YAML), a **declarative JSON vocabulary for generating beautiful PPTX from scratch**, and **XLSX** via fluent C# APIs, a read/variable pipeline, and a working v1 JSON instruction engine. The richer XLSX generation vocabulary remains on the roadmap. Also: edit existing PPTX with smart text/image replacement, extract brand profiles, convert PPTX → Typst → PDF/PNG/SVG, and verify visual fidelity with a per-primitive RMSE parity suite.
+.NET 9 (9.0.313) suite for creating and editing Office documents — **DOCX, PPTX** via instruction sets (JSON/YAML), a **declarative JSON vocabulary for generating beautiful PPTX from scratch**, and **XLSX** via fluent C# APIs, a read/variable pipeline, and a working v1 JSON instruction engine (richer XLSX vocabulary — images, row-replication — is planned). Also: edit existing PPTX with smart text/image replacement, extract brand profiles, convert PPTX → Typst → PDF/PNG/SVG, and verify visual fidelity with a per-primitive RMSE parity suite.
 
 The repo folder is named `DocxEditor/` for historical reasons; the product is **OfficeEditor** (see `README.md`).
 
@@ -103,14 +101,8 @@ DocxEditor/                         # repo folder (historical name)
 ├── examples/                       # Sample programs + REF/ for visual regression
 ├── demo/                           # Demo decks (demo-deck.json, themes.json) + CLI demo output/
 ├── decks/                          # Authored generation decks (repo-overview.json)
-├── local-ref/                      # Local-only dev fixtures (gitignored — never commit)
 ├── tools/                          # visual-diff suite, pptx-benchmark, convert tools
 ```
-
-## Domain-Specific Guides
-
-- **PPTX work** → read `AGENTS.pptx.md` (regex-on-OuterXml, spcPct math, list args, font handling, reference files)
-- **Typst work** → read `AGENTS.typst.md` (backend selection, output formats, native vs CLI/legacy output differences)
 
 ## Key Decisions
 
@@ -133,6 +125,5 @@ DocxEditor/                         # repo folder (historical name)
 - Generated outputs: `examples/output/ref/`
 - PNG mode: `--format png` generates per-slide images at the configured PPI
 - Token sets: `PptxEditor.Core/Generation/Design/` — mined from REF decks (see `Design/README.md`)
-- SmartArt dev corpus: `local-ref/smartarts/`  (local-only, gitignored)
 - Generation fixtures: `PptxEditor.Core/Generation/Fixtures/` — per-primitive parity test decks
 - Demo/generation decks: `demo/demo-deck.json` (15-slide Northwind Labs — web demo + themes in `demo/themes.json`), `demo/deck.json` (6-slide Makefile demo deck), `decks/repo-overview.json` (self-description deck)

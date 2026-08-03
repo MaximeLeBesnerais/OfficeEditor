@@ -1,7 +1,7 @@
 # DOCX generation vocabulary (v1.0)
 
-Declarative **JSON → DOCX** generation. This is the flagship DOCX deliverable
-(roadmap-docx.md Phase 3): a versioned vocabulary for building new documents from scratch,
+Declarative **JSON → DOCX** generation. This is the flagship DOCX deliverable —
+a versioned vocabulary for building new documents from scratch,
 distinct from the edit instruction set in `DocxEditor.Core/Serialization`
 (generate = new document from JSON; edit = ops against an existing document).
 
@@ -238,6 +238,6 @@ preview emitter; rendering and conversion are separate operations.
 
 - Lists are single-level (bullet glyph / decimal numbering); `list.start` for ordered.
 - Tables are rectangular grids; no merged cells, no per-cell borders.
-- No hyperlinks, fields, footnotes/endnotes, or multi-level numbering — see
-  roadmap-docx.md out-of-scope list.
+- No hyperlinks, fields, footnotes/endnotes, or multi-level numbering — see the
+  generation vocabulary guide for the documented out-of-scope list.
 - Flow `group` is authoring sugar; emitters decide flatten vs. structural container.
