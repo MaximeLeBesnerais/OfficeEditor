@@ -84,6 +84,7 @@ public enum XlsxDiagnosticCode
     // Planner
     DuplicateWrite,
     UnresolvedVariable,
+    VariableValueBecameFormula,
 
     // Generator
     GenerationFailed,

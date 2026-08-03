@@ -905,6 +905,13 @@ public class WorkbookBuilder : IWorkbookBuilder
         }
     }
 
+    /// <summary>
+    /// True when a table with this display name is already registered in the workbook.
+    /// Read-only: lets the instruction executor preflight table-name conflicts before it
+    /// mutates anything.
+    /// </summary>
+    internal bool IsTableNameRegistered(string tableName) => _tableNames.Contains(tableName);
+
     // ─── Named styles ──────────────────────────────────────────────
 
     private StyleManager Styles => _styleManager ??= new StyleManager(_workbookPart);

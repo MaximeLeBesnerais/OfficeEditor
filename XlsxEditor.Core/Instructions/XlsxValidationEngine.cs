@@ -1,5 +1,6 @@
 using XlsxEditor.Core.Builders;
 using XlsxEditor.Core.Exceptions;
+using XlsxEditor.Core.Styles;
 
 namespace XlsxEditor.Core.Instructions;
 
@@ -156,6 +157,14 @@ public static class XlsxValidationEngine
             Error(diagnostics, XlsxDiagnosticCode.CellStyleUnknown, $"{path}.size",
                 $"Font size {size} is outside Excel's supported range (greater than 0, up to 409 points).");
         }
+
+        if (font?.Color is not null && !ExcelColor.IsValid(font.Color))
+        {
+            Error(diagnostics, XlsxDiagnosticCode.CellStyleUnknown, $"{path}.color",
+                $"Invalid font color '{font.Color}'. Colors must be a 6-digit RGB (e.g. 'FF0000'), " +
+                "an 8-digit ARGB (e.g. 'FFFF0000') hex string, or a common color name " +
+                "(e.g. 'red', 'white', 'darkgray').");
+        }
     }
 
     private static void ValidateFill(FillStyleInstruction? fill, string path, List<XlsxDiagnostic> diagnostics)
@@ -163,7 +172,32 @@ public static class XlsxValidationEngine
         if (fill?.Pattern is { } pattern && !IsKnownFillPattern(pattern))
         {
             Error(diagnostics, XlsxDiagnosticCode.CellStyleUnknown, $"{path}.pattern",
-                $"Unknown fill pattern '{pattern}'. Excel patterns include 'none', 'solid', 'gray125', 'gray75', 'gray50', 'gray25', 'gray0625'.");
+                $"Unknown fill pattern '{pattern}'. Real Excel pattern types include 'none', " +
+                "'solid', 'gray125', 'gray0625', 'darkgray', 'mediumgray', 'lightgray', " +
+                "'darkHorizontal', 'darkVertical', 'darkDown', 'darkUp', 'darkGrid', " +
+                "'darkTrellis', 'lightHorizontal', 'lightVertical', 'lightDown', 'lightUp', " +
+                "'lightGrid', 'lightTrellis'.");
+        }
+
+        if (fill is { Pattern: not null } && !IsKnownFillPattern(fill.Pattern))
+        {
+            return;
+        }
+
+        var patternType = fill?.Pattern?.Trim().ToLowerInvariant();
+        if (patternType == "solid" && string.IsNullOrWhiteSpace(fill!.Color))
+        {
+            Error(diagnostics, XlsxDiagnosticCode.CellStyleUnknown, $"{path}.color",
+                "A 'solid' fill requires a 'color'; without one there is nothing to fill the " +
+                "cell with. Remove the fill or provide a color.");
+        }
+
+        if (fill?.Color is not null && !ExcelColor.IsValid(fill.Color))
+        {
+            Error(diagnostics, XlsxDiagnosticCode.CellStyleUnknown, $"{path}.color",
+                $"Invalid fill color '{fill.Color}'. Colors must be a 6-digit RGB (e.g. 'FF0000'), " +
+                "an 8-digit ARGB (e.g. 'FFFF0000') hex string, or a common color name " +
+                "(e.g. 'red', 'white', 'darkgray').");
         }
     }
 
@@ -180,14 +214,16 @@ public static class XlsxValidationEngine
             case "gray0625":
             case "darkvertical":
             case "darkhorizontal":
-            case "darkdiagonal":
-            case "darkdowndiagonal":
-            case "darkupdiagonal":
+            case "darkdown":
+            case "darkup":
+            case "darkgrid":
+            case "darktrellis":
             case "lightvertical":
             case "lighthorizontal":
-            case "lightdiagonal":
-            case "lightdowndiagonal":
-            case "lightupdiagonal":
+            case "lightdown":
+            case "lightup":
+            case "lightgrid":
+            case "lighttrellis":
                 return true;
             default:
                 return false;
@@ -207,7 +243,28 @@ public static class XlsxValidationEngine
         if (edge?.Style is { } style && !IsKnownBorderStyle(style))
         {
             Error(diagnostics, XlsxDiagnosticCode.CellStyleUnknown, $"{path}.style",
-                $"Unknown border style '{style}'. Known styles: none, thin, medium, thick, double, dashed, dotted, dashDot, hair, mediumDashed, mediumDashDot, mediumDashDotDot, slantDashDot.");
+                $"Unknown border style '{style}'. Known styles: none, thin, medium, thick, double, " +
+                "dashed, dotted, dashDot, dashDotDot, hair, mediumDashed, mediumDashDot, " +
+                "mediumDashDotDot, slantDashDot.");
+        }
+
+        if (edge?.Color is not null
+            && (edge.Style is null || edge.Style.Trim().ToLowerInvariant() is "" or "none"))
+        {
+            // A color on an edgeless side would be silently dropped at generation; reject it
+            // so an accepted border always produces the edges it declares.
+            Error(diagnostics, XlsxDiagnosticCode.CellStyleUnknown, $"{path}.color",
+                $"Border edge has a color '{edge.Color}' but no border style; a border edge " +
+                "needs a style (e.g. 'thin', 'medium', 'dashed', 'dotted') to render. Remove " +
+                "the color or add a style.");
+        }
+
+        if (edge?.Color is not null && !ExcelColor.IsValid(edge.Color))
+        {
+            Error(diagnostics, XlsxDiagnosticCode.CellStyleUnknown, $"{path}.color",
+                $"Invalid border color '{edge.Color}'. Colors must be a 6-digit RGB (e.g. " +
+                "'FF0000'), an 8-digit ARGB (e.g. 'FFFF0000') hex string, or a common color " +
+                "name (e.g. 'red', 'white', 'darkgray').");
         }
     }
 
@@ -223,6 +280,7 @@ public static class XlsxValidationEngine
             case "dashed":
             case "dotted":
             case "dashdot":
+            case "dashdotdot":
             case "hair":
             case "mediumdashed":
             case "mediumdashdot":

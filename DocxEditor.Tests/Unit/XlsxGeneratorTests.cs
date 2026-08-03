@@ -140,6 +140,127 @@ public class XlsxGeneratorTests
     }
 
     [Fact]
+    public void Generate_ShouldInferIsoDateTypes_UsingExactWriterFormats()
+    {
+        // Auto-typed row values: the inferred date/datetime must be one the writers can
+        // actually produce, and a midnight datetime must stay a datetime (not a date).
+        var result = XlsxGenerator.Generate("""
+        {
+            "version": "1.0",
+            "worksheets": [{
+                "name": "S",
+                "rows": [["2026-09-30", "2026-09-30T14:30:00", "2026-09-30T00:00:00", "2026-09-30T00:00:00.000"]]
+            }]
+        }
+        """);
+
+        Assert.True(result.IsValid, string.Join("; ", result.Validation.Errors.Select(e => e.Message)));
+        Assert.NotNull(result.Bytes);
+        AssertNoValidationErrors(result.Bytes!);
+
+        using var reader = WorkbookBuilder.Open(result.Bytes!);
+        var ws = reader.GetWorksheet("S");
+        // All four are stored as Excel serial numbers (dates render via their number format).
+        Assert.Equal(CellValues.Number, ws.GetCellInfo("A1")!.DataType);
+        Assert.Equal(CellValues.Number, ws.GetCellInfo("B1")!.DataType);
+        Assert.Equal(CellValues.Number, ws.GetCellInfo("C1")!.DataType);
+        Assert.Equal(CellValues.Number, ws.GetCellInfo("D1")!.DataType);
+    }
+
+    [Fact]
+    public void Generate_ShouldNotInferNonWritableStrings_AsDates()
+    {
+        // A space-separated datetime and a US-format date are not ISO writer formats, so
+        // auto inference must leave them as strings instead of planning a cell that would
+        // fail to write.
+        var result = XlsxGenerator.Generate("""
+        {
+            "version": "1.0",
+            "worksheets": [{
+                "name": "S",
+                "rows": [["2026-09-30 10:30", "09/30/2026"]]
+            }]
+        }
+        """);
+
+        Assert.True(result.IsValid);
+        Assert.NotNull(result.Bytes);
+        AssertNoValidationErrors(result.Bytes!);
+
+        using var reader = WorkbookBuilder.Open(result.Bytes!);
+        var ws = reader.GetWorksheet("S");
+        Assert.Equal(CellValues.SharedString, ws.GetCellInfo("A1")!.DataType);
+        Assert.Equal(CellValues.SharedString, ws.GetCellInfo("B1")!.DataType);
+    }
+
+    [Fact]
+    public void Generate_ShouldForceFullRecalculationOnLoad_WhenFormulasExist()
+    {
+        var withFormula = XlsxGenerator.Generate("""
+        {
+            "version": "1.0",
+            "worksheets": [{ "name": "S", "cells": [{ "address": "A1", "formula": "=1+1" }] }]
+        }
+        """);
+        Assert.True(withFormula.IsValid);
+        AssertNoValidationErrors(withFormula.Bytes!);
+        using var formulaReader = WorkbookBuilder.Open(withFormula.Bytes!);
+        Assert.True(formulaReader.GetCalculationProperties().FullCalcOnLoad);
+
+        var noFormula = XlsxGenerator.Generate("""
+        {
+            "version": "1.0",
+            "worksheets": [{ "name": "S", "rows": [["1"]] }]
+        }
+        """);
+        Assert.True(noFormula.IsValid);
+        using var plainReader = WorkbookBuilder.Open(noFormula.Bytes!);
+        Assert.False(plainReader.GetCalculationProperties().FullCalcOnLoad);
+    }
+
+    [Fact]
+    public void Generate_ShouldPromoteVariableValueToFormula_AndWarn()
+    {
+        var result = XlsxGenerator.Generate("""
+        {
+            "version": "1.0",
+            "variables": { "total": "=1+1" },
+            "worksheets": [{ "name": "S", "rows": [["{{total}}"]] }]
+        }
+        """);
+
+        Assert.True(result.IsValid);
+        Assert.Contains(result.Validation.Warnings, d => d.Code == XlsxDiagnosticCode.VariableValueBecameFormula);
+        Assert.NotNull(result.Bytes);
+        AssertNoValidationErrors(result.Bytes!);
+
+        using var reader = WorkbookBuilder.Open(result.Bytes!);
+        Assert.Equal("=1+1", reader.GetWorksheet("S").GetCellFormula("A1"));
+    }
+
+    [Fact]
+    public void Generate_ShouldKeepVariableValueLiteral_WhenColumnTypedString()
+    {
+        var result = XlsxGenerator.Generate("""
+        {
+            "version": "1.0",
+            "variables": { "total": "=1+1" },
+            "worksheets": [{ "name": "S", "columns": [{ "type": "string" }], "rows": [["{{total}}"]] }]
+        }
+        """);
+
+        Assert.True(result.IsValid);
+        Assert.Contains(result.Validation.Warnings, d => d.Code == XlsxDiagnosticCode.VariableValueBecameFormula);
+        Assert.NotNull(result.Bytes);
+        AssertNoValidationErrors(result.Bytes!);
+
+        using var reader = WorkbookBuilder.Open(result.Bytes!);
+        var ws = reader.GetWorksheet("S");
+        Assert.Null(ws.GetCellFormula("A1"));
+        Assert.Equal("=1+1", ws.GetCellValue("A1"));
+    }
+
+    [Fact]
     public void Generate_ShouldHandleExplicitEmptyStringCell()
     {
         var result = XlsxGenerator.Generate("""
@@ -408,24 +529,124 @@ public class XlsxGeneratorTests
     [Fact]
     public void Execute_ShouldNotMutateBuilder_WhenStyleAspectUnsupported()
     {
+        // "stripes" is not a real Excel pattern type; a programmatic set bypassing the
+        // parser is held to the same rules and rejected before any builder mutation.
         var set = new XlsxInstructionSet
         {
             Version = "1.0",
-            Styles = [new NamedStyle { Name = "bordered", Border = new BorderStyleInstruction() }],
+            Styles = [new NamedStyle { Name = "patterned", Fill = new FillStyleInstruction { Color = "FF0000", Pattern = "stripes" } }],
             Worksheets =
             [
                 new WorksheetInstruction
                 {
                     Name = "S",
-                    Cells = [new CellInstruction { Address = "A1", Value = "x", Style = "bordered" }]
+                    Cells = [new CellInstruction { Address = "A1", Value = "x", Style = "patterned" }]
                 }
             ]
         };
 
         using var builder = WorkbookBuilder.Create();
         var ex = Assert.Throws<XlsxException>(() => XlsxInstructionExecutor.Execute(set, builder));
-        Assert.Contains("borders", ex.Message);
+        Assert.Contains("fill pattern", ex.Message);
         Assert.Empty(builder.GetWorksheetNames());
+    }
+
+    [Fact]
+    public void Execute_ShouldNotMutateBuilder_WhenNumericStyleIdIsOutOfRange()
+    {
+        // One named style means exactly two cell formats (default + the style); raw id "7"
+        // is out of range and must fail before any cell (or even worksheet) is created.
+        var set = new XlsxInstructionSet
+        {
+            Version = "1.0",
+            Styles = [new NamedStyle { Name = "only", Font = new FontStyleInstruction { Bold = true } }],
+            Worksheets =
+            [
+                new WorksheetInstruction
+                {
+                    Name = "S",
+                    Cells =
+                    [
+                        new CellInstruction { Address = "A1", Value = "ok", Style = "only" },
+                        new CellInstruction { Address = "A2", Value = "x", Style = "7" }
+                    ]
+                }
+            ]
+        };
+
+        using var builder = WorkbookBuilder.Create();
+        var ex = Assert.Throws<XlsxException>(() => XlsxInstructionExecutor.Execute(set, builder));
+        Assert.Contains("styleId", ex.Message);
+        Assert.Empty(builder.GetWorksheetNames());
+    }
+
+    [Fact]
+    public void Execute_ShouldNotMutateBuilder_WhenWorksheetConflictsWithExistingBuilder()
+    {
+        using var builder = WorkbookBuilder.Create();
+        builder.AddWorksheet("Existing");
+
+        var set = new XlsxInstructionSet
+        {
+            Version = "1.0",
+            Worksheets =
+            [
+                new WorksheetInstruction { Name = "Existing", Cells = [new CellInstruction { Address = "A1", Value = "clash" }] },
+                new WorksheetInstruction { Name = "New", Cells = [new CellInstruction { Address = "A1", Value = "ok" }] }
+            ]
+        };
+
+        var ex = Assert.Throws<XlsxException>(() => XlsxInstructionExecutor.Execute(set, builder));
+        Assert.Contains("already exists", ex.Message);
+        // The second sheet must not have been added after the conflict on the first.
+        Assert.Equal(new List<string> { "Existing" }, builder.GetWorksheetNames());
+    }
+
+    [Fact]
+    public void Execute_ShouldNotMutateBuilder_WhenNamedStyleConflictsWithExistingBuilder()
+    {
+        using var builder = WorkbookBuilder.Create();
+        builder.DefineStyle(new CellStyleSpec { Name = "money", NumberFormat = "0.00" });
+
+        var set = new XlsxInstructionSet
+        {
+            Version = "1.0",
+            Styles = [new NamedStyle { Name = "money", NumberFormat = "0.00" }],
+            Worksheets = [new WorksheetInstruction { Name = "S", Cells = [new CellInstruction { Address = "A1", Value = "x" }] }]
+        };
+
+        var ex = Assert.Throws<XlsxException>(() => XlsxInstructionExecutor.Execute(set, builder));
+        Assert.Contains("already defined", ex.Message);
+        Assert.Empty(builder.GetWorksheetNames());
+    }
+
+    [Fact]
+    public void Execute_ShouldNotMutateBuilder_WhenTableNameConflictsWithExistingBuilder()
+    {
+        using var builder = WorkbookBuilder.Create();
+        var sheet = builder.AddWorksheet("S");
+        sheet.AddHeaderRow(new List<string> { "a" }, 1);
+        sheet.AddDataRow(new List<string> { "1" }, 2);
+        sheet.AddTable("A1", "A2", "Taken");
+
+        var set = new XlsxInstructionSet
+        {
+            Version = "1.0",
+            Worksheets =
+            [
+                new WorksheetInstruction
+                {
+                    Name = "T",
+                    Headers = ["a"],
+                    Rows = [["1"]],
+                    Tables = [new TableInstruction { Name = "Taken", Range = "A1:A2" }]
+                }
+            ]
+        };
+
+        var ex = Assert.Throws<XlsxException>(() => XlsxInstructionExecutor.Execute(set, builder));
+        Assert.Contains("already exists", ex.Message);
+        Assert.Equal(new List<string> { "S" }, builder.GetWorksheetNames());
     }
 
     // ─── Outputs: file (atomic) & stream ownership ─────────────────

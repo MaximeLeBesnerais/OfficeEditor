@@ -62,9 +62,14 @@ public static class XlsxCellTypeParser
 
     /// <summary>
     /// Applies a declared type to a concrete value, resolving <see cref="XlsxCellType.Auto"/>
-    /// by inspecting the value: formulas stay formulas, "true"/"false" are booleans,
-    /// ISO-ish dates become date/datetime, parseable numbers become numbers, everything
-    /// else is a string.
+    /// by inspecting the value. The inference mirrors the exact writer formats: a value is a
+    /// date only when it matches the ISO date format the writer accepts ("yyyy-MM-dd"), and
+    /// a datetime only when it matches the ISO datetime formats ("yyyy-MM-ddTHH:mm:ss" or
+    /// "yyyy-MM-ddTHH:mm:ss.fff") — a midnight datetime stays a datetime, never a date.
+    /// Anything the writers cannot represent falls through to a string, so a type inferred
+    /// here is always one the executor can actually write. Formulas ("=…") resolve to a
+    /// string literal, "true"/"false" to booleans, parseable numbers to numbers, everything
+    /// else to a string.
     /// </summary>
     public static XlsxCellType ResolveAuto(XlsxCellType declared, string? value)
     {
@@ -101,16 +106,29 @@ public static class XlsxCellTypeParser
         }
 
         // Checked after numbers so a year-only string like "2024" stays a number while a
-        // real date ("2024-01-15", "01/15/2024 10:30") falls through to a date type.
-        if (System.DateTime.TryParse(
+        // real ISO date ("2024-01-15") falls through to a date type. These exact formats
+        // are the ones AddCellDate/AddCellDateTime accept, so an inferred date/datetime is
+        // always writable (and a midnight datetime is NOT misclassified as a date).
+        if (System.DateOnly.TryParseExact(
                 value,
+                "yyyy-MM-dd",
                 System.Globalization.CultureInfo.InvariantCulture,
-                System.Globalization.DateTimeStyles.AllowWhiteSpaces,
-                out var date))
+                System.Globalization.DateTimeStyles.None,
+                out var date)
+            && date >= new System.DateOnly(1900, 1, 1))
         {
-            return date.TimeOfDay == System.TimeSpan.Zero
-                ? XlsxCellType.Date
-                : XlsxCellType.DateTime;
+            return XlsxCellType.Date;
+        }
+
+        if (System.DateTime.TryParseExact(
+                value,
+                new[] { "yyyy-MM-ddTHH:mm:ss", "yyyy-MM-ddTHH:mm:ss.fff" },
+                System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.None,
+                out var dateTime)
+            && dateTime >= new System.DateTime(1900, 1, 1))
+        {
+            return XlsxCellType.DateTime;
         }
 
         return XlsxCellType.String;
