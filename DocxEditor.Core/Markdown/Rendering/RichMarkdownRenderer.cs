@@ -294,6 +294,12 @@ public sealed class RichMarkdownRenderer
             pPr.Append(new ParagraphStyleId { Val = style });
         }
 
+        // Widow/orphan control keeps the last line of a multi-line paragraph together with the
+        // previous line at a page break, instead of stranding a single trailing word on the
+        // next page. Word's own default, applied explicitly so it holds regardless of the
+        // document's Normal/body style definition.
+        pPr.Append(new WidowControl());
+
         if (numberingId is { } numId)
         {
             pPr.Append(new NumberingProperties(
@@ -467,6 +473,17 @@ public sealed class RichMarkdownRenderer
         foreach (var row in table.Rows)
         {
             var tableRow = new TableRow();
+
+            // Keep the row intact across a page boundary (no empty continuation rows) and
+            // repeat the header row at the top of every page the table spans. Per CT_TrPr
+            // ordering w:cantSplit must precede w:tblHeader.
+            var rowProperties = new TableRowProperties(new CantSplit());
+            if (row.IsHeader)
+            {
+                rowProperties.Append(new TableHeader());
+            }
+            tableRow.TableRowProperties = rowProperties;
+
             var cellIndex = 0;
             foreach (var cell in row.Cells)
             {
