@@ -295,7 +295,7 @@ var bytes = XlsxGenerator.GenerateBytes(json);
 |---|---|
 | Root | `version` (`"1.0"`), `description`, `metadata`, `styles`, `worksheets`, `variables` |
 | `metadata` | `title`, `subject`, `author`, `category`, `keywords`, `comments` → workbook core properties |
-| `styles[]` | `name`, `font` (`bold`/`italic`/`color`/`size`), `fill` (`color` + `pattern`), `alignment` (`horizontal`/`vertical`/`wrapText`), `numberFormat` |
+| `styles[]` | `name`, `font` (`bold`/`italic`/`color`/`size`), `fill` (`color` + `pattern`), `border` (`left`/`right`/`top`/`bottom`, each a `style` + optional `color`), `alignment` (`horizontal`/`vertical`/`wrapText`), `numberFormat` |
 | `worksheets[]` | `name`, `headers`, `headerStyle`, `startRow`, `columns[]`, `rows[]`, `rowHeights[]`, `cells[]`, `merges[]`, `freezePanes`, `autoFilter`, `tables[]` |
 | `columns[]` | `name`, `width` (Excel units, 1–255), `style`, `type` |
 | `cells[]` | `address` + `value` XOR `formula` (formula starts with `=`), `type`, `numberFormat`, `style` |
@@ -303,29 +303,27 @@ var bytes = XlsxGenerator.GenerateBytes(json);
 | `freezePanes` | `cell` (e.g. `"A3"`) or `row`/`column` |
 | `tables[]` | `name` (unique workbook-wide) + `range` |
 
-Cell `type` is `auto`, `string`, `number`, `boolean`, `date`, or `datetime`; `auto` infers from the resolved value (numbers parse, `true`/`false` become booleans, ISO-like values become date/datetime, everything else is text). Explicit `date` requires `yyyy-MM-dd` and `datetime` requires `yyyy-MM-ddTHH:mm:ss` (optionally `.fff`); typed values that fail to parse fail the whole set with a descriptive `XlsxException`. A `style` reference is a named style or a legacy numeric style-id string (e.g. `"0"`). Variables `{{name}}` resolve at planning time in values and formulas; unresolved placeholders and variable cycles are errors.
+Cell `type` is `auto`, `string`, `number`, `boolean`, `date`, or `datetime`; `auto` infers from the resolved value (numbers parse, `true`/`false` become booleans, ISO-like values become date/datetime, everything else is text). Explicit `date` requires `yyyy-MM-dd` and `datetime` requires `yyyy-MM-ddTHH:mm:ss` (optionally `.fff`); typed values that fail to parse fail the whole set with a descriptive `XlsxException`. Date/datetime cells are stored as Excel serial numbers under a date number format (`yyyy-mm-dd`, or `yyyy-mm-dd h:mm:ss` for datetimes) so they render as dates in Excel. A `style` reference is a named style or a legacy numeric style-id string (e.g. `"0"`). Style colors accept a 6-digit RGB, 8-digit ARGB hex string, or a common color name; fills accept any real Excel pattern type (`solid`, `gray125`, …); borders take up to four edges (`left`/`right`/`top`/`bottom`), each a border style (`thin`, `medium`, `thick`, `double`, `dashed`, `dotted`, …) plus an optional color. Formula cells are written without a cached value and the workbook sets `fullCalcOnLoad`, so Excel/LibreOffice recalculates the results when the file opens. Variables `{{name}}` resolve at planning time in values and formulas; unresolved placeholders and variable cycles are errors.
 
 Validation is loud: unknown keys, invalid sheet names, out-of-bounds addresses (columns A–XFD, rows 1–1,048,576), cells with both/neither `value` and `formula`, over-limit cell text (32,767 chars) and formulas (8,192 chars), and unknown types/alignments are all rejected with path-qualified errors. Duplicate writes to one cell warn (last write wins).
 
-### CLI (expected interface, not yet wired)
+### CLI
 
-The **intended public command** is
+The wired command is the unified `generate` surface (extension-selected, like DOCX/PPTX):
 
 ```bash
-officeeditor create rich-report.xlsx --instructions examples/Xlsx/instructions/rich-report.json
+officeeditor generate examples/Xlsx/instructions/rich-report.json --output rich-report.xlsx
 ```
 
-`officeeditor create <out.xlsx> --instructions <file.json>` is **not implemented at this commit** — `create` currently makes a blank sheet, and `generate` accepts `.pptx`/`.docx` outputs only. Until the wiring lands, drive the vocabulary through `XlsxGenerator` / `XlsxInstructionExecutor` from the library, as above.
+`officeeditor create <out.xlsx> --instructions <file.json>` is still **not implemented** — `create` currently makes a blank sheet, and XLSX `edit` is unimplemented (the unified `edit` command is a stub). Drive the vocabulary through `XlsxGenerator` / `XlsxInstructionExecutor` from the library when you need it from code.
 
 ### Explicit limitations
 
-- **Borders are not supported** — a named style with a `border` block throws `XlsxException` (preflight, before any output).
-- **Fill patterns** — only `solid` and `none` are representable; other patterns throw.
 - **Images** — there is no `images[]` vocabulary; pictures are fluent-API only and not in JSON.
 - **Row replication** — there is no `repeat`/`foreach` loop; the roadmap's hardest item remains.
 - **Number formats** — applied via named styles or per-cell `numberFormat`; there is no separate `numFmt` table authoring.
 - **Charts, defined names, data validation, panes beyond freeze** — out of the v1 vocabulary.
-- **CLI wiring** — not merged; use the library (see above).
+- **`create --instructions` / `edit`** — not wired; use `officeeditor generate <input.json> --output <out.xlsx>` or the library.
 
 ---
 
