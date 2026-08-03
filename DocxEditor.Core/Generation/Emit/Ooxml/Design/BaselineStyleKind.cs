@@ -9,68 +9,72 @@ namespace DocxEditor.Core.Generation.Emit.Ooxml.Design;
 /// style when it is missing ("generate baseline styles … where represented"). Paragraph-style
 /// kinds correspond one-to-one with <see cref="DocxEditor.Core.Generation.Model.TextRole"/> (see
 /// <see cref="BaselineStyleKindExtensions.ToTextRole"/>).
+///
+/// Numeric values are explicitly assigned and stable: inserting a new kind in the middle of the
+/// list must never renumber the trailing members, which would silently reinterpret any persisted
+/// or compiled-constant value.
 /// </summary>
 public enum BaselineStyleKind
 {
     /// <summary>Body text (the document's Normal/default paragraph style).</summary>
-    Body,
+    Body = 0,
 
     /// <summary>Document title.</summary>
-    Title,
+    Title = 1,
 
     /// <summary>Subtitle line under a title.</summary>
-    Subtitle,
+    Subtitle = 2,
 
     /// <summary>Small uppercase kicker above a title.</summary>
-    Eyebrow,
+    Eyebrow = 3,
 
     /// <summary>Heading level 1.</summary>
-    Heading1,
+    Heading1 = 4,
 
     /// <summary>Heading level 2.</summary>
-    Heading2,
+    Heading2 = 5,
 
     /// <summary>Heading level 3.</summary>
-    Heading3,
+    Heading3 = 6,
 
     /// <summary>Heading level 4.</summary>
-    Heading4,
+    Heading4 = 7,
 
     /// <summary>Heading level 5.</summary>
-    Heading5,
+    Heading5 = 8,
 
     /// <summary>Heading level 6.</summary>
-    Heading6,
+    Heading6 = 9,
 
     /// <summary>Muted/secondary body text.</summary>
-    MutedBody,
+    MutedBody = 10,
 
     /// <summary>Small field label.</summary>
-    Label,
+    Label = 11,
 
     /// <summary>Large standalone number or figure.</summary>
-    Metric,
+    Metric = 12,
 
     /// <summary>Caption under a metric.</summary>
-    MetricLabel,
+    MetricLabel = 13,
 
     /// <summary>Callout/note paragraph (shaded, indented, bordered).</summary>
-    Callout,
+    Callout = 14,
 
     /// <summary>Page footer text.</summary>
-    Footer,
+    Footer = 15,
 
     /// <summary>Table base style (single-line grid borders).</summary>
-    Table,
+    Table = 16,
 
     /// <summary>Table header cell paragraph style (emphasized header text).</summary>
-    TableHeader,
+    TableHeader = 17,
 
     /// <summary>Table body cell paragraph style.</summary>
-    TableBody,
+    TableBody = 18,
 
     /// <summary>Code block paragraph style (monospace, shaded).</summary>
-    Code
+    Code = 19
 }
 
 /// <summary>Helpers for working with <see cref="BaselineStyleKind"/>.</summary>

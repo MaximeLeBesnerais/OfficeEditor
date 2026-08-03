@@ -14,68 +14,234 @@ namespace XlsxEditor.Core.Instructions;
 /// </summary>
 public static class XlsxPlanner
 {
-    public static XlsxPlanResult Plan(XlsxInstructionSet instructions)
+    /// <summary>
+    /// Default cap on the expanded length of a single variable (and of any resolved cell
+    /// value) during planning. Expansion is aborted with a structured diagnostic the
+    /// moment an append would cross the budget, so a hostile doubling chain like
+    /// <c>a1="{{a0}}{{a0}}"</c> can never materialize gigabytes in memory — even when its
+    /// terminal variable is referenced by the sheet. Callers can tune it via the
+    /// <see cref="Plan(XlsxInstructionSet, int)"/> overload.
+    /// </summary>
+    public const int DefaultMaxVariableExpansionLength = 1_048_576;
+
+    public static XlsxPlanResult Plan(XlsxInstructionSet instructions) =>
+        Plan(instructions, DefaultMaxVariableExpansionLength);
+
+    /// <summary>
+    /// Plans the instruction set with an explicit per-expansion length budget (in
+    /// characters). A negative/zero budget is a programmer error and throws; bad input is
+    /// always folded into the returned diagnostics instead.
+    /// </summary>
+    public static XlsxPlanResult Plan(XlsxInstructionSet instructions, int maxVariableLength)
     {
-        var validation = XlsxValidationEngine.Validate(instructions);
-        if (!validation.IsValid)
+        if (maxVariableLength < 1)
         {
-            return new XlsxPlanResult(null, validation);
+            throw new ArgumentOutOfRangeException(
+                nameof(maxVariableLength), maxVariableLength,
+                "The maximum variable expansion length must be a positive integer.");
         }
 
-        var diagnostics = new List<XlsxDiagnostic>(validation.Diagnostics);
-
-        var resolver = new VariableResolver(instructions.Variables);
-        var variables = resolver.ResolveAll(diagnostics);
-        if (diagnostics.Any(d => d.IsError))
+        try
         {
-            return new XlsxPlanResult(null, new XlsxValidationResult { Diagnostics = diagnostics });
+            var validation = XlsxValidationEngine.Validate(instructions);
+            if (!validation.IsValid)
+            {
+                return new XlsxPlanResult(null, validation);
+            }
+
+            var diagnostics = new List<XlsxDiagnostic>(validation.Diagnostics);
+
+            // Only the variables the sheet actually references are resolved (plus whatever
+            // they transitively reference); defined-but-unused variables are never expanded.
+            var resolver = new VariableResolver(instructions.Variables, maxVariableLength);
+            var variables = resolver.ResolveAll(CollectReferencedVariables(instructions), diagnostics);
+            if (diagnostics.Any(d => d.IsError))
+            {
+                return new XlsxPlanResult(null, new XlsxValidationResult { Diagnostics = diagnostics });
+            }
+
+            var plans = new List<XlsxPlanWorksheet>(instructions.Worksheets.Count);
+            for (var s = 0; s < instructions.Worksheets.Count; s++)
+            {
+                plans.Add(PlanWorksheet(instructions.Worksheets[s], s, variables, diagnostics, maxVariableLength));
+            }
+
+            var plan = new XlsxPlan
+            {
+                Version = instructions.Version,
+                Description = instructions.Description,
+                Metadata = instructions.Metadata,
+                Styles = instructions.Styles is { Count: > 0 } ? instructions.Styles : Array.Empty<NamedStyle>(),
+                Worksheets = plans,
+                Variables = variables
+            };
+
+            // A plan is only produced when it is safe to execute: any error (validation or
+            // resolution, e.g. an over-limit cell) yields no plan and the full diagnostic set.
+            if (diagnostics.Any(d => d.IsError))
+            {
+                return new XlsxPlanResult(null, new XlsxValidationResult { Diagnostics = diagnostics });
+            }
+
+            return new XlsxPlanResult(plan, new XlsxValidationResult { Diagnostics = diagnostics });
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            // Bad input must never leak a raw exception: an unexpected planner failure
+            // (e.g. a defensive regression in address math) is folded into a structured,
+            // path-qualified diagnostic instead, matching the validator's non-throwing
+            // contract for document input.
+            return new XlsxPlanResult(null, new XlsxValidationResult
+            {
+                Diagnostics = new[]
+                {
+                    new XlsxDiagnostic(
+                        XlsxDiagnosticCode.PlanningFailed,
+                        XlsxDiagnosticSeverity.Error,
+                        string.Empty,
+                        $"Planning failed: {ex.Message}")
+                }
+            });
+        }
+    }
+
+    /// <summary>
+    /// Collects the names of every variable the instruction set actually references (as a
+    /// '{{name}}' token) in headers, row values and discrete cell values/formulas. Only
+    /// these — plus whatever they transitively reference — are resolved; variables the
+    /// sheet never uses stay inert, so an exponential definition chain is never expanded
+    /// merely because it was declared.
+    /// </summary>
+    private static IEnumerable<string> CollectReferencedVariables(XlsxInstructionSet set)
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        if (set.Worksheets is not { Count: > 0 })
+        {
+            return names;
         }
 
-        var plans = new List<XlsxPlanWorksheet>(instructions.Worksheets.Count);
-        for (var s = 0; s < instructions.Worksheets.Count; s++)
+        foreach (var ws in set.Worksheets)
         {
-            plans.Add(PlanWorksheet(instructions.Worksheets[s], s, variables, diagnostics));
+            if (ws is null)
+            {
+                continue;
+            }
+
+            if (ws.Headers is { Count: > 0 })
+            {
+                foreach (var header in ws.Headers)
+                {
+                    if (header is not null)
+                    {
+                        CollectPlaceholders(header, names);
+                    }
+                }
+            }
+
+            if (ws.Rows is { Count: > 0 })
+            {
+                foreach (var row in ws.Rows)
+                {
+                    if (row is null)
+                    {
+                        continue;
+                    }
+
+                    foreach (var value in row)
+                    {
+                        if (value is not null)
+                        {
+                            CollectPlaceholders(value, names);
+                        }
+                    }
+                }
+            }
+
+            if (ws.Cells is { Count: > 0 })
+            {
+                foreach (var cell in ws.Cells)
+                {
+                    if (cell is null)
+                    {
+                        continue;
+                    }
+
+                    if (cell.Value is not null)
+                    {
+                        CollectPlaceholders(cell.Value, names);
+                    }
+
+                    if (cell.Formula is not null)
+                    {
+                        CollectPlaceholders(cell.Formula, names);
+                    }
+                }
+            }
         }
 
-        var plan = new XlsxPlan
-        {
-            Version = instructions.Version,
-            Description = instructions.Description,
-            Metadata = instructions.Metadata,
-            Styles = instructions.Styles is { Count: > 0 } ? instructions.Styles : Array.Empty<NamedStyle>(),
-            Worksheets = plans,
-            Variables = variables
-        };
+        return names;
+    }
 
-        // A plan is only produced when it is safe to execute: any error (validation or
-        // resolution, e.g. an over-limit cell) yields no plan and the full diagnostic set.
-        if (diagnostics.Any(d => d.IsError))
+    private static void CollectPlaceholders(string text, HashSet<string> names)
+    {
+        if (!text.Contains("{{", StringComparison.Ordinal))
         {
-            return new XlsxPlanResult(null, new XlsxValidationResult { Diagnostics = diagnostics });
+            return;
         }
 
-        return new XlsxPlanResult(plan, new XlsxValidationResult { Diagnostics = diagnostics });
+        var pos = 0;
+        while (pos < text.Length)
+        {
+            var open = text.IndexOf("{{", pos, StringComparison.Ordinal);
+            if (open < 0)
+            {
+                return;
+            }
+
+            var close = text.IndexOf("}}", open + 2, StringComparison.Ordinal);
+            if (close < 0)
+            {
+                return;
+            }
+
+            var inner = text.Substring(open + 2, close - open - 2).Trim();
+            if (inner.Length > 0)
+            {
+                names.Add(inner);
+            }
+
+            pos = close + 2;
+        }
     }
 
     // ─── Variables ────────────────────────────────────────────────
 
     private sealed class VariableResolver
     {
-        private readonly IReadOnlyDictionary<string, string>? _raw;
+        private readonly Dictionary<string, string>? _raw;
         private readonly Dictionary<string, string> _resolved = new(StringComparer.Ordinal);
+        private readonly HashSet<string> _overBudget = new(StringComparer.Ordinal);
         private readonly HashSet<string> _inProgress = new(StringComparer.Ordinal);
+        private readonly int _maxLength;
 
-        public VariableResolver(Dictionary<string, string>? variables) => _raw = variables;
+        public VariableResolver(Dictionary<string, string>? variables, int maxLength)
+        {
+            _raw = variables;
+            _maxLength = maxLength;
+        }
 
-        public IReadOnlyDictionary<string, string> ResolveAll(List<XlsxDiagnostic> diagnostics)
+        public IReadOnlyDictionary<string, string> ResolveAll(
+            IEnumerable<string> referencedVariables, List<XlsxDiagnostic> diagnostics)
         {
             if (_raw is null)
             {
                 return new Dictionary<string, string>();
             }
 
-            // Materialize keys once so iteration order cannot change mid-resolution.
-            foreach (var key in _raw.Keys.ToList())
+            // Only variables the sheet actually references (directly or transitively) are
+            // resolved. Unreferenced definitions are never expanded, so a hostile doubling
+            // chain stays inert unless its terminal variable is used by the sheet.
+            foreach (var key in referencedVariables)
             {
                 ResolveVariable(key, diagnostics);
             }
@@ -105,12 +271,16 @@ public static class XlsxPlanner
             var value = _raw![key] ?? string.Empty;
             var result = Expand(key, value, diagnostics);
             _inProgress.Remove(key);
-            _resolved[key] = result;
+
+            // An over-budget variable is never materialized: it resolves to an empty value
+            // (the budget diagnostic is already emitted) so a referencing variable keeps
+            // its token instead of concatenating a truncated giant prefix.
+            _resolved[key] = _overBudget.Contains(key) ? string.Empty : result;
         }
 
         private string Expand(string owner, string input, List<XlsxDiagnostic> diagnostics)
         {
-            if (!input.Contains("{{"))
+            if (!input.Contains("{{", StringComparison.Ordinal))
             {
                 return input;
             }
@@ -122,14 +292,14 @@ public static class XlsxPlanner
                 var open = input.IndexOf("{{", pos, StringComparison.Ordinal);
                 if (open < 0)
                 {
-                    sb.Append(input, pos, input.Length - pos);
+                    TryAppend(sb, owner, input, pos, input.Length - pos, diagnostics);
                     break;
                 }
 
                 var close = input.IndexOf("}}", open + 2, StringComparison.Ordinal);
                 if (close < 0)
                 {
-                    sb.Append(input, pos, input.Length - pos);
+                    TryAppend(sb, owner, input, pos, input.Length - pos, diagnostics);
                     diagnostics.Add(new XlsxDiagnostic(
                         XlsxDiagnosticCode.UnresolvedVariable,
                         XlsxDiagnosticSeverity.Error,
@@ -138,14 +308,28 @@ public static class XlsxPlanner
                     break;
                 }
 
-                sb.Append(input, pos, open - pos);
+                if (!TryAppend(sb, owner, input, pos, open - pos, diagnostics))
+                {
+                    break;
+                }
+
                 var inner = input.Substring(open + 2, close - open - 2).Trim();
                 if (_raw!.ContainsKey(inner))
                 {
                     ResolveVariable(inner, diagnostics);
                     if (_resolved.TryGetValue(inner, out var resolved))
                     {
-                        sb.Append(resolved);
+                        if (_overBudget.Contains(inner))
+                        {
+                            // The referenced variable already exceeded the budget on its own
+                            // expansion (reported there); keep its token so no fabricated
+                            // content is planned and no second diagnostic is emitted.
+                            sb.Append("{{").Append(inner).Append("}}");
+                        }
+                        else if (!TryAppend(sb, owner, resolved, 0, resolved.Length, diagnostics))
+                        {
+                            break;
+                        }
                     }
                     else
                     {
@@ -170,13 +354,41 @@ public static class XlsxPlanner
 
             return sb.ToString();
         }
+
+        /// <summary>
+        /// Appends a slice of <paramref name="value"/> to the buffer, aborting the
+        /// expansion (with a structured diagnostic) the moment it would cross the budget.
+        /// The buffer is therefore bounded by the budget plus one appended chunk, so even a
+        /// pathological doubling chain cannot allocate more than a constant multiple of the
+        /// budget.
+        /// </summary>
+        private bool TryAppend(StringBuilder sb, string owner, string value, int start, int length, List<XlsxDiagnostic> diagnostics)
+        {
+            if (sb.Length + length <= _maxLength)
+            {
+                sb.Append(value, start, length);
+                return true;
+            }
+
+            if (_overBudget.Add(owner))
+            {
+                diagnostics.Add(new XlsxDiagnostic(
+                    XlsxDiagnosticCode.VariableExpansionTooLarge,
+                    XlsxDiagnosticSeverity.Error,
+                    $"variables.{owner}",
+                    $"Variable '{owner}' expands beyond {_maxLength:N0} characters; expansion " +
+                    "is aborted instead of materializing the full value."));
+            }
+
+            return false;
+        }
     }
 
     // ─── Worksheets ───────────────────────────────────────────────
 
     private static XlsxPlanWorksheet PlanWorksheet(
         WorksheetInstruction ws, int sheetIndex, IReadOnlyDictionary<string, string> variables,
-        List<XlsxDiagnostic> diagnostics)
+        List<XlsxDiagnostic> diagnostics, int maxLength)
     {
         var sheetName = ws.Name;
         var startRow = ws.StartRow ?? 1;
@@ -195,7 +407,7 @@ public static class XlsxPlanner
                 var reference = WorksheetBuilder.GetCellReference(i, startRow);
                 var resolved = ResolveValue(
                     variables, ws.Headers[i]!, path, $"header column {i + 1} of sheet '{sheetName}'",
-                    diagnostics);
+                    diagnostics, maxLength);
                 var header = new XlsxPlanCell
                 {
                     Reference = reference,
@@ -226,7 +438,7 @@ public static class XlsxPlanner
                     var reference = WorksheetBuilder.GetCellReference(j, rowIndex);
                     var raw = row[j]!;
                     var resolved = ResolveValue(
-                        variables, raw, path, $"cell {reference} of sheet '{sheetName}'", diagnostics);
+                        variables, raw, path, $"cell {reference} of sheet '{sheetName}'", diagnostics, maxLength);
                     var column = ColumnAt(columns, j);
                     var declaredType = column?.Type ?? XlsxCellType.Auto;
                     var authoredFormula = raw.StartsWith('=');
@@ -313,10 +525,10 @@ public static class XlsxPlanner
 
                 var isFormula = instruction.Formula is not null;
                 var resolvedFormula = isFormula
-                    ? ResolveValue(variables, instruction.Formula!, path, $"formula of cell {reference} in sheet '{sheetName}'", diagnostics)
+                    ? ResolveValue(variables, instruction.Formula!, path, $"formula of cell {reference} in sheet '{sheetName}'", diagnostics, maxLength)
                     : null;
                 var resolvedValue = !isFormula && instruction.Value is not null
-                    ? ResolveValue(variables, instruction.Value, path, $"cell {reference} of sheet '{sheetName}'", diagnostics)
+                    ? ResolveValue(variables, instruction.Value, path, $"cell {reference} of sheet '{sheetName}'", diagnostics, maxLength)
                     : null;
 
                 var declaredType = instruction.Type is not null && XlsxCellTypeParser.TryParse(instruction.Type, out var parsed)
@@ -495,9 +707,9 @@ public static class XlsxPlanner
 
     private static string ResolveValue(
         IReadOnlyDictionary<string, string> variables, string raw, string path, string context,
-        List<XlsxDiagnostic> diagnostics)
+        List<XlsxDiagnostic> diagnostics, int maxLength)
     {
-        if (!raw.Contains("{{"))
+        if (!raw.Contains("{{", StringComparison.Ordinal))
         {
             return raw;
         }
@@ -509,14 +721,14 @@ public static class XlsxPlanner
             var open = raw.IndexOf("{{", pos, StringComparison.Ordinal);
             if (open < 0)
             {
-                sb.Append(raw, pos, raw.Length - pos);
+                TryAppend(sb, raw, pos, raw.Length - pos, maxLength, path, context, diagnostics);
                 break;
             }
 
             var close = raw.IndexOf("}}", open + 2, StringComparison.Ordinal);
             if (close < 0)
             {
-                sb.Append(raw, pos, raw.Length - pos);
+                TryAppend(sb, raw, pos, raw.Length - pos, maxLength, path, context, diagnostics);
                 diagnostics.Add(new XlsxDiagnostic(
                     XlsxDiagnosticCode.UnresolvedVariable,
                     XlsxDiagnosticSeverity.Error,
@@ -526,11 +738,18 @@ public static class XlsxPlanner
                 break;
             }
 
-            sb.Append(raw, pos, open - pos);
+            if (!TryAppend(sb, raw, pos, open - pos, maxLength, path, context, diagnostics))
+            {
+                break;
+            }
+
             var inner = raw.Substring(open + 2, close - open - 2).Trim();
             if (variables.TryGetValue(inner, out var resolved))
             {
-                sb.Append(resolved);
+                if (!TryAppend(sb, resolved, 0, resolved.Length, maxLength, path, context, diagnostics))
+                {
+                    break;
+                }
             }
             else
             {
@@ -547,6 +766,31 @@ public static class XlsxPlanner
         }
 
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// Appends a slice of <paramref name="value"/> to the cell-resolution buffer, aborting
+    /// with a structured diagnostic the moment the combined result would cross the length
+    /// budget — so a resolved value is never materialized past the cap even when many
+    /// large placeholders combine in one cell.
+    /// </summary>
+    private static bool TryAppend(
+        StringBuilder sb, string value, int start, int length, int maxLength,
+        string path, string context, List<XlsxDiagnostic> diagnostics)
+    {
+        if (sb.Length + length <= maxLength)
+        {
+            sb.Append(value, start, length);
+            return true;
+        }
+
+        diagnostics.Add(new XlsxDiagnostic(
+            XlsxDiagnosticCode.VariableExpansionTooLarge,
+            XlsxDiagnosticSeverity.Error,
+            path,
+            $"Resolved value in {context} expands beyond {maxLength:N0} characters; expansion " +
+            "is aborted instead of materializing the full value."));
+        return false;
     }
 
     private static void CheckCellLimits(XlsxPlanCell cell, string sheetName, List<XlsxDiagnostic> diagnostics)
