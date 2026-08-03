@@ -10,6 +10,7 @@ using OfficeEditor.Core.Services;
 using PptxEditor.Core.Builders;
 using XlsxEditor.Core.Builders;
 using XlsxEditor.Core.Instructions;
+using XlsxEditor.Core.Rendering;
 
 namespace OfficeEditor.Api.Services;
 
@@ -39,6 +40,9 @@ public sealed class ConversionService : IConversionService
                 ConversionTargetFormat.Xlsx when sourceFormat == SourceFormat.Unknown || (sourceFormat == SourceFormat.Xlsx && IsEmptyDocument(request)) => await CreateBlankXlsxAsync(request, messages, ct),
                 ConversionTargetFormat.Pptx when sourceFormat == SourceFormat.Unknown || (sourceFormat == SourceFormat.Pptx && IsEmptyDocument(request)) => await CreateBlankPptxAsync(request, messages, ct),
                 ConversionTargetFormat.Pdf when sourceFormat == SourceFormat.Docx => await ConvertDocxToPdfAsync(request, messages, ct),
+                ConversionTargetFormat.Pdf when sourceFormat == SourceFormat.Xlsx => await ConvertXlsxToRenderAsync(request, OutputFormat.Pdf, "pdf", messages, ct),
+                ConversionTargetFormat.Png when sourceFormat == SourceFormat.Xlsx => await ConvertXlsxToRenderAsync(request, OutputFormat.Png, "png", messages, ct),
+                ConversionTargetFormat.Svg when sourceFormat == SourceFormat.Xlsx => await ConvertXlsxToRenderAsync(request, OutputFormat.Svg, "svg", messages, ct),
                 _ => ConversionResultWithError($"Unsupported conversion: {sourceFormat} to {request.TargetFormat}.")
             };
         }
@@ -409,6 +413,46 @@ public sealed class ConversionService : IConversionService
             "application/pdf",
             null,
             messages);
+    }
+
+    private static async Task<ConversionResult> ConvertXlsxToRenderAsync(ConversionRequest request, OutputFormat format, string ext, List<string> messages, CancellationToken ct)
+    {
+        await Task.Yield();
+        ct.ThrowIfCancellationRequested();
+
+        var options = new CompileOptions
+        {
+            Format = format,
+            Ppi = GetPpi(request.Options)
+        };
+
+        var result = XlsxRenderer.RenderBytes(request.SourceBytes, options);
+        messages.Add("Rendered XLSX via the OfficeEditor Typst pipeline.");
+
+        if (!result.Success || result.Compile.Pages.Length == 0)
+        {
+            return ConversionResultWithError($"Rendering failed: {result.Compile.ErrorMessage}", messages);
+        }
+
+        var mime = format switch
+        {
+            OutputFormat.Png => "image/png",
+            OutputFormat.Svg => "image/svg+xml",
+            _ => "application/pdf"
+        };
+
+        if (format == OutputFormat.Pdf)
+        {
+            return new ConversionResult(true, result.Compile.Pages[0], ChangeExtension(request.SourceFileName, ".pdf"), mime, null, messages);
+        }
+
+        // PNG/SVG produce one buffer per page; return them as a single multi-frame-style
+        // collection is not supported by the API contract, so return the first page.
+        var firstPage = result.Compile.Pages[0];
+        var fileName = format == OutputFormat.Png
+            ? ChangeExtension(request.SourceFileName, "-1.png")
+            : ChangeExtension(request.SourceFileName, "-1.svg");
+        return new ConversionResult(true, firstPage, fileName, mime, null, messages);
     }
 
     private static SourceFormat DetectSourceFormat(string? fileName)

@@ -168,9 +168,10 @@ internal sealed record CliOptions(
         }
 
         if (generate && !string.Equals(suite, "pptx", StringComparison.OrdinalIgnoreCase)
-            && !string.Equals(suite, "gen", StringComparison.OrdinalIgnoreCase))
+            && !string.Equals(suite, "gen", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(suite, "xlsx", StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidOperationException("--generate only applies to '--suite pptx' and '--suite gen'.");
+            throw new InvalidOperationException("--generate only applies to '--suite pptx', '--suite gen', and '--suite xlsx'.");
         }
 
         if (fontPath is not null && !generate)
@@ -192,8 +193,9 @@ internal sealed record CliOptions(
         {
             not null when string.Equals(suite, "docx", StringComparison.OrdinalIgnoreCase) => "examples/output/visual-diff/docx",
             not null when string.Equals(suite, "pptx", StringComparison.OrdinalIgnoreCase) => "examples/output/visual-diff/pptx",
+            not null when string.Equals(suite, "xlsx", StringComparison.OrdinalIgnoreCase) => "examples/output/visual-diff/xlsx",
             not null when string.Equals(suite, "gen", StringComparison.OrdinalIgnoreCase) => "examples/output/visual-diff/gen",
-            not null => throw new InvalidOperationException($"Unknown suite '{suite}'. Supported suites: docx, pptx, gen."),
+            not null => throw new InvalidOperationException($"Unknown suite '{suite}'. Supported suites: docx, pptx, xlsx, gen."),
             _ => throw new InvalidOperationException("--out is required when comparing an arbitrary pair.")
         };
 

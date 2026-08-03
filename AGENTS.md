@@ -70,7 +70,7 @@ git status                # expect clean or only intended changes
 | API + web together | `make dev` (root Makefile) |
 | MCP stdio host (JSON-RPC) | `dotnet run --project OfficeEditor.Mcp` |
 | Example programs (all formats) | `dotnet run --project examples` |
-| Convert tools | `dotnet run --project tools/convert-pptx -- <in.pptx> <out> [--format pdf\|png]` · `dotnet run --project tools/convert-docx -- <in.docx> <out> [--format pdf\|typ]` |
+| Convert tools | `dotnet run --project tools/convert-pptx -- <in.pptx> <out> [--format pdf\|png]` · `dotnet run --project tools/convert-docx -- <in.docx> <out> [--format pdf\|typ]` · `dotnet run --project tools/convert-xlsx -- <in.xlsx\|in.json> <out> [--format pdf\|png\|svg\|typ\|json]` |
 | Deck fidelity measurement | `python3 scripts/rmse.py <deck.pptx> [--format md\|json] [--no-render] [--force]` — renders ours, reuses/builds refs, per-slide RMSE % with mean/median/p85/p90/<10%/<15%/worst-5 |
 | Visual regression | `dotnet run --project tools/visual-diff -- --suite pptx\|gen`; DOCX is wired but awaits generated reference outputs |
 | Benchmark (vs LibreOffice) | `dotnet run --project tools/pptx-benchmark` |

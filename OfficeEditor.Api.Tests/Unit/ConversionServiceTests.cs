@@ -1,6 +1,7 @@
 using System.Text;
 using DocumentFormat.OpenXml.Packaging;
 using OfficeEditor.Api.Services;
+using XlsxEditor.Core.Builders;
 
 namespace OfficeEditor.Api.Tests.Unit;
 
@@ -1026,6 +1027,50 @@ public sealed class ConversionServiceTests
         Assert.Equal("empty.xlsx", result.OutputFileName);
         Assert.NotNull(result.Messages);
         Assert.Contains(result.Messages, m => m.Contains("blank XLSX"));
+    }
+
+    [Fact]
+    public async Task ConvertAsync_XlsxToPdf_UsesTypstPipeline()
+    {
+        var service = new ConversionService();
+        var xlsxBytes = BuildXlsxBytes();
+        var request = new ConversionRequest(xlsxBytes, "data.xlsx", ConversionTargetFormat.Pdf);
+
+        var result = await service.ConvertAsync(request);
+
+        Assert.True(result.Success, result.ErrorMessage);
+        Assert.NotNull(result.OutputBytes);
+        Assert.True(result.OutputBytes!.Length > 0);
+        Assert.Equal("application/pdf", result.ContentType);
+        Assert.Equal("data.pdf", result.OutputFileName);
+        Assert.NotNull(result.Messages);
+        Assert.Contains(result.Messages, m => m.Contains("Typst"));
+    }
+
+    [Fact]
+    public async Task ConvertAsync_XlsxToPng_UsesTypstPipeline()
+    {
+        var service = new ConversionService();
+        var xlsxBytes = BuildXlsxBytes();
+        var request = new ConversionRequest(xlsxBytes, "data.xlsx", ConversionTargetFormat.Png);
+
+        var result = await service.ConvertAsync(request);
+
+        Assert.True(result.Success, result.ErrorMessage);
+        Assert.NotNull(result.OutputBytes);
+        Assert.True(result.OutputBytes!.Length > 0);
+        Assert.Equal("image/png", result.ContentType);
+        Assert.EndsWith("-1.png", result.OutputFileName);
+    }
+
+    private static byte[] BuildXlsxBytes()
+    {
+        var workbook = WorkbookBuilder.Create();
+        var sheet = workbook.AddWorksheet("Data");
+        sheet.AddCellString("A1", "Region");
+        sheet.AddCellNumber("B1", 1250000, numberFormat: "$#,##0.00");
+        sheet.AddCellString("A2", "North America");
+        return workbook.SaveToBytes();
     }
 
     private static int CountImageParts(byte[] docxBytes)

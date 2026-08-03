@@ -13,7 +13,9 @@ using PptxEditor.Core.Generation.Layout;
 using PptxEditor.Core.Generation.Schema;
 using XlsxEditor.Core.Builders;
 using XlsxEditor.Core.Instructions;
+using XlsxEditor.Core.Rendering;
 using OfficeEditor.Core.Models;
+using OfficeEditor.Core.Services;
 using Spectre.Console;
 
 namespace OfficeEditor.Cli;
@@ -67,7 +69,7 @@ class Program
         if (args.Length < 2)
         {
             AnsiConsole.MarkupLine("[red]Input JSON file path is required.[/]");
-            AnsiConsole.MarkupLine("Usage: officeeditor generate <input.json> [--output <output.pptx|output.docx|output.xlsx>] [--theme <name>]");
+            AnsiConsole.MarkupLine("Usage: officeeditor generate <input.json> [--output <output.pptx|output.docx|output.xlsx|output.pdf|output.png>] [--theme <name>]");
             return false;
         }
 
@@ -107,9 +109,11 @@ class Program
         var outputExtension = Path.GetExtension(resolvedOutputPath);
         if (!outputExtension.Equals(".pptx", StringComparison.OrdinalIgnoreCase) &&
             !outputExtension.Equals(".docx", StringComparison.OrdinalIgnoreCase) &&
-            !outputExtension.Equals(".xlsx", StringComparison.OrdinalIgnoreCase))
+            !outputExtension.Equals(".xlsx", StringComparison.OrdinalIgnoreCase) &&
+            !outputExtension.Equals(".pdf", StringComparison.OrdinalIgnoreCase) &&
+            !outputExtension.Equals(".png", StringComparison.OrdinalIgnoreCase))
         {
-            AnsiConsole.MarkupLine("[red]Unsupported output format. Use a file path ending in .pptx, .docx, or .xlsx.[/]");
+            AnsiConsole.MarkupLine("[red]Unsupported output format. Use a file path ending in .pptx, .docx, .xlsx, .pdf, or .png.[/]");
             return false;
         }
 
@@ -138,6 +142,10 @@ class Program
 
         if (outputExtension.Equals(".xlsx", StringComparison.OrdinalIgnoreCase))
             return GenerateXlsx(resolvedOutputPath, json);
+
+        if (outputExtension.Equals(".pdf", StringComparison.OrdinalIgnoreCase) ||
+            outputExtension.Equals(".png", StringComparison.OrdinalIgnoreCase))
+            return GenerateXlsxRender(resolvedOutputPath, outputExtension, json);
 
         var generated = false;
 
@@ -254,6 +262,49 @@ class Program
                 ? $"[yellow]{result.Validation.Warnings.Count()} warnings[/]"
                 : "[green]0 warnings[/]"));
         AnsiConsole.MarkupLine($"[green]Saved: {Markup.Escape(outputPath)}[/]");
+        return true;
+    }
+
+    static bool GenerateXlsxRender(string outputPath, string outputExtension, string json)
+    {
+        var format = outputExtension.Equals(".png", StringComparison.OrdinalIgnoreCase)
+            ? OutputFormat.Png
+            : OutputFormat.Pdf;
+
+        XlsxEditor.Core.Rendering.XlsxRenderResult? result = null;
+        AnsiConsole.Status()
+            .Start("Rendering XLSX via Typst...", _ =>
+            {
+                result = XlsxEditor.Core.Rendering.XlsxRenderer.RenderJson(json, new CompileOptions { Format = format });
+            });
+
+        if (result is null || !result.Success)
+        {
+            AnsiConsole.MarkupLine($"[red]Rendering failed: {Markup.Escape(result?.Compile.ErrorMessage ?? "unknown error")}[/]");
+            return false;
+        }
+
+        var directory = Path.GetDirectoryName(outputPath);
+        if (!string.IsNullOrEmpty(directory))
+            Directory.CreateDirectory(directory);
+
+        if (format == OutputFormat.Pdf)
+        {
+            File.WriteAllBytes(outputPath, result.Compile.Pages[0]);
+            AnsiConsole.MarkupLine($"[green]PDF saved: {Markup.Escape(outputPath)}[/] ({result.Compile.Pages.Length} page(s))");
+        }
+        else
+        {
+            Directory.CreateDirectory(outputPath);
+            for (int i = 0; i < result.Compile.Pages.Length; i++)
+            {
+                string pagePath = Path.Combine(outputPath, $"page-{i + 1:D3}.png");
+                File.WriteAllBytes(pagePath, result.Compile.Pages[i]);
+            }
+
+            AnsiConsole.MarkupLine($"[green]{result.Compile.Pages.Length} PNG page(s) saved to: {Markup.Escape(outputPath)}[/]");
+        }
+
         return true;
     }
 
