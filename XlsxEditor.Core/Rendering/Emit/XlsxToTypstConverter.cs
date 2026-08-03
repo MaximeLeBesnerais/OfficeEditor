@@ -105,12 +105,14 @@ public sealed class XlsxToTypstConverter
         sb.Append(string.Join(", ", widths));
         sb.Append("), ");
 
-        // Explicit row heights if any rows carry a non-default height.
-        var explicitRows = sheet.Rows.Where(r => r.HeightPt > 0 && r.HeightPt != DefaultRowHeightPt).ToList();
-        if (explicitRows.Count > 0)
+        // Explicit row heights: Typst's `rows:` array needs one entry per row, so emit a
+        // complete array using `auto` for rows that carry the default height.
+        bool anyExplicitHeight = sheet.Rows.Any(r => r.HeightPt > 0 && r.HeightPt != DefaultRowHeightPt);
+        if (anyExplicitHeight && sheet.Rows.Count > 0)
         {
             sb.Append("rows: (");
-            sb.Append(string.Join(", ", explicitRows.Select(r => FormatPt(r.HeightPt))));
+            sb.Append(string.Join(", ", sheet.Rows.Select(r =>
+                r.HeightPt > 0 && r.HeightPt != DefaultRowHeightPt ? FormatPt(r.HeightPt) : "auto")));
             sb.Append("), ");
         }
 
