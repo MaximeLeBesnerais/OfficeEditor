@@ -183,7 +183,7 @@ public sealed class ApiIntegrationTests : IClassFixture<WebApplicationFactory<Pr
         }
 
         using var content = new MultipartFormDataContent();
-        content.Add(new StringContent("northwind-demo"), "sampleName");
+        content.Add(new StringContent("northwind-demo.pptx"), "sampleName");
         content.Add(new StringContent("pdf"), "targetFormat");
 
         var response = await _client.PostAsync("/api/convert", content);
