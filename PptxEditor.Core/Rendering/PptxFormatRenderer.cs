@@ -64,7 +64,7 @@ internal sealed class PptxFormatRenderer : IFormatRenderer
             {
                 return request.Format switch
                 {
-                    DocumentOutputFormat.Pdf => CompilePdf(builder),
+                    DocumentOutputFormat.Pdf => CompilePdf(builder, request.FontPath),
                     DocumentOutputFormat.Png => CompileImages(builder, "png", ppi, request.FontPath),
                     DocumentOutputFormat.Svg => CompileImages(builder, "svg", ppi, request.FontPath),
                     _ => Failure($"Unsupported output format '{request.Format}' for PPTX.")
@@ -80,11 +80,13 @@ internal sealed class PptxFormatRenderer : IFormatRenderer
     private static IPresentationBuilder Open(DocumentRenderRequest request, byte[]? generatedPptx)
         => generatedPptx is not null
             ? PresentationBuilder.Open(generatedPptx)
-            : PresentationBuilder.Open(request.SourcePath);
+            // Rendering must never mutate the source deck: open from an in-memory copy so the
+            // read-write OpenXML document is discarded when the builder is disposed.
+            : PresentationBuilder.Open(File.ReadAllBytes(request.SourcePath));
 
-    private static DocumentRenderResult CompilePdf(IPresentationBuilder builder)
+    private static DocumentRenderResult CompilePdf(IPresentationBuilder builder, string? fontPath)
     {
-        var pdf = builder.ExportToPdf();
+        var pdf = builder.ExportToPdf(new PdfOptions { FontDirectory = fontPath });
         return pdf.Length == 0 ? Failure("PDF export produced no output.") : Success(pdf);
     }
 

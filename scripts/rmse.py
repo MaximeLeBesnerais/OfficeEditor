@@ -50,7 +50,7 @@ def _ensure(cmd: str) -> str:
 
 
 def _slide_number(filepath: Path) -> int | None:
-    m = re.search(r"slide[_-](\d+)", filepath.name)
+    m = re.search(r"(?:slide|page)[_-](\d+)", filepath.name)
     return int(m.group(1)) if m else None
 
 
@@ -119,7 +119,8 @@ def _render_ours(pptx_path: Path, ours_dir: Path) -> list[Path]:
     )
     if result.returncode != 0:
         _die(f"convert-pptx failed:\n{result.stderr}\n{result.stdout}")
-    return _sort_slides(list(ours_dir.glob("slide-*.png")))
+    # convert-pptx writes one page-NNN.png per slide (shared naming with convert-xlsx).
+    return _sort_slides(list(ours_dir.glob("page-*.png")))
 
 
 def _slide_count_from_pdf(pdf_path: Path) -> int:
@@ -392,12 +393,12 @@ def main() -> None:
 
     # --- 1. Render ours ---
     if args.no_render:
-        ours_pngs = _sort_slides(list(ours_dir.glob("slide-*.png")))
+        ours_pngs = _sort_slides(list(ours_dir.glob("page-*.png")))
         if not ours_pngs:
-            _die(f"--no-render but no slide-*.png found in {ours_dir}")
+            _die(f"--no-render but no page-*.png found in {ours_dir}")
         print(f"  Using existing render: {len(ours_pngs)} slides in {ours_dir}", file=sys.stderr)
     else:
-        existing = _sort_slides(list(ours_dir.glob("slide-*.png")))
+        existing = _sort_slides(list(ours_dir.glob("page-*.png")))
         need_render = args.force or not existing
         if not need_render:
             # Check slide count matches PDF
