@@ -416,4 +416,160 @@ public class DocxGenerationModelValidationTests
 
         Assert.Contains("(1 error)", exception.Message);
     }
+
+    // ------------------------------------------------------------------ programmatic archetypes
+
+    [Fact]
+    public void EmptyKpiRowItems_AreRejectedProgrammatically()
+    {
+        var model = ValidModel() with
+        {
+            Sections = [new Section { Blocks = [new KpiRowBlock { Items = [] }] }]
+        };
+        var exception = ValidateModelThrows(model);
+
+        Assert.Contains(exception.Issues, i =>
+            i.Path == "$.sections[0].blocks[0].items" && i.Message.Contains("at least one KPI item"));
+    }
+
+    [Fact]
+    public void EmptyCoverKpis_AreRejectedProgrammatically()
+    {
+        var model = ValidModel() with
+        {
+            Sections = [new Section
+            {
+                Blocks =
+                [
+                    new CoverBlock { Title = new TextModel { Text = "T" }, Kpis = [] }
+                ]
+            }]
+        };
+        var exception = ValidateModelThrows(model);
+
+        Assert.Contains(exception.Issues, i =>
+            i.Path == "$.sections[0].blocks[0].kpis" && i.Message.Contains("at least one KPI item"));
+    }
+
+    [Fact]
+    public void EmptyComparisonColumns_AreRejectedProgrammatically()
+    {
+        var model = ValidModel() with
+        {
+            Sections = [new Section
+            {
+                Blocks =
+                [
+                    new ComparisonTableBlock
+                    {
+                        Columns = [],
+                        Rows = [new ComparisonTableRow { Cells = [new TextModel { Text = "x" }] }]
+                    }
+                ]
+            }]
+        };
+        var exception = ValidateModelThrows(model);
+
+        Assert.Contains(exception.Issues, i =>
+            i.Path == "$.sections[0].blocks[0].columns" && i.Message.Contains("at least one column"));
+    }
+
+    [Fact]
+    public void EmptyComparisonRows_AreRejectedProgrammatically()
+    {
+        var model = ValidModel() with
+        {
+            Sections = [new Section
+            {
+                Blocks =
+                [
+                    new ComparisonTableBlock { Columns = [new TextModel { Text = "c" }], Rows = [] }
+                ]
+            }]
+        };
+        var exception = ValidateModelThrows(model);
+
+        Assert.Contains(exception.Issues, i =>
+            i.Path == "$.sections[0].blocks[0].rows" && i.Message.Contains("at least one row"));
+    }
+
+    [Fact]
+    public void EmptyRoadmapPhases_AreRejectedProgrammatically()
+    {
+        var model = ValidModel() with
+        {
+            Sections = [new Section { Blocks = [new RoadmapBlock { Phases = [] }] }]
+        };
+        var exception = ValidateModelThrows(model);
+
+        Assert.Contains(exception.Issues, i =>
+            i.Path == "$.sections[0].blocks[0].phases" && i.Message.Contains("at least one phase"));
+    }
+
+    [Fact]
+    public void EmptySemanticSectionBlocks_AreRejectedProgrammatically()
+    {
+        var model = ValidModel() with
+        {
+            Sections = [new Section
+            {
+                Blocks =
+                [
+                    new SemanticSectionBlock { Title = new TextModel { Text = "T" }, Blocks = [] }
+                ]
+            }]
+        };
+        var exception = ValidateModelThrows(model);
+
+        Assert.Contains(exception.Issues, i =>
+            i.Path == "$.sections[0].blocks[0].blocks" && i.Message.Contains("at least one flow block"));
+    }
+
+    [Fact]
+    public void ArchetypeDocument_ExpandsAndRevalidatesToAValidPackage()
+    {
+        var model = ValidModel() with
+        {
+            Sections = [new Section
+            {
+                Blocks =
+                [
+                    new CoverBlock
+                    {
+                        Title = new TextModel { Text = "State of the Product" },
+                        Kpis =
+                        [
+                            new KpiItem { Value = new TextModel { Text = "12.4k" }, Label = new TextModel { Text = "Active" } },
+                            new KpiItem { Value = new TextModel { Text = "98%" }, Label = new TextModel { Text = "On time" } }
+                        ]
+                    },
+                    new SemanticSectionBlock
+                    {
+                        Title = new TextModel { Text = "Outlook" },
+                        Blocks =
+                        [
+                            new ParagraphBlock { Content = new TextModel { Text = "Body copy." } },
+                            new RoadmapBlock
+                            {
+                                Phases =
+                                [
+                                    new RoadmapPhase { Window = new TextModel { Text = "Aug" }, Action = new TextModel { Text = "Ship" } }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }]
+        };
+
+        // The lowered model is revalidated inside the generator before emission and must pass.
+        var generated = new DocxGenerator().GenerateToBytes(model);
+
+        Assert.True(generated.Content.Length > 1_000);
+        Assert.Equal((byte)'P', generated.Content[0]);
+        // Generation reports the expanded model, with every archetype lowered.
+        var blocks = generated.Result.Document.Sections[0].Blocks;
+        Assert.DoesNotContain(blocks, b => b is ReportArchetype);
+        Assert.Contains(blocks, b => b is TableBlock);
+    }
 }

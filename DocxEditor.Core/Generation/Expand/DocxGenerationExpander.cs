@@ -149,7 +149,7 @@ public static class DocxGenerationExpander
             {
                 blocks.Add(Paragraph(eyebrow, TextRole.Eyebrow));
             }
-            blocks.Add(Paragraph(cover.Title, TextRole.Title));
+            blocks.Add(Paragraph(cover.Title, TextRole.Title) with { Style = cover.Style });
             if (cover.Subtitle is { } subtitle)
             {
                 blocks.Add(Paragraph(subtitle, TextRole.Subtitle));
@@ -172,7 +172,8 @@ public static class DocxGenerationExpander
         private IReadOnlyList<FlowBlock> LowerKpiRow(KpiRowBlock kpiRow, string path)
         {
             WarnBudget(kpiRow.Items.Count, 2, 4, $"{path}.items", "KPI items", "kpiRow");
-            return [BuildKpiTable(kpiRow.Items)];
+            var table = BuildKpiTable(kpiRow.Items);
+            return [table with { Style = kpiRow.Style }];
         }
 
         private IReadOnlyList<FlowBlock> LowerSemanticSection(SemanticSectionBlock section, string path)
@@ -182,7 +183,8 @@ public static class DocxGenerationExpander
                 new HeadingBlock
                 {
                     Level = 1,
-                    Content = section.Title with { Role = section.Title.Role ?? TextRole.Heading1 }
+                    Content = section.Title with { Role = section.Title.Role ?? TextRole.Heading1 },
+                    Style = section.Style
                 }
             };
             if (section.Intro is { } intro)
@@ -228,7 +230,7 @@ public static class DocxGenerationExpander
                 }
                 rows.Add(new TableRow { Cells = cells });
             }
-            return new TableBlock { Rows = rows };
+            return new TableBlock { Rows = rows, Style = comparison.Style };
         }
 
         private TableBlock LowerRoadmap(RoadmapBlock roadmap, string path)
@@ -276,7 +278,7 @@ public static class DocxGenerationExpander
                     ]
                 });
             }
-            return new TableBlock { Rows = rows };
+            return new TableBlock { Rows = rows, Style = roadmap.Style };
         }
 
         /// <summary>
@@ -344,6 +346,7 @@ public static class DocxGenerationExpander
             }
             return content with
             {
+                Text = null,
                 Runs = [new Run { Text = content.Text ?? string.Empty, Color = color }]
             };
         }

@@ -347,4 +347,100 @@ public class DocxGenerationArchetypeExpanderTests
             }
         }
     }
+
+    // ------------------------------------------------------------------ archetype style propagation
+
+    [Fact]
+    public void Cover_Style_PropagatesToThePrimaryTitleParagraph()
+    {
+        var result = Expand(Section("""
+            { "type": "cover", "style": "CoverStyle", "title": "State of the Product" }
+            """));
+
+        var title = Assert.IsType<ParagraphBlock>(Assert.Single(result.Document.Sections[0].Blocks));
+        Assert.Equal("CoverStyle", title.Style);
+    }
+
+    [Fact]
+    public void SemanticSection_Style_PropagatesToTheHeading()
+    {
+        var result = Expand(Section("""
+            {
+              "type": "section", "style": "SectionStyle", "title": "Outlook",
+              "blocks": [ { "type": "paragraph", "text": "Body copy." } ]
+            }
+            """));
+
+        var blocks = result.Document.Sections[0].Blocks;
+        var heading = Assert.IsType<HeadingBlock>(blocks[0]);
+        Assert.Equal("SectionStyle", heading.Style);
+        Assert.Equal(TextRole.Heading1, heading.Content.Role);
+    }
+
+    [Fact]
+    public void ComparisonTable_Style_PropagatesToTheLoweredTable()
+    {
+        var result = Expand(Section("""
+            {
+              "type": "comparisonTable", "style": "ComparisonStyle",
+              "columns": ["a", "b"], "rows": [ { "cells": ["x", "y"] } ]
+            }
+            """));
+
+        var table = Assert.IsType<TableBlock>(Assert.Single(result.Document.Sections[0].Blocks));
+        Assert.Equal("ComparisonStyle", table.Style);
+    }
+
+    [Fact]
+    public void Roadmap_Style_PropagatesToTheLoweredTable()
+    {
+        var result = Expand(Section("""
+            {
+              "type": "roadmap", "style": "RoadmapStyle",
+              "phases": [ { "window": "Aug", "action": "Ship." } ]
+            }
+            """));
+
+        var table = Assert.IsType<TableBlock>(Assert.Single(result.Document.Sections[0].Blocks));
+        Assert.Equal("RoadmapStyle", table.Style);
+    }
+
+    [Fact]
+    public void KpiRow_Style_PropagatesToTheLoweredTable()
+    {
+        var result = Expand(Section("""
+            {
+              "type": "kpiRow", "style": "KpiStyle",
+              "items": [
+                { "value": "1", "label": "One" },
+                { "value": "2", "label": "Two" }
+              ]
+            }
+            """));
+
+        var table = Assert.IsType<TableBlock>(Assert.Single(result.Document.Sections[0].Blocks));
+        Assert.Equal("KpiStyle", table.Style);
+    }
+
+    [Fact]
+    public void Cover_Style_DoesNotLeakOntoKpiOrEditorialParts()
+    {
+        var result = Expand(Section("""
+            {
+              "type": "cover", "style": "CoverStyle", "title": "T",
+              "eyebrow": "Q3", "kpis": [
+                { "value": "1", "label": "A" },
+                { "value": "2", "label": "B" }
+              ]
+            }
+            """));
+
+        var blocks = result.Document.Sections[0].Blocks;
+        var eyebrow = Assert.IsType<ParagraphBlock>(blocks[0]);
+        Assert.Null(eyebrow.Style);
+        var title = Assert.IsType<ParagraphBlock>(blocks[1]);
+        Assert.Equal("CoverStyle", title.Style);
+        var kpiTable = Assert.IsType<TableBlock>(blocks[2]);
+        Assert.Null(kpiTable.Style);
+    }
 }

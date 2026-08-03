@@ -63,9 +63,10 @@ internal sealed class OoxmlEmitContext
         _containerParts.GetValueOrDefault(container) ?? MainPart;
 
     /// <summary>
-    /// Resolves a style reference. Existing styles are referenced by ID and never mutated;
-    /// unknown references warn and use the requested baseline fallback, which is generated
-    /// lazily with a collision-free ID when absent.
+    /// Resolves a style reference for a specific style <paramref name="kind"/>. Existing styles
+    /// are validated against the expected kind and referenced by ID (never mutated); an
+    /// unknown or wrong-kind reference warns and uses the requested baseline fallback, which is
+    /// generated lazily with a collision-free ID when absent.
     /// </summary>
     public string? ResolveStyle(
         string? styleId,
@@ -73,11 +74,6 @@ internal sealed class OoxmlEmitContext
         string path,
         BaselineStyleKind? fallbackKind = null)
     {
-        if (!string.IsNullOrWhiteSpace(styleId) && StyleManager.HasExistingStyle(styleId))
-        {
-            return styleId;
-        }
-
         var fallback = fallbackKind;
         if (fallback is null && kind == StyleValues.Paragraph)
         {
@@ -88,7 +84,7 @@ internal sealed class OoxmlEmitContext
             fallback = BaselineStyleKind.Table;
         }
 
-        return StyleManager.ResolveStyleReference(styleId, path, fallback);
+        return StyleManager.ResolveStyleReference(styleId, kind, path, fallback);
     }
 
     /// <summary>
