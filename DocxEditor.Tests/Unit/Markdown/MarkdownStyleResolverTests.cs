@@ -1,6 +1,8 @@
 using DocxEditor.Core.Markdown;
 using DocxEditor.Core.Markdown.Model;
+using DocumentFormat.OpenXml.Validation;
 using DocumentFormat.OpenXml.Wordprocessing;
+using OfficeEditor.Core.Models;
 
 namespace DocxEditor.Tests.Unit.Markdown;
 
@@ -256,6 +258,181 @@ public class MarkdownStyleResolverTests
         Assert.StartsWith("Code", inline.FallbackStyle!.StyleId!.Value, StringComparison.Ordinal);
         Assert.NotEqual("Code", inline.FallbackStyle!.StyleId!.Value);
         Assert.Equal(inline.FallbackStyle.StyleId.Value, inline.StyleId);
+    }
+
+    // ---- fallback formatting -------------------------------------------
+
+    [Fact]
+    public void Fallback_Headings_HaveDistinctSizesAndOutlineLevels()
+    {
+        var resolver = new MarkdownStyleResolver(styles: null);
+
+        var headings = Enumerable.Range(1, 6)
+            .Select(level => resolver.ResolveElement($"heading{level}", $"Heading{level}"))
+            .ToList();
+
+        foreach (var (resolution, index) in headings.Select((r, i) => (r, i)))
+        {
+            var style = resolution.FallbackStyle!;
+            Assert.Equal(StyleValues.Paragraph, style.Type?.Value);
+            Assert.NotNull(style.StyleRunProperties!.Bold);
+            Assert.NotNull(style.StyleRunProperties.FontSize);
+            Assert.NotNull(style.StyleParagraphProperties!.KeepNext);
+            var outline = style.StyleParagraphProperties.OutlineLevel!;
+            Assert.Equal(index, outline.Val!.Value);
+        }
+
+        var sizes = headings
+            .Select(h => h.FallbackStyle!.StyleRunProperties!.FontSize!.Val!.Value)
+            .Distinct()
+            .ToList();
+        Assert.Equal(6, sizes.Count);
+
+        var before = headings
+            .Select(h => h.FallbackStyle!.StyleParagraphProperties!.SpacingBetweenLines!.Before!.Value)
+            .Distinct()
+            .ToList();
+        Assert.Equal(6, before.Count);
+    }
+
+    [Fact]
+    public void Fallback_Normal_HasReadableBodyDefaults()
+    {
+        var resolver = new MarkdownStyleResolver(styles: null);
+
+        var style = resolver.ResolveElement("paragraph", "Normal").FallbackStyle!;
+
+        Assert.Equal("22", style.StyleRunProperties!.FontSize!.Val!.Value);
+        Assert.Equal("Calibri", style.StyleRunProperties.RunFonts!.Ascii!.Value);
+        var spacing = style.StyleParagraphProperties!.SpacingBetweenLines!;
+        Assert.Equal("160", spacing.After!.Value);
+        Assert.Equal("276", spacing.Line!.Value);
+        Assert.Equal(LineSpacingRuleValues.Auto, spacing.LineRule!.Value);
+    }
+
+    [Fact]
+    public void Fallback_Quote_HasIndentItalicAndLeftBorder()
+    {
+        var resolver = new MarkdownStyleResolver(styles: null);
+
+        var style = resolver.ResolveElement("blockquote", "Quote").FallbackStyle!;
+
+        Assert.Equal("720", style.StyleParagraphProperties!.Indentation!.Left!.Value);
+        Assert.NotNull(style.StyleRunProperties!.Italic);
+        var leftBorder = style.StyleParagraphProperties.ParagraphBorders!.LeftBorder!;
+        Assert.Equal(BorderValues.Single, leftBorder.Val!.Value);
+    }
+
+    [Fact]
+    public void Fallback_CodeBlock_HasMonospaceShadingAndTightSpacing()
+    {
+        var resolver = new MarkdownStyleResolver(styles: null);
+
+        var style = resolver.ResolveElement("codeBlock", "Code").FallbackStyle!;
+
+        Assert.Equal("Consolas", style.StyleRunProperties!.RunFonts!.Ascii!.Value);
+        Assert.NotNull(style.StyleParagraphProperties!.Shading);
+        var spacing = style.StyleParagraphProperties.SpacingBetweenLines!;
+        Assert.Equal("0", spacing.After!.Value);
+        Assert.Equal("240", spacing.Line!.Value);
+    }
+
+    [Fact]
+    public void Fallback_CodeChar_HasMonospaceAndShading()
+    {
+        var resolver = new MarkdownStyleResolver(styles: null);
+
+        var style = resolver.ResolveElement("codeInline", "CodeChar").FallbackStyle!;
+
+        Assert.Equal(StyleValues.Character, style.Type?.Value);
+        Assert.Equal("Consolas", style.StyleRunProperties!.RunFonts!.Ascii!.Value);
+        Assert.NotNull(style.StyleRunProperties.Shading);
+    }
+
+    [Fact]
+    public void Fallback_Hyperlink_HasBlueUnderline()
+    {
+        var resolver = new MarkdownStyleResolver(styles: null);
+
+        var style = resolver.ResolveElement("hyperlink", "Hyperlink").FallbackStyle!;
+
+        Assert.Equal(StyleValues.Character, style.Type?.Value);
+        Assert.Equal("0563C1", style.StyleRunProperties!.Color!.Val!.Value);
+        Assert.NotNull(style.StyleRunProperties.Underline);
+    }
+
+    [Fact]
+    public void Fallback_DefinitionFootnoteListAndHeader_HaveDefaults()
+    {
+        var resolver = new MarkdownStyleResolver(styles: null);
+
+        var term = resolver.ResolveElement("definitionTerm", "DefinitionTerm").FallbackStyle!;
+        Assert.NotNull(term.StyleRunProperties!.Bold);
+
+        var description = resolver.ResolveElement("definitionDescription", "DefinitionDescription").FallbackStyle!;
+        Assert.Equal("720", description.StyleParagraphProperties!.Indentation!.Left!.Value);
+
+        var footnote = resolver.ResolveElement("footnoteText", "FootnoteText").FallbackStyle!;
+        Assert.Equal("18", footnote.StyleRunProperties!.FontSize!.Val!.Value);
+        Assert.Equal("0", footnote.StyleParagraphProperties!.SpacingBetweenLines!.After!.Value);
+
+        var list = resolver.ResolveElement("list", "ListParagraph").FallbackStyle!;
+        Assert.Equal("80", list.StyleParagraphProperties!.SpacingBetweenLines!.After!.Value);
+
+        var header = resolver.ResolveElement("tableHeader", "TableHeader").FallbackStyle!;
+        Assert.NotNull(header.StyleRunProperties!.Bold);
+        Assert.Equal(JustificationValues.Center, header.StyleParagraphProperties!.Justification!.Val!.Value);
+    }
+
+    [Fact]
+    public void Fallback_TableGrid_IsTableStyleWithBorders()
+    {
+        var resolver = new MarkdownStyleResolver(styles: null);
+
+        var style = resolver.ResolveElement("table", "TableGrid").FallbackStyle!;
+
+        Assert.Equal(StyleValues.Table, style.Type?.Value);
+        var borders = style.StyleTableProperties!.GetFirstChild<TableBorders>()!;
+        Assert.NotNull(borders.TopBorder);
+        Assert.NotNull(borders.InsideHorizontalBorder);
+        Assert.NotNull(borders.InsideVerticalBorder);
+    }
+
+    [Fact]
+    public void Fallback_DefaultMappingElements_ProduceValidOoxml()
+    {
+        var resolver = new MarkdownStyleResolver(styles: null);
+
+        var fallbacks = StyleMapping.Default.StyleMap
+            .Select(kv => resolver.ResolveElement(kv.Key, kv.Value))
+            .Where(r => r.FallbackStyle is not null)
+            .Select(r => r.FallbackStyle!)
+            .GroupBy(s => s.StyleId!.Value)
+            .Select(g => g.First())
+            .ToList();
+
+        Assert.NotEmpty(fallbacks);
+
+        var errors = new OpenXmlValidator().Validate(new Styles(fallbacks)).ToList();
+        Assert.True(errors.Count == 0, string.Join("\n", errors.Select(e => e.Description)));
+    }
+
+    [Fact]
+    public void Fallback_WellKnownReferenceNames_ApplyWithoutElementKey()
+    {
+        var resolver = new MarkdownStyleResolver(styles: null);
+
+        var h1 = resolver.Resolve("Heading1", MarkdownStyleKind.Paragraph).FallbackStyle!;
+        Assert.Equal("48", h1.StyleRunProperties!.FontSize!.Val!.Value);
+
+        var quote = resolver.Resolve("Quote", MarkdownStyleKind.Paragraph).FallbackStyle!;
+        Assert.NotNull(quote.StyleRunProperties!.Italic);
+
+        var code = resolver.Resolve("CodeChar", MarkdownStyleKind.Character).FallbackStyle!;
+        Assert.NotNull(code.StyleRunProperties!.Shading);
+
+        var table = resolver.Resolve("TableGrid", MarkdownStyleKind.Table).FallbackStyle!;
+        Assert.Equal(StyleValues.Table, table.Type?.Value);
     }
 
     // ---- strict / permissive unresolved behavior ------------------------

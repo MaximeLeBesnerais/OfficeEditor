@@ -653,7 +653,10 @@ public sealed class RichMarkdownRenderer
         return new Footnote(paragraph) { Id = id, Type = type };
     }
 
-    /// <summary>Inserts the footnote number mark as the first run of the first paragraph.</summary>
+    /// <summary>
+    /// Inserts the footnote number mark as the first run of the first paragraph, followed by a
+    /// space so the note text does not run flush against the reference number (Word's convention).
+    /// </summary>
     private static void PrependFootnoteMark(Footnote footnote)
     {
         var first = footnote.Elements<Paragraph>().FirstOrDefault();
@@ -662,13 +665,16 @@ public sealed class RichMarkdownRenderer
             return;
         }
         var mark = new Run(new FootnoteReferenceMark());
+        var spacer = new Run(new Text(" ") { Space = SpaceProcessingModeValues.Preserve });
         if (first.ParagraphProperties is not null)
         {
             first.InsertAfter(mark, first.ParagraphProperties);
+            first.InsertAfter(spacer, mark);
         }
         else
         {
             first.InsertAt(mark, 0);
+            first.InsertAt(spacer, 1);
         }
     }
 
@@ -973,11 +979,10 @@ public sealed class RichMarkdownRenderer
     {
         if (reference.IsBackLink)
         {
-            // The generated backlink inside a footnote definition renders as a visible "^".
-            var run = new Run();
-            run.Append(BuildRunProperties(MarkdownRunFlags.Superscript) ?? new RunProperties());
-            run.Append(new Text("^"));
-            container.Append(run);
+            // The markdown backlink marker inside a footnote definition is navigation scaffolding,
+            // not footnote content. Word's own backlink is the footnote reference mark rendered at
+            // the start of the footnote body; emitting the literal caret would show a spurious
+            // visible "^" artifact, so it is omitted.
             return;
         }
 

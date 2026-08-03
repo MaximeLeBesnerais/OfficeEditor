@@ -156,7 +156,7 @@ public sealed class MarkdownStyleResolver
                 element, path, expectedKind);
         }
 
-        var fallback = GetOrCreateFallback(reference, expectedKind);
+        var fallback = GetOrCreateFallback(reference, expectedKind, element);
         return new MarkdownStyleResolution(
             false,
             fallback.StyleId?.Value,
@@ -188,11 +188,11 @@ public sealed class MarkdownStyleResolver
         }
 
         // Permissive: still produce a style so rendering continues, but the diagnostic is kept.
-        var fallback = GetOrCreateFallback(reference, expectedKind);
+        var fallback = GetOrCreateFallback(reference, expectedKind, element);
         return new MarkdownStyleResolution(false, fallback.StyleId?.Value, expectedKind, fallback, [diagnostic]);
     }
 
-    private Style GetOrCreateFallback(string reference, MarkdownStyleKind kind)
+    private Style GetOrCreateFallback(string reference, MarkdownStyleKind kind, string? element)
     {
         if (_fallbacks.TryGetValue((reference, kind), out var cached))
         {
@@ -200,19 +200,7 @@ public sealed class MarkdownStyleResolver
         }
 
         var id = AllocateId(SanitizeId(reference, kind));
-        var name = reference;
-        var style = new Style(
-            new StyleName { Val = name })
-        {
-            StyleId = id,
-            Type = kind switch
-            {
-                MarkdownStyleKind.Character => StyleValues.Character,
-                MarkdownStyleKind.Table => StyleValues.Table,
-                _ => StyleValues.Paragraph
-            }
-        };
-
+        var style = MarkdownFallbackStyles.Create(id, reference, kind, element);
         _fallbacks[(reference, kind)] = style;
         return style;
     }

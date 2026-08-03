@@ -1,6 +1,7 @@
 using System.Xml.Linq;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
+using DocumentFormat.OpenXml.Validation;
 using DocumentFormat.OpenXml.Wordprocessing;
 using DocxEditor.Core.Builders;
 using DocxEditor.Core.Markdown;
@@ -452,6 +453,102 @@ public class RichMarkdownRendererTests
 
         var reference = body.Descendants<FootnoteReference>().Single();
         Assert.Equal(2u, reference.Id!.Value);
+    }
+
+    [Fact]
+    public void Footnotes_NoCaretBacklinkAndSpaceAfterReferenceMark()
+    {
+        var bytes = Build("A ref[^1].\n\n[^1]: The note.\n");
+
+        using var doc = Open(bytes);
+        var mainPart = doc.MainDocumentPart!;
+        var note = mainPart.FootnotesPart!.Footnotes!.Elements<Footnote>().Single(f => f.Id!.Value == 2);
+
+        // The markdown backlink marker must not surface as a visible caret artifact.
+        Assert.DoesNotContain("^", note.InnerText);
+
+        // The first run is the footnote reference mark, followed by a spacing run before the text.
+        var runs = note.Elements<Paragraph>().First().Elements<W.Run>().ToList();
+        Assert.NotNull(runs[0].GetFirstChild<FootnoteReferenceMark>());
+        Assert.Equal(" ", runs[1].InnerText);
+        Assert.Equal("The note.", runs[2].InnerText);
+
+        var reference = mainPart.Document!.Body!.Descendants<FootnoteReference>().Single();
+        Assert.Equal(2u, reference.Id!.Value);
+    }
+
+    [Fact]
+    public void Footnotes_FootnoteTextStyle_AppliedAndDefined()
+    {
+        var bytes = Build("A ref[^1].\n\n[^1]: The note.\n");
+
+        using var doc = Open(bytes);
+        var mainPart = doc.MainDocumentPart!;
+        var note = mainPart.FootnotesPart!.Footnotes!.Elements<Footnote>().Single(f => f.Id!.Value == 2);
+        var paragraph = note.Elements<Paragraph>().First();
+
+        Assert.Equal("FootnoteText", paragraph.ParagraphProperties!.ParagraphStyleId!.Val!.Value);
+        var style = mainPart.StyleDefinitionsPart!.Styles!.Elements<Style>()
+            .Single(s => s.StyleId!.Value == "FootnoteText");
+        Assert.Equal(StyleValues.Paragraph, style.Type!.Value);
+        Assert.Equal("18", style.StyleRunProperties!.FontSize!.Val!.Value);
+    }
+
+    [Fact]
+    public void FallbackStyles_ComprehensiveRender_ProduceValidStylesPart()
+    {
+        var bytes = Build("""
+        # H1
+
+        Body with `code` and [link](https://example.com).
+
+        - item
+
+        > quote
+
+        ```cs
+        code
+        ```
+
+        | A | B |
+        |---|---|
+        | 1 | 2 |
+
+        Term
+        :   Def
+
+        Note[^1].
+
+        ---
+
+        [^1]: Footnote text.
+        """);
+
+        using var doc = Open(bytes);
+        var styles = doc.MainDocumentPart!.StyleDefinitionsPart!.Styles!;
+
+        var errors = new OpenXmlValidator().Validate(styles).ToList();
+        Assert.True(errors.Count == 0, string.Join("\n", errors.Select(e => e.Description)));
+
+        var definedIds = styles.Elements<Style>().Select(s => s.StyleId!.Value).ToHashSet();
+        var referenced = new List<string?>();
+        foreach (var paragraph in doc.MainDocumentPart!.Document!.Body!.Descendants<W.Paragraph>())
+        {
+            referenced.Add(paragraph.ParagraphProperties?.ParagraphStyleId?.Val?.Value);
+            referenced.AddRange(paragraph.Descendants<W.Run>().Select(r => r.RunProperties?.RunStyle?.Val?.Value));
+        }
+        referenced.AddRange(
+            doc.MainDocumentPart.Document.Body.Descendants<W.Table>()
+                .Select(t => t.TableProperties?.TableStyle?.Val?.Value));
+        foreach (var footnoteParagraph in doc.MainDocumentPart.FootnotesPart!.Footnotes!.Descendants<W.Paragraph>())
+        {
+            referenced.Add(footnoteParagraph.ParagraphProperties?.ParagraphStyleId?.Val?.Value);
+        }
+
+        foreach (var id in referenced.Where(id => id is not null))
+        {
+            Assert.True(definedIds.Contains(id), $"referenced style '{id}' is not defined in the styles part");
+        }
     }
 
     [Fact]
