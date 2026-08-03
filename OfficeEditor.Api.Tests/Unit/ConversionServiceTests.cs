@@ -1,4 +1,5 @@
 using System.Text;
+using DocumentFormat.OpenXml.Packaging;
 using OfficeEditor.Api.Services;
 
 namespace OfficeEditor.Api.Tests.Unit;
@@ -11,6 +12,9 @@ namespace OfficeEditor.Api.Tests.Unit;
 public sealed class ConversionServiceTests
 {
     private const string EnableRenderEnvVar = "OE_RUN_TYPST_COMPILE_TESTS";
+
+    // 1x1 transparent PNG; a valid, tiny payload for data-URI embedding tests.
+    private const string TinyPngDataUri = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 
     [Fact]
     public async Task ConvertAsync_MarkdownToDocx_ProducesValidDocx()
@@ -863,5 +867,178 @@ public sealed class ConversionServiceTests
         Assert.NotNull(result.ErrorMessage);
         Assert.Contains("Unsupported conversion", result.ErrorMessage);
         Assert.NotNull(result.Messages);
+    }
+
+    [Fact]
+    public async Task ConvertAsync_MarkdownToDocx_LocalImagePath_IsNeverEmbedded()
+    {
+        // A local image sitting in the process working directory (the path the default
+        // library options would resolve relative sources against) must never be read or
+        // embedded: the API image policy is data URIs only.
+        var secretPath = Path.Combine(Environment.CurrentDirectory, "api-secret-local-image.png");
+        var secretPng = Convert.FromBase64String(TinyPngDataUri["data:image/png;base64,".Length..]);
+        try
+        {
+            File.WriteAllBytes(secretPath, secretPng);
+            var markdown = Encoding.UTF8.GetBytes($"# Header\n\n![logo]({Path.GetFileName(secretPath)})");
+            var request = new ConversionRequest(markdown, "doc.md", ConversionTargetFormat.Docx);
+
+            var result = await new ConversionService().ConvertAsync(request);
+
+            Assert.True(result.Success);
+            Assert.NotNull(result.OutputBytes);
+            Assert.Equal(0, CountImageParts(result.OutputBytes!));
+            Assert.Contains("[image: logo]", OpenXmlText(result.OutputBytes!));
+        }
+        finally
+        {
+            File.Delete(secretPath);
+        }
+    }
+
+    [Fact]
+    public async Task ConvertAsync_MarkdownToDocx_RootEscapingImagePath_IsNeverEmbedded()
+    {
+        // ../ traversal must not escape into server-local directories; the image resolves
+        // outside the API's allowed root and is never read, rendering as a visible fallback.
+        var markdown = "# Header\n\n![logo](../../../../etc/secret.png)"u8.ToArray();
+        var request = new ConversionRequest(markdown, "doc.md", ConversionTargetFormat.Docx);
+
+        var result = await new ConversionService().ConvertAsync(request);
+
+        Assert.True(result.Success);
+        Assert.NotNull(result.OutputBytes);
+        Assert.Equal(0, CountImageParts(result.OutputBytes!));
+        Assert.Contains("[image: logo]", OpenXmlText(result.OutputBytes!));
+    }
+
+    [Fact]
+    public async Task ConvertAsync_MarkdownToDocx_DataUriImage_IsEmbedded()
+    {
+        // Bounded data URIs remain the one allowed image source and embed normally.
+        var markdown = Encoding.UTF8.GetBytes($"# Header\n\n![logo]({TinyPngDataUri})");
+        var request = new ConversionRequest(markdown, "doc.md", ConversionTargetFormat.Docx);
+
+        var result = await new ConversionService().ConvertAsync(request);
+
+        Assert.True(result.Success);
+        Assert.NotNull(result.OutputBytes);
+        Assert.Equal(1, CountImageParts(result.OutputBytes!));
+    }
+
+    [Fact]
+    public async Task ConvertAsync_JsonToDocx_TemplatePath_IsRejected()
+    {
+        // Untrusted JSON must never name a server-local template file: the HTTP conversion
+        // service rejects the top-level 'template' path before generation can read it.
+        var json = """
+            { "version": "1.0", "template": "../../secret.docx", "sections": [ { "blocks": [ { "type": "paragraph", "text": "hello" } ] } ] }
+            """u8.ToArray();
+        var request = new ConversionRequest(json, "report.json", ConversionTargetFormat.Docx);
+
+        var result = await new ConversionService().ConvertAsync(request);
+
+        Assert.False(result.Success);
+        Assert.Null(result.OutputBytes);
+        Assert.NotNull(result.ErrorMessage);
+        Assert.Contains("Invalid DOCX generation JSON", result.ErrorMessage);
+        Assert.Contains("template", result.ErrorMessage);
+        Assert.NotNull(result.Messages);
+        Assert.Contains(result.Messages, m => m.Contains("template"));
+    }
+
+    [Fact]
+    public async Task ConvertAsync_JsonToDocx_LocalImagePath_IsRejected()
+    {
+        // A JSON image source that escapes the API's allowed root is rejected and no DOCX
+        // is produced (unlike markdown's permissive visible-fallback behavior).
+        var json = """
+            { "version": "1.0", "sections": [ { "blocks": [ { "type": "image", "src": "../../secret.png" } ] } ] }
+            """u8.ToArray();
+        var request = new ConversionRequest(json, "report.json", ConversionTargetFormat.Docx);
+
+        var result = await new ConversionService().ConvertAsync(request);
+
+        Assert.False(result.Success);
+        Assert.Null(result.OutputBytes);
+        Assert.NotNull(result.ErrorMessage);
+        Assert.Contains("outside the allowed root", result.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task ConvertAsync_JsonToDocx_DataUriImage_IsAllowed()
+    {
+        var json = Encoding.UTF8.GetBytes(
+            "{ \"version\": \"1.0\", \"sections\": [ { \"blocks\": [ { \"type\": \"image\", \"src\": \"" + TinyPngDataUri + "\" } ] } ] }");
+        var request = new ConversionRequest(json, "report.json", ConversionTargetFormat.Docx);
+
+        var result = await new ConversionService().ConvertAsync(request);
+
+        Assert.True(result.Success);
+        Assert.NotNull(result.OutputBytes);
+        Assert.Equal(1, CountImageParts(result.OutputBytes!));
+    }
+
+    [Fact]
+    public async Task ConvertAsync_JsonToDocx_NonEmptyJson_RoutesToGenerator_NotBlank()
+    {
+        // Non-empty JSON must go through the declarative generator, never blank creation.
+        var json = """{ "version": "1.0", "sections": [ { "blocks": [ { "type": "paragraph", "text": "hello" } ] } ] }"""u8.ToArray();
+        var request = new ConversionRequest(json, "report.json", ConversionTargetFormat.Docx);
+
+        var result = await new ConversionService().ConvertAsync(request);
+
+        Assert.True(result.Success);
+        Assert.NotNull(result.OutputBytes);
+        Assert.NotNull(result.Messages);
+        Assert.Contains(result.Messages, m => m.Contains("Generated DOCX package"));
+        Assert.DoesNotContain(result.Messages, m => m.Contains("blank DOCX"));
+    }
+
+    [Fact]
+    public async Task ConvertAsync_JsonToXlsx_NonEmptyJson_RoutesToGenerator_NotBlank()
+    {
+        // Non-empty JSON with targetFormat=xlsx must route to XlsxGenerator, never a blank
+        // workbook.
+        var json = """{ "version": "1.0", "worksheets": [ { "name": "S", "headers": ["A"], "rows": [["1"]] } ] }"""u8.ToArray();
+        var request = new ConversionRequest(json, "data.json", ConversionTargetFormat.Xlsx);
+
+        var result = await new ConversionService().ConvertAsync(request);
+
+        Assert.True(result.Success);
+        Assert.NotNull(result.OutputBytes);
+        Assert.True(result.OutputBytes!.Length > 0);
+        Assert.NotNull(result.Messages);
+        Assert.Contains(result.Messages, m => m.Contains("Generated XLSX workbook"));
+        Assert.DoesNotContain(result.Messages, m => m.Contains("blank XLSX"));
+    }
+
+    [Fact]
+    public async Task ConvertAsync_EmptyJsonToXlsx_CreatesBlankInstead()
+    {
+        // Only genuinely empty input falls back to blank creation for a JSON source.
+        var request = new ConversionRequest([], "empty.json", ConversionTargetFormat.Xlsx);
+
+        var result = await new ConversionService().ConvertAsync(request);
+
+        Assert.True(result.Success);
+        Assert.NotNull(result.OutputBytes);
+        Assert.Equal("empty.xlsx", result.OutputFileName);
+        Assert.NotNull(result.Messages);
+        Assert.Contains(result.Messages, m => m.Contains("blank XLSX"));
+    }
+
+    private static int CountImageParts(byte[] docxBytes)
+    {
+        using var stream = new MemoryStream(docxBytes, writable: false);
+        using var document = WordprocessingDocument.Open(stream, false);
+        return document.MainDocumentPart?.ImageParts.Count() ?? 0;
+    }
+
+    private static string OpenXmlText(byte[] docxBytes)
+    {
+        using var stream = new MemoryStream(docxBytes, writable: false);
+        using var document = WordprocessingDocument.Open(stream, false);
+        return document.MainDocumentPart?.Document?.Body?.InnerText ?? string.Empty;
     }
 }
