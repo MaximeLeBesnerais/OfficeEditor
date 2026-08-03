@@ -197,6 +197,78 @@ public class DocxFlowEmitTests
     }
 
     [Fact]
+    public void Table_HeaderRow_EmitsCantSplitBeforeTableHeaderAndValidates()
+    {
+        // CT_TrPr requires cantSplit to precede tblHeader; emitting them the other way
+        // around produces schema-invalid OOXML that Word opens "with repair".
+        var json = """
+            {"version":"1.0","sections":[{"blocks":[{"type":"table","widths":[100,100],"rows":[
+              {"header":true,"cells":[{"text":"Name"},{"text":"Value"}]},
+              {"cells":[{"text":"A"},{"text":"1"}]}
+            ]}]}]}
+            """;
+
+        using var doc = Open(Generate(json).Content);
+        var headerRow = BodyTable(doc).Elements<Wp.TableRow>().First();
+        var children = headerRow.TableRowProperties!.ChildElements.ToList();
+        var cantSplitIndex = children.FindIndex(c => c is CantSplit);
+        var headerIndex = children.FindIndex(c => c is TableHeader);
+
+        Assert.True(cantSplitIndex >= 0, "header row must carry cantSplit");
+        Assert.True(headerIndex >= 0, "header row must carry tblHeader");
+        Assert.True(cantSplitIndex < headerIndex,
+            $"expected cantSplit (index {cantSplitIndex}) before tblHeader (index {headerIndex})");
+
+        OpenXmlAssert.NoValidationErrors(doc);
+    }
+
+    [Fact]
+    public void Callout_StyleUsesBareHexForColorAndFill()
+    {
+        var json = """
+            {"version":"1.0","sections":[{"blocks":[{"type":"paragraph","role":"callout","text":"Callout text"}]}]}
+            """;
+
+        using var doc = Open(Generate(json).Content);
+        var callout = doc.MainDocumentPart!.StyleDefinitionsPart!.Styles!
+            .Elements<Wp.Style>().Single(s => s.StyleId?.Value == "Callout");
+        var paragraphProperties = callout.StyleParagraphProperties!;
+
+        // w:color / w:fill reject a leading '#': the editorial primary (#1F3A5F) and pale (#EEF2F6)
+        // must be emitted as bare hex.
+        var color = paragraphProperties.ParagraphBorders!.LeftBorder!.Color!.Value!;
+        Assert.Equal("1F3A5F", color);
+        Assert.False(color.StartsWith('#'));
+
+        var fill = paragraphProperties.Shading!.Fill!.Value!;
+        Assert.Equal("EEF2F6", fill);
+        Assert.False(fill.StartsWith('#'));
+    }
+
+    [Fact]
+    public void DesignFontOverrides_ApplyToSemanticRolesAndHeadings()
+    {
+        var json = """
+            {"version":"1.0","design":{"fonts":{"display":"Times New Roman","body":"Verdana"}},
+             "sections":[{"blocks":[
+               {"type":"heading","level":1,"text":"Overview"},
+               {"type":"paragraph","role":"subtitle","text":"Under the title"}
+             ]}]}
+            """;
+
+        using var doc = Open(Generate(json).Content);
+        var paragraphs = BodyParagraphs(doc);
+
+        // The heading resolves its "display" slot to the document font, not the theme's Georgia.
+        var headingRun = paragraphs[0].Elements<Wp.Run>().Single();
+        Assert.Equal("Times New Roman", headingRun.RunProperties!.RunFonts!.Ascii!.Value);
+
+        // The subtitle resolves its "body" slot to the document font, not the theme's Arial.
+        var subtitleRun = paragraphs[1].Elements<Wp.Run>().Single();
+        Assert.Equal("Verdana", subtitleRun.RunProperties!.RunFonts!.Ascii!.Value);
+    }
+
+    [Fact]
     public void UndersizedBodyRun_WarnsWithoutPaginationPrediction()
     {
         var json = """

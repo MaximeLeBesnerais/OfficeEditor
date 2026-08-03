@@ -167,4 +167,22 @@ public class DocxThemeResolverTests
         Assert.Equal("Arial", resolver.TryResolveFontFamily("body"));
         Assert.Empty(resolver.Warnings);
     }
+
+    [Fact]
+    public void DesignFontOverrides_ResolveSemanticRoleSlotsToEffectiveFonts()
+    {
+        var design = new DesignTokens { Fonts = new FontTokens { Display = "Times New Roman", Body = "Verdana" } };
+        var resolved = new DocxDesignResolver(design).ResolveAll();
+
+        // "display"-slotted roles resolve to the document's display font, not the theme's Georgia.
+        Assert.Equal("Times New Roman", resolved.Roles[TextRole.Heading1].Run.FontFamily);
+        Assert.Equal("Times New Roman", resolved.Roles[TextRole.Metric].Run.FontFamily);
+        Assert.Equal("Times New Roman", resolved.Roles[TextRole.Eyebrow].Run.FontFamily);
+
+        // "body"-slotted roles resolve to the document's body font, not the theme's Arial.
+        Assert.Equal("Verdana", resolved.Roles[TextRole.Body].Run.FontFamily);
+        Assert.Equal("Verdana", resolved.Roles[TextRole.Subtitle].Run.FontFamily);
+        Assert.Equal("Verdana", resolved.Roles[TextRole.TableHeader].Run.FontFamily);
+        Assert.Equal("Verdana", resolved.Roles[TextRole.Callout].Run.FontFamily);
+    }
 }
