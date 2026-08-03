@@ -1,14 +1,14 @@
+using System.Globalization;
 using System.Text.Json;
-using OfficeEditor.Core.Services;
+using OfficeEditor.Core.Rendering;
 using XlsxEditor.Core.Exceptions;
-using XlsxEditor.Core.Instructions;
 using XlsxEditor.Core.Rendering;
-using XlsxEditor.Core.Rendering.Emit;
-using XlsxEditor.Core.Rendering.Models;
-using XlsxEditor.Core.Rendering.Read;
 
 const string Usage =
-    "Usage: convert-xlsx <input.xlsx|input.json> <output-path> [--format pdf|png|svg|typ|json] [--font-path <path>] [--ppi <n>]";
+    "Usage: convert-xlsx <input.xlsx|input.json> <output-path> [--format pdf|png|svg|typ|json] [--font-path <path>] [--ppi <n>]\n" +
+    "  --format: pdf (single file, default), png/svg (directory of page-NNN.ext), typ (Typst source), json (XLSX instructions).\n" +
+    "  --font-path: extra font file/directory (path-separator-joined list allowed).\n" +
+    "  --ppi: raster density for png/svg output in pixels per inch (default 150).";
 
 if (args.Length < 2)
 {
@@ -20,7 +20,7 @@ var inputPath = args[0];
 var outputPath = args[1];
 var format = XlsxOutputFormat.Pdf;
 string? fontPath = null;
-float ppi = 150;
+var ppi = 150f;
 
 for (var i = 2; i < args.Length; i++)
 {
@@ -55,7 +55,7 @@ for (var i = 2; i < args.Length; i++)
             break;
 
         case "--ppi":
-            if (i + 1 >= args.Length || !float.TryParse(args[i + 1], System.Globalization.CultureInfo.InvariantCulture, out ppi))
+            if (i + 1 >= args.Length || !float.TryParse(args[i + 1], CultureInfo.InvariantCulture, out ppi))
             {
                 Console.WriteLine("Error: Missing or invalid value for --ppi.");
                 Console.WriteLine(Usage);
@@ -78,11 +78,73 @@ if (!File.Exists(inputPath))
     return 1;
 }
 
-try
+if (format == XlsxOutputFormat.Json)
 {
-    var isJson = inputPath.EndsWith(".json", StringComparison.OrdinalIgnoreCase);
+    return ConvertToJson(inputPath, outputPath);
+}
 
-    if (format == XlsxOutputFormat.Json)
+Console.WriteLine($"Converting {inputPath}...");
+
+// The facade dispatches by source extension and routes .json inputs through the XLSX
+// generation vocabulary, so a single code path serves both .xlsx and .json sources.
+var renderer = new DocumentRenderer();
+var result = renderer.Render(new DocumentRenderRequest
+{
+    SourcePath = inputPath,
+    Format = format switch
+    {
+        XlsxOutputFormat.Png => DocumentOutputFormat.Png,
+        XlsxOutputFormat.Svg => DocumentOutputFormat.Svg,
+        XlsxOutputFormat.Typ => DocumentOutputFormat.Typ,
+        _ => DocumentOutputFormat.Pdf
+    },
+    Ppi = ppi,
+    FontPath = fontPath
+});
+
+if (!result.Success)
+{
+    Console.WriteLine($"Error: {result.ErrorMessage}");
+    return 1;
+}
+
+foreach (var warning in result.Warnings)
+{
+    Console.WriteLine($"Warning: {warning}");
+}
+
+if (format is XlsxOutputFormat.Pdf or XlsxOutputFormat.Typ)
+{
+    if (result.Pages.Length == 0)
+    {
+        Console.WriteLine("Error: Render produced no output.");
+        return 1;
+    }
+
+    EnsureDirectory(outputPath);
+    File.WriteAllBytes(outputPath, result.Pages[0]);
+    var label = format == XlsxOutputFormat.Pdf ? "PDF" : "Typst source";
+    Console.WriteLine($"{label} saved to: {outputPath}");
+}
+else
+{
+    // PNG/SVG produce one buffer per page; write into a directory named by the output path.
+    Directory.CreateDirectory(outputPath);
+    var extension = format == XlsxOutputFormat.Png ? "png" : "svg";
+    for (var i = 0; i < result.Pages.Length; i++)
+    {
+        var pagePath = Path.Combine(outputPath, $"page-{i + 1:D3}.{extension}");
+        File.WriteAllBytes(pagePath, result.Pages[i]);
+    }
+
+    Console.WriteLine($"{result.Pages.Length} page(s) saved to: {outputPath}");
+}
+
+return 0;
+
+static int ConvertToJson(string inputPath, string outputPath)
+{
+    try
     {
         // .xlsx -> JSON instruction set (best-effort serialization).
         var json = XlsxJsonSerializer.Serialize(inputPath);
@@ -91,106 +153,11 @@ try
         Console.WriteLine($"JSON saved to: {outputPath}");
         return 0;
     }
-
-    if (format == XlsxOutputFormat.Typ)
+    catch (XlsxException ex)
     {
-        var workbook = LoadWorkbook(inputPath, isJson);
-        var source = new XlsxToTypstConverter(workbook).GenerateTypstSource();
-        EnsureDirectory(outputPath);
-        File.WriteAllText(outputPath, source);
-        Console.WriteLine($"Typst source saved to: {outputPath}");
-        return 0;
-    }
-
-    Console.WriteLine($"Converting {inputPath}...");
-    var compileOptions = new CompileOptions
-    {
-        Format = format switch
-        {
-            XlsxOutputFormat.Png => OutputFormat.Png,
-            XlsxOutputFormat.Svg => OutputFormat.Svg,
-            _ => OutputFormat.Pdf
-        },
-        Ppi = ppi,
-        FontDirectory = fontPath
-    };
-
-    XlsxRenderResult result;
-    if (isJson)
-    {
-        result = XlsxRenderer.RenderJsonFile(inputPath, compileOptions);
-    }
-    else
-    {
-        result = XlsxRenderer.RenderFile(inputPath, compileOptions);
-    }
-
-    foreach (var issue in result.ReadIssues)
-    {
-        Console.WriteLine($"{issue.Severity}: {issue.Message}" + (issue.Location == null ? "" : $" ({issue.Location})"));
-    }
-
-    if (!result.Success)
-    {
-        Console.WriteLine($"Error: Typst compilation failed. {result.Compile.ErrorMessage}");
+        Console.WriteLine($"Error: {ex.Message}");
         return 1;
     }
-
-    EnsureDirectory(outputPath);
-
-    if (format == XlsxOutputFormat.Pdf)
-    {
-        if (result.Compile.Pages.Length == 0)
-        {
-            Console.WriteLine("Error: Typst compilation produced no PDF output.");
-            return 1;
-        }
-
-        File.WriteAllBytes(outputPath, result.Compile.Pages[0]);
-        Console.WriteLine($"PDF saved to: {outputPath}");
-    }
-    else
-    {
-        // PNG/SVG produce one buffer per page; write into a directory named by the output path.
-        Directory.CreateDirectory(outputPath);
-        for (int i = 0; i < result.Compile.Pages.Length; i++)
-        {
-            string ext = format == XlsxOutputFormat.Png ? "png" : "svg";
-            string pagePath = Path.Combine(outputPath, $"page-{i + 1:D3}.{ext}");
-            File.WriteAllBytes(pagePath, result.Compile.Pages[i]);
-        }
-
-        Console.WriteLine($"{result.Compile.Pages.Length} page(s) saved to: {outputPath}");
-    }
-
-    return 0;
-}
-catch (XlsxException ex)
-{
-    Console.WriteLine($"Error: {ex.Message}");
-    return 1;
-}
-catch (Exception ex)
-{
-    Console.WriteLine($"Error: {ex.Message}");
-    return 1;
-}
-
-static XlsxRenderWorkbook LoadWorkbook(string inputPath, bool isJson)
-{
-    if (isJson)
-    {
-        var generated = XlsxGenerator.GenerateFromFile(inputPath);
-        if (!generated.IsValid || generated.Bytes is null)
-        {
-            var errors = string.Join("; ", generated.Validation.Errors.Select(e => e.Message));
-            throw new XlsxException($"Invalid XLSX JSON: {errors}");
-        }
-
-        return new XlsxReader().Read(generated.Bytes).Workbook;
-    }
-
-    return new XlsxReader().Read(inputPath).Workbook;
 }
 
 static bool TryParseFormat(string value, out XlsxOutputFormat format)

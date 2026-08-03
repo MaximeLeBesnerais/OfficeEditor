@@ -24,6 +24,9 @@
     <ProjectReference Include="..\PptxEditor.Core\PptxEditor.Core.csproj" />
     <ProjectReference Include="..\TypstBridge\managed\TypstBridge.Managed.csproj" />
     <ProjectReference Include="..\XlsxEditor.Core\XlsxEditor.Core.csproj" />
+    <ProjectReference Include="..\tools\convert-pptx\convert-pptx.csproj" />
+    <ProjectReference Include="..\tools\convert-docx\convert-docx.csproj" />
+    <ProjectReference Include="..\tools\convert-xlsx\convert-xlsx.csproj" />
   </ItemGroup>
 
 </Project>

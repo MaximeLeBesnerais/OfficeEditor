@@ -3,11 +3,13 @@ using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using DocxEditor.Core.Content;
+using DocxEditor.Core.Converters;
 using DocxEditor.Core.Markdown;
 using DocxEditor.Core.Markdown.Rendering;
 using DocxEditor.Core.Models;
 using OfficeEditor.Core.Exceptions;
 using OfficeEditor.Core.Models;
+using OfficeEditor.Core.Services;
 
 namespace DocxEditor.Core.Builders;
 
@@ -529,6 +531,83 @@ public class DocumentBuilder : IDocumentBuilder
         }
 
         return File.ReadAllBytes(_filePath!);
+    }
+
+    /// <summary>
+    /// Converts the document to Typst source without compiling. Extracted assets (images, fonts)
+    /// live in a temporary directory that is cleaned up when this call returns, so the returned
+    /// source is a snapshot for inspection/serialization — re-rendering must go through the
+    /// compile-based exports below.
+    /// </summary>
+    public string ExportToTypst()
+    {
+        using var converter = new DocxToTypstConverter(_document);
+        var typstDocument = converter.Convert();
+        return converter.GenerateTypstSource(typstDocument);
+    }
+
+    /// <summary>
+    /// Renders the document to a single PDF buffer through the repository's own Typst pipeline
+    /// (converter → <see cref="TypstCompilerService"/>). Thin wrapper over the shared
+    /// <see cref="RenderToPages"/> path; <paramref name="options"/> may carry Ppi, FontDirectory
+    /// and ProcessTimeout (Format is forced to Pdf).
+    /// </summary>
+    public byte[] ExportToPdf(CompileOptions? options = null)
+    {
+        var pages = RenderToPages(OutputFormat.Pdf, options);
+        return pages.Length > 0 ? pages[0] : throw new InvalidOperationException("PDF export produced no output.");
+    }
+
+    /// <summary>
+    /// Renders the document to PNG buffers — one per page — through the repository's own Typst
+    /// pipeline. <paramref name="options"/> may carry Ppi, FontDirectory and ProcessTimeout
+    /// (Format is forced to Png).
+    /// </summary>
+    public byte[][] ExportToPng(CompileOptions? options = null)
+    {
+        return RenderToPages(OutputFormat.Png, options);
+    }
+
+    /// <summary>
+    /// Renders the document to SVG buffers — one per page — through the repository's own Typst
+    /// pipeline. <paramref name="options"/> may carry Ppi, FontDirectory and ProcessTimeout
+    /// (Format is forced to Svg).
+    /// </summary>
+    public byte[][] ExportToSvg(CompileOptions? options = null)
+    {
+        return RenderToPages(OutputFormat.Svg, options);
+    }
+
+    /// <summary>
+    /// Converts the document via <see cref="DocxToTypstConverter"/> and compiles the resulting
+    /// source with <see cref="TypstCompilerService"/>. The converter's temp directory holds the
+    /// extracted assets the source references by relative path, so it is used as the compiler's
+    /// working directory. Compile failures surface as an <see cref="InvalidOperationException"/>
+    /// (never a silently empty result).
+    /// </summary>
+    private byte[][] RenderToPages(OutputFormat format, CompileOptions? options)
+    {
+        using var converter = new DocxToTypstConverter(_document);
+        var typstDocument = converter.Convert();
+        var typstSource = converter.GenerateTypstSource(typstDocument);
+
+        using var compiler = new TypstCompilerService();
+        var compileOptions = new CompileOptions
+        {
+            Format = format,
+            Ppi = options?.Ppi ?? 150,
+            FontDirectory = options?.FontDirectory,
+            WorkingDirectory = typstDocument.TempDirectory
+        };
+
+        var result = compiler.Compile(typstSource, compileOptions);
+        if (!result.Success || result.Pages.Length == 0)
+        {
+            throw new InvalidOperationException(
+                $"Typst {format} compilation failed: {result.ErrorMessage ?? "no output produced."}");
+        }
+
+        return result.Pages;
     }
 
     private Paragraph CreateParagraph(string text, string? style)

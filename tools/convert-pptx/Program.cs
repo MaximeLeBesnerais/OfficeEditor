@@ -1,31 +1,72 @@
-using DocumentFormat.OpenXml.Packaging;
-using PptxEditor.Core.Converters;
-using OfficeEditor.Core.Services;
+using System.Globalization;
+using OfficeEditor.Core.Rendering;
+
+const string Usage =
+    "Usage: convert-pptx <input.pptx> <output-path> [--format pdf|png|svg|typ] [--font-path <path>] [--ppi <n>]\n" +
+    "  --format: pdf (single file, default), png/svg (directory of page-NNN.ext), typ (Typst source).\n" +
+    "  --font-path: extra font file/directory (path-separator-joined list allowed).\n" +
+    "               Defaults to the system font directories; embedded PPTX fonts always win.\n" +
+    "  --ppi: raster density for png/svg output in pixels per inch (default 150).";
 
 if (args.Length < 2)
 {
-    Console.WriteLine("Usage: convert-pptx <input.pptx> <output-path> [--format pdf|png] [--font-path <path>]");
-    Console.WriteLine("  --font-path: extra font file/directory (path-separator-joined list allowed).");
-    Console.WriteLine("               Defaults to the system font directories; embedded PPTX fonts always win.");
+    Console.WriteLine(Usage);
     return 1;
 }
 
 var inputPath = args[0];
 var outputPath = args[1];
-var format = OutputFormat.Pdf;
+var format = DocumentOutputFormat.Pdf;
 string? fontPath = null;
+var ppi = 150f;
 
 for (var i = 2; i < args.Length; i++)
 {
-    if ((args[i] == "--format" || args[i] == "--foramt") && i + 1 < args.Length)
+    switch (args[i])
     {
-        format = args[++i].Equals("png", StringComparison.OrdinalIgnoreCase)
-            ? OutputFormat.Png
-            : OutputFormat.Pdf;
-    }
-    else if (args[i] == "--font-path" && i + 1 < args.Length)
-    {
-        fontPath = args[++i];
+        case "--format":
+            if (i + 1 >= args.Length)
+            {
+                Console.WriteLine("Error: Missing value for --format.");
+                Console.WriteLine(Usage);
+                return 1;
+            }
+
+            var formatValue = args[++i];
+            if (!TryParseFormat(formatValue, out format))
+            {
+                Console.WriteLine($"Error: Unsupported format '{formatValue}'. Expected 'pdf', 'png', 'svg', or 'typ'.");
+                return 1;
+            }
+
+            break;
+
+        case "--font-path":
+            if (i + 1 >= args.Length)
+            {
+                Console.WriteLine("Error: Missing value for --font-path.");
+                Console.WriteLine(Usage);
+                return 1;
+            }
+
+            fontPath = args[++i];
+            break;
+
+        case "--ppi":
+            if (i + 1 >= args.Length || !float.TryParse(args[i + 1], CultureInfo.InvariantCulture, out ppi))
+            {
+                Console.WriteLine("Error: Missing or invalid value for --ppi.");
+                Console.WriteLine(Usage);
+                return 1;
+            }
+
+            i++;
+            break;
+
+        default:
+            Console.WriteLine($"Error: Unknown argument '{args[i]}'.");
+            Console.WriteLine(Usage);
+            return 1;
     }
 }
 
@@ -37,48 +78,16 @@ if (!File.Exists(inputPath))
 
 Console.WriteLine($"Converting {inputPath}...");
 
-using var doc = PresentationDocument.Open(inputPath, false);
-using var converter = new PptxToTypstConverter(doc);
-var presentation = converter.Convert();
-
-// Generate Typst source
-var typstSource = converter.GenerateTypstSource(presentation);
-
-// Save Typst source for debugging
-var typstPath = format == OutputFormat.Png
-    ? Path.Combine(outputPath, Path.GetFileNameWithoutExtension(inputPath) + ".typ")
-    : Path.ChangeExtension(outputPath, ".typ");
-var typstDirectory = Path.GetDirectoryName(typstPath);
-if (!string.IsNullOrEmpty(typstDirectory))
+var renderer = new DocumentRenderer();
+var result = renderer.Render(new DocumentRenderRequest
 {
-    Directory.CreateDirectory(typstDirectory);
-}
-File.WriteAllText(typstPath, typstSource);
-Console.WriteLine($"Typst source saved to: {typstPath}");
-
-// Compile with Typst
-Console.WriteLine("Compiling with Typst...");
-using var compiler = new TypstCompilerService();
-var embeddedFontPath = presentation.FontFiles.Count > 0 ? Path.GetDirectoryName(presentation.FontFiles[0]) : null;
-
-// Default to the system font directories (same pattern as the API's
-// Demo:FontDirectory) so theme fonts missing from the deck can resolve against
-// installed fonts instead of Typst's embedded serif fallback. TypstBridge keeps
-// system fonts disabled natively, so without this the fallback chain emitted by
-// the converter (… "Arial", "Helvetica", …) finds nothing.
-var requestedFontPath = fontPath ?? DefaultSystemFontPath();
-var compilerFontPath = requestedFontPath != null && embeddedFontPath != null
-    ? string.Join(Path.PathSeparator, embeddedFontPath, requestedFontPath)
-    : requestedFontPath ?? embeddedFontPath;
-
-var options = new CompileOptions
-{
+    SourcePath = inputPath,
     Format = format,
-    WorkingDirectory = presentation.TempDirectory,
-    FontDirectory = compilerFontPath
-};
-
-var result = compiler.Compile(typstSource, options);
+    Ppi = ppi,
+    // Mirror the tool's historical default: when no explicit font path is given, hand the
+    // Typst compiler the system font directories (the embedded deck fonts always come first).
+    FontPath = fontPath ?? DefaultSystemFontPath()
+});
 
 if (!result.Success)
 {
@@ -86,26 +95,71 @@ if (!result.Success)
     return 1;
 }
 
-if (format == OutputFormat.Png)
+foreach (var warning in result.Warnings)
 {
-    Directory.CreateDirectory(outputPath);
+    Console.WriteLine($"Warning: {warning}");
+}
 
-    var width = Math.Max(2, result.Pages.Length.ToString().Length);
-    for (var i = 0; i < result.Pages.Length; i++)
+if (format == DocumentOutputFormat.Pdf)
+{
+    if (result.Pages.Length == 0)
     {
-        var pagePath = Path.Combine(outputPath, $"slide-{(i + 1).ToString().PadLeft(width, '0')}.png");
-        File.WriteAllBytes(pagePath, result.Pages[i]);
+        Console.WriteLine("Error: Render produced no PDF output.");
+        return 1;
     }
 
-    Console.WriteLine($"PNG slides saved to: {outputPath}");
-}
-else
-{
+    EnsureDirectory(outputPath);
     File.WriteAllBytes(outputPath, result.Pages[0]);
     Console.WriteLine($"PDF saved to: {outputPath}");
 }
+else if (format == DocumentOutputFormat.Typ)
+{
+    if (result.Pages.Length == 0)
+    {
+        Console.WriteLine("Error: Render produced no Typst source.");
+        return 1;
+    }
+
+    EnsureDirectory(outputPath);
+    File.WriteAllBytes(outputPath, result.Pages[0]);
+    Console.WriteLine($"Typst source saved to: {outputPath}");
+}
+else
+{
+    // PNG/SVG produce one buffer per page; write into a directory named by the output path.
+    Directory.CreateDirectory(outputPath);
+    var extension = format == DocumentOutputFormat.Png ? "png" : "svg";
+    for (var i = 0; i < result.Pages.Length; i++)
+    {
+        var pagePath = Path.Combine(outputPath, $"page-{i + 1:D3}.{extension}");
+        File.WriteAllBytes(pagePath, result.Pages[i]);
+    }
+
+    Console.WriteLine($"{result.Pages.Length} page(s) saved to: {outputPath}");
+}
 
 return 0;
+
+static bool TryParseFormat(string value, out DocumentOutputFormat format)
+{
+    switch (value.ToLowerInvariant())
+    {
+        case "pdf": format = DocumentOutputFormat.Pdf; return true;
+        case "png": format = DocumentOutputFormat.Png; return true;
+        case "svg": format = DocumentOutputFormat.Svg; return true;
+        case "typ": format = DocumentOutputFormat.Typ; return true;
+        default: format = default; return false;
+    }
+}
+
+static void EnsureDirectory(string path)
+{
+    var directory = Path.GetDirectoryName(path);
+    if (!string.IsNullOrEmpty(directory))
+    {
+        Directory.CreateDirectory(directory);
+    }
+}
 
 static string? DefaultSystemFontPath()
 {
