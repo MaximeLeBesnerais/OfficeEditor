@@ -633,7 +633,7 @@
                    "v0.7.0 — developed & tested on macOS",
                   "Create, edit, merge across 3 formats",
                   "PPTX → PDF / PNG / SVG via TypstBridge",
-                  "3,200+ test cases, 85% coverage gate"
+                  "3,200+ test cases, 83% coverage gate"
                 ]
               },
               "size": { "grow": 1 }

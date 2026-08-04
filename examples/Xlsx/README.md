@@ -328,7 +328,7 @@ officeeditor generate examples/Xlsx/instructions/rich-report.json --output rich-
 ### Explicit limitations
 
 - **Images** — there is no `images[]` vocabulary; pictures are fluent-API only and not in JSON.
-- **Row replication** — there is no `repeat`/`foreach` loop; the roadmap's hardest item remains.
+- **Row replication** — there is no `repeat`/`foreach` loop; the hardest remaining generation item.
 - **Number formats** — applied via named styles or per-cell `numberFormat`; there is no separate `numFmt` table authoring.
 - **Charts, defined names, data validation, panes beyond freeze** — out of the v1 vocabulary.
 - **`create --instructions` / `edit`** — not wired; use `officeeditor generate <input.json> --output <out.xlsx>` or the library.

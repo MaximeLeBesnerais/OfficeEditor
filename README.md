@@ -265,7 +265,7 @@ Reproduce: `dotnet run --project tools/pptx-benchmark` (methodology in `tools/pp
 **Platforms:** pure managed .NET 9 + per-RID native TypstBridge (osx-arm64, linux-x64, win-x64 built in CI).
 - **macOS (arm64)** — development platform; everything verified here
 - **linux-x64** — tested
-- **Windows** — expected to work; runtime verification in CI is on the PPTX roadmap
+- **Windows** — expected to work; runtime verification in CI is still pending
 
 **Rendering (PPTX → Typst → PDF/PNG/SVG):**
 - Text, images, shapes, and tables render with good fidelity
