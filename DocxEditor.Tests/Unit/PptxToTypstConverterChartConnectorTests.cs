@@ -4,8 +4,8 @@ using Xunit;
 
 namespace DocxEditor.Tests.Unit;
 
-/// <summary>Focused regressions for the local / chart and connector markup.</summary>
-public sealed class PptxToTypstConverterNightFishTests
+/// <summary>Focused regressions for local chart and connector markup.</summary>
+public sealed class PptxToTypstConverterChartConnectorTests
 {
     [Fact]
     public void Parse_DoughnutChart_PreservesHoleSizeAndTransformedPointColor()

@@ -96,14 +96,5 @@ public static class ThemePresets
                 Palette = new PaletteColors("#1C5C9E", "#B07E28", "#17263E", "#FFFFFF", "#6E7B8A", "#EDF1F7", "#6FA8DC"),
             },
         },
-        new ThemePreset
-        {
-            Id = "heritage",
-            Name = " Heritage",
-            Design = new ThemeDesign
-            {
-                Palette = new PaletteColors("#9C8A54", "#169C9A", "#2C3932", "#FFFFFF", "#7A7567", "#F1EEE4", "#2FB3B1"),
-            },
-        },
     ];
 }

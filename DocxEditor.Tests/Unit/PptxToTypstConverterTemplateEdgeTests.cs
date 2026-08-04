@@ -8,12 +8,12 @@ using Xunit;
 
 namespace DocxEditor.Tests.Unit;
 
-/// <summary>Small synthetic regressions for the remaining  converter edge cases.</summary>
-public sealed class PptxToTypstConverterNightTests : IDisposable
+/// <summary>Small synthetic regressions for the remaining template converter edge cases.</summary>
+public sealed class PptxToTypstConverterTemplateEdgeTests : IDisposable
 {
     private const string PngBase64 =
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
-    private readonly string _tempDir = SlideOpsTestHelpers.CreateTempDirectory(nameof(PptxToTypstConverterNightTests));
+    private readonly string _tempDir = SlideOpsTestHelpers.CreateTempDirectory(nameof(PptxToTypstConverterTemplateEdgeTests));
 
     public void Dispose() => SlideOpsTestHelpers.BestEffortDelete(_tempDir);
 

@@ -10,7 +10,8 @@ using Xunit;
 namespace DocxEditor.Tests.Unit;
 
 /// <summary>
-/// Regression tests for defects found on the "Space" template deck:
+/// Regression tests for defects found on template decks with a rich
+/// master/layout hierarchy:
 ///
 /// 1. Layout pictures must resolve their image relationships against the LAYOUT
 ///    part. Relationship IDs are part-scoped; when the slide owns an image part
@@ -23,13 +24,13 @@ namespace DocxEditor.Tests.Unit;
 ///    placeholder (ph type="pic"). Previously it fell back to the default
 ///    (0,0,100x50pt), rendering the picture tiny at the top-left corner.
 /// </summary>
-public sealed class PptxToTypstConverterSpaceTests : IDisposable
+public sealed class PptxToTypstConverterMasterHierarchyTests : IDisposable
 {
     private readonly string _tempDir;
 
-    public PptxToTypstConverterSpaceTests()
+    public PptxToTypstConverterMasterHierarchyTests()
     {
-        _tempDir = Path.Combine(Path.GetTempPath(), nameof(PptxToTypstConverterSpaceTests), Guid.NewGuid().ToString("N"));
+        _tempDir = Path.Combine(Path.GetTempPath(), nameof(PptxToTypstConverterMasterHierarchyTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_tempDir);
     }
 
@@ -126,7 +127,7 @@ public sealed class PptxToTypstConverterSpaceTests : IDisposable
     }
 
     // ------------------------------------------------------------------
-    // Pie chart support ( 15 rendered a blank placeholder box)
+    // Pie chart support (a template slide 15 rendered a blank placeholder box)
     // ------------------------------------------------------------------
 
     [Fact]
@@ -205,7 +206,7 @@ public sealed class PptxToTypstConverterSpaceTests : IDisposable
         Assert.Equal("#009CBB", ellipse.Shape!.FillColor);
     }
 
-    /// <summary>Synthetic pie chart part mirroring  15's chart1.xml.</summary>
+    /// <summary>Synthetic pie chart part mirroring a template deck slide 15's chart1.xml.</summary>
     private const string PieChartXml = """
         <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
         <c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"
@@ -269,7 +270,7 @@ public sealed class PptxToTypstConverterSpaceTests : IDisposable
         """;
 
     // ------------------------------------------------------------------
-    // Multi-subpath custGeom ( 15's lens ring filled its hole)
+    // Multi-subpath custGeom (a template's lens ring filled its hole)
     // ------------------------------------------------------------------
 
     [Fact]
@@ -306,7 +307,7 @@ public sealed class PptxToTypstConverterSpaceTests : IDisposable
 
     /// <summary>
     /// Deck with a custGeom "ring": outer square subpath plus inner square subpath
-    /// (like  15's telescope lens ring, whose hole must stay transparent).
+    /// (like a template deck's telescope lens ring, whose hole must stay transparent).
     /// </summary>
     private string CreateDeckWithRingFreeform(bool singleSubpath = false)
     {
@@ -369,8 +370,8 @@ public sealed class PptxToTypstConverterSpaceTests : IDisposable
     }
 
     // ------------------------------------------------------------------
-    // otherStyle default color for non-placeholder text (Space body text
-    // rendered black on the dark background instead of light gray)
+    // otherStyle default color for non-placeholder text (body text rendered
+    // black on the dark background instead of light gray)
     // ------------------------------------------------------------------
 
     [Fact]
@@ -428,7 +429,7 @@ public sealed class PptxToTypstConverterSpaceTests : IDisposable
     }
 
     // ------------------------------------------------------------------
-    // Group rotation ( 9's Big Dipper group has rot="21063105"
+    // Group rotation (a template's Big Dipper group has rot="21063105"
     // — ignored entirely, so the whole constellation rendered unrotated)
     // ------------------------------------------------------------------
 
@@ -493,7 +494,7 @@ public sealed class PptxToTypstConverterSpaceTests : IDisposable
     }
 
     // ------------------------------------------------------------------
-    // Master shapes ( 19's logo + big text live on slideMaster2
+    // Master shapes (a template's logo + big text live on slideMaster2
     // and were not rendered at all)
     // ------------------------------------------------------------------
 
@@ -622,7 +623,7 @@ public sealed class PptxToTypstConverterSpaceTests : IDisposable
     }
 
     // ------------------------------------------------------------------
-    // Hyperlink run color ( 19's www.example.com renders in the
+    // Hyperlink run color (a template's www.example.com renders in the
     // theme hlink color, not its explicit run fill)
     // ------------------------------------------------------------------
 
@@ -682,7 +683,7 @@ public sealed class PptxToTypstConverterSpaceTests : IDisposable
     }
 
     // ------------------------------------------------------------------
-    // Line pitch for unknown fonts ( 19's Calibri Light text:
+    // Line pitch for unknown fonts (a template's Calibri Light text:
     // font not installed → Typst's ~1.3em default pitch instead of
     // PowerPoint's ~1.2em single spacing → lines drift apart)
     // ------------------------------------------------------------------
@@ -741,7 +742,7 @@ public sealed class PptxToTypstConverterSpaceTests : IDisposable
     }
 
     // ------------------------------------------------------------------
-    // Justified paragraphs (s 5/9/15 body text is algn="just" —
+    // Justified paragraphs (template slides 5/9/15 body text is algn="just" —
     // rendered left-aligned though Typst has par(justify: true))
     // ------------------------------------------------------------------
 

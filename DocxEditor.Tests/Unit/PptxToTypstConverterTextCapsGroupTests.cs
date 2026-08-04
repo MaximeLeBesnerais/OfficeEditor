@@ -12,20 +12,20 @@ namespace DocxEditor.Tests.Unit;
 /// <summary>
 /// Deck-fidelity batch 1 (branch fix/):
 /// 1. a:grpFill — freeforms inside groups must inherit the parent group's fill
-///    ( slides 2/3/4/9,  map groups 23/40/115).
+///    (slide 2/3/4/9, groups 23/40/115 patterns).
 /// 2. p:style a:fillRef/a:lnRef — shapes whose fill/stroke come only from the theme
-///    format scheme must not be dropped ( slide 5, Groups 10/11).
-/// 3. cap="small" — small-caps text must be emitted ( headers, master titleStyle).
+///    format scheme must not be dropped (slide 5, Groups 10/11).
+/// 3. cap="small" — small-caps text must be emitted (slide-master headers, titleStyle).
 /// </summary>
-public class PptxToTypstConverterTests : IDisposable
+public class PptxToTypstConverterTextCapsGroupTests : IDisposable
 {
     private const long EmusPerPoint = 12700;
 
     private readonly string _tempDir;
 
-    public PptxToTypstConverterTests()
+    public PptxToTypstConverterTextCapsGroupTests()
     {
-        _tempDir = Path.Combine(Path.GetTempPath(), "PptxTests", Guid.NewGuid().ToString("N"));
+        _tempDir = Path.Combine(Path.GetTempPath(), "PptxTextCapsGroupTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_tempDir);
     }
 
@@ -230,7 +230,7 @@ public class PptxToTypstConverterTests : IDisposable
     [Fact]
     public void GenerateTypstSource_MasterTitleStyleCapSmall_TitleInheritsSmallCaps()
     {
-        //  header pattern: slideMaster titleStyle defRPr cap="small", slide
+        // slide-master header pattern: slideMaster titleStyle defRPr cap="small", slide
         // title placeholder without its own cap → small-caps via master txStyles.
         var path = CreateDeck("cap-small-master.pptx", withTheme: false, smallCapsTitleStyle: true,
             TitlePlaceholder(2, "World Map"));
@@ -397,7 +397,7 @@ public class PptxToTypstConverterTests : IDisposable
 
     /// <summary>
     /// custGeom freeform with a:grpFill (inherit the group fill) and a:noFill outline —
-    /// the / group-child pattern.
+    /// the group-child pattern with a bare grpFill and a transparent outline.
     /// </summary>
     private static P.Shape GrpFillFreeform(uint id, double x, double y, double width, double height)
     {
@@ -509,7 +509,7 @@ public class PptxToTypstConverterTests : IDisposable
 
     /// <summary>
     /// roundRect whose fill/line come ONLY from p:style (fillRef/lnRef into the theme
-    /// format scheme) — the  slide 5 Group 10/11 child pattern: no fill marker
+    /// format scheme) — the slide 5 Group 10/11 child pattern: no fill marker
     /// and no a:ln in spPr.
     /// </summary>
     private static P.Shape StyledRoundRect(

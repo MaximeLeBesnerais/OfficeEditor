@@ -57,35 +57,6 @@
           "bodySizePt": 16
         }
       }
-    },
-    {
-      "id": "heritage",
-      "name": " Heritage",
-      "design": {
-        "palette": {
-          "ink": "#2C3932",
-          "paper": "#FFFFFF",
-          "primary": "#9C8A54",
-          "accent": "#169C9A",
-          "muted": "#7A7567",
-          "mist": "#F1EEE4",
-          "glow": "#2FB3B1"
-        },
-        "fonts": {
-          "display": "Avenir Next",
-          "body": "Helvetica Neue"
-        },
-        "shape": {
-          "cornerRadius": 0,
-          "cardStyle": "outline"
-        },
-        "metrics": {
-          "marginPt": 48,
-          "gutterPt": 18,
-          "titleSizePt": 42,
-          "bodySizePt": 16
-        }
-      }
     }
   ]
 }

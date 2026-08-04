@@ -9,12 +9,12 @@ using Xunit;
 namespace DocxEditor.Tests.Unit;
 
 /// <summary>
-/// Regression tests for defects found on the  template decks:
+/// Regression tests for defects found on wide-aspect template decks:
 /// layout picture rId collisions, picture-placeholder position inheritance,
 /// and group rotation in deeply nested group hierarchies. All decks are
 /// synthetic — no licensed content is committed.
 /// </summary>
-public sealed class PptxToTypstConverterWideTests : IDisposable
+public sealed class PptxToTypstConverterWideTemplateTests : IDisposable
 {
     // 2x2 red and 2x2 blue PNGs (ImageMagick-generated), used to tell two
     // image parts apart when relationship ids collide across parts.
@@ -25,9 +25,9 @@ public sealed class PptxToTypstConverterWideTests : IDisposable
 
     private readonly string _tempDir;
 
-    public PptxToTypstConverterWideTests()
+    public PptxToTypstConverterWideTemplateTests()
     {
-        _tempDir = Path.Combine(Path.GetTempPath(), nameof(PptxToTypstConverterWideTests), Guid.NewGuid().ToString("N"));
+        _tempDir = Path.Combine(Path.GetTempPath(), nameof(PptxToTypstConverterWideTemplateTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_tempDir);
     }
 
@@ -185,8 +185,8 @@ public sealed class PptxToTypstConverterWideTests : IDisposable
     /// <summary>
     /// Group <c>a:xfrm rot</c> must rotate every child about the group's
     /// centre and add the angle to the child's own rotation. PowerPoint
-    /// templates lean on this heavily (e.g. horizontal  glyphs stood
-    /// upright via rot="16200000").
+    /// templates lean on this heavily (e.g. horizontal glyphs stood upright
+    /// via rot="16200000").
     /// </summary>
     [Fact]
     public void Convert_RotatedGroup_RotatesChildrenAboutGroupCentre()
@@ -285,7 +285,7 @@ public sealed class PptxToTypstConverterWideTests : IDisposable
     /// <summary>
     /// algn="just" (justified) must emit Typst par(justify: true), not a
     /// left-aligned fallback and never an invalid #align(justify) — the
-    ///  body paragraphs are justified, visible as stretched word
+    /// template body paragraphs are justified, visible as stretched word
     /// spacing in the official PDFs.
     /// </summary>
     [Fact]
@@ -369,8 +369,8 @@ public sealed class PptxToTypstConverterWideTests : IDisposable
     /// bodyPr wrap="none" (typically with spAutoFit): PowerPoint never wraps
     /// the line — the box grows/overflows instead. The converter must widen
     /// the emitted block beyond the shape width so fallback-font metrics
-    /// cannot force a wrap (-Wide cover taglines "
-    /// Slides" / "16:9 Screen Template" are single lines in the official PDF).
+    /// cannot force a wrap (single-line cover taglines are one line in the
+    /// official PDF).
     /// </summary>
     [Fact]
     public void Convert_NoWrapTextBox_EmitsBlockWiderThanShape()
@@ -458,7 +458,7 @@ public sealed class PptxToTypstConverterWideTests : IDisposable
 
     /// <summary>
     /// A run with no color anywhere in the cascade inherits the theme's tx1
-    /// (→ dk1) color — not hardcoded black. The  decks redefine dk1 as
+    /// (→ dk1) color — not hardcoded black. Some templates redefine dk1 as
     /// grey #95A5A6, and their body text renders grey in the official PDFs.
     /// </summary>
     [Fact]
@@ -561,9 +561,8 @@ public sealed class PptxToTypstConverterWideTests : IDisposable
     /// <summary>
     /// Hyperlink runs render in the theme hlink color with an underline —
     /// the behaviour of the reference renderer (and LibreOffice), which
-    /// overrides even an explicit solidFill. -Wide slide 22's
-    /// "www.example.com" is white/50% in XML but teal #16A085 + underline in
-    /// the official PDF.
+    /// overrides even an explicit solidFill. A hyperlink that is white/50%
+    /// in XML renders teal #16A085 + underline in the official PDF.
     /// </summary>
     [Fact]
     public void Convert_HyperlinkRun_UsesThemeHlinkColorAndUnderline()
@@ -672,8 +671,8 @@ public sealed class PptxToTypstConverterWideTests : IDisposable
     /// A picture-filled shape with blipFill rotWithShape="0" (the OOXML
     /// default) keeps its fill slide-aligned: PowerPoint does not rotate the
     /// image with the shape. For quarter-turn rotations the displayed bounds
-    /// are the swapped box (-Wide cover: the iPad screen is a portrait
-    /// rect rotated 270° whose screenshot must stay upright/landscape).
+    /// are the swapped box (a cover's portrait screenshot is a portrait rect
+    /// rotated 270° whose image must stay upright/landscape).
     /// </summary>
     [Fact]
     public void Convert_BlipFillNotRotatingWithShape_KeepsImageSlideAligned()
@@ -791,8 +790,8 @@ public sealed class PptxToTypstConverterWideTests : IDisposable
     /// User-drawn (non-placeholder) shapes on the slide MASTER — logos,
     /// taglines, watermark art — are part of every slide using that master
     /// (unless the layout sets showMasterSp="0"). The converter imported only
-    /// layout shapes, so master content silently vanished (-Wide slide
-    /// 22 lost its "…" tagline and logo).
+    /// layout shapes, so master content silently vanished (a cover lost its
+    /// "…" tagline and logo).
     /// </summary>
     [Fact]
     public void Convert_MasterUserDrawnShape_RendersOnSlide()

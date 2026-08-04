@@ -1142,7 +1142,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
     /// carries no explicit fill marker (or no a:ln) takes that aspect from its
     /// a:fillRef (a:lnRef), which indexes the theme format scheme. Without this,
     /// shapes that rely entirely on their style reference (e.g. the grouped
-    /// roundRect+custGeom icons in  slide 5) resolve to empty fill/stroke
+    /// roundRect+custGeom icons in slide 5) resolve to empty fill/stroke
     /// and are dropped by the fill/stroke gate.
     /// </summary>
     private TypstShapeElement? ApplyStyleReferenceFillAndStroke(P.Shape shape, TypstShapeElement? shapeElement, StyleResolver styleResolver)
@@ -1259,7 +1259,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
             return (string.Empty, 0);
 
         // DrawingML defaults an omitted line width to 1pt. This matters for the
-        // straight connector rules used as column dividers in the  deck:
+        // straight connector rules used as column dividers in template decks:
         // they carry a solid fill but omit @w.
         var strokeWidth = outline.Width?.Value > 0
             ? outline.Width.Value / 12700.0
@@ -2723,8 +2723,8 @@ public sealed partial class PptxToTypstConverter : IDisposable
 
             // Theme default text color (last resort): a run whose color was
             // never set anywhere in the cascade inherits tx1 (OOXML default) —
-            // usually black, but themes may redefine dk1 (the  decks use
-            // a grey dk1, which is why their body text renders grey).
+            // usually black, but themes may redefine dk1 (some templates use a
+            // grey dk1, which is why their body text renders grey).
             if (newFmt.Color == "#000000")
             {
                 var tx1Color = styleResolver.ResolveSchemeColor("tx1");
@@ -3010,7 +3010,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
 
             // No explicit a:lnSpc anywhere in the cascade AND the effective font's
             // metrics are unknown (font not installed — e.g. "Calibri Light" on
-            //  19): Typst's ~1.3em default pitch would drift multi-line
+            // a template slide): Typst's ~1.3em default pitch would drift multi-line
             // text apart. Pin PowerPoint's single-spacing target (1.2em) as an
             // explicit ratio instead. Scoped to conversion: presentations built
             // directly keep the emitter's Typst-default fallback for unknown fonts.
@@ -3396,7 +3396,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
         }
 
         // Hyperlink runs render in the theme's hlink color — PowerPoint overrides
-        // the explicit run fill ( 19's example.com link: explicit
+        // the explicit run fill (a template slide's example.com link: explicit
         // white-50% fill, rendered in teal hlink color).
         if (runProps.Elements<Drawing.HyperlinkOnClick>().FirstOrDefault() != null
             || Regex.IsMatch(runProps.OuterXml, @"<[^>]*hlinkClick\b"))

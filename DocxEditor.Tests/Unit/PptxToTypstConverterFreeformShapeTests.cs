@@ -9,13 +9,13 @@ using Xunit;
 
 namespace DocxEditor.Tests.Unit;
 
-/// <summary>Regression contracts for the  and  freeform sweep.</summary>
-public sealed class PptxToTypstConverterNightTests : IDisposable
+/// <summary>Regression contracts for the freeform shape sweep.</summary>
+public sealed class PptxToTypstConverterFreeformShapeTests : IDisposable
 {
     private readonly string _tempDir = Path.Combine(
-        Path.GetTempPath(), nameof(PptxToTypstConverterNightTests), Guid.NewGuid().ToString("N"));
+        Path.GetTempPath(), nameof(PptxToTypstConverterFreeformShapeTests), Guid.NewGuid().ToString("N"));
 
-    public PptxToTypstConverterNightTests() => Directory.CreateDirectory(_tempDir);
+    public PptxToTypstConverterFreeformShapeTests() => Directory.CreateDirectory(_tempDir);
 
     public void Dispose() => SlideOpsTestHelpers.BestEffortDelete(_tempDir);
 

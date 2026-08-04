@@ -16,7 +16,7 @@ public static class PieChartElementBuilder
 
     /// <summary>
     /// PowerPoint's auto layout leaves a margin around the pie: the circle's diameter is
-    /// ~78% of the smaller plot dimension (measured on the  reference render).
+    /// ~78% of the smaller plot dimension (measured on a template deck reference render).
     /// </summary>
     // Small chart frames in editable infographic pins/panels include title/legend
     // space; using the full frame made the pie cover its surrounding marker. Larger

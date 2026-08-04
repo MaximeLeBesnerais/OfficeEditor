@@ -17,15 +17,15 @@ public sealed class ThemePresetsTests
     }
 
     [Fact]
-    public void All_ReturnsExactlyTheThreePresetsInCatalogOrder()
+    public void All_ReturnsExactlyTheTwoPresetsInCatalogOrder()
     {
         var presets = ThemePresets.All;
 
         Assert.Equal(
-            ["northwind", "corporate-blue", "heritage"],
+            ["northwind", "corporate-blue"],
             presets.Select(p => p.Id));
         Assert.Equal(
-            ["Northwind Teal", "Corporate Blue", " Heritage"],
+            ["Northwind Teal", "Corporate Blue"],
             presets.Select(p => p.Name));
         Assert.All(presets, p =>
         {

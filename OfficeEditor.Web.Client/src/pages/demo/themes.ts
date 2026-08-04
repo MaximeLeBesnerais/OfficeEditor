@@ -89,24 +89,6 @@ export const THEME_PRESETS: ThemePreset[] = [
       metrics: SHARED_METRICS,
     },
   },
-  {
-    id: 'heritage',
-    name: ' Heritage',
-    design: {
-      palette: {
-        ink: '#2C3932',
-        paper: '#FFFFFF',
-        primary: '#9C8A54',
-        accent: '#169C9A',
-        muted: '#7A7567',
-        mist: '#F1EEE4',
-        glow: '#2FB3B1',
-      },
-      fonts: SHARED_FONTS,
-      shape: SHARED_SHAPE,
-      metrics: SHARED_METRICS,
-    },
-  },
 ];
 
 export const DEFAULT_THEME_ID = 'northwind';

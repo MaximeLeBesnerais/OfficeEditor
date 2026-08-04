@@ -301,7 +301,7 @@
         },
         {
           "type": "text",
-           "text": "Real PPTX file → Typst pipeline → PNG. ( comparison renders removed.)",
+           "text": "Real PPTX file → Typst pipeline → PNG.",
           "fontSize": 13,
           "color": "muted",
           "textAlign": "center",
