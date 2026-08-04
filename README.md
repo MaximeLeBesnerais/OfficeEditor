@@ -284,6 +284,8 @@ OfficeEditor libraries run in the caller's process and are not a sandbox for hos
 
 MIT — Copyright 2026 Maxime Le Besnerais
 
+This product bundles third-party components under their own licenses; see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) (notably Typst, Apache-2.0).
+
 ## Contributing
 
 The repo uses a protected `main` / working `dev` branch model:

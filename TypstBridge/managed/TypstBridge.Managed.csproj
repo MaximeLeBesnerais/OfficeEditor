@@ -27,6 +27,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)../../THIRD-PARTY-NOTICES.md"
+          Link="THIRD-PARTY-NOTICES.md"
+          Pack="true"
+          PackagePath="THIRD-PARTY-NOTICES.md" />
     <None Include="$(MSBuildThisFileDirectory)../runtimes/**/*.*"
           Link="runtimes/%(RecursiveDir)%(Filename)%(Extension)"
           TargetPath="runtimes/%(RecursiveDir)%(Filename)%(Extension)"
