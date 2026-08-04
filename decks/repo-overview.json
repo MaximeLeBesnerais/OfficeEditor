@@ -488,7 +488,7 @@
                 },
                 {
                   "type": "text",
-                  "text": "PowerPoint render (removed)",
+                  "text": "PowerPoint render (ground truth)",
                   "fontSize": 13,
                   "color": "muted",
                   "textAlign": "center",
@@ -510,7 +510,7 @@
                 },
                 {
                   "type": "text",
-                  "text": "OfficeEditor Typst render (comparison images removed)",
+                  "text": "OfficeEditor Typst render (spec of record)",
                   "fontSize": 13,
                   "color": "muted",
                   "textAlign": "center",
@@ -522,7 +522,7 @@
         },
         {
           "type": "text",
-           "text": "RMSE comparison data removed (licensing) — regenerate against northwind-demo.",
+           "text": "RMSE comparison data — regenerate against northwind-demo.",
           "fontSize": 14,
           "color": "ink",
           "textAlign": "center",

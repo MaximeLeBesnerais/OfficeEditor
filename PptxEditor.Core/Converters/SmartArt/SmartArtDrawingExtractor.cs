@@ -153,7 +153,7 @@ namespace PptxEditor.Core.Converters.SmartArt;
     /// <c>Aware</c> unions the rotated footprints for shapes with xfrm@rot
     /// (identical to <see cref="ComputeBoundingBox"/>). Neither union is a
     /// universally better approximation of PowerPoint's frame-coordinate
-    /// cache (-b1 §4), so the caller picks between them with
+    /// cache, so the caller picks between them with
     /// the dual-fit rule in
     /// <see cref="ComputeFrameFit(ValueTuple, ValueTuple, ValueTuple)"/>.
     /// </summary>
@@ -181,7 +181,7 @@ namespace PptxEditor.Core.Converters.SmartArt;
             // ReadGeometry applies): an unsupported preset is silently dropped at
             // extraction, and its cached xfrm — which legitimately extends outside
             // the node layout, e.g. connector arcs — must not set the fit bbox
-            // (-033: a dropped blockArc inflated the bbox width 1.61× and
+            // (Observed pattern: a dropped blockArc inflated the bbox width 1.61× and
             // fit-scaled the whole diagram to 0.63).
             var prstGeom = GetChild(spPr, "prstGeom", DrawingmlNs);
             var prstValue = prstGeom == null ? null : ReadAttribute(prstGeom, "prst");
@@ -194,7 +194,7 @@ namespace PptxEditor.Core.Converters.SmartArt;
             // A stroke-only connector arc (noFill blockArc) is clipped to the frame
             // by PowerPoint, never fitted — its cached xfrm legitimately extends
             // outside the node layout, so it must not set the fit bbox either
-            // (-033 §4: rendering the connector must not re-introduce the
+            // (Observed pattern: rendering the connector must not re-introduce the
             // 0.63 fit-scale the unrenderable-preset skip above just removed).
             if (prstValue == "blockArc" && GetChild(spPr, "noFill", DrawingmlNs) != null)
                 continue;
@@ -225,7 +225,7 @@ namespace PptxEditor.Core.Converters.SmartArt;
 
             // Union the four corners rotated about the rect centre — xfrm@rot is
             // applied per shape downstream, so the fit box must bound the rotated
-            // footprint, not the raw off/ext rect (-130: a rotation-blind
+            // footprint, not the raw off/ext rect (a rotation-blind
             // bbox inflated the content height by 45% and fit-scaled the whole
             // diagram to 0.69).
             var centerX = x.Value + cx.Value / 2;
@@ -278,7 +278,7 @@ namespace PptxEditor.Core.Converters.SmartArt;
     }
 
     /// <summary>
-    /// Dual-fit selection (-b1 §4): computes the frame fit from
+    /// Dual-fit selection: computes the frame fit from
     /// BOTH the rotation-blind and the rotation-aware bbox and picks whichever
     /// has scale closer to 1.0 (a cached <c>dsp:drawing</c> is authored in frame
     /// coordinates, so the correct transform is the one closest to identity).
@@ -287,9 +287,9 @@ namespace PptxEditor.Core.Converters.SmartArt;
     /// the frame origin — the raw centering offset alone is misleading on
     /// scale ties: slide 71's blind bbox adds phantom width the rotated ink
     /// never occupies, so centering it shifts the real ink off identity),
-    /// and a remaining tie keeps the rotation-aware fit (the batch-1 default).
+    /// and a remaining tie keeps the rotation-aware fit (the aware-fit default).
     /// No cap is applied — legitimate upscale factors &gt;1 occur across the
-    /// corpus. Drawings without rotated shapes have identical candidates, so
+    /// reference decks. Drawings without rotated shapes have identical candidates, so
     /// this is a no-op for them.
     /// </summary>
     internal static (double ScaleX, double ScaleY, double FrameX, double FrameY) ComputeFrameFit(
@@ -432,7 +432,7 @@ namespace PptxEditor.Core.Converters.SmartArt;
             : null;
         if (fillGradient != null)
         {
-            // Cached-vs-relayout conflict (-b1 §5-6): when the
+            // Cached-vs-relayout conflict: when the
             // node's colorsDef styleLbl maps to a plain solid fill and the
             // quickStyle carries no gradient, PowerPoint displays the colorsDef
             // result, not the cached gradFill. The resolver returns null in every

@@ -104,7 +104,7 @@ public sealed class PptxToTypstConverterShapeGeometryTests : IDisposable
     {
         // Regression: a fill-less, stroke-less polygon emitted "#polygon(, (x, y), …)"
         // — a leading empty argument that Typst rejects with "unexpected comma".
-        // Triggered by SmartArt fixtures shapes whose fills don't resolve to a solid
+        // Triggered by SmartArt diagram shapes whose fills don't resolve to a solid
         // color (e.g. dsp gradient fills the extractor does not parse).
         var path = CreateDeck(PresetShape(2, Drawing.ShapeTypeValues.Chevron, cx: 2540000, cy: 1270000));
         using var document = PresentationDocument.Open(path, false);

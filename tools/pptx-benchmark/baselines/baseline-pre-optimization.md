@@ -18,7 +18,7 @@ Product target for the instant-preview pipeline: **<500 ms per slide** (whole-de
 | TypstBridge | 0.1.0 |
 | LibreOffice | not available on this machine |
 
-## template-deck.pptx (16 slides)
+## sales_acceleration_deck.pptx (16 slides)
 
 ### This pipeline (PptxEditor → Typst)
 
@@ -42,7 +42,7 @@ captured via the `OFFICEEDITOR_TIMING` hooks in `TypstCompilerService`.
 
 | Deck | Slides | Cold total (ms) | Warm median total (ms, N=5) | Derived per-slide (ms) | LibreOffice warm median (ms) |
 |---|---|---|---|---|---|
-| template-deck.pptx | 16 | 634.4 | 283.7 | 17.7 | n/a (not installed) |
+| sales_acceleration_deck.pptx | 16 | 634.4 | 283.7 | 17.7 | n/a (not installed) |
 
 ## Methodology
 

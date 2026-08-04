@@ -6,7 +6,7 @@ using PptxEditor.Core.Models;
 namespace DocxEditor.Tests.Unit.SmartArt;
 
 /// <summary>
-/// Tests for the colorsDef fill-precedence rule (-b1 §5-6):
+/// Tests for the colorsDef fill-precedence rule:
 /// when a cached dsp:sp gradFill conflicts with a flat dgm:colorsDef styleLbl
 /// mapping (plain schemeClr/srgbClr, no transforms) and the quickStyle carries
 /// no gradient, the colorsDef solid fill wins; in every other case the cached
@@ -87,7 +87,7 @@ public sealed class SmartArtColorsDefResolverTests
 
     private static OpenXmlElement GradientShape(string modelId)
     {
-        // Corpus pattern (drawing35): cached linear gradient with heavy
+        // Observed pattern (drawing35): cached linear gradient with heavy
         // shade/satMod stops — conflicts with the flat colorsDef mapping.
         return ParseXml($@"
 <dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"" modelId=""{modelId}"">

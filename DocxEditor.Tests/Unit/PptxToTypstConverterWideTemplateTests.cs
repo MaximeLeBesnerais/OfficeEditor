@@ -434,7 +434,7 @@ public sealed class PptxToTypstConverterWideTemplateTests : IDisposable
                     new Drawing.Paragraph(
                         new Drawing.Run(
                             new Drawing.RunProperties { Language = "en-US", FontSize = 2800, Bold = true },
-                            new Drawing.Text(" Slides")))));
+                            new Drawing.Text("Premium Presentation Collection")))));
 
             slidePart.Slide = new Slide(new CommonSlideData(CreateShapeTree(shape)));
         }
@@ -791,7 +791,7 @@ public sealed class PptxToTypstConverterWideTemplateTests : IDisposable
     /// taglines, watermark art — are part of every slide using that master
     /// (unless the layout sets showMasterSp="0"). The converter imported only
     /// layout shapes, so master content silently vanished (a cover lost its
-    /// "…" tagline and logo).
+    /// "Template gallery preview" tagline and logo).
     /// </summary>
     [Fact]
     public void Convert_MasterUserDrawnShape_RendersOnSlide()

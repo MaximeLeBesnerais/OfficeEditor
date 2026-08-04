@@ -182,8 +182,8 @@ internal static class SmartArtPresetGeometry
         // ECMA-376 chevron: notch/point depth dx1 = ss·a/100000 with
         // a = pin(0, adj, 100000·w/ss) — a fraction of min(w,h), NOT of the
         // width. The static 0.5-of-width table carved a 2.5× too-deep notch
-        // into the wide (~2.5:1) process chevrons on slides 56/58
-        // (-025 §4); on square shapes the default adj=50000
+        // into the wide (~2.5:1) process chevrons on slides 56/58;
+        // on square shapes the default adj=50000
         // reproduces that legacy table exactly.
         ["chevron"] = new SmartArtPresetGeometry.PresetDef(
             new Dictionary<string, double>
@@ -452,7 +452,7 @@ internal static class SmartArtPresetGeometry
         // sides, a = pin(0, adj, 50000·w/ss), default adj = 25000. The inset
         // is a fraction of min(w,h), so it must be computed per shape — a
         // static 25%-of-width table both mis-renders non-square shapes and
-        // ignores the cached a:avLst adj (-b1 §1: adj=64780
+        // ignores the cached a:avLst adj (adj=64780
         // on slides 134/135 is the taper that makes the pyramid silhouette).
         ["trapezoid"] = new SmartArtPresetGeometry.PresetDef(
             new Dictionary<string, double>
@@ -541,7 +541,7 @@ internal static class SmartArtPresetGeometry
         // adj2 = 62500. adj1 = adj2 = 0 lands the tip on the shape centre,
         // which would make the outline a self-intersecting bowtie, so the
         // degenerate tip collapses onto the last rect vertex (l,b) and the
-        // shape renders as the plain rect (-b1 §3: slide 49's
+        // shape renders as the plain rect (slide 49's
         // first column body caches exactly adj1 = adj2 = 0).
         ["wedgeRectCallout"] = new SmartArtPresetGeometry.PresetDef(
             new Dictionary<string, double>

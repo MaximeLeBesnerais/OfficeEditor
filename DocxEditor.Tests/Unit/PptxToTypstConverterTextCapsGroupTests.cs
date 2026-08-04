@@ -10,7 +10,7 @@ using Xunit;
 namespace DocxEditor.Tests.Unit;
 
 /// <summary>
-/// Deck-fidelity batch 1 (branch fix/):
+/// Text-cap runs and group-fill regression coverage for the converter:
 /// 1. a:grpFill — freeforms inside groups must inherit the parent group's fill
 ///    (slide 2/3/4/9, groups 23/40/115 patterns).
 /// 2. p:style a:fillRef/a:lnRef — shapes whose fill/stroke come only from the theme

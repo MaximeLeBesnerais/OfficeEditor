@@ -8,7 +8,7 @@ namespace PptxEditor.Core.Converters.SmartArt;
 
 /// <summary>
 /// Resolves a diagram node's <c>dgm:colorsDef</c> fill for the cached-vs-relayout
-/// conflict case (-b1 §5-6). PowerPoint re-lays SmartArt out from
+/// conflict case. PowerPoint re-lays SmartArt out from
 /// the diagram definition parts; when the cached <c>dsp:sp</c> spPr gradFill
 /// disagrees with a flat colorsDef mapping, PowerPoint displays the colorsDef
 /// result. This resolver reproduces that outcome ONLY in the clear-conflict case:
@@ -91,7 +91,7 @@ internal static class SmartArtColorsDefResolver
     private static ContextHolder CreateContextHolder(OpenXmlElement drawingRoot)
     {
         // The drawing part (ppt/diagrams/drawingN.xml) has no relationships of
-        // its own in the corpus — the sibling data/colors/quickStyle parts share
+        // its own — the sibling data/colors/quickStyle parts share
         // its directory and numeric suffix, so locate them by URI. Any failure
         // leaves the cached spPr in charge (status quo).
         if (drawingRoot is not OpenXmlPartRootElement partRoot) return new ContextHolder(null);

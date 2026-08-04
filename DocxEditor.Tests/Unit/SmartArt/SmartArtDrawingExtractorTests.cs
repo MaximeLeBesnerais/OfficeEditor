@@ -395,7 +395,7 @@ public sealed class SmartArtDrawingExtractorTests
     [Fact]
     public void Extract_GradientFill_ShadeAndSatModStops_AppliedInDocumentOrder()
     {
-        // corpus pattern (slides 25/58/131): gradient stops differ ONLY by
+        // observed pattern (slides 25/58/131): gradient stops differ ONLY by
         // shade/satMod transforms. Without them all stops collapse to the raw scheme
         // color and the gradient renders flat.
         var xml = $@"
@@ -481,7 +481,7 @@ public sealed class SmartArtDrawingExtractorTests
     [Fact]
     public void Extract_GradientFill_PopulatesFillGradient()
     {
-        // corpus pattern: SmartArt colors live in a:gradFill on dsp:sp, not
+        // observed pattern: SmartArt colors live in a:gradFill on dsp:sp, not
         // a:solidFill. Two stops — scheme color (static fallback accent1) plus an
         // srgbClr stop with per-stop alpha.
         var xml = $@"
@@ -702,7 +702,7 @@ public sealed class SmartArtDrawingExtractorTests
     [Fact]
     public void ComputeBoundingBox_UnsupportedPreset_DoesNotPolluteBounds()
     {
-        // -033: an unrenderable connector shape (preset not in the map,
+        // Observed pattern: an unrenderable connector shape (preset not in the map,
         // silently dropped at extraction) must not set the fit bbox — its cached
         // xfrm legitimately extends outside the node layout and would otherwise
         // shrink the whole diagram (slide 33: scale 0.63 instead of ~1.0).
@@ -779,7 +779,7 @@ public sealed class SmartArtDrawingExtractorTests
     [Fact]
     public void ComputeBoundingBox_RotatedShape_UnionsRotatedCorners()
     {
-        // -130: quadrants stored as tall rects rotated ±90° must contribute
+        // Observed pattern: quadrants stored as tall rects rotated ±90° must contribute
         // their ROTATED footprint. rot=90° about center (120,50) turns the 40×100pt
         // rect at (100,0) into a 100×40pt footprint at (70,30).
         var xml = $@"
@@ -1457,7 +1457,7 @@ public sealed class SmartArtDrawingExtractorTests
     {
         // ECMA homePlate: point depth = adj * min(w,h) (default adj 50000), so on a
         // wide 80x10pt bar the point sits at x = 1 - 0.5*10/80 = 0.9375 — a static
-        // 0.5-width table would be grossly wrong (-025).
+        // 0.5-width table would be grossly wrong (observed pattern).
         var xml = $@"
 <dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
   <dsp:spPr>
@@ -1705,7 +1705,7 @@ public sealed class SmartArtDrawingExtractorTests
     [Fact]
     public void ComputeBoundingBox_NoFillBlockArc_DoesNotPolluteBounds()
     {
-        // -033: a stroke-only connector arc (noFill blockArc) is clipped to
+        // Observed pattern: a stroke-only connector arc (noFill blockArc) is clipped to
         // the frame by PowerPoint, never fitted — its cached xfrm legitimately
         // extends outside the node layout, so it must not set the fit bbox.
         var rect = $@"
@@ -2090,7 +2090,7 @@ public sealed class SmartArtDrawingExtractorTests
     [Fact]
     public void Extract_Trapezoid_HonorsAdjustmentValues()
     {
-        // -b1 §1: the cached trapezoid adj (64780 on slides
+        // Observed pattern: the cached trapezoid adj (64780 on slides
         // 134/135) must set the top-edge inset — ECMA-376 x1 = ss·adj/100000
         // with ss = min(w,h), NOT the static table's fixed 25% of the width.
         // 200x100pt shape, adj=64780: x1 = 100·0.6478 = 64.78pt → 0.3239 of w.
@@ -2250,7 +2250,7 @@ public sealed class SmartArtDrawingExtractorTests
     [Fact]
     public void ComputeBoundingBox_NonIsoscelesTrapezoid_ContributesToBounds()
     {
-        // -b1 §1: slides 134/135 regressed because the bbox
+        // Observed pattern: slides 134/135 regressed because the bbox
         // pollution skip dropped the nonIsoscelesTrapezoid label boxes
         // (x 217.6→640), shrinking the bbox to the 435.2pt-wide pyramid and
         // center-shifting the whole diagram +102pt. Now that the preset is
@@ -2297,7 +2297,7 @@ public sealed class SmartArtDrawingExtractorTests
     [Fact]
     public void Extract_WedgeRectCallout_DegenerateAdjustments_RendersAsRect()
     {
-        // -b1 §3: slide 49's first column body caches
+        // Observed pattern: slide 49's first column body caches
         // adj1 = adj2 = 0 — the tip lands on the shape centre, a
         // self-intersecting bowtie — so the outline must degenerate to the
         // plain rect (the fifth point collapses onto the last rect vertex).
@@ -2419,7 +2419,7 @@ public sealed class SmartArtDrawingExtractorTests
     [Fact]
     public void ComputeBoundingBox_WedgeRectCallout_ContributesToBounds()
     {
-        // -b1 §3: slide 49 regressed because the bbox
+        // Observed pattern: slide 49 regressed because the bbox
         // pollution skip dropped the wedgeRectCallout column bodies
         // (y 67.2→335.9), shrinking the bbox to the 67.2pt-tall header row
         // and fit-scaling the diagram ×1.21 with a +127pt downshift. Now
@@ -2521,7 +2521,7 @@ public sealed class SmartArtDrawingExtractorTests
     [Fact]
     public void ComputeFrameFit_DualFit_PicksBlindWhenCloserToIdentity()
     {
-        // -b1 §4 (slide 152, drawing149): the rotation-blind
+        // Observed pattern (slide 152, drawing149): the rotation-blind
         // bbox (14.3,16.1,625.7,319.9) fits the 640x335.9 frame at scale
         // 1.0229; the rotation-aware bbox (53.4,16.1,586.6,319.9) at 1.05.
         // A cached dsp:drawing is authored in frame coordinates, so the fit
@@ -2543,9 +2543,9 @@ public sealed class SmartArtDrawingExtractorTests
     [Fact]
     public void ComputeFrameFit_DualFit_PicksAwareWhenBlindInflates()
     {
-        // -130: the rotation-blind bbox inflated the content height
+        // Observed pattern: the rotation-blind bbox inflated the content height
         // by 45% (fit scale 0.688) while the rotation-aware bbox fits at
-        // ~1.0 — the batch-1 win must be kept: dual-fit picks the aware fit.
+        // ~1.0 — the rotation-aware fit must be kept: dual-fit picks the aware fit.
         var frame = (X: 235.7, Y: 122.6, Width: 640.0, Height: 335.9);
         var aware = (MinX: 0.0, MinY: 0.0, Width: 640.0, Height: 335.9);
         var blind = (MinX: 0.0, MinY: 0.0, Width: 640.0, Height: 335.9 / 0.688);
@@ -2602,7 +2602,7 @@ public sealed class SmartArtDrawingExtractorTests
         // Slide 56 (drawing59.xml): 141.6x56.6pt chevrons with an empty avLst.
         // ECMA-376 chevron: notch depth dx1 = ss*adj/100000 (default adj 50000)
         // = 0.5*56.6 = 28.31pt => f = 0.20 of the WIDTH — the static polygon's
-        // hardcoded 0.5-of-width notch is 2.5x too deep (-025 §4).
+        // hardcoded 0.5-of-width notch is 2.5x too deep (observed pattern).
         var xml = $@"
 <dsp:sp xmlns:dsp=""{DspNs}"" xmlns:a=""{ANs}"">
   <dsp:spPr>

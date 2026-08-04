@@ -590,7 +590,7 @@ public sealed class PptxToTypstConverterMasterHierarchyTests : IDisposable
                         new Drawing.Paragraph(
                             new Drawing.Run(
                                 new Drawing.RunProperties { Language = "en-US", FontSize = 5400 },
-                                new Drawing.Text("")))))));
+                                new Drawing.Text("Template gallery preview")))))));
 
             slideLayoutPart.SlideLayout = new P.SlideLayout(new CommonSlideData(CreateShapeTree()));
 
@@ -616,7 +616,7 @@ public sealed class PptxToTypstConverterMasterHierarchyTests : IDisposable
         Assert.Equal(1, image.Image!.PixelWidth); // master's own 1x1 PNG, resolved via master part
 
         var text = Assert.Single(elements, e => e.Type == "Text" && e.Name == "Master TextBox");
-        Assert.Contains("", text.Text!.Paragraphs[0].Runs[0].Content);
+        Assert.Contains("Template gallery preview", text.Text!.Paragraphs[0].Runs[0].Content);
 
         // Master shapes come first (beneath layout/slide content).
         Assert.True(elements.IndexOf(image) < elements.Count - 1 || elements.Count == 2);

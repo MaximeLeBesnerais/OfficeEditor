@@ -1788,7 +1788,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
         {
             // Dual-fit: the blind and rotated-footprint bboxes are rival
             // approximations of the frame-coordinate cache — the extractor
-            // picks whichever fit lands closer to identity (-b1 §4).
+            // picks whichever fit lands closer to identity.
             var fit = SmartArtDrawingExtractor.ComputeCachedDrawingFit(blind, aware, framePosition);
             drawScaleX = fit.ScaleX;
             drawScaleY = fit.ScaleY;
@@ -2305,7 +2305,7 @@ public sealed partial class PptxToTypstConverter : IDisposable
         }
 
         // A fontRef without an explicit colour follows the theme's text colour
-        // (tx1 → dk1) — NOT black. The corpus theme maps dk1 to a grey
+        // (tx1 → dk1) — NOT black. The reference-deck theme maps dk1 to a grey
         // (#95A5A6): every diagram label without an explicit run colour renders
         // grey in PowerPoint (slides 15/152 label text) but came out black.
         return SmartArtDrawingExtractor.ResolveSchemeColor("tx1", schemeColors);

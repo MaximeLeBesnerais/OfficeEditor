@@ -3265,7 +3265,7 @@ public class PptxToTypstConverterTests : IDisposable
     [Fact]
     public void Convert_TitlePlaceholderInheritsMasterTitleStyleFontFamily()
     {
-        // The corpus master declares titleStyle latin="Open Sans"; placeholder title
+        // The reference-deck master declares titleStyle latin="Open Sans"; placeholder title
         // runs carry no font of their own and must inherit that family (not the
         // theme minor font), so the emitted Typst can resolve the real font.
         var path = CreateMasterOpenSansTitlePptx();
@@ -4498,7 +4498,7 @@ public class PptxToTypstConverterTests : IDisposable
     public void GenerateTypstSource_ShapeSolidFillWithLumMod_DarkensColor()
     {
         // bg1/lt1 (white) with lumMod 75% must resolve to light gray (#BFBFBF), not
-        // white — the SmartArt fixtures section headers ("List //") depend on this.
+        // white — the SmartArt section headers ("List //") depend on this.
         var shape = ShapeFromXml("""<a:solidFill><a:srgbClr val="FFFFFF"><a:lumMod val="75000"/></a:srgbClr></a:solidFill>""");
         var path = CreateGroupShapePptx("lumod-shape-fill.pptx", shape);
 
@@ -4852,7 +4852,7 @@ public class PptxToTypstConverterTests : IDisposable
     }
 
     // ---------------------------------------------------------------------
-    // SmartArt-corpus slide-1 fidelity: group child-offset math, connector
+    // SmartArt slide-1 fidelity: group child-offset math, connector
     // shapes (p:cxnSp), diagStripe preset geometry, layout footer content.
     // ---------------------------------------------------------------------
 
@@ -4894,7 +4894,7 @@ public class PptxToTypstConverterTests : IDisposable
     {
         // ECMA-376 group mapping: abs = grpOff + (child − chOff) × (ext / chExt).
         // A child spanning the whole child space must land exactly on the group bbox
-        // (mirrors the SmartArt fixtures title-slide group: chOff.y ≠ 0, scale ≠ 1).
+        // (mirrors a SmartArt title-slide group in the reference decks: chOff.y ≠ 0, scale ≠ 1).
         var group = GroupShape(
             10,
             TransformGroup(x: 27, y: 16, width: 190, height: 140, childX: 0, childY: 224, childWidth: 296, childHeight: 218),
