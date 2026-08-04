@@ -424,7 +424,7 @@ namespace PptxEditor.Core.Converters.SmartArt;
         var hasSolidFill = GetChild(spPr, "solidFill", DrawingmlNs) != null;
         var fillColor = hasNoFill ? null : ReadFillColor(spPr, schemeColors);
         // Many SmartArt drawing parts carry their colors as a:gradFill on the shape
-        //  rather than a:solidFill — read gradients through the same
+        // rather than a:solidFill — read gradients through the same
         // shared reader the main slide-shape path uses.
         var fillGradient = !hasNoFill && !hasSolidFill && fillColor == null
             ? GradientFillReader.TryReadLinearGradient(

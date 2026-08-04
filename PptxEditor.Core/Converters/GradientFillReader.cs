@@ -26,7 +26,7 @@ internal static class GradientFillReader
     /// no gradient, when it has fewer than two resolvable stops, or when a stop color
     /// cannot be resolved.
     /// Decks like AetherLink use full-bleed gradient rectangles as slide backgrounds;
-    /// SmartArt drawing parts  use gradients as the primary shape fill.
+    /// SmartArt drawing parts use gradients as the primary shape fill.
     /// </summary>
     /// <param name="shapeProperties">Shape-properties element whose direct
     /// <c>a:gradFill</c> child is read (any element type — typed

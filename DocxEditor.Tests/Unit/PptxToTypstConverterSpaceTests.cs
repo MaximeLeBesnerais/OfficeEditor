@@ -10,7 +10,7 @@ using Xunit;
 namespace DocxEditor.Tests.Unit;
 
 /// <summary>
-/// Regression tests for defects found on the "Space" deck :
+/// Regression tests for defects found on the "Space" template deck:
 ///
 /// 1. Layout pictures must resolve their image relationships against the LAYOUT
 ///    part. Relationship IDs are part-scoped; when the slide owns an image part

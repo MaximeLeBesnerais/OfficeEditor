@@ -395,7 +395,7 @@ public sealed class SmartArtDrawingExtractorTests
     [Fact]
     public void Extract_GradientFill_ShadeAndSatModStops_AppliedInDocumentOrder()
     {
-        // SmartArt fixtures pattern (slides 25/58/131): gradient stops differ ONLY by
+        // corpus pattern (slides 25/58/131): gradient stops differ ONLY by
         // shade/satMod transforms. Without them all stops collapse to the raw scheme
         // color and the gradient renders flat.
         var xml = $@"
@@ -481,7 +481,7 @@ public sealed class SmartArtDrawingExtractorTests
     [Fact]
     public void Extract_GradientFill_PopulatesFillGradient()
     {
-        // SmartArt fixtures pattern: SmartArt colors live in a:gradFill on dsp:sp, not
+        // corpus pattern: SmartArt colors live in a:gradFill on dsp:sp, not
         // a:solidFill. Two stops — scheme color (static fallback accent1) plus an
         // srgbClr stop with per-stop alpha.
         var xml = $@"

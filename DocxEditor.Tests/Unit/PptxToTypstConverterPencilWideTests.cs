@@ -9,7 +9,7 @@ using Xunit;
 namespace DocxEditor.Tests.Unit;
 
 /// <summary>
-/// Regression tests for defects found on the  decks :
+/// Regression tests for defects found on the  template decks:
 /// layout picture rId collisions, picture-placeholder position inheritance,
 /// and group rotation in deeply nested group hierarchies. All decks are
 /// synthetic — no licensed content is committed.
