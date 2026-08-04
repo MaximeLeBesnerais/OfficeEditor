@@ -1,11 +1,13 @@
 name: mirror-gitcode
 
 # One-way mirror of this repo to GitCode (gitcode.com/xyj_maxime/OfficeEditor).
-# Runs on every push to main/dev and on v* tags, plus manually.
+# Runs on every push to main and on v* tags, plus manually. The single run pushes
+# BOTH main and dev (dev is fast-forwarded to main before every dual push), so a
+# main-only trigger avoids two concurrent runs racing each other on the remote.
 
 on:
   push:
-    branches: [main, dev]
+    branches: [main]
     tags: ["v*"]
   workflow_dispatch:
 
