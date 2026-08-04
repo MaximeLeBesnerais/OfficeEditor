@@ -21,6 +21,10 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Fetch all branches and tags
+        run: |
+          git fetch origin --prune '+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/tags/*'
+
       - name: Create GitCode repo if missing
         run: |
           set -euo pipefail
@@ -28,12 +32,13 @@ jobs:
           code="$(curl -s -o /dev/null -w "%{http_code}" -m 20 "$repo_url")"
           if [ "$code" = "404" ]; then
             echo "Repo missing — creating via GitCode v5 API"
-            resp="$(curl -s -X POST "https://gitcode.com/api/v5/user/repos" \
+            curl -s -X POST "https://gitcode.com/api/v5/user/repos" \
+              -H "PRIVATE-TOKEN: ${GITCODE_TOKEN}" \
               -H "Content-Type: application/json" \
-              -d "{\"access_token\":\"${GITCODE_TOKEN}\",\"name\":\"${GITCODE_REPO}\",\
+              -d "{\"name\":\"${GITCODE_REPO}\",\
                    \"description\":\"Declarative Office document generation — DOCX/PPTX/XLSX (mirror of github.com/MaximeLeBesnerais/OfficeEditor)\",\
-                   \"private\":false,\"auto_init\":false}")"
-            echo "$resp"
+                   \"private\":false,\"auto_init\":false}" \
+              -w "\ncreate HTTP %{http_code}\n"
           else
             echo "Repo already exists (HTTP $code)"
           fi
@@ -41,8 +46,8 @@ jobs:
       - name: Push mirror
         run: |
           set -euo pipefail
-          git remote add gitcode "https://${GITCODE_USERNAME}:${GITCODE_TOKEN}@gitcode.com/${GITCODE_USERNAME}/${GITCODE_REPO}.git" 2>/dev/null || true
-          git push --force gitcode \
-            "refs/heads/main:refs/heads/main" \
-            "refs/heads/dev:refs/heads/dev" \
+          git push --force \
+            "https://${GITCODE_USERNAME}:${GITCODE_TOKEN}@gitcode.com/${GITCODE_USERNAME}/${GITCODE_REPO}.git" \
+            "refs/remotes/origin/main:refs/heads/main" \
+            "refs/remotes/origin/dev:refs/heads/dev" \
             --tags
