@@ -2,7 +2,7 @@
 
 A .NET 9 library suite for **creating, editing, generating, and rendering Office documents** — DOCX, PPTX, XLSX — without requiring Office or LibreOffice. It provides fluent C# builders, JSON/YAML instruction sets, and a loudly validated declarative JSON vocabulary for complete PPTX decks. Rendering uses **TypstBridge**, a native Rust bridge around Typst: PPTX → PDF/PNG/SVG, DOCX → PDF, and XLSX → PDF/PNG/SVG.
 
-> **Now public** — OfficeEditor 0.7.0 is open source under the MIT license.
+> **Now public** — OfficeEditor 0.7.1 is open source under the MIT license.
 
 ## Features
 
@@ -137,13 +137,13 @@ builder.MergeVariables(new Dictionary<string, string>
 
 ## Installation
 
-NuGet packages are listed at **0.7.0**:
+NuGet packages are listed at **0.7.1**:
 
 ```bash
-dotnet add package MaximeLB.PptxEditor.Core --version 0.7.0   # PPTX
-dotnet add package MaximeLB.DocxEditor.Core --version 0.7.0   # DOCX
-dotnet add package MaximeLB.XlsxEditor.Core --version 0.7.0   # XLSX
-dotnet tool install -g MaximeLB.OfficeEditor.Cli --version 0.7.0   # `officeeditor` command
+dotnet add package MaximeLB.PptxEditor.Core --version 0.7.1   # PPTX
+dotnet add package MaximeLB.DocxEditor.Core --version 0.7.1   # DOCX
+dotnet add package MaximeLB.XlsxEditor.Core --version 0.7.1   # XLSX
+dotnet tool install -g MaximeLB.OfficeEditor.Cli --version 0.7.1   # `officeeditor` command
 ```
 
 | Package | Contents |
@@ -262,7 +262,7 @@ Reproduce: `dotnet run --project tools/pptx-benchmark` (methodology in `tools/pp
 
 ## Status & limitations
 
-**Version:** 0.7.0 (pre-1.0). Public API may change; the TypstBridge ABI is intentionally fluid until v1.0.
+**Version:** 0.7.1 (pre-1.0). Public API may change; the TypstBridge ABI is intentionally fluid until v1.0.
 
 **Platforms:** pure managed .NET 9 + per-RID native TypstBridge (osx-arm64, linux-x64, win-x64 built in CI).
 - **macOS (arm64)** — development platform; everything verified here
@@ -274,7 +274,7 @@ Reproduce: `dotnet run --project tools/pptx-benchmark` (methodology in `tools/pp
 - Clustered bar/column charts render; other chart families can fall back to placeholders. SmartArt renders from pre-rendered drawing shapes with documented theme-color limits. Animations are outside the static preview model.
 - Font fidelity varies by platform; installing Microsoft Office fonts (Aptos, Calibri) improves accuracy, but exact PowerPoint parity is not guaranteed (font metrics, line breaking, layout engines differ)
 
-**NuGet:** packages are listed at 0.7.0.
+**NuGet:** packages are listed at 0.7.1.
 
 ## Security
 
