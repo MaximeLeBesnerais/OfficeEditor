@@ -1,5 +1,7 @@
 # OfficeEditor
 
+> **简体中文**: [README_ZH.md](README_ZH.md)
+
 A .NET 9 library suite for **creating, editing, generating, and rendering Office documents** — DOCX, PPTX, XLSX — without requiring Office or LibreOffice. It provides fluent C# builders, JSON/YAML instruction sets, and a loudly validated declarative JSON vocabulary for complete PPTX decks. Rendering uses **TypstBridge**, a native Rust bridge around Typst: PPTX → PDF/PNG/SVG, DOCX → PDF, and XLSX → PDF/PNG/SVG.
 
 > **Now public** — OfficeEditor 0.7.1 is open source under the MIT license.
