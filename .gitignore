@@ -19,6 +19,11 @@ coverage/
 # NuGet
 *.nupkg
 
+# Environment / secrets (never commit)
+.env
+.env.*
+!.env.example
+
 # Example outputs
 examples/output/
 
