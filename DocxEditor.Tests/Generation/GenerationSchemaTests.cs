@@ -71,6 +71,37 @@ public class GenerationSchemaTests
         Assert.Contains("not rendered in the preview", notes.GetProperty("description").GetString());
     }
 
+    [Fact]
+    public void SchemaJson_SlideSize_AcceptsPresetsAndCustomObject()
+    {
+        using var document = JsonDocument.Parse(GenerationSchema.SchemaJson);
+        var slideSize = document.RootElement.GetProperty("properties").GetProperty("slideSize");
+
+        Assert.Equal("16:9", slideSize.GetProperty("default").GetString());
+
+        var oneOf = slideSize.GetProperty("oneOf").EnumerateArray().ToList();
+        Assert.Equal(2, oneOf.Count);
+
+        // Branch 0: the v1 preset strings.
+        var presets = oneOf[0].GetProperty("enum").EnumerateArray().Select(e => e.GetString()).ToList();
+        Assert.Equal(new[] { "16:9", "4:3" }, presets);
+
+        // Branch 1: a custom point-dimension object.
+        var custom = oneOf[1];
+        Assert.Equal("object", custom.GetProperty("type").GetString());
+        Assert.False(custom.GetProperty("additionalProperties").GetBoolean());
+        var required = custom.GetProperty("required").EnumerateArray().Select(e => e.GetString()).ToList();
+        Assert.Equal(new[] { "width", "height" }, required);
+        var width = custom.GetProperty("properties").GetProperty("width");
+        Assert.Equal("number", width.GetProperty("type").GetString());
+        Assert.Equal(0, width.GetProperty("exclusiveMinimum").GetDouble());
+        Assert.Equal(4032, width.GetProperty("maximum").GetDouble());
+        var height = custom.GetProperty("properties").GetProperty("height");
+        Assert.Equal("number", height.GetProperty("type").GetString());
+        Assert.Equal(0, height.GetProperty("exclusiveMinimum").GetDouble());
+        Assert.Equal(4032, height.GetProperty("maximum").GetDouble());
+    }
+
     private static string FindSchemaFile()
     {
         var relative = Path.Combine("PptxEditor.Core", "Generation", "Schema", GenerationSchema.FileName);

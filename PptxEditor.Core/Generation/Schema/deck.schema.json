@@ -8,7 +8,21 @@
   "required": ["version", "design", "slides"],
   "properties": {
     "version": { "const": "2.0" },
-    "slideSize": { "enum": ["16:9", "4:3"], "default": "16:9" },
+    "slideSize": {
+      "oneOf": [
+        { "enum": ["16:9", "4:3"] },
+        {
+          "type": "object",
+          "required": ["width", "height"],
+          "additionalProperties": false,
+          "properties": {
+            "width": { "type": "number", "exclusiveMinimum": 0, "maximum": 4032 },
+            "height": { "type": "number", "exclusiveMinimum": 0, "maximum": 4032 }
+          }
+        }
+      ],
+      "default": "16:9"
+    },
     "design": { "$ref": "#/$defs/design" },
     "slides": {
       "type": "array",
