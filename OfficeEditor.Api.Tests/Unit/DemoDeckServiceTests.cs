@@ -109,7 +109,7 @@ public sealed class DemoDeckServiceTests
         const string json = """
             {
               "slides": [
-                { "type": "image", "src": "demo/assets/dashboard.png" },
+                { "type": "image", "src": "assets/dashboard.png" },
                 { "type": "container", "children": [ { "type": "image", "src": "assets/nested.jpg" } ] }
               ]
             }
@@ -117,10 +117,11 @@ public sealed class DemoDeckServiceTests
 
         var rewritten = DemoDeckService.RewriteRelativeSrcPaths(json);
 
-        // Repo-root-relative forward-slash paths, NOT absolutized: the Typst preview
-        // compile resolves them against the repository root (its project root).
+        // Doc-relative sources resolve against the template's own directory (demo/),
+        // producing repo-root-relative forward-slash paths — NOT absolutized: the Typst
+        // preview compile resolves them against the repository root (its project root).
         Assert.Contains("\"src\": \"demo/assets/dashboard.png\"", rewritten);
-        Assert.Contains("\"src\": \"assets/nested.jpg\"", rewritten);
+        Assert.Contains("\"src\": \"demo/assets/nested.jpg\"", rewritten);
     }
 
     [Fact]
@@ -156,8 +157,8 @@ public sealed class DemoDeckServiceTests
 
         var rewritten = DemoDeckService.RewriteRelativeSrcPaths(json);
 
-        Assert.Contains("\"src\": \"a.png\"", rewritten);
-        Assert.Contains("\"src\": \"b.png\"", rewritten);
+        Assert.Contains("\"src\": \"demo/a.png\"", rewritten);
+        Assert.Contains("\"src\": \"demo/b.png\"", rewritten);
         // Only properties NAMED "src" are rewritten; a "src" value elsewhere is untouched.
         Assert.Contains("\"other\": \"src\"", rewritten);
     }
@@ -676,8 +677,8 @@ public sealed class DemoDeckServiceTests
 
         // On macOS, "assets\\icons\\logo.png" is not rooted, so:
         // 1. Path.IsPathRooted → false
-        // 2. Backslashes → forward slashes
-        Assert.Contains("\"src\": \"assets/icons/logo.png\"", rewritten);
+        // 2. Backslashes → forward slashes, then the demo/ template directory is prepended.
+        Assert.Contains("\"src\": \"demo/assets/icons/logo.png\"", rewritten);
     }
 
     [Fact]
@@ -699,7 +700,7 @@ public sealed class DemoDeckServiceTests
 
         var rewritten = DemoDeckService.RewriteRelativeSrcPaths(json);
 
-        Assert.Contains("\"src\": \"deep/nested.png\"", rewritten);
+        Assert.Contains("\"src\": \"demo/deep/nested.png\"", rewritten);
     }
 
     [Fact]
@@ -713,7 +714,7 @@ public sealed class DemoDeckServiceTests
 
         // Only properties named "src" are rewritten; "path" is left alone.
         Assert.Contains("\"path\": \"./assets/logo.png\"", rewritten);
-        Assert.Contains("\"src\": \"real.png\"", rewritten);
+        Assert.Contains("\"src\": \"demo/real.png\"", rewritten);
     }
 
     [Fact]
@@ -731,7 +732,7 @@ public sealed class DemoDeckServiceTests
         var rewritten = DemoDeckService.RewriteRelativeSrcPaths(json);
 
         Assert.Contains("\"src\": \"/abs/logo.png\"", rewritten);
-        Assert.Contains("\"src\": \"rel/icon.png\"", rewritten);
+        Assert.Contains("\"src\": \"demo/rel/icon.png\"", rewritten);
     }
 
     [Fact]
@@ -838,6 +839,10 @@ public sealed class DemoDeckServiceTests
         // after the src-path rewrite.
         Assert.Contains("\"slides\"", result);
         Assert.Contains("\"title\"", result);
+        // The authored doc-relative "assets/dashboard.png" resolves against the template's
+        // own directory (demo/), so the served JSON carries the repo-root-relative path the
+        // repository-root sandbox resolves.
+        Assert.Contains("\"src\": \"demo/assets/dashboard.png\"", result);
     }
 
     [Fact]

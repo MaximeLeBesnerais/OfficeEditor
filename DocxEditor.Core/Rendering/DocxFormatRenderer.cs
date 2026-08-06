@@ -1,6 +1,7 @@
 using System.Text;
 using DocxEditor.Core.Builders;
 using DocxEditor.Core.Generation;
+using DocxEditor.Core.Generation.Assets;
 using DocxEditor.Core.Generation.Schema;
 using OfficeEditor.Core.Rendering;
 using OfficeEditor.Core.Services;
@@ -80,7 +81,16 @@ internal sealed class DocxFormatRenderer : IFormatRenderer
             return (DocumentBuilder)DocumentBuilder.Open(File.ReadAllBytes(request.SourcePath));
         }
 
-        var generated = new DocxGenerator().GenerateToBytes(File.ReadAllText(request.SourcePath));
+        // Relative image (and template) sources resolve against the JSON document's
+        // directory: thread it as the AllowedRoot so the facade matches the CLI's
+        // behavior instead of silently falling back to the process CWD.
+        var sourceDirectory = Path.GetDirectoryName(Path.GetFullPath(request.SourcePath));
+        var generated = new DocxGenerator().GenerateToBytes(
+            File.ReadAllText(request.SourcePath),
+            new DocxGeneratorOptions
+            {
+                ImageSourceOptions = new ImageSourceOptions { AllowedRoot = sourceDirectory }
+            });
         warnings = generated.Result.Warnings
             .Select(warning => warning.ToString())
             .ToList();

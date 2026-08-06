@@ -165,7 +165,10 @@ class Program
                 var archetyped = ArchetypeExpander.Expand(doc);
                 var componentized = ComponentExpander.Expand(archetyped);
                 var layout = new LayoutResolver().Resolve(componentized);
-                var emitResult = new OoxmlEmitter().Emit(layout);
+                var emitResult = new OoxmlEmitter(new OoxmlEmitOptions
+                {
+                    DocumentDirectory = Path.GetDirectoryName(Path.GetFullPath(inputPath))
+                }).Emit(layout);
                 File.WriteAllBytes(resolvedOutputPath, emitResult.Bytes);
 
                 AnsiConsole.MarkupLine($"[green]{layout.Slides.Count} slides[/]  " +

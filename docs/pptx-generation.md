@@ -283,10 +283,8 @@ The `image` primitive and the `image_card` component take a `src` (component pay
 
 1. **`data:<mime>;base64,<payload>`** — inline payloads. The media type must be one of `image/png`, `image/jpeg`, `image/gif`, `image/bmp`, `image/tiff`, `image/svg+xml`; anything else (or a payload that is not base64) throws.
 2. **`http://` / `https://`** — rejected: `"Remote image URLs are not supported in v1; pass a local file path or a data URI."` Generation never fetches network assets.
-3. **Absolute paths** — read as-is (`FileNotFoundException` if the file does not exist). Absolute sources are trusted (fixture generation, tests, local CLI runs); untrusted input enters only through the API, which confines every file source to the repository root before the layout reaches the emitter.
-4. **Relative paths** — resolved against the **repository root first** (found by walking up from the application base directory looking for `.git`), then against the process current directory. Both probes are containment-checked: a source that escapes the root (`../`, or an absolute path outside it) is rejected with an `ArgumentException` before any file probe. If neither probe finds the file, `FileNotFoundException` is thrown.
-
-> **Known limitation:** relative paths resolve against the repo root / CWD — **not** the JSON file's directory. Doc-relative resolution is a known limitation being addressed.
+3. **Absolute paths** — read as-is (`FileNotFoundException` if the file does not exist).
+4. **Relative paths** — resolved against the **directory of the JSON document only** (the deck file's own directory). There is no repository-root or process-CWD fallback. Resolution is containment-checked — lexically and, for existing paths, canonically (symlink-aware): a source that escapes the document directory (`../`, or a symlink pointing outside it) is rejected with an `ArgumentException` before any file probe; a missing file inside the directory throws `FileNotFoundException`. How each surface supplies that directory: the **CLI** resolves relative `src` against the JSON document's own directory; the **API** absolutizes relative sources against the repository root (its confined base) before emitting, so relative paths keep working there too. Only the **MCP `deck_generate`** tool — a string-only surface that receives raw JSON with no document directory — rejects relative paths, with a loud, actionable error: use a data URI or an absolute path.
 
 Supported file extensions: `.png`, `.jpg`/`.jpeg`, `.gif`, `.bmp`, `.tiff`/`.tif`, `.svg`; unknown extensions throw loudly rather than mislabeling the payload.
 
@@ -312,6 +310,5 @@ A deck renders end-to-end through the same pipeline: `officeeditor generate deck
 - Layout is point-based with `row`/`column`/`grid` modes; there are no percentages, no text wrap, no z-index, and no CSS-style input.
 - Lines and connectors are straight (horizontal/vertical) only.
 - Gradients are linear only; shadows are a single outer drop shadow.
-- Relative image paths resolve against the repo root / CWD, not the JSON file's directory (see [Images and assets](#images-and-assets)).
 - Components and archetypes are the fixed v1 set; archetype slots cannot nest archetypes.
 - Autofit is never emitted; text overflow is handled by the `shrink` / `error` / `clip` policies.
