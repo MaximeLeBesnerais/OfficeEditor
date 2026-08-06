@@ -120,6 +120,7 @@ public sealed class GenerationDocumentParser
     };
 
     private static readonly IReadOnlySet<string> RootProps = Set("version", "slideSize", "design", "slides");
+    private static readonly IReadOnlySet<string> SlideSizeProps = Set("width", "height");
     private static readonly IReadOnlySet<string> DesignProps = Set("palette", "fonts", "shape", "metrics");
     private static readonly IReadOnlySet<string> FontsProps = Set("display", "body");
     private static readonly IReadOnlySet<string> ShapeProps = Set("cornerRadius", "cardStyle");
@@ -246,7 +247,11 @@ public sealed class GenerationDocumentParser
         var slideSize = SlideSize.Widescreen16x9;
         if (TryGet(root, "slideSize", out var slideSizeEl))
         {
-            slideSize = EnumValue(slideSizeEl, "$.slideSize", SlideSizes, "slide size") ?? slideSize;
+            var parsed = ParseSlideSize(slideSizeEl);
+            if (parsed is not null)
+            {
+                slideSize = parsed.Value;
+            }
         }
 
         DesignTokens design;
@@ -300,6 +305,70 @@ public sealed class GenerationDocumentParser
             Slides = slides,
             SlideSize = slideSize
         };
+    }
+
+    /// <summary>
+    /// Reads the deck-level slide canvas ('slideSize'): either a preset string ("16:9" |
+    /// "4:3", case-insensitive, the v1 vocabulary) or an explicit point-dimension object
+    /// ({"width": pt, "height": pt}). Both dimensions must be finite numbers ≥
+    /// <see cref="SlideSize.MinDimPt"/> and ≤ <see cref="SlideSize.MaxDimPt"/>; extra
+    /// properties and other JSON types are rejected with loud JSON-path errors. Returns
+    /// null (leaving the caller's default) when anything is wrong.
+    /// </summary>
+    private SlideSize? ParseSlideSize(JsonElement el)
+    {
+        const string path = "$.slideSize";
+        if (el.ValueKind == JsonValueKind.String)
+        {
+            return EnumValue(el, path, SlideSizes, "slide size");
+        }
+        if (el.ValueKind != JsonValueKind.Object)
+        {
+            Error(path, "must be a string (\"16:9\" | \"4:3\") or an object ({\"width\": pt, \"height\": pt} in points).");
+            return null;
+        }
+
+        CheckUnknownProps(el, path, "a slide size", SlideSizeProps);
+        var width = SlideSizeDimension(el, "width");
+        var height = SlideSizeDimension(el, "height");
+        if (width is null || height is null)
+        {
+            return null;
+        }
+        // Belt-and-braces: TryCreate re-checks the shared dimension contract (finite,
+        // within bounds) in one place, so the model can never hold an invalid canvas.
+        return SlideSize.TryCreate(width.Value, height.Value);
+    }
+
+    /// <summary>
+    /// Reads one dimension of a 'slideSize' object: required, a finite JSON number within
+    /// [<see cref="SlideSize.MinDimPt"/>, <see cref="SlideSize.MaxDimPt"/>] pt, with loud
+    /// JSON-path errors at <c>$.slideSize.&lt;name&gt;</c>.
+    /// </summary>
+    private double? SlideSizeDimension(JsonElement obj, string name)
+    {
+        var valuePath = $"$.slideSize.{name}";
+        if (!TryGet(obj, name, out var v))
+        {
+            Error(valuePath, $"'{name}' is required (points; {FormatNumber(SlideSize.MinDimPt)}–{FormatNumber(SlideSize.MaxDimPt)}).");
+            return null;
+        }
+        if (v.ValueKind != JsonValueKind.Number || !v.TryGetDouble(out var number) || !double.IsFinite(number))
+        {
+            Error(valuePath, $"must be a finite JSON number in points ({FormatNumber(SlideSize.MinDimPt)}–{FormatNumber(SlideSize.MaxDimPt)}).");
+            return null;
+        }
+        if (number < SlideSize.MinDimPt)
+        {
+            Error(valuePath, $"must be ≥ {FormatNumber(SlideSize.MinDimPt)} pt (got {FormatNumber(number)}).");
+            return null;
+        }
+        if (number > SlideSize.MaxDimPt)
+        {
+            Error(valuePath, $"must be ≤ {FormatNumber(SlideSize.MaxDimPt)} pt (got {FormatNumber(number)}).");
+            return null;
+        }
+        return number;
     }
 
     private DesignTokens ParseDesign(JsonElement el, string path)

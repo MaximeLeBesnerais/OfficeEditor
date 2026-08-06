@@ -58,7 +58,7 @@ The root properties are (`required: ["version", "design", "slides"]`):
 | Property | Required | Description |
 |---|---:|---|
 | `version` | Yes | Must be the string `"2.0"` (`const`). |
-| `slideSize` | No | `"16:9"` (default) or `"4:3"`. `"16:9"` → 960 × 540 pt canvas; `"4:3"` → 720 × 540 pt. Any other value (including square/1:1) is rejected by the enum. |
+| `slideSize` | No | `"16:9"` (default; 960 × 540 pt) or `"4:3"` (720 × 540 pt), or a custom object `{"width": pt, "height": pt}` for arbitrary dimensions (each 1–4032 pt; e.g. `{"width": 540, "height": 540}` for a square canvas). |
 | `design` | Yes | Palette, fonts, shape, and metrics design tokens (see below). `palette` is required inside it. |
 | `slides` | Yes | Non-empty array of slide roots. Each root is a `container` element or an archetype slide type. |
 
@@ -306,7 +306,6 @@ A deck renders end-to-end through the same pipeline: `officeeditor generate deck
 ## Current limitations
 
 - Only vocabulary version `2.0` is accepted; unknown properties are rejected everywhere.
-- Slide sizes are limited to `16:9` (960 × 540 pt) and `4:3` (720 × 540 pt); square/1:1 and custom sizes are not supported.
 - Layout is point-based with `row`/`column`/`grid` modes; there are no percentages, no text wrap, no z-index, and no CSS-style input.
 - Lines and connectors are straight (horizontal/vertical) only.
 - Gradients are linear only; shadows are a single outer drop shadow.
