@@ -7,10 +7,12 @@ using PptxEditor.Core.Models;
 namespace PptxEditor.Core.Generation.Schema;
 
 /// <summary>
-/// Single-pass parser + validator for the generation JSON vocabulary.
+/// Parser + validator for the generation JSON vocabulary.
 /// Reads with System.Text.Json, builds the <see cref="GenerationDocument"/> model and
 /// collects loud, actionable errors (JSON path + suggestion) instead of failing fast, so
-/// AI and human authors can fix every problem at once. CSS-isms (flex-wrap, z-index,
+/// AI and human authors can fix every problem at once. A pre-scan seeds the id registry
+/// with every explicit 'id' before the validation walk, so a synthesized fallback id never
+/// shadows an authored id regardless of document order. CSS-isms (flex-wrap, z-index,
 /// percentages, wrap, …) are rejected explicitly — they are v1 non-goals.
 /// </summary>
 public sealed class GenerationDocumentParser
@@ -20,6 +22,7 @@ public sealed class GenerationDocumentParser
 
     private static readonly Regex HexColorPattern = new(@"^#[0-9a-fA-F]{6}$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
     private static readonly Regex PercentPattern = new(@"^-?\d+(?:\.\d+)?%$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    private static readonly Regex IdPattern = new(@"^[a-z][a-z0-9_-]*$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     private static readonly IReadOnlyDictionary<string, LayoutMode> LayoutModes = new Dictionary<string, LayoutMode>(StringComparer.OrdinalIgnoreCase)
     {
@@ -124,17 +127,17 @@ public sealed class GenerationDocumentParser
     private static readonly IReadOnlySet<string> LayoutProps = Set("mode", "gap", "cols", "rowGap", "columnGap", "justify", "align");
     private static readonly IReadOnlySet<string> SizeProps = Set("w", "h", "grow", "aspect", "alignSelf");
     private static readonly IReadOnlySet<string> AtProps = Set("x", "y");
-    private static readonly IReadOnlySet<string> ContainerProps = Set("type", "layout", "padding", "overflow", "children", "fill", "stroke", "radius", "shadow", "size", "at", "notes");
-    private static readonly IReadOnlySet<string> TextProps = Set("type", "text", "runs", "font", "fontSize", "color", "bold", "italic", "textAlign", "anchor", "insets", "overflow", "shadow", "size", "at");
+    private static readonly IReadOnlySet<string> ContainerProps = Set("type", "id", "layout", "padding", "overflow", "children", "fill", "stroke", "radius", "shadow", "size", "at", "notes");
+    private static readonly IReadOnlySet<string> TextProps = Set("type", "id", "text", "runs", "font", "fontSize", "color", "bold", "italic", "textAlign", "anchor", "insets", "overflow", "shadow", "size", "at");
     private static readonly IReadOnlySet<string> RunProps = Set("text", "font", "fontSize", "color", "bold", "italic");
-    private static readonly IReadOnlySet<string> RectProps = Set("type", "fill", "stroke", "radius", "shadow", "size", "at", "overflow");
-    private static readonly IReadOnlySet<string> EllipseProps = Set("type", "fill", "stroke", "shadow", "size", "at", "overflow");
-    private static readonly IReadOnlySet<string> LineProps = Set("type", "orientation", "stroke", "size", "at", "overflow");
-    private static readonly IReadOnlySet<string> ImageProps = Set("type", "src", "fit", "crop", "alt", "size", "at", "overflow");
+    private static readonly IReadOnlySet<string> RectProps = Set("type", "id", "fill", "stroke", "radius", "shadow", "size", "at", "overflow");
+    private static readonly IReadOnlySet<string> EllipseProps = Set("type", "id", "fill", "stroke", "shadow", "size", "at", "overflow");
+    private static readonly IReadOnlySet<string> LineProps = Set("type", "id", "orientation", "stroke", "size", "at", "overflow");
+    private static readonly IReadOnlySet<string> ImageProps = Set("type", "id", "src", "fit", "crop", "alt", "size", "at", "overflow");
     private static readonly IReadOnlySet<string> CropProps = Set("left", "top", "right", "bottom");
-    private static readonly IReadOnlySet<string> GroupProps = Set("type", "children", "size", "at", "overflow");
-    private static readonly IReadOnlySet<string> ComponentProps = Set("type", "content", "size", "at");
-    private static readonly IReadOnlySet<string> ArchetypeSlideProps = Set("type", "content", "notes");
+    private static readonly IReadOnlySet<string> GroupProps = Set("type", "id", "children", "size", "at", "overflow");
+    private static readonly IReadOnlySet<string> ComponentProps = Set("type", "id", "content", "size", "at");
+    private static readonly IReadOnlySet<string> ArchetypeSlideProps = Set("type", "id", "content", "notes");
     private static readonly IReadOnlySet<string> GradientProps = Set("angle", "stops");
     private static readonly IReadOnlySet<string> StopProps = Set("color", "offset", "alpha");
     private static readonly IReadOnlySet<string> StrokeProps = Set("color", "width");
@@ -144,6 +147,21 @@ public sealed class GenerationDocumentParser
     private readonly List<GenerationIssue> _errors = [];
     private readonly List<GenerationIssue> _warnings = [];
     private IReadOnlyDictionary<string, string> _palette = new Dictionary<string, string>();
+
+    // Document-wide id registry: every id (user-authored or parser-synthesized) maps to
+    // the JSON path that first declared it, so duplicates fail loudly with both paths.
+    // Explicit ids are seeded by a pre-scan pass (SeedExplicitIds) before any parsing, so
+    // an authored id always wins over a synthesized fallback regardless of document order.
+    private readonly Dictionary<string, string> _ids = new(StringComparer.Ordinal);
+
+    // Paths whose id was synthesized as a fallback rather than authored, so a duplicate
+    // error can mark the claimant "(auto-generated)" instead of sending users to hunt for
+    // an "id" property that was never written.
+    private readonly HashSet<string> _synthesizedPaths = new(StringComparer.Ordinal);
+
+    // Per-element-type counter for synthesized fallback ids ("text-0", "card-1", …). The
+    // counter is per Validate() call, so re-parsing the same JSON yields identical ids.
+    private readonly Dictionary<string, int> _typeCounters = new(StringComparer.Ordinal);
 
     /// <summary>
     /// Validates a generation JSON document in a single pass. Never throws for contract
@@ -155,6 +173,9 @@ public sealed class GenerationDocumentParser
         _errors.Clear();
         _warnings.Clear();
         _palette = new Dictionary<string, string>();
+        _ids.Clear();
+        _synthesizedPaths.Clear();
+        _typeCounters.Clear();
 
         JsonDocument document;
         try
@@ -176,6 +197,12 @@ public sealed class GenerationDocumentParser
                 return Result(null);
             }
 
+            // Pass 1: seed the registry with every explicit id before any element is parsed,
+            // so an authored id later in the document is never shadowed by a fallback that
+            // an earlier un-ided element synthesized (explicit user ids always win).
+            SeedExplicitIds(root);
+
+            // Pass 2: parse, synthesizing fallbacks only for elements without explicit ids.
             var parsed = ParseDocument(root);
             return Result(_errors.Count == 0 ? parsed : null);
         }
@@ -389,6 +416,7 @@ public sealed class GenerationDocumentParser
     private ContainerElement ParseArchetypeSlide(JsonElement el, string path, string name)
     {
         CheckUnknownProps(el, path, $"a '{name}' archetype slide", ArchetypeSlideProps);
+        var id = IdProp(el, path, name);
 
         JsonElement? content = null;
         if (TryGet(el, "content", out var contentEl))
@@ -405,9 +433,12 @@ public sealed class GenerationDocumentParser
 
         // Marker shape the archetype layer (P10) recognizes: a bare root container whose
         // only child is the archetype-named component node. ArchetypeExpander composes it.
+        // Both the root and the marker carry the slide id; expansion propagates it to the
+        // composed slide and derives role-based child ids from it.
         return new ContainerElement
         {
-            Children = [new ComponentElement { Name = name, Content = content }],
+            Id = id,
+            Children = [new ComponentElement { Id = id, Name = name, Content = content }],
             Notes = NotesProp(el, path, isRoot: true)
         };
     }
@@ -468,6 +499,7 @@ public sealed class GenerationDocumentParser
     private ContainerElement ParseContainer(JsonElement el, string path, bool isRoot, bool parentHasLayout)
     {
         CheckUnknownProps(el, path, "a container", ContainerProps);
+        var id = IdProp(el, path, isRoot ? "slide" : "container");
         var (size, at) = ParseSizeAndAt(el, path, isRoot, parentHasLayout);
 
         LayoutSpec? layout = null;
@@ -488,6 +520,7 @@ public sealed class GenerationDocumentParser
 
         return new ContainerElement
         {
+            Id = id,
             Size = size,
             At = at,
             Layout = layout,
@@ -505,6 +538,7 @@ public sealed class GenerationDocumentParser
     private TextElement ParseText(JsonElement el, string path, bool parentHasLayout)
     {
         CheckUnknownProps(el, path, "a text element", TextProps);
+        var id = IdProp(el, path, "text");
         var (size, at) = ParseSizeAndAt(el, path, isRoot: false, parentHasLayout: parentHasLayout);
 
         var hasText = TryGet(el, "text", out var textEl);
@@ -533,6 +567,7 @@ public sealed class GenerationDocumentParser
 
         return new TextElement
         {
+            Id = id,
             Size = size,
             At = at,
             Value = value,
@@ -593,9 +628,11 @@ public sealed class GenerationDocumentParser
     {
         CheckUnknownProps(el, path, "a rect element", RectProps);
         RejectOverflow(el, path);
+        var id = IdProp(el, path, "rect");
         var (size, at) = ParseSizeAndAt(el, path, isRoot: false, parentHasLayout: parentHasLayout);
         return new RectElement
         {
+            Id = id,
             Size = size,
             At = at,
             Fill = FillProp(el, path),
@@ -609,9 +646,11 @@ public sealed class GenerationDocumentParser
     {
         CheckUnknownProps(el, path, "an ellipse element", EllipseProps);
         RejectOverflow(el, path);
+        var id = IdProp(el, path, "ellipse");
         var (size, at) = ParseSizeAndAt(el, path, isRoot: false, parentHasLayout: parentHasLayout);
         return new EllipseElement
         {
+            Id = id,
             Size = size,
             At = at,
             Fill = FillProp(el, path),
@@ -624,9 +663,11 @@ public sealed class GenerationDocumentParser
     {
         CheckUnknownProps(el, path, isConnector ? "a connector" : "a line element", LineProps);
         RejectOverflow(el, path);
+        var id = IdProp(el, path, isConnector ? "connector" : "line");
         var (size, at) = ParseSizeAndAt(el, path, isRoot: false, parentHasLayout: parentHasLayout);
         return new LineElement
         {
+            Id = id,
             Size = size,
             At = at,
             IsConnector = isConnector,
@@ -639,6 +680,7 @@ public sealed class GenerationDocumentParser
     {
         CheckUnknownProps(el, path, "an image element", ImageProps);
         RejectOverflow(el, path);
+        var id = IdProp(el, path, "image");
         var (size, at) = ParseSizeAndAt(el, path, isRoot: false, parentHasLayout: parentHasLayout);
 
         var src = StringProp(el, "src", path, required: true, allowEmpty: false);
@@ -663,6 +705,7 @@ public sealed class GenerationDocumentParser
 
         return new ImageElement
         {
+            Id = id,
             Size = size,
             At = at,
             Source = src ?? string.Empty,
@@ -676,14 +719,16 @@ public sealed class GenerationDocumentParser
     {
         CheckUnknownProps(el, path, "a group", GroupProps);
         RejectOverflow(el, path);
+        var id = IdProp(el, path, "group");
         var (size, at) = ParseSizeAndAt(el, path, isRoot: false, parentHasLayout: parentHasLayout);
         var children = ParseChildren(el, path, parentHasLayout: false);
-        return new GroupElement { Size = size, At = at, Children = children ?? [] };
+        return new GroupElement { Id = id, Size = size, At = at, Children = children ?? [] };
     }
 
     private ComponentElement ParseComponent(JsonElement el, string path, string name, bool parentHasLayout)
     {
         CheckUnknownProps(el, path, $"a '{name}' component", ComponentProps);
+        var id = IdProp(el, path, name);
         var (size, at) = ParseSizeAndAt(el, path, isRoot: false, parentHasLayout: parentHasLayout);
 
         JsonElement? content = null;
@@ -699,7 +744,7 @@ public sealed class GenerationDocumentParser
             }
         }
 
-        return new ComponentElement { Size = size, At = at, Name = name, Content = content };
+        return new ComponentElement { Id = id, Size = size, At = at, Name = name, Content = content };
     }
 
     private void RejectOverflow(JsonElement el, string path)
@@ -728,6 +773,146 @@ public sealed class GenerationDocumentParser
             return null;
         }
         return StringValue(notesEl, notesPath);
+    }
+
+    /// <summary>
+    /// Pass-1 pre-scan: registers every EXPLICIT 'id' in the document (with the JSON path
+    /// that first declares it, in document order) before any element is parsed. Mirrors the
+    /// exact walk of pass 2 — slides, then container/group children — so a synthesized
+    /// fallback can never claim a name an author wrote anywhere in the document, no matter
+    /// where that id appears relative to the un-ided element.
+    /// </summary>
+    private void SeedExplicitIds(JsonElement root)
+    {
+        if (!TryGet(root, "slides", out var slidesEl) || slidesEl.ValueKind != JsonValueKind.Array)
+        {
+            return;
+        }
+        var index = 0;
+        foreach (var slideEl in slidesEl.EnumerateArray())
+        {
+            SeedExplicitIdsInElement(slideEl, $"$.slides[{index}]", isSlide: true);
+            index++;
+        }
+    }
+
+    private void SeedExplicitIdsInElement(JsonElement el, string path, bool isSlide)
+    {
+        if (el.ValueKind != JsonValueKind.Object || !TryGet(el, "type", out var typeEl) || typeEl.ValueKind != JsonValueKind.String)
+        {
+            return;
+        }
+        var type = typeEl.GetString()!;
+
+        if (isSlide)
+        {
+            // Slide roots are 'container' elements or archetype slide types (ParseSlide).
+            // An archetype's content is an opaque payload — no element ids live inside it.
+            if (!ArchetypeSlideNames.ContainsKey(type) && !string.Equals(type, "container", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+            SeedExplicitId(el, path);
+            if (!string.Equals(type, "container", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+        }
+        else
+        {
+            // Every element type carries an optional id (IdProp). Only containers and
+            // groups nest further elements; component payloads are opaque to the registry.
+            SeedExplicitId(el, path);
+            if (!string.Equals(type, "container", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(type, "group", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+        }
+
+        if (TryGet(el, "children", out var childrenEl) && childrenEl.ValueKind == JsonValueKind.Array)
+        {
+            var childIndex = 0;
+            foreach (var childEl in childrenEl.EnumerateArray())
+            {
+                SeedExplicitIdsInElement(childEl, $"{path}.children[{childIndex}]", isSlide: false);
+                childIndex++;
+            }
+        }
+    }
+
+    private void SeedExplicitId(JsonElement el, string path)
+    {
+        if (!TryGet(el, "id", out var idEl) || idEl.ValueKind != JsonValueKind.String)
+        {
+            return; // absent or non-string: non-strings are reported by IdProp with a loud path error
+        }
+        var value = idEl.GetString()!;
+        if (!IdPattern.IsMatch(value))
+        {
+            return; // malformed: reported by IdProp and never reaches the duplicate check
+        }
+        _ids.TryAdd(value, path); // first declaration in document order wins
+    }
+
+    /// <summary>
+    /// Reads the optional stable element identifier ('id'). Validates the string shape
+    /// (lowercase start, then letters/digits/'-'/'_') and per-document uniqueness, both
+    /// with loud JSON-path errors. When 'id' is absent, synthesizes a deterministic
+    /// fallback '<c>{type}-{n}</c>' (a per-type document-order counter) so every element
+    /// stays addressable after expansion; explicit user ids always win over synthesized
+    /// ones — the pass-1 pre-scan seeded every authored id first, so synthesis skips ids
+    /// already taken anywhere in the document.
+    /// </summary>
+    private string? IdProp(JsonElement el, string path, string type)
+    {
+        if (!TryGet(el, "id", out var idEl))
+        {
+            // Synthesize "{type}-{n}", skipping every explicit id (pre-seeded in pass 1) as
+            // well as any fallback already handed out during this walk.
+            var n = _typeCounters.GetValueOrDefault(type, 0);
+            while (true)
+            {
+                var candidate = $"{type}-{n}";
+                n++;
+                _typeCounters[type] = n;
+                if (!_ids.ContainsKey(candidate))
+                {
+                    _ids[candidate] = path;
+                    _synthesizedPaths.Add(path);
+                    return candidate;
+                }
+            }
+        }
+
+        var valuePath = $"{path}.id";
+        if (idEl.ValueKind != JsonValueKind.String)
+        {
+            Error(valuePath, "must be a string (a stable element identifier).");
+            return null;
+        }
+        var value = idEl.GetString()!;
+        if (!IdPattern.IsMatch(value))
+        {
+            Error(valuePath,
+                $"'{value}' is not a valid id: lowercase start, then letters, digits, '-' or '_' (e.g. \"hero-title\").");
+            return null;
+        }
+        if (_ids.TryGetValue(value, out var firstPath))
+        {
+            // Pass 1 seeded this element's own id at this very path — only a collision with
+            // a different path is a duplicate. Mark a synthesized claimant so users are not
+            // sent hunting for an "id" property that was never written.
+            if (!string.Equals(firstPath, path, StringComparison.Ordinal))
+            {
+                Error(valuePath,
+                    $"duplicate id '{value}': first declared at {firstPath}" +
+                    $"{( _synthesizedPaths.Contains(firstPath) ? " (auto-generated)" : string.Empty)}. Ids must be unique per document.");
+                return null;
+            }
+        }
+        _ids[value] = path;
+        return value;
     }
 
     private List<GenElement>? ParseChildren(JsonElement el, string path, bool parentHasLayout)

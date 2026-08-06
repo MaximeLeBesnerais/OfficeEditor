@@ -21,7 +21,7 @@ public static class TableBlockComponent
         new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "columns", "rows", "header", "columnWeights", "rowHeight" };
 
     /// <summary>Expands <paramref name="element"/> into its primitive subtree.</summary>
-    public static ContainerElement Expand(ComponentElement element, DesignTokens design, string path)
+    internal static ContainerElement Expand(ComponentElement element, DesignTokens design, string path, ElementIdAllocator allocator)
     {
         ArgumentNullException.ThrowIfNull(element);
         ArgumentNullException.ThrowIfNull(design);
@@ -55,16 +55,17 @@ public static class TableBlockComponent
         if (header)
         {
             children.Add(Row(columns!, weights, rowHeight, metrics.BodySizePt,
-                fill: new SolidFill("primary"), textColor: "paper", bold: true));
+                fill: new SolidFill("primary"), textColor: "paper", bold: true, rowId: allocator.ChildId(element.Id, "row-0"), allocator));
         }
-        foreach (var row in rows)
+        for (var r = 0; r < rows.Count; r++)
         {
-            children.Add(Row(row, weights, rowHeight, metrics.BodySizePt,
-                fill: null, textColor: "ink", bold: false));
+            children.Add(Row(rows[r], weights, rowHeight, metrics.BodySizePt,
+                fill: null, textColor: "ink", bold: false, rowId: allocator.ChildId(element.Id, $"row-{r + (header ? 1 : 0)}"), allocator));
         }
 
         return new ContainerElement
         {
+            Id = element.Id,
             Size = element.Size,
             At = element.At,
             Layout = new LayoutSpec { Mode = LayoutMode.Column },
@@ -77,13 +78,15 @@ public static class TableBlockComponent
 
     private static ContainerElement Row(
         IReadOnlyList<string> cells, IReadOnlyList<double>? weights, double rowHeight, double bodySizePt,
-        FillSpec? fill, string textColor, bool bold)
+        FillSpec? fill, string textColor, bool bold, string? rowId, ElementIdAllocator allocator)
     {
         var children = new List<GenElement>(cells.Count);
         for (var c = 0; c < cells.Count; c++)
         {
+            var cellId = allocator.ChildId(rowId, $"cell-{c}");
             children.Add(new ContainerElement
             {
+                Id = cellId,
                 Size = new SizeSpec { Grow = weights?[c] ?? 1 },
                 Padding = EdgeInsets.Symmetric(CellPadV, CellPadH),
                 Layout = new LayoutSpec { Mode = LayoutMode.Row, Align = AlignItems.Center },
@@ -91,6 +94,7 @@ public static class TableBlockComponent
                 [
                     new TextElement
                     {
+                        Id = allocator.ChildId(cellId, "text"),
                         Value = cells[c],
                         Font = "body",
                         FontSize = bodySizePt,
@@ -105,6 +109,7 @@ public static class TableBlockComponent
 
         return new ContainerElement
         {
+            Id = rowId,
             Size = new SizeSpec { Height = rowHeight },
             Fill = fill,
             Layout = new LayoutSpec { Mode = LayoutMode.Row },

@@ -72,7 +72,7 @@ public sealed class OoxmlEmitterTests : IDisposable
 
     private static LayoutResult LayoutWith(params ResolvedElement[] children) => new()
     {
-        Slides = [new ResolvedSlide { WidthPt = 960, HeightPt = 540, Root = RootWith(children) }],
+        Slides = [new ResolvedSlide { WidthPt = 960, HeightPt = 540, Root = RootWith(children), Elements = [] }],
         Warnings = []
     };
 
@@ -123,7 +123,7 @@ public sealed class OoxmlEmitterTests : IDisposable
     {
         using var document = EmitAndOpen(new LayoutResult
         {
-            Slides = [new ResolvedSlide { WidthPt = 960, HeightPt = 540, Root = RootWith() }],
+            Slides = [new ResolvedSlide { WidthPt = 960, HeightPt = 540, Root = RootWith(), Elements = [] }],
             Warnings = []
         }, out _);
         AssertValidates(document);
@@ -515,7 +515,8 @@ public sealed class OoxmlEmitterTests : IDisposable
                     Fill = new SolidFill("#FFFFFF"),
                     Overflow = OverflowPolicy.Error,
                     Children = [new ResolvedRect { X = 1, Y = 2, Width = 10, Height = 10, Fill = new SolidFill("#0B3D91") }]
-                }
+                },
+                Elements = []
             }],
             Warnings = []
         };
@@ -556,7 +557,8 @@ public sealed class OoxmlEmitterTests : IDisposable
                     },
                     Overflow = OverflowPolicy.Error,
                     Children = []
-                }
+                },
+                Elements = []
             }],
             Warnings = []
         };
@@ -804,7 +806,7 @@ public sealed class OoxmlEmitterTests : IDisposable
     {
         var layout = new LayoutResult
         {
-            Slides = [new ResolvedSlide { WidthPt = 960, HeightPt = 540, Root = RootWith(), Notes = "Reveal the Q3 headline first." }],
+            Slides = [new ResolvedSlide { WidthPt = 960, HeightPt = 540, Root = RootWith(), Elements = [], Notes = "Reveal the Q3 headline first." }],
             Warnings = []
         };
         using var document = EmitAndOpen(layout, out _);
@@ -820,7 +822,7 @@ public sealed class OoxmlEmitterTests : IDisposable
     {
         var layout = new LayoutResult
         {
-            Slides = [new ResolvedSlide { WidthPt = 960, HeightPt = 540, Root = RootWith(), Notes = "Line one\nLine two" }],
+            Slides = [new ResolvedSlide { WidthPt = 960, HeightPt = 540, Root = RootWith(), Elements = [], Notes = "Line one\nLine two" }],
             Warnings = []
         };
         using var document = EmitAndOpen(layout, out _);
@@ -844,7 +846,7 @@ public sealed class OoxmlEmitterTests : IDisposable
     {
         var layout = new LayoutResult
         {
-            Slides = [new ResolvedSlide { WidthPt = 960, HeightPt = 540, Root = RootWith(), Notes = "   " }],
+            Slides = [new ResolvedSlide { WidthPt = 960, HeightPt = 540, Root = RootWith(), Elements = [], Notes = "   " }],
             Warnings = []
         };
         using var document = EmitAndOpen(layout, out _);
@@ -858,8 +860,8 @@ public sealed class OoxmlEmitterTests : IDisposable
         {
             Slides =
             [
-                new ResolvedSlide { WidthPt = 960, HeightPt = 540, Root = RootWith(), Notes = "Only this slide has notes." },
-                new ResolvedSlide { WidthPt = 960, HeightPt = 540, Root = RootWith() }
+                new ResolvedSlide { WidthPt = 960, HeightPt = 540, Root = RootWith(), Elements = [], Notes = "Only this slide has notes." },
+                new ResolvedSlide { WidthPt = 960, HeightPt = 540, Root = RootWith(), Elements = [] }
             ],
             Warnings = []
         };

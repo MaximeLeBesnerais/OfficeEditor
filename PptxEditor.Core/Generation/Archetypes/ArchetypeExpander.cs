@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using PptxEditor.Core.Generation.Components;
 using PptxEditor.Core.Generation.Model;
 
@@ -25,8 +26,10 @@ public static class ArchetypeExpander
     private static readonly IReadOnlySet<string> KpiRowProps = Set("title", "subtitle", "kpis");
     private static readonly IReadOnlySet<string> KpiProps = Set("value", "label", "delta");
     private static readonly IReadOnlySet<string> TwoColProps = Set("title", "subtitle", "left", "right", "weights");
-    private static readonly IReadOnlySet<string> SlotProps = Set("type", "content");
+    private static readonly IReadOnlySet<string> SlotProps = Set("type", "id", "content");
     private static readonly IReadOnlySet<string> TableSlideProps = Set("title", "subtitle", "columns", "rows", "header", "columnWeights", "rowHeight");
+
+    private static readonly Regex IdPattern = new(@"^[a-z][a-z0-9_-]*$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     /// <summary>Expands every archetype marker slide; other slides pass through untouched.</summary>
     public static GenerationDocument Expand(GenerationDocument document)
@@ -34,6 +37,9 @@ public static class ArchetypeExpander
         ArgumentNullException.ThrowIfNull(document);
         var changed = false;
         var slides = new List<ContainerElement>(document.Slides.Count);
+        // Seed with every id already in the document so synthesized child ids never collide
+        // with authored ones (deterministic first-fit; see ElementIdAllocator).
+        var allocator = ElementIdAllocator.SeedWith(document.Slides);
         for (var i = 0; i < document.Slides.Count; i++)
         {
             var path = $"slides[{i}]";
@@ -45,9 +51,17 @@ public static class ArchetypeExpander
                     throw new ComponentException(path,
                         $"archetype slide '{marker.Name}' fills the whole slide; 'size' and 'at' are not allowed on it.");
                 }
-                // Notes are per-slide metadata on the root container: carry them onto the
-                // composed slide (ArchetypeSlides builds a fresh container without them).
-                slides.Add(ExpandSlide(marker, document.Design, path) with { Notes = slideRoot.Notes });
+                // The composed slide inherits the marker's id (user-authored or
+                // parser-synthesized — the parser hands out a per-type counter,
+                // "cover-0", "cover-1", …); role-based child ids derive from it. Notes are
+                // per-slide metadata on the root container: carry them onto the composed
+                // slide (ArchetypeSlides builds a fresh container without them).
+                // Parser-produced markers always carry an id, so the fallback below only
+                // fires for programmatic documents: reserve it through the allocator so it
+                // — and the children derived from it — can never collide with an authored
+                // id (deterministic first-fit "-2", "-3", … suffixing on collision).
+                var prefix = marker.Id ?? allocator.Take(marker.Name, i.ToString());
+                slides.Add(ExpandSlide(marker, document.Design, path, prefix, allocator) with { Notes = slideRoot.Notes });
                 changed = true;
             }
             else
@@ -85,14 +99,14 @@ public static class ArchetypeExpander
         return false;
     }
 
-    private static ContainerElement ExpandSlide(ComponentElement marker, DesignTokens design, string path)
+    private static ContainerElement ExpandSlide(ComponentElement marker, DesignTokens design, string path, string prefix, ElementIdAllocator allocator)
         => marker.Name switch
         {
-            "cover" => ArchetypeSlides.Cover(ReadCover(marker.Content, design, path), design),
-            "section" => ArchetypeSlides.Section(ReadSection(marker.Content, design, path), design),
-            "kpi_row" => ArchetypeSlides.KpiRow(ReadKpiRow(marker.Content, design, path), design),
-            "two_col" => ArchetypeSlides.TwoCol(ReadTwoCol(marker.Content, design, path), design),
-            "table_slide" => ArchetypeSlides.TableSlide(ReadTableSlide(marker.Content, design, path), design),
+            "cover" => ArchetypeSlides.Cover(ReadCover(marker.Content, design, path), design, prefix, allocator),
+            "section" => ArchetypeSlides.Section(ReadSection(marker.Content, design, path), design, prefix, allocator),
+            "kpi_row" => ArchetypeSlides.KpiRow(ReadKpiRow(marker.Content, design, path), design, prefix, allocator),
+            "two_col" => ArchetypeSlides.TwoCol(ReadTwoCol(marker.Content, design, path, allocator), design, prefix, allocator),
+            "table_slide" => ArchetypeSlides.TableSlide(ReadTableSlide(marker.Content, design, path), design, prefix, allocator),
             _ => throw new ComponentException(path,
                 $"unknown archetype slide '{marker.Name}'. Known archetypes: {string.Join(", ", ArchetypeSlides.Names.Order(StringComparer.Ordinal))}.")
         };
@@ -155,7 +169,7 @@ public static class ArchetypeExpander
         return new KpiRowContent { Title = title, Subtitle = subtitle, Kpis = kpis };
     }
 
-    private static TwoColContent ReadTwoCol(JsonElement? content, DesignTokens design, string path)
+    private static TwoColContent ReadTwoCol(JsonElement? content, DesignTokens design, string path, ElementIdAllocator allocator)
     {
         var reader = ComponentContentReader.For(path, "two_col", content, TwoColProps, design.Palette);
         var title = reader.String("title");
@@ -170,13 +184,13 @@ public static class ArchetypeExpander
         {
             Title = title,
             Subtitle = subtitle,
-            Left = ReadSlot(content, "left", design, path),
-            Right = ReadSlot(content, "right", design, path),
+            Left = ReadSlot(content, "left", design, path, allocator),
+            Right = ReadSlot(content, "right", design, path, allocator),
             Weights = weights
         };
     }
 
-    private static ComponentElement ReadSlot(JsonElement? content, string slotName, DesignTokens design, string path)
+    private static ComponentElement ReadSlot(JsonElement? content, string slotName, DesignTokens design, string path, ElementIdAllocator allocator)
     {
         var slotPath = $"{path}.content.{slotName}";
         if (!TryGet(content, slotName, out var slotEl))
@@ -185,6 +199,7 @@ public static class ArchetypeExpander
         }
         var reader = ComponentContentReader.For(slotPath, $"two_col.{slotName}", slotEl, SlotProps, design.Palette);
         var type = reader.String("type", required: true);
+        var explicitId = reader.String("id");
         reader.ThrowIfInvalid();
 
         if (ArchetypeSlides.IsArchetype(type!))
@@ -198,6 +213,22 @@ public static class ArchetypeExpander
                 $"content.{slotName}.type: unknown component '{type}'. Known components: {string.Join(", ", ComponentElement.KnownNames.Order(StringComparer.Ordinal))}.");
         }
 
+        // An explicit slot id wins over the synthesized "{prefix}-left"/"{prefix}-right" and
+        // must not collide with anything already in the document.
+        if (explicitId is not null)
+        {
+            if (!IdPattern.IsMatch(explicitId))
+            {
+                throw new ComponentException(slotPath,
+                    $"content.{slotName}.id: '{explicitId}' is not a valid id: lowercase start, then letters, digits, '-' or '_' (e.g. \"hero-title\").");
+            }
+            if (!allocator.TryReserve(explicitId))
+            {
+                throw new ComponentException(slotPath,
+                    $"content.{slotName}.id: '{explicitId}' is already used elsewhere in the document. Ids must be unique per document.");
+            }
+        }
+
         JsonElement? slotContent = null;
         if (TryGet(slotEl, "content", out var contentEl))
         {
@@ -207,7 +238,7 @@ public static class ArchetypeExpander
             }
             slotContent = contentEl.Clone();
         }
-        return new ComponentElement { Name = type!, Content = slotContent };
+        return new ComponentElement { Id = explicitId, Name = type!, Content = slotContent };
     }
 
     private static TableSlideContent ReadTableSlide(JsonElement? content, DesignTokens design, string path)

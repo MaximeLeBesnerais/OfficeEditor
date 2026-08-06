@@ -18,7 +18,7 @@ public static class BadgeComponent
         new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "text", "color", "textColor" };
 
     /// <summary>Expands <paramref name="element"/> into its primitive subtree.</summary>
-    public static ContainerElement Expand(ComponentElement element, DesignTokens design, string path)
+    internal static ContainerElement Expand(ComponentElement element, DesignTokens design, string path, ElementIdAllocator allocator)
     {
         ArgumentNullException.ThrowIfNull(element);
         ArgumentNullException.ThrowIfNull(design);
@@ -37,6 +37,7 @@ public static class BadgeComponent
 
         return new ContainerElement
         {
+            Id = element.Id,
             Size = size,
             At = element.At,
             Fill = new SolidFill(color),
@@ -45,7 +46,7 @@ public static class BadgeComponent
             Layout = new LayoutSpec { Mode = LayoutMode.Row, Justify = Justify.Center, Align = AlignItems.Center },
             Children =
             [
-                ComponentStyle.Growing(text!, "body", fontSize, textColor, bold: true, align: TextAlign.Center, anchor: TextAnchor.Middle)
+                ComponentStyle.Growing(text!, "body", fontSize, textColor, bold: true, align: TextAlign.Center, anchor: TextAnchor.Middle) with { Id = allocator.ChildId(element.Id, "label") }
             ]
         };
     }

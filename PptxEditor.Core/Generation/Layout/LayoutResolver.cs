@@ -60,7 +60,15 @@ public sealed class LayoutResolver
         }
 
         var root = (ResolvedContainer)ResolveElement(slide, new Rect(0, 0, size.WidthPt, size.HeightPt), path);
-        return new ResolvedSlide { WidthPt = size.WidthPt, HeightPt = size.HeightPt, Root = root, Notes = slide.Notes };
+        return new ResolvedSlide
+        {
+            WidthPt = size.WidthPt,
+            HeightPt = size.HeightPt,
+            Root = root,
+            Notes = slide.Notes,
+            Id = slide.Id,
+            Elements = Flatten(root)
+        };
     }
 
     private ResolvedElement ResolveElement(GenElement element, Rect rect, string path)
@@ -72,7 +80,7 @@ public sealed class LayoutResolver
             TextElement t => ResolveText(t, rect, path),
             RectElement r => new ResolvedRect
             {
-                X = rect.X, Y = rect.Y, Width = rect.W, Height = rect.H,
+                X = rect.X, Y = rect.Y, Width = rect.W, Height = rect.H, Id = r.Id,
                 Fill = ResolveFill(r.Fill, path),
                 Stroke = ResolveStroke(r.Stroke, path),
                 Radius = r.Radius,
@@ -80,21 +88,21 @@ public sealed class LayoutResolver
             },
             EllipseElement e => new ResolvedEllipse
             {
-                X = rect.X, Y = rect.Y, Width = rect.W, Height = rect.H,
+                X = rect.X, Y = rect.Y, Width = rect.W, Height = rect.H, Id = e.Id,
                 Fill = ResolveFill(e.Fill, path),
                 Stroke = ResolveStroke(e.Stroke, path),
                 Shadow = ResolveShadow(e.Shadow, path)
             },
             LineElement l => new ResolvedLine
             {
-                X = rect.X, Y = rect.Y, Width = rect.W, Height = rect.H,
+                X = rect.X, Y = rect.Y, Width = rect.W, Height = rect.H, Id = l.Id,
                 IsConnector = l.IsConnector,
                 Orientation = l.Orientation,
                 Stroke = ResolveStroke(l.Stroke, path)
             },
             ImageElement im => new ResolvedImage
             {
-                X = rect.X, Y = rect.Y, Width = rect.W, Height = rect.H,
+                X = rect.X, Y = rect.Y, Width = rect.W, Height = rect.H, Id = im.Id,
                 Source = im.Source,
                 Fit = im.Fit,
                 Crop = im.Crop,
@@ -128,7 +136,7 @@ public sealed class LayoutResolver
 
         return new ResolvedContainer
         {
-            X = rect.X, Y = rect.Y, Width = rect.W, Height = rect.H,
+            X = rect.X, Y = rect.Y, Width = rect.W, Height = rect.H, Id = container.Id,
             Fill = ResolveFill(container.Fill, path),
             Stroke = ResolveStroke(container.Stroke, path),
             Radius = container.Radius,
@@ -146,7 +154,7 @@ public sealed class LayoutResolver
         {
             children.Add(ResolveFreeChild(group.Children[i], rect, $"{path}.children[{i}]", OverflowPolicy.Clip));
         }
-        return new ResolvedGroup { X = rect.X, Y = rect.Y, Width = rect.W, Height = rect.H, Children = children };
+        return new ResolvedGroup { X = rect.X, Y = rect.Y, Width = rect.W, Height = rect.H, Id = group.Id, Children = children };
     }
 
     private IReadOnlyList<ResolvedElement> ResolveFreeChildren(
@@ -584,7 +592,7 @@ public sealed class LayoutResolver
 
         return new ResolvedText
         {
-            X = rect.X, Y = rect.Y, Width = rect.W, Height = rect.H,
+            X = rect.X, Y = rect.Y, Width = rect.W, Height = rect.H, Id = text.Id,
             Runs = runs,
             TextAlign = text.TextAlign,
             Anchor = text.Anchor,
@@ -676,6 +684,57 @@ public sealed class LayoutResolver
             rect.Y + pad.Top,
             Math.Max(rect.W - pad.Left - pad.Right, 0),
             Math.Max(rect.H - pad.Top - pad.Bottom, 0));
+    }
+
+    /// <summary>
+    /// Builds the slide's flat paint-order element list for introspection. Depth-first so
+    /// groups are flattened between their own entry and the next sibling — group children
+    /// are already placed in absolute coordinates by the resolver, so no geometry is
+    /// recomputed here (pure exposure of the single layout pass).
+    /// </summary>
+    private static IReadOnlyList<ResolvedElementInfo> Flatten(ResolvedElement root)
+    {
+        var list = new List<ResolvedElementInfo>();
+        FlattenInto(root, list);
+        return list;
+    }
+
+    private static void FlattenInto(ResolvedElement element, List<ResolvedElementInfo> list)
+    {
+        list.Add(new ResolvedElementInfo
+        {
+            Id = element.Id,
+            Type = element switch
+            {
+                ResolvedContainer => ResolvedElementType.Container,
+                ResolvedText => ResolvedElementType.Text,
+                ResolvedRect => ResolvedElementType.Rect,
+                ResolvedEllipse => ResolvedElementType.Ellipse,
+                ResolvedLine => ResolvedElementType.Line,
+                ResolvedImage => ResolvedElementType.Image,
+                ResolvedGroup => ResolvedElementType.Group,
+                _ => throw new NotSupportedException($"Unknown resolved element '{element.GetType().Name}'.")
+            },
+            X = element.X,
+            Y = element.Y,
+            Width = element.Width,
+            Height = element.Height
+        });
+        switch (element)
+        {
+            case ResolvedContainer container:
+                foreach (var child in container.Children)
+                {
+                    FlattenInto(child, list);
+                }
+                break;
+            case ResolvedGroup group:
+                foreach (var child in group.Children)
+                {
+                    FlattenInto(child, list);
+                }
+                break;
+        }
     }
 
     private static double Round(double value) => Math.Round(value, Precision);

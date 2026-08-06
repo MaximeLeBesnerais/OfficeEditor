@@ -24,6 +24,39 @@ public sealed record ResolvedSlide
     /// the OOXML emitter writes a NotesSlidePart, the Typst preview intentionally omits it.
     /// </summary>
     public string? Notes { get; init; }
+
+    /// <summary>Stable element id of the slide root; null when the deck authors none.</summary>
+    public string? Id { get; init; }
+
+    /// <summary>
+    /// Flat, paint-order view of every resolved element on the slide (depth-first; group
+    /// children are already in absolute coordinates and appear between their group and the
+    /// next sibling). Built from the single layout pass — no extra geometry computation —
+    /// for hit-testing, selection boxes and id-based addressing in Studio.
+    /// </summary>
+    public required IReadOnlyList<ResolvedElementInfo> Elements { get; init; }
+
+    /// <summary>
+    /// Resolves the absolute rect (x, y, w, h in points) of the element addressed by
+    /// <paramref name="id"/> on this slide. False when the id is unknown here. Linear scan
+    /// over <see cref="Elements"/> — callers re-querying the same id should cache the result.
+    /// </summary>
+    public bool TryGetRect(string? id, out ElementRect rect)
+    {
+        if (id is not null)
+        {
+            foreach (var element in Elements)
+            {
+                if (string.Equals(element.Id, id, StringComparison.Ordinal))
+                {
+                    rect = new ElementRect(element.X, element.Y, element.Width, element.Height);
+                    return true;
+                }
+            }
+        }
+        rect = default;
+        return false;
+    }
 }
 
 /// <summary>Result of resolving a whole document: one draw tree per slide plus non-fatal warnings.</summary>
@@ -34,7 +67,80 @@ public sealed record LayoutResult
 
     /// <summary>Non-fatal diagnostics (e.g. text shrunk below MinScale).</summary>
     public required IReadOnlyList<string> Warnings { get; init; }
+
+    /// <summary>
+    /// Resolves the absolute rect of the element addressed by <paramref name="id"/> on the
+    /// given slide; false when the slide index or id is unknown. Convenience over
+    /// <see cref="ResolvedSlide.TryGetRect"/> — both ride the existing layout pass.
+    /// </summary>
+    public bool TryGetRect(int slideIndex, string? id, out ElementRect rect)
+    {
+        if ((uint)slideIndex < (uint)Slides.Count)
+        {
+            return Slides[slideIndex].TryGetRect(id, out rect);
+        }
+        rect = default;
+        return false;
+    }
 }
+
+/// <summary>
+/// Kind of a resolved element, so introspection callers can switch on the shape without
+/// pattern-matching every record type.
+/// </summary>
+public enum ResolvedElementType
+{
+    /// <summary>Layout container (root, card surface, row …).</summary>
+    Container,
+
+    /// <summary>Text primitive.</summary>
+    Text,
+
+    /// <summary>Rectangle primitive.</summary>
+    Rect,
+
+    /// <summary>Ellipse primitive.</summary>
+    Ellipse,
+
+    /// <summary>Straight line or connector.</summary>
+    Line,
+
+    /// <summary>Image primitive.</summary>
+    Image,
+
+    /// <summary>Group: paint-order children, already placed in absolute coordinates.</summary>
+    Group
+}
+
+/// <summary>
+/// One entry in a slide's flat paint-order element list (<see cref="ResolvedSlide.Elements"/>):
+/// the element's stable id (null when the deck authors none), its kind and its final
+/// absolute rect in points. Value projection of the resolved tree — no reference to the
+/// underlying node, so callers can cache the list freely.
+/// </summary>
+public sealed record ResolvedElementInfo
+{
+    /// <summary>Stable element id from the source JSON; null when none was authored.</summary>
+    public string? Id { get; init; }
+
+    /// <summary>Element kind, for hit-testing switches.</summary>
+    public ResolvedElementType Type { get; init; }
+
+    /// <summary>Absolute X in points.</summary>
+    public double X { get; init; }
+
+    /// <summary>Absolute Y in points.</summary>
+    public double Y { get; init; }
+
+    /// <summary>Width in points.</summary>
+    public double Width { get; init; }
+
+    /// <summary>Height in points.</summary>
+    public double Height { get; init; }
+}
+
+/// <summary>An axis-aligned rectangle in points (final layout geometry).</summary>
+public readonly record struct ElementRect(double X, double Y, double Width, double Height);
 
 /// <summary>
 /// Base of every node in the absolute draw tree. Geometry is the final position in points,
@@ -53,6 +159,12 @@ public abstract record ResolvedElement
 
     /// <summary>Height in points.</summary>
     public double Height { get; init; }
+
+    /// <summary>
+    /// Stable element id from the source JSON, carried through expansion and layout;
+    /// null when none was authored. Metadata only — never rendered.
+    /// </summary>
+    public string? Id { get; init; }
 }
 
 /// <summary>Resolved container: background/border plus its resolved children in paint order.</summary>
