@@ -21,7 +21,8 @@ public sealed class TypstEmitterUnitTests
                 X = 0, Y = 0, Width = 960, Height = 540,
                 Overflow = OverflowPolicy.Error,
                 Children = [child]
-            }
+            },
+            Elements = []
         };
 
     private static string EmitChild(ResolvedElement child) => new TypstEmitter().EmitSlide(SlideWith(child));

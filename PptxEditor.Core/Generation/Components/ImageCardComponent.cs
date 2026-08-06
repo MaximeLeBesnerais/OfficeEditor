@@ -23,7 +23,7 @@ public static class ImageCardComponent
         };
 
     /// <summary>Expands <paramref name="element"/> into its primitive subtree.</summary>
-    public static ContainerElement Expand(ComponentElement element, DesignTokens design, string path)
+    internal static ContainerElement Expand(ComponentElement element, DesignTokens design, string path, ElementIdAllocator allocator)
     {
         ArgumentNullException.ThrowIfNull(element);
         ArgumentNullException.ThrowIfNull(design);
@@ -42,6 +42,7 @@ public static class ImageCardComponent
         {
             new ImageElement
             {
+                Id = allocator.ChildId(element.Id, "image"),
                 Source = src!,
                 Fit = fit,
                 Alt = alt,
@@ -57,18 +58,20 @@ public static class ImageCardComponent
                 + (subtitle is not null ? ComponentStyle.LineHeight(metrics.BodySizePt) : 0)
                 + (title is not null && subtitle is not null ? 4 : 0);
 
+            var captionId = allocator.ChildId(element.Id, "caption");
             var captionChildren = new List<GenElement>();
             if (title is not null)
             {
-                captionChildren.Add(ComponentStyle.Line(title, "display", metrics.BodySizePt + 2, "ink", bold: true));
+                captionChildren.Add(ComponentStyle.Line(title, "display", metrics.BodySizePt + 2, "ink", bold: true) with { Id = allocator.ChildId(captionId, "title") });
             }
             if (subtitle is not null)
             {
-                captionChildren.Add(ComponentStyle.Line(subtitle, "body", metrics.BodySizePt, "muted"));
+                captionChildren.Add(ComponentStyle.Line(subtitle, "body", metrics.BodySizePt, "muted") with { Id = allocator.ChildId(captionId, "subtitle") });
             }
 
             children.Add(new ContainerElement
             {
+                Id = captionId,
                 Size = new SizeSpec { Height = Math.Round(captionHeight, 3) },
                 Padding = EdgeInsets.All(pad),
                 Layout = new LayoutSpec { Mode = LayoutMode.Column, Gap = 4 },
@@ -80,6 +83,7 @@ public static class ImageCardComponent
 
         return ComponentStyle.ApplySurface(new ContainerElement
         {
+            Id = element.Id,
             Size = element.Size,
             At = element.At,
             Layout = new LayoutSpec { Mode = LayoutMode.Column },

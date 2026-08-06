@@ -15,7 +15,7 @@ public static class CardComponent
         new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "title", "subtitle", "body" };
 
     /// <summary>Expands <paramref name="element"/> into its primitive subtree.</summary>
-    public static ContainerElement Expand(ComponentElement element, DesignTokens design, string path)
+    internal static ContainerElement Expand(ComponentElement element, DesignTokens design, string path, ElementIdAllocator allocator)
     {
         ArgumentNullException.ThrowIfNull(element);
         ArgumentNullException.ThrowIfNull(design);
@@ -29,15 +29,15 @@ public static class CardComponent
         var metrics = design.Metrics;
         var fields = new List<TextElement>
         {
-            ComponentStyle.Line(title!, "display", metrics.BodySizePt + 2, "ink", bold: true)
+            ComponentStyle.Line(title!, "display", metrics.BodySizePt + 2, "ink", bold: true) with { Id = allocator.ChildId(element.Id, "title") }
         };
         if (subtitle is not null)
         {
-            fields.Add(ComponentStyle.Line(subtitle, "body", metrics.BodySizePt, "muted"));
+            fields.Add(ComponentStyle.Line(subtitle, "body", metrics.BodySizePt, "muted") with { Id = allocator.ChildId(element.Id, "subtitle") });
         }
         if (body is not null)
         {
-            fields.Add(ComponentStyle.Line(body, "body", metrics.BodySizePt, "ink"));
+            fields.Add(ComponentStyle.Line(body, "body", metrics.BodySizePt, "ink") with { Id = allocator.ChildId(element.Id, "body") });
         }
         // The last present field takes the remaining vertical space (single-line fields
         // before it keep their deterministic line height).
@@ -47,6 +47,7 @@ public static class CardComponent
 
         return ComponentStyle.ApplySurface(new ContainerElement
         {
+            Id = element.Id,
             Size = element.Size,
             At = element.At,
             Padding = EdgeInsets.All(metrics.GutterPt),

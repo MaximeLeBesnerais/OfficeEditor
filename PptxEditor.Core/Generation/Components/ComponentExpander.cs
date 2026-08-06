@@ -15,6 +15,12 @@ namespace PptxEditor.Core.Generation.Components;
 /// the strongly typed payloads in <c>ComponentContents.cs</c> with loud, actionable
 /// errors (<see cref="ComponentException"/>).
 /// </para>
+/// <para>
+/// Ids: the expansion root keeps the component's id (an explicit user id always wins);
+/// every generated node gets a deterministic role-based id derived from it —
+/// "<c>{id}-title</c>", "<c>{id}-item-0</c>", … Collisions with authored ids are
+/// disambiguated deterministically by <see cref="ElementIdAllocator"/>.
+/// </para>
 /// </summary>
 public static class ComponentExpander
 {
@@ -23,9 +29,12 @@ public static class ComponentExpander
     {
         ArgumentNullException.ThrowIfNull(document);
         var slides = new List<ContainerElement>(document.Slides.Count);
+        // Seed with every id already in the document so synthesized child ids never collide
+        // with authored ones (deterministic first-fit; see ElementIdAllocator).
+        var allocator = ElementIdAllocator.SeedWith(document.Slides);
         for (var i = 0; i < document.Slides.Count; i++)
         {
-            slides.Add((ContainerElement)ExpandElement(document.Slides[i], document.Design, $"slides[{i}]"));
+            slides.Add((ContainerElement)ExpandElement(document.Slides[i], document.Design, $"slides[{i}]", allocator));
         }
         return document with { Slides = slides };
     }
@@ -36,39 +45,42 @@ public static class ComponentExpander
     /// through untouched.
     /// </summary>
     public static GenElement ExpandElement(GenElement element, DesignTokens design, string path)
+        => ExpandElement(element, design, path, ElementIdAllocator.SeedWith(element));
+
+    private static GenElement ExpandElement(GenElement element, DesignTokens design, string path, ElementIdAllocator allocator)
     {
         ArgumentNullException.ThrowIfNull(element);
         ArgumentNullException.ThrowIfNull(design);
         return element switch
         {
-            ComponentElement c => ExpandComponent(c, design, path),
-            ContainerElement c => c with { Children = ExpandChildren(c.Children, design, path) },
-            GroupElement g => g with { Children = ExpandChildren(g.Children, design, path) },
+            ComponentElement c => ExpandComponent(c, design, path, allocator),
+            ContainerElement c => c with { Children = ExpandChildren(c.Children, design, path, allocator) },
+            GroupElement g => g with { Children = ExpandChildren(g.Children, design, path, allocator) },
             _ => element
         };
     }
 
-    private static IReadOnlyList<GenElement> ExpandChildren(IReadOnlyList<GenElement> children, DesignTokens design, string path)
+    private static IReadOnlyList<GenElement> ExpandChildren(IReadOnlyList<GenElement> children, DesignTokens design, string path, ElementIdAllocator allocator)
     {
         var expanded = new List<GenElement>(children.Count);
         for (var i = 0; i < children.Count; i++)
         {
-            expanded.Add(ExpandElement(children[i], design, $"{path}.children[{i}]"));
+            expanded.Add(ExpandElement(children[i], design, $"{path}.children[{i}]", allocator));
         }
         return expanded;
     }
 
-    private static GenElement ExpandComponent(ComponentElement component, DesignTokens design, string path)
+    private static GenElement ExpandComponent(ComponentElement component, DesignTokens design, string path, ElementIdAllocator allocator)
         => component.Name switch
         {
-            "card" => CardComponent.Expand(component, design, path),
-            "kpi" => KpiComponent.Expand(component, design, path),
-            "title_block" => TitleBlockComponent.Expand(component, design, path),
-            "bullet_list" => BulletListComponent.Expand(component, design, path),
-            "divider" => DividerComponent.Expand(component, design, path),
-            "badge" => BadgeComponent.Expand(component, design, path),
-            "image_card" => ImageCardComponent.Expand(component, design, path),
-            "table_block" => TableBlockComponent.Expand(component, design, path),
+            "card" => CardComponent.Expand(component, design, path, allocator),
+            "kpi" => KpiComponent.Expand(component, design, path, allocator),
+            "title_block" => TitleBlockComponent.Expand(component, design, path, allocator),
+            "bullet_list" => BulletListComponent.Expand(component, design, path, allocator),
+            "divider" => DividerComponent.Expand(component, design, path, allocator),
+            "badge" => BadgeComponent.Expand(component, design, path, allocator),
+            "image_card" => ImageCardComponent.Expand(component, design, path, allocator),
+            "table_block" => TableBlockComponent.Expand(component, design, path, allocator),
             _ => throw new ComponentException(path,
                 $"unknown component '{component.Name}'. Known components: {string.Join(", ", ComponentElement.KnownNames.Order(StringComparer.Ordinal))}.")
         };
