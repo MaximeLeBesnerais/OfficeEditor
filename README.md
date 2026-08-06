@@ -9,7 +9,7 @@ A .NET 9 library suite for **creating, editing, generating, and rendering Office
 ## Features
 
 - **Three formats, one model** — Word (DOCX), PowerPoint (PPTX), Excel (XLSX); create from scratch or edit existing files with style preservation
-- **JSON workflows** — PPTX has the full declarative generation vocabulary; **DOCX has declarative JSON generation** (flow + positioned tiers, design themes, semantic report archetypes, see `docs/docx-generation.md`); **XLSX has a rich instruction/generation engine** (typed cells, named styles with fills/borders, layout, tables) wired into `officeeditor generate --output *.xlsx` and renderable to PDF/PNG/SVG through the Typst pipeline (images and row-replication remain)
+- **JSON workflows** — PPTX has the full declarative generation vocabulary (see `docs/pptx-generation.md`); **DOCX has declarative JSON generation** (flow + positioned tiers, design themes, semantic report archetypes, see `docs/docx-generation.md`); **XLSX has a rich instruction/generation engine** (typed cells, named styles with fills/borders, layout, tables) wired into `officeeditor generate --output *.xlsx` and renderable to PDF/PNG/SVG through the Typst pipeline (images and row-replication remain)
 - **Rendering** — native TypstBridge (Typst 0.15.1): PPTX PDF/PNG/SVG, DOCX PDF, and XLSX PDF/PNG/SVG (formulas render cached `<v>` values only, no evaluation); whole-deck timings are exposed by the PPTX surfaces
 - **Fluent C# APIs** — `DocumentBuilder`, `PresentationBuilder`, `WorkbookBuilder` (file, stream, or in-memory `byte[]`)
 - **Instruction sets** — JSON/YAML DOCX operations, JSON PPTX edit operations, and a v1 JSON XLSX builder vocabulary
@@ -197,6 +197,17 @@ cd OfficeEditor && dotnet build        # 0 warnings, 0 errors (enforced)
 4. **Compare** — OfficeEditor Engine vs headless LibreOffice, side-by-side slides and timings (typically >10× faster)
 
 The API and web client are local demos, not production multi-tenant services. They have no complete authentication, quota, sandbox, or tenant-isolation layer. See [SECURITY.md](SECURITY.md).
+
+## Related projects & ecosystem
+
+The OfficeEditor engine (this repo) anchors a small ecosystem of satellite projects and docs:
+
+- **Declarative PPTX generation** — [`docs/pptx-generation.md`](docs/pptx-generation.md): the `version: "2.0"` deck vocabulary (design tokens, containers, primitives, components, archetypes, speaker notes, image sources); canonical schema at `PptxEditor.Core/Generation/Schema/deck.schema.json`
+- **Declarative DOCX generation** — [`docs/docx-generation.md`](docs/docx-generation.md): the `version: "1.0"` document vocabulary
+- **OfficeEditorStudio** — local-first Avalonia 12 desktop studio (out of this repo, `~/Work/OfficeEditorStudio`) that consumes the published `MaximeLB.*` 0.7.1 packages in-proc; the document is the generation JSON, rendered in-app via embedded TypstBridge, AI-agent-native with a vision loop, MCP server mode planned
+- **officeeditor.dev** — Vite 7 + React 19 + Tailwind landing site (out of this repo, `~/Work/officeeditor.dev`) that hosts the JSON schemas so `$id` references resolve, with real OfficeEditor-generated demo renders
+
+See [`docs/ecosystem.md`](docs/ecosystem.md) for the full map.
 
 ## Architecture
 
