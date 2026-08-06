@@ -133,7 +133,13 @@ internal sealed class PptxFormatRenderer : IFormatRenderer
             throw new InvalidOperationException($"PPTX generation layout failed: {ex.Message}");
         }
 
-        return new OoxmlEmitter().Emit(layout).Bytes;
+        // The emitter resolves relative image sources against the JSON document's
+        // directory only (canonical, symlink-aware containment), so the directory of the
+        // source file is threaded through.
+        return new OoxmlEmitter(new OoxmlEmitOptions
+        {
+            DocumentDirectory = Path.GetDirectoryName(Path.GetFullPath(jsonPath))
+        }).Emit(layout).Bytes;
     }
 
     private static DocumentRenderResult Success(params byte[][] pages) => new()

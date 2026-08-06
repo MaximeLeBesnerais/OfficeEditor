@@ -26,10 +26,16 @@ public sealed class OoxmlEmitter
     private const double EmuPerPoint = 12700.0;
     private const int Pct1000Scale = 100000; // spcPct family: 100000 = 100% (rule 2)
 
-    private static readonly Lazy<string?> s_repoRoot = new(() => ImageSourceResolver.TryFindRepositoryRoot());
+    private readonly OoxmlEmitOptions _options;
 
     private readonly List<string> _warnings = new();
     private uint _nextShapeId;
+
+    /// <summary>Creates an emitter with the given options (defaults when null).</summary>
+    public OoxmlEmitter(OoxmlEmitOptions? options = null)
+    {
+        _options = options ?? new OoxmlEmitOptions();
+    }
 
     /// <summary>Emits the whole resolved document as a .pptx package.</summary>
     /// <exception cref="ArgumentNullException"><paramref name="layout"/> is null.</exception>
@@ -671,7 +677,7 @@ public sealed class OoxmlEmitter
 
     #region Image sources + units
 
-    private static (byte[] Bytes, string Extension) ResolveImageSource(string source)
+    private (byte[] Bytes, string Extension) ResolveImageSource(string source)
     {
         if (string.IsNullOrWhiteSpace(source))
         {
@@ -698,16 +704,9 @@ public sealed class OoxmlEmitter
                 "Remote image URLs are not supported in v1; pass a local file path or a data URI.", nameof(source));
         }
 
-        // File sources resolve with one documented precedence, shared with the API's
-        // DeckGenerationService (see ImageSourceResolver):
-        // (a) the repository root — a relative source that would escape the root
-        //     ("../../etc/passwd") is rejected there, before any file probe;
-        // (b) the process current directory, likewise containment-checked;
-        // (c) FileNotFoundException.
-        // Rooted sources are taken as-is: callers passing absolute paths (fixture
-        // generation, tests, local CLI runs) are trusted. Untrusted JSON enters only
-        // through the API, which confines every file source to the repository root
-        // before the layout reaches this emitter.
+        // Rooted sources are taken as-is: absolute paths are trusted (fixture generation,
+        // tests, local CLI runs). Untrusted relative input enters only through surfaces
+        // with a document directory or the API's confinement layer.
         if (Path.IsPathRooted(source))
         {
             if (File.Exists(source))
@@ -718,19 +717,20 @@ public sealed class OoxmlEmitter
             throw new FileNotFoundException($"Image not found: {source}", source);
         }
 
-        if (s_repoRoot.Value is { } repoRoot)
+        // Relative file sources resolve against the JSON document's directory only — no
+        // repository-root or process-CWD fallback. Containment is lexical plus, for
+        // existing paths, canonical/symlink-aware (see ImageSourceResolver).
+        if (_options.DocumentDirectory is null)
         {
-            var resolved = ImageSourceResolver.ResolveContained(repoRoot, source);
-            if (File.Exists(resolved))
-            {
-                return (File.ReadAllBytes(resolved), Path.GetExtension(resolved).ToLowerInvariant());
-            }
+            throw new ArgumentException(
+                $"Image source '{source}' is a relative path. Relative paths resolve against the JSON document's " +
+                $"directory, which this surface does not provide. Use a data URI or an absolute path.", nameof(source));
         }
 
-        var cwdResolved = ImageSourceResolver.ResolveContained(Environment.CurrentDirectory, source);
-        if (File.Exists(cwdResolved))
+        var resolved = ImageSourceResolver.ResolveContainedCanonical(_options.DocumentDirectory, source);
+        if (File.Exists(resolved))
         {
-            return (File.ReadAllBytes(cwdResolved), Path.GetExtension(cwdResolved).ToLowerInvariant());
+            return (File.ReadAllBytes(resolved), Path.GetExtension(resolved).ToLowerInvariant());
         }
 
         throw new FileNotFoundException($"Image not found: {source}", source);

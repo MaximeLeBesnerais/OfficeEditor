@@ -736,14 +736,24 @@ public sealed class OoxmlEmitterTests : IDisposable
     }
 
     [Fact]
-    public void Image_RepoRelativeSource_ResolvesAgainstRepositoryRoot()
+    public void Image_DocumentDirectoryRelativeSource_ResolvesAgainstDocumentDirectory()
     {
-        // demo/assets/dashboard.png ships with the repo (also exercised end-to-end by
-        // the API's DeckGenerationServiceTests) — legitimate repo-root-relative sources
-        // must keep resolving under the new repo-root-first precedence.
-        var layout = LayoutWith(new ResolvedImage { X = 0, Y = 0, Width = 100, Height = 100, Source = "demo/assets/dashboard.png", Fit = ImageFitMode.Fill });
-        using var document = EmitAndOpen(layout, out _);
+        // The old behavior resolved relative sources against the repository root; the new
+        // ratified design resolves them against the JSON document's directory ONLY. Mirror
+        // the ImageResolutionTests style: write the image into a temp dir, pass it as the
+        // emitter's DocumentDirectory, and assert the actual payload is embedded.
+        var imageBytes = PngWithSize(64, 32);
+        WriteImage("dashboard.png", imageBytes);
+        var layout = LayoutWith(new ResolvedImage { X = 0, Y = 0, Width = 100, Height = 100, Source = "dashboard.png", Fit = ImageFitMode.Fill });
+
+        var result = new OoxmlEmitter(new OoxmlEmitOptions { DocumentDirectory = _testDir }).Emit(layout);
+        using var document = PresentationDocument.Open(new MemoryStream(result.Bytes), false);
+
         Assert.Single(FirstShapeTree(document).Elements<P.Picture>());
+        using var imageStream = Assert.Single(document.PresentationPart!.SlideParts.First().ImageParts).GetStream();
+        using var payload = new MemoryStream();
+        imageStream.CopyTo(payload);
+        Assert.Equal(imageBytes, payload.ToArray());
     }
 
     #endregion
