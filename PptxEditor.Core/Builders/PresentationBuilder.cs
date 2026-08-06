@@ -91,6 +91,8 @@ public interface ISlideBuilder
     ISlideBuilder AddImage(string imagePath);
     ISlideBuilder AddTable(List<List<string>> rows);
     ISlideBuilder AddChart(ChartType type, Dictionary<string, int> data);
+    ISlideBuilder AddNotes(string notes);
+    ISlideBuilder SetNotes(string notes);
 }
 
 public enum ChartType

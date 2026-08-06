@@ -37,19 +37,22 @@ public static class ArchetypeExpander
         for (var i = 0; i < document.Slides.Count; i++)
         {
             var path = $"slides[{i}]";
-            if (IsArchetypeSlide(document.Slides[i], out var marker))
+            var slideRoot = document.Slides[i];
+            if (IsArchetypeSlide(slideRoot, out var marker))
             {
                 if (marker.Size is not null || marker.At is not null)
                 {
                     throw new ComponentException(path,
                         $"archetype slide '{marker.Name}' fills the whole slide; 'size' and 'at' are not allowed on it.");
                 }
-                slides.Add(ExpandSlide(marker, document.Design, path));
+                // Notes are per-slide metadata on the root container: carry them onto the
+                // composed slide (ArchetypeSlides builds a fresh container without them).
+                slides.Add(ExpandSlide(marker, document.Design, path) with { Notes = slideRoot.Notes });
                 changed = true;
             }
             else
             {
-                slides.Add(document.Slides[i]);
+                slides.Add(slideRoot);
             }
         }
         return changed ? document with { Slides = slides } : document;

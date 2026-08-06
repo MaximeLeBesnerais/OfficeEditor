@@ -165,6 +165,39 @@ public sealed class DuplicateSlideTests : IDisposable
         Assert.Equal(baselineErrors, duplicatedErrors);
     }
 
+    [Fact]
+    public void DuplicateSlide_DoesNotCopyNotes()
+    {
+        // Notes are per-slide state (documented decision): a duplicate starts without a
+        // notes part even when the source slide carries one.
+        var path = Path.Combine(_tempDirectory, "with-notes.pptx");
+
+        using (var builder = PresentationBuilder.Create(path))
+        {
+            builder.AddSlide();
+            builder.CurrentSlide.AddTitle("Source");
+            builder.CurrentSlide.SetNotes("Source-only speaker notes.");
+            builder.AddSlide();
+            builder.CurrentSlide.AddTitle("Other");
+            builder.Save();
+        }
+
+        using (var builder = PresentationBuilder.Open(path))
+        {
+            builder.DuplicateSlide(0);
+            builder.Save();
+        }
+
+        using var doc = PresentationDocument.Open(path, false);
+        var slideParts = SlideOpsTestHelpers.GetSlidePartsInOrder(doc);
+        Assert.Equal(3, slideParts.Count);
+
+        Assert.NotNull(slideParts[0].NotesSlidePart);
+        Assert.Contains("Source-only speaker notes.", slideParts[0].NotesSlidePart!.NotesSlide!.CommonSlideData!.ShapeTree!.InnerText);
+        Assert.Null(slideParts[1].NotesSlidePart); // the duplicate starts without notes
+        Assert.Null(slideParts[2].NotesSlidePart);
+    }
+
     private static (string RelId, ImagePart Part) GetSingleImageReference(SlidePart slidePart)
     {
         var pair = slidePart.Parts.Single(p => p.OpenXmlPart is ImagePart);

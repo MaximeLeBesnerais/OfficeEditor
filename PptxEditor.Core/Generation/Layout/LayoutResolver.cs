@@ -60,7 +60,7 @@ public sealed class LayoutResolver
         }
 
         var root = (ResolvedContainer)ResolveElement(slide, new Rect(0, 0, size.WidthPt, size.HeightPt), path);
-        return new ResolvedSlide { WidthPt = size.WidthPt, HeightPt = size.HeightPt, Root = root };
+        return new ResolvedSlide { WidthPt = size.WidthPt, HeightPt = size.HeightPt, Root = root, Notes = slide.Notes };
     }
 
     private ResolvedElement ResolveElement(GenElement element, Rect rect, string path)

@@ -1,6 +1,7 @@
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Presentation;
+using PptxEditor.Core.Builders;
 using PptxEditor.Core.Generation.Layout;
 using PptxEditor.Core.Generation.Model;
 using PptxEditor.Core.Models;
@@ -255,6 +256,14 @@ public sealed class OoxmlEmitter
             {
                 EmitElement(slidePart, shapeTree, child);
             }
+        }
+
+        // Speaker notes are per-slide metadata (never rendered): write them into a
+        // NotesSlidePart wired to this slide. Blank notes skip the part entirely.
+        if (!string.IsNullOrWhiteSpace(slide.Notes))
+        {
+            var notesSlidePart = slidePart.AddNewPart<NotesSlidePart>();
+            notesSlidePart.NotesSlide = NotesSlideWriter.Create(slide.Notes);
         }
 
         presentationPart.Presentation!.SlideIdList!.Append(new SlideId

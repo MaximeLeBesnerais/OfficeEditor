@@ -60,6 +60,17 @@ public class GenerationSchemaTests
         Assert.Equal(fileContent, GenerationSchema.SchemaJson.TrimEnd());
     }
 
+    [Fact]
+    public void SchemaJson_ContainerDef_AcceptsSlideNotes()
+    {
+        using var document = JsonDocument.Parse(GenerationSchema.SchemaJson);
+        var containerProps = document.RootElement.GetProperty("$defs").GetProperty("container").GetProperty("properties");
+
+        var notes = containerProps.GetProperty("notes");
+        Assert.Equal("string", notes.GetProperty("type").GetString());
+        Assert.Contains("not rendered in the preview", notes.GetProperty("description").GetString());
+    }
+
     private static string FindSchemaFile()
     {
         var relative = Path.Combine("PptxEditor.Core", "Generation", "Schema", GenerationSchema.FileName);

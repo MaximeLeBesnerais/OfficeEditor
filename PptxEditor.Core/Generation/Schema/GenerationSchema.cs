@@ -241,7 +241,11 @@ public static class GenerationSchema
                 "radius": { "$ref": "#/$defs/radius" },
                 "shadow": { "$ref": "#/$defs/shadow" },
                 "size": { "$ref": "#/$defs/size" },
-                "at": { "$ref": "#/$defs/at" }
+                "at": { "$ref": "#/$defs/at" },
+                "notes": {
+                  "type": "string",
+                  "description": "Speaker notes for the slide; not rendered in the preview. Slide-root only: the parser rejects 'notes' on nested containers."
+                }
               }
             },
             "text": {

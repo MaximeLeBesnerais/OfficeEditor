@@ -124,7 +124,7 @@ public sealed class GenerationDocumentParser
     private static readonly IReadOnlySet<string> LayoutProps = Set("mode", "gap", "cols", "rowGap", "columnGap", "justify", "align");
     private static readonly IReadOnlySet<string> SizeProps = Set("w", "h", "grow", "aspect", "alignSelf");
     private static readonly IReadOnlySet<string> AtProps = Set("x", "y");
-    private static readonly IReadOnlySet<string> ContainerProps = Set("type", "layout", "padding", "overflow", "children", "fill", "stroke", "radius", "shadow", "size", "at");
+    private static readonly IReadOnlySet<string> ContainerProps = Set("type", "layout", "padding", "overflow", "children", "fill", "stroke", "radius", "shadow", "size", "at", "notes");
     private static readonly IReadOnlySet<string> TextProps = Set("type", "text", "runs", "font", "fontSize", "color", "bold", "italic", "textAlign", "anchor", "insets", "overflow", "shadow", "size", "at");
     private static readonly IReadOnlySet<string> RunProps = Set("text", "font", "fontSize", "color", "bold", "italic");
     private static readonly IReadOnlySet<string> RectProps = Set("type", "fill", "stroke", "radius", "shadow", "size", "at", "overflow");
@@ -134,7 +134,7 @@ public sealed class GenerationDocumentParser
     private static readonly IReadOnlySet<string> CropProps = Set("left", "top", "right", "bottom");
     private static readonly IReadOnlySet<string> GroupProps = Set("type", "children", "size", "at", "overflow");
     private static readonly IReadOnlySet<string> ComponentProps = Set("type", "content", "size", "at");
-    private static readonly IReadOnlySet<string> ArchetypeSlideProps = Set("type", "content");
+    private static readonly IReadOnlySet<string> ArchetypeSlideProps = Set("type", "content", "notes");
     private static readonly IReadOnlySet<string> GradientProps = Set("angle", "stops");
     private static readonly IReadOnlySet<string> StopProps = Set("color", "offset", "alpha");
     private static readonly IReadOnlySet<string> StrokeProps = Set("color", "width");
@@ -407,7 +407,8 @@ public sealed class GenerationDocumentParser
         // only child is the archetype-named component node. ArchetypeExpander composes it.
         return new ContainerElement
         {
-            Children = [new ComponentElement { Name = name, Content = content }]
+            Children = [new ComponentElement { Name = name, Content = content }],
+            Notes = NotesProp(el, path, isRoot: true)
         };
     }
 
@@ -496,7 +497,8 @@ public sealed class GenerationDocumentParser
             Fill = FillProp(el, path),
             Stroke = StrokeProp(el, path),
             Radius = RadiusProp(el, path),
-            Shadow = ShadowProp(el, path)
+            Shadow = ShadowProp(el, path),
+            Notes = NotesProp(el, path, isRoot)
         };
     }
 
@@ -706,6 +708,26 @@ public sealed class GenerationDocumentParser
         {
             Error($"{path}.overflow", "'overflow' is only valid on containers and text elements.");
         }
+    }
+
+    /// <summary>
+    /// Reads slide-level speaker notes ('notes', a string). Notes are per-slide metadata:
+    /// only the slide root carries them — a nested container with 'notes' is a loud error
+    /// rather than silently-dropped data.
+    /// </summary>
+    private string? NotesProp(JsonElement el, string path, bool isRoot)
+    {
+        if (!TryGet(el, "notes", out var notesEl))
+        {
+            return null;
+        }
+        var notesPath = $"{path}.notes";
+        if (!isRoot)
+        {
+            Error(notesPath, "'notes' is only valid on the slide root (speaker notes are per-slide metadata).");
+            return null;
+        }
+        return StringValue(notesEl, notesPath);
     }
 
     private List<GenElement>? ParseChildren(JsonElement el, string path, bool parentHasLayout)

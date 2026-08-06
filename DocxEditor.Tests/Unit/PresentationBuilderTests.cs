@@ -390,6 +390,81 @@ public class PresentationBuilderTests : IDisposable
         Assert.Throws<InvalidOperationException>(() => builder.Save());
     }
 
+    [Fact]
+    public void SetNotes_PersistsNotesIntoPackage()
+    {
+        using (var builder = PresentationBuilder.Create(_testFilePath))
+        {
+            builder.AddSlide();
+            builder.CurrentSlide.AddTitle("A");
+            builder.CurrentSlide.SetNotes("Keep the delivery date prominent.");
+            builder.Save();
+        }
+
+        using var doc = PresentationDocument.Open(_testFilePath, false);
+        var notesSlide = doc.PresentationPart!.SlideParts.Single().NotesSlidePart?.NotesSlide;
+        Assert.NotNull(notesSlide);
+        Assert.Contains("Keep the delivery date prominent.", notesSlide!.CommonSlideData!.ShapeTree!.InnerText);
+    }
+
+    [Fact]
+    public void AddNotes_WritesNotes()
+    {
+        using (var builder = PresentationBuilder.Create(_testFilePath))
+        {
+            builder.AddSlide();
+            builder.CurrentSlide.AddNotes("Added via AddNotes.");
+            builder.Save();
+        }
+
+        using var doc = PresentationDocument.Open(_testFilePath, false);
+        var notesSlide = doc.PresentationPart!.SlideParts.Single().NotesSlidePart?.NotesSlide;
+        Assert.NotNull(notesSlide);
+        Assert.Contains("Added via AddNotes.", notesSlide!.CommonSlideData!.ShapeTree!.InnerText);
+    }
+
+    [Fact]
+    public void SetNotes_OverwritesExistingNotes()
+    {
+        using (var builder = PresentationBuilder.Create(_testFilePath))
+        {
+            builder.AddSlide();
+            builder.CurrentSlide.SetNotes("First draft.").SetNotes("Final version.");
+            builder.Save();
+        }
+
+        using var doc = PresentationDocument.Open(_testFilePath, false);
+        var slidePart = doc.PresentationPart!.SlideParts.Single();
+        var notesText = slidePart.NotesSlidePart!.NotesSlide!.CommonSlideData!.ShapeTree!.InnerText;
+        Assert.Contains("Final version.", notesText);
+        Assert.DoesNotContain("First draft.", notesText);
+        Assert.Single(slidePart.Parts, p => p.OpenXmlPart is NotesSlidePart);
+    }
+
+    [Fact]
+    public void SetNotes_BlankText_RemovesNotesPart()
+    {
+        using (var builder = PresentationBuilder.Create(_testFilePath))
+        {
+            builder.AddSlide();
+            builder.CurrentSlide.SetNotes("Will be cleared.");
+            builder.CurrentSlide.SetNotes("   ");
+            builder.Save();
+        }
+
+        using var doc = PresentationDocument.Open(_testFilePath, false);
+        Assert.Null(doc.PresentationPart!.SlideParts.Single().NotesSlidePart);
+    }
+
+    [Fact]
+    public void SetNotes_Null_ThrowsArgumentNullException()
+    {
+        using var builder = PresentationBuilder.Create(_testFilePath);
+        builder.AddSlide();
+
+        Assert.Throws<ArgumentNullException>(() => builder.CurrentSlide.SetNotes(null!));
+    }
+
     public void Dispose()
     {
         if (File.Exists(_testFilePath))

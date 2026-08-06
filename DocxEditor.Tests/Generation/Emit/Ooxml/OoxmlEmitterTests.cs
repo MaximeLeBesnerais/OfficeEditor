@@ -796,4 +796,107 @@ public sealed class OoxmlEmitterTests : IDisposable
     }
 
     #endregion
+
+    #region Speaker notes (NotesSlidePart)
+
+    [Fact]
+    public void Notes_EmitWithNotes_CreatesNotesSlidePartWithText()
+    {
+        var layout = new LayoutResult
+        {
+            Slides = [new ResolvedSlide { WidthPt = 960, HeightPt = 540, Root = RootWith(), Notes = "Reveal the Q3 headline first." }],
+            Warnings = []
+        };
+        using var document = EmitAndOpen(layout, out _);
+
+        var notesSlide = document.PresentationPart!.SlideParts.First().NotesSlidePart?.NotesSlide;
+        Assert.NotNull(notesSlide);
+        Assert.Contains("Reveal the Q3 headline first.", notesSlide!.CommonSlideData!.ShapeTree!.InnerText);
+        AssertValidates(document);
+    }
+
+    [Fact]
+    public void Notes_EmitWithMultilineNotes_OneParagraphPerLine()
+    {
+        var layout = new LayoutResult
+        {
+            Slides = [new ResolvedSlide { WidthPt = 960, HeightPt = 540, Root = RootWith(), Notes = "Line one\nLine two" }],
+            Warnings = []
+        };
+        using var document = EmitAndOpen(layout, out _);
+
+        var shapeTree = document.PresentationPart!.SlideParts.First().NotesSlidePart!.NotesSlide!.CommonSlideData!.ShapeTree!;
+        var paragraphs = shapeTree.Elements<P.Shape>().Single().TextBody!.Elements<Drawing.Paragraph>().ToList();
+        Assert.Equal(2, paragraphs.Count);
+        Assert.Equal("Line one", paragraphs[0].InnerText);
+        Assert.Equal("Line two", paragraphs[1].InnerText);
+    }
+
+    [Fact]
+    public void Notes_EmitWithoutNotes_EmitsNoNotesSlidePart()
+    {
+        using var document = EmitAndOpen(LayoutWith(), out _);
+        Assert.Null(document.PresentationPart!.SlideParts.First().NotesSlidePart);
+    }
+
+    [Fact]
+    public void Notes_EmitWhitespaceOnlyNotes_EmitsNoNotesSlidePart()
+    {
+        var layout = new LayoutResult
+        {
+            Slides = [new ResolvedSlide { WidthPt = 960, HeightPt = 540, Root = RootWith(), Notes = "   " }],
+            Warnings = []
+        };
+        using var document = EmitAndOpen(layout, out _);
+        Assert.Null(document.PresentationPart!.SlideParts.First().NotesSlidePart);
+    }
+
+    [Fact]
+    public void Notes_MultipleSlides_OnlyNotedSlideCarriesPart()
+    {
+        var layout = new LayoutResult
+        {
+            Slides =
+            [
+                new ResolvedSlide { WidthPt = 960, HeightPt = 540, Root = RootWith(), Notes = "Only this slide has notes." },
+                new ResolvedSlide { WidthPt = 960, HeightPt = 540, Root = RootWith() }
+            ],
+            Warnings = []
+        };
+        using var document = EmitAndOpen(layout, out _);
+
+        var slideParts = document.PresentationPart!.SlideParts.ToList();
+        Assert.Equal(2, slideParts.Count);
+        Assert.NotNull(slideParts[0].NotesSlidePart);
+        Assert.Null(slideParts[1].NotesSlidePart);
+    }
+
+    [Fact]
+    public void EndToEnd_GenerationDocumentWithNotes_EmitsNotesSlidePart()
+    {
+        const string json = """
+        {
+          "version": "2.0",
+          "design": { "palette": { "primary": "#0B3D91" } },
+          "slides": [
+            { "type": "container", "children": [], "notes": "Welcome the new team members." },
+            { "type": "container", "children": [] }
+          ]
+        }
+        """;
+
+        var document = new GenerationDocumentParser().Parse(json);
+        var layout = new LayoutResolver().Resolve(document);
+        var result = new OoxmlEmitter().Emit(layout);
+
+        using var package = PresentationDocument.Open(new MemoryStream(result.Bytes), false);
+        AssertValidates(package);
+
+        var slideParts = package.PresentationPart!.SlideParts.ToList();
+        Assert.Equal(2, slideParts.Count);
+        Assert.Contains("Welcome the new team members.", slideParts[0].NotesSlidePart!.NotesSlide!.CommonSlideData!.ShapeTree!.InnerText);
+        Assert.Null(slideParts[1].NotesSlidePart);
+    }
+
+    #endregion
 }

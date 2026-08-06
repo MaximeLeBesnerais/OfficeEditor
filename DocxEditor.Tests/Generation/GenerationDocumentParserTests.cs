@@ -385,4 +385,107 @@ public class GenerationDocumentParserTests
 
         Assert.Equal(LayoutMode.Row, doc.Slides[0].Layout!.Mode);
     }
+
+    [Fact]
+    public void Parse_ContainerSlideWithNotes_ParsesNotes()
+    {
+        var doc = _parser.Parse("""
+            {
+              "version": "2.0",
+              "design": { "palette": { "primary": "#0B3D91" } },
+              "slides": [ {
+                "type": "container",
+                "children": [],
+                "notes": "Mention that revenue excludes one-off items."
+              } ]
+            }
+            """);
+
+        var slide = Assert.Single(doc.Slides);
+        Assert.Equal("Mention that revenue excludes one-off items.", slide.Notes);
+    }
+
+    [Fact]
+    public void Parse_ArchetypeSlideWithNotes_ParsesNotes()
+    {
+        var doc = _parser.Parse("""
+            {
+              "version": "2.0",
+              "design": { "palette": { "primary": "#0B3D91" } },
+              "slides": [ {
+                "type": "cover",
+                "content": { "title": "Northwind Labs", "kicker": "Q3 2026" },
+                "notes": "Open with the quarter's headline number."
+              } ]
+            }
+            """);
+
+        var slide = Assert.Single(doc.Slides);
+        Assert.Equal("Open with the quarter's headline number.", slide.Notes);
+    }
+
+    [Fact]
+    public void Parse_SlidesWithoutNotes_HaveNullNotes()
+    {
+        var doc = _parser.Parse("""
+            {
+              "version": "2.0",
+              "design": { "palette": {} },
+              "slides": [ { "type": "container", "children": [] } ]
+            }
+            """);
+
+        Assert.Null(Assert.Single(doc.Slides).Notes);
+    }
+
+    [Fact]
+    public void Validate_NonStringNotes_RejectedAtJsonPath()
+    {
+        var result = _parser.Validate("""
+            {
+              "version": "2.0",
+              "design": { "palette": {} },
+              "slides": [ { "type": "container", "children": [], "notes": 42 } ]
+            }
+            """);
+
+        Assert.False(result.IsValid);
+        Assert.Null(result.Document);
+        Assert.Contains(result.Errors, e => e.Path == "$.slides[0].notes" && e.Message.Contains("must be a string", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Validate_NotesOnNestedContainer_Rejected()
+    {
+        var result = _parser.Validate("""
+            {
+              "version": "2.0",
+              "design": { "palette": {} },
+              "slides": [ {
+                "type": "container",
+                "children": [ { "type": "container", "children": [], "notes": "nested" } ]
+              } ]
+            }
+            """);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors,
+            e => e.Path == "$.slides[0].children[0].notes" && e.Message.Contains("only valid on the slide root", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Validate_UnknownPropertyOnSlideRoot_StillRejected()
+    {
+        var result = _parser.Validate("""
+            {
+              "version": "2.0",
+              "design": { "palette": {} },
+              "slides": [ { "type": "container", "children": [], "notess": "typo" } ]
+            }
+            """);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors,
+            e => e.Path == "$.slides[0].notess" && e.Message.Contains("unknown property 'notess'", StringComparison.Ordinal));
+    }
 }

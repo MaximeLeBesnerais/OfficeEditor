@@ -18,6 +18,12 @@ public sealed record ResolvedSlide
 
     /// <summary>Resolved root container (covers the whole slide).</summary>
     public required ResolvedContainer Root { get; init; }
+
+    /// <summary>
+    /// Speaker notes for the slide; null = none. Carried through layout as pure metadata:
+    /// the OOXML emitter writes a NotesSlidePart, the Typst preview intentionally omits it.
+    /// </summary>
+    public string? Notes { get; init; }
 }
 
 /// <summary>Result of resolving a whole document: one draw tree per slide plus non-fatal warnings.</summary>
