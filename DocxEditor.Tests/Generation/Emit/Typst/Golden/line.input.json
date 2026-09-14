@@ -6,14 +6,15 @@
   },
   "slides": [
     {
+      "id": "slide-0",
       "type": "container",
       "children": [
-        { "type": "line", "at": { "x": 10, "y": 20 }, "size": { "w": 300, "h": 2 },
+        { "id": "line-0", "type": "line", "at": { "x": 10, "y": 20 }, "size": { "w": 300, "h": 2 },
           "stroke": { "color": "primary", "width": 2 } },
-        { "type": "line", "at": { "x": 330, "y": 10 }, "size": { "w": 2, "h": 120 },
+        { "id": "line-1", "type": "line", "at": { "x": 330, "y": 10 }, "size": { "w": 2, "h": 120 },
           "orientation": "vertical", "stroke": { "color": "muted" } },
-        { "type": "line", "at": { "x": 10, "y": 60 }, "size": { "w": 300, "h": 1 } },
-        { "type": "connector", "at": { "x": 10, "y": 100 }, "size": { "w": 300, "h": 2 },
+        { "id": "line-2", "type": "line", "at": { "x": 10, "y": 60 }, "size": { "w": 300, "h": 1 } },
+        { "id": "connector-0", "type": "connector", "at": { "x": 10, "y": 100 }, "size": { "w": 300, "h": 2 },
           "stroke": { "color": "muted", "width": 0.5 } }
       ]
     }

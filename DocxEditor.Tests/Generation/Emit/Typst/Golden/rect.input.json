@@ -6,17 +6,18 @@
   },
   "slides": [
     {
+      "id": "slide-0",
       "type": "container",
       "children": [
-        { "type": "rect", "at": { "x": 10, "y": 10 }, "size": { "w": 200, "h": 80 },
+        { "id": "rect-0", "type": "rect", "at": { "x": 10, "y": 10 }, "size": { "w": 200, "h": 80 },
           "fill": "primary", "stroke": { "color": "accent", "width": 2 }, "radius": 8 },
-        { "type": "rect", "at": { "x": 230, "y": 10 }, "size": { "w": 200, "h": 80 },
+        { "id": "rect-1", "type": "rect", "at": { "x": 230, "y": 10 }, "size": { "w": 200, "h": 80 },
           "fill": "ink", "radius": { "tl": 4, "br": 12 } },
-        { "type": "rect", "at": { "x": 450, "y": 10 }, "size": { "w": 200, "h": 80 },
+        { "id": "rect-2", "type": "rect", "at": { "x": 450, "y": 10 }, "size": { "w": 200, "h": 80 },
           "stroke": "accent" },
-        { "type": "rect", "at": { "x": 10, "y": 110 }, "size": { "w": 200, "h": 80 },
+        { "id": "rect-3", "type": "rect", "at": { "x": 10, "y": 110 }, "size": { "w": 200, "h": 80 },
           "fill": "primary", "radius": 0 },
-        { "type": "rect", "at": { "x": 230, "y": 110 }, "size": { "w": 200, "h": 80 },
+        { "id": "rect-4", "type": "rect", "at": { "x": 230, "y": 110 }, "size": { "w": 200, "h": 80 },
           "fill": "paper", "radius": 6,
           "shadow": { "color": "ink", "dx": 3, "dy": 4, "blur": 8, "alpha": 0.4 } }
       ]

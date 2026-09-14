@@ -3,6 +3,7 @@
   "description": "Instructions for creating a budget workbook (executable v1 sample — parse with XlsxInstructionParser, apply with XlsxInstructionExecutor)",
   "worksheets": [
     {
+      "id": "worksheet-0",
       "name": "Revenue",
       "headers": ["Month", "Product A", "Product B", "Product C", "Total"],
       "rows": [
@@ -12,13 +13,16 @@
       ]
     },
     {
+      "id": "worksheet-1",
       "name": "Summary",
       "cells": [
         {
+          "id": "cell-0",
           "address": "A1",
           "value": "Total Revenue Q1"
         },
         {
+          "id": "cell-1",
           "address": "B1",
           "formula": "=SUM(Revenue!E2:E4)"
         }

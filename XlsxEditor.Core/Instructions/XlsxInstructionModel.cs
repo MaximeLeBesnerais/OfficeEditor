@@ -144,6 +144,11 @@ public sealed record AlignmentStyleInstruction
 
 public sealed record WorksheetInstruction
 {
+    /// <summary>Editable source identity, unique within the workbook JSON.</summary>
+    [JsonPropertyName("id")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Id { get; init; }
+
     /// <summary>Worksheet name (required, validated).</summary>
     [JsonPropertyName("name")]
     public string Name { get; init; } = string.Empty;
@@ -208,6 +213,11 @@ public sealed record WorksheetInstruction
 
 public sealed record ColumnInstruction
 {
+    /// <summary>Editable source identity, unique within the workbook JSON.</summary>
+    [JsonPropertyName("id")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Id { get; init; }
+
     /// <summary>Optional display name for the column (used by table headers).</summary>
     [JsonPropertyName("name")]
     public string? Name { get; init; }
@@ -254,6 +264,11 @@ public sealed record FreezePanesInstruction
 
 public sealed record TableInstruction
 {
+    /// <summary>Editable source identity, unique within the workbook JSON.</summary>
+    [JsonPropertyName("id")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Id { get; init; }
+
     /// <summary>Table display name (unique workbook-wide, case-insensitive).</summary>
     [JsonPropertyName("name")]
     public string Name { get; init; } = string.Empty;
@@ -265,6 +280,11 @@ public sealed record TableInstruction
 
 public sealed record CellInstruction
 {
+    /// <summary>Editable source identity, unique within the workbook JSON.</summary>
+    [JsonPropertyName("id")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Id { get; init; }
+
     [JsonPropertyName("address")]
     public string Address { get; init; } = string.Empty;
 

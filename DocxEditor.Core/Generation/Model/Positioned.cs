@@ -9,6 +9,9 @@ namespace DocxEditor.Core.Generation.Model;
 /// </summary>
 public abstract record PositionedElement
 {
+    /// <summary>Editable source identity, unique within its generation document.</summary>
+    public string? Id { get; init; }
+
     /// <summary>Position and sizing metadata. Required.</summary>
     public required PositionSpec Position { get; init; }
 }

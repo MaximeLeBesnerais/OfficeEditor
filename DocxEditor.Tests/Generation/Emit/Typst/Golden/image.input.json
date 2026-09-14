@@ -6,15 +6,16 @@
   },
   "slides": [
     {
+      "id": "slide-0",
       "type": "container",
       "children": [
-        { "type": "image", "src": "assets/hero.png", "fit": "fill",
+        { "id": "image-0", "type": "image", "src": "assets/hero.png", "fit": "fill",
           "at": { "x": 10, "y": 10 }, "size": { "w": 200, "h": 120 } },
-        { "type": "image", "src": "assets/logo.png", "fit": "contain", "alt": "Company logo",
+        { "id": "image-1", "type": "image", "src": "assets/logo.png", "fit": "contain", "alt": "Company logo",
           "at": { "x": 230, "y": 10 }, "size": { "w": 200, "h": 120 } },
-        { "type": "image", "src": "assets/team.png", "fit": "crop",
+        { "id": "image-2", "type": "image", "src": "assets/team.png", "fit": "crop",
           "at": { "x": 450, "y": 10 }, "size": { "w": 200, "h": 120 } },
-        { "type": "image", "src": "assets/chart.png", "fit": "crop", "crop": { "left": 10000, "top": 0, "right": 10000, "bottom": 0 },
+        { "id": "image-3", "type": "image", "src": "assets/chart.png", "fit": "crop", "crop": { "left": 10000, "top": 0, "right": 10000, "bottom": 0 },
           "at": { "x": 10, "y": 150 }, "size": { "w": 200, "h": 120 } }
       ]
     }

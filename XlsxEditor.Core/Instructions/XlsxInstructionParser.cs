@@ -1,3 +1,4 @@
+using OfficeEditor.Core.Generation;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using XlsxEditor.Core.Exceptions;
@@ -11,6 +12,9 @@ namespace XlsxEditor.Core.Instructions;
 public sealed record XlsxParseResult(XlsxInstructionSet? InstructionSet, XlsxValidationResult Validation)
 {
     public bool IsValid => Validation.IsValid;
+
+    /// <summary>Source JSON with persisted element IDs after successful validation.</summary>
+    public string? NormalizedJson { get; init; }
 }
 
 /// <summary>
@@ -61,6 +65,7 @@ public static class XlsxInstructionParser
         string? jsonError = null;
         try
         {
+            json = GenerationJsonIds.NormalizeIfRecognized(json);
             instructionSet = JsonSerializer.Deserialize<XlsxInstructionSet>(json, JsonOptions);
         }
         catch (JsonException ex)
@@ -82,7 +87,7 @@ public static class XlsxInstructionParser
         }
 
         var validation = XlsxValidationEngine.Validate(instructionSet);
-        return new XlsxParseResult(instructionSet, validation);
+        return new XlsxParseResult(instructionSet, validation) { NormalizedJson = validation.IsValid ? json : null };
     }
 
     public static XlsxInstructionSet ParseFromFile(string filePath)

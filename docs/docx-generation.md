@@ -441,6 +441,12 @@ Remaining converter limits include rotated/reflected DrawingML groups (a warning
 is returned) and approximated character/inside/outside margin anchors. These
 changes do not add text fitting or promise Word-identical flow pagination.
 
+## Element IDs
+
+Sections, flow blocks and positioned elements accept editable `id` names. Missing
+IDs are generated during parsing and persisted by CLI generation. See
+[element-ids.md](element-ids.md) for lookup, rename and migration commands.
+
 ## Current limitations
 
 - Only vocabulary version `1.0` is accepted.

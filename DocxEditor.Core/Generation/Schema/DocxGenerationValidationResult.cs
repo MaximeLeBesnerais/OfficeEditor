@@ -9,6 +9,9 @@ namespace DocxEditor.Core.Generation.Schema;
 /// </summary>
 public sealed record DocxGenerationValidationResult
 {
+    /// <summary>Source JSON with persisted element IDs; available after successful JSON validation.</summary>
+    public string? NormalizedJson { get; init; }
+
     internal DocxGenerationValidationResult(
         DocxGenerationDocument? document,
         IReadOnlyList<DocxGenerationIssue> errors,

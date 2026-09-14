@@ -4,6 +4,11 @@ OfficeEditor can generate a complete `.pptx` deck from a loudly validated JSON d
 
 The current vocabulary version is `2.0`. The canonical artifact is the JSON schema at [`PptxEditor.Core/Generation/Schema/deck.schema.json`](../PptxEditor.Core/Generation/Schema/deck.schema.json) (`$id: https://officeeditor.dev/schemas/deck-2.0.json`), and every rule in this guide is grounded in it. Working deck examples live at [`demo/deck.json`](../demo/deck.json), [`demo/demo-deck.json`](../demo/demo-deck.json), and [`decks/repo-overview.json`](../decks/repo-overview.json).
 
+Every authored element has an editable `id`. CLI generation persists missing IDs to
+the input JSON; string APIs expose `NormalizedJson` for the caller to save. See
+[element IDs](element-ids.md) for naming, lookup, renaming and bulk migration.
+
+
 ## Generate a deck
 
 ```bash

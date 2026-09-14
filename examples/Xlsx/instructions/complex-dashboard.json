@@ -335,38 +335,47 @@
   },
   "worksheets": [
     {
+      "id": "worksheet-0",
       "name": "Dashboard",
       "startRow": 3,
       "columns": [
         {
+          "id": "column-0",
           "name": "A",
           "width": 5
         },
         {
+          "id": "column-1",
           "name": "B",
           "width": 26
         },
         {
+          "id": "column-2",
           "name": "C",
           "width": 24
         },
         {
+          "id": "column-3",
           "name": "D",
           "width": 24
         },
         {
+          "id": "column-4",
           "name": "E",
           "width": 24
         },
         {
+          "id": "column-5",
           "name": "F",
           "width": 24
         },
         {
+          "id": "column-6",
           "name": "G",
           "width": 24
         },
         {
+          "id": "column-7",
           "name": "H",
           "width": 26
         }
@@ -418,94 +427,112 @@
       ],
       "cells": [
         {
+          "id": "cell-0",
           "address": "B1",
           "value": "{{fiscalYear}} Financial Dashboard",
           "style": "dashboardTitle"
         },
         {
+          "id": "cell-1",
           "address": "B2",
           "value": "Model date: {{modelDate}} \u00b7 Prepared by: {{analyst}} \u00b7 All figures in USD thousands",
           "style": "kpiLabel"
         },
         {
+          "id": "cell-2",
           "address": "B4",
           "value": "Total Revenue",
           "style": "kpiLabel"
         },
         {
+          "id": "cell-3",
           "address": "B5",
           "type": "string",
           "value": "$3,260",
           "style": "kpiValue"
         },
         {
+          "id": "cell-4",
           "address": "E4",
           "value": "Operating Margin",
           "style": "kpiLabel"
         },
         {
+          "id": "cell-5",
           "address": "E5",
           "type": "string",
           "value": "28.4%",
           "style": "kpiPositive"
         },
         {
+          "id": "cell-6",
           "address": "H4",
           "value": "Headcount",
           "style": "kpiLabel"
         },
         {
+          "id": "cell-7",
           "address": "H5",
           "type": "string",
           "value": "847",
           "style": "kpiValue"
         },
         {
+          "id": "cell-8",
           "address": "B7",
           "value": "Quarterly Revenue Trend",
           "style": "sectionHeader"
         },
         {
+          "id": "cell-9",
           "address": "B10",
           "value": "Q1 2026",
           "style": "colHeader"
         },
         {
+          "id": "cell-10",
           "address": "C10",
           "value": "Q2 2026",
           "style": "colHeader"
         },
         {
+          "id": "cell-11",
           "address": "D10",
           "value": "Q3 2026",
           "style": "colHeader"
         },
         {
+          "id": "cell-12",
           "address": "E10",
           "value": "Q4 2026 (est)",
           "style": "colHeader"
         },
         {
+          "id": "cell-13",
           "address": "F10",
           "value": "Q1 2027 (proj)",
           "style": "colHeader"
         },
         {
+          "id": "cell-14",
           "address": "G10",
           "value": "Q2 2027 (proj)",
           "style": "colHeader"
         },
         {
+          "id": "cell-15",
           "address": "H10",
           "value": "YoY Q2 Growth",
           "style": "colHeader"
         },
         {
+          "id": "cell-16",
           "address": "B11",
           "value": "Revenue",
           "style": "dataCell"
         },
         {
+          "id": "cell-17",
           "address": "C11",
           "value": "780",
           "type": "number",
@@ -513,6 +540,7 @@
           "numberFormat": "$#,##0"
         },
         {
+          "id": "cell-18",
           "address": "D11",
           "value": "820",
           "type": "number",
@@ -520,6 +548,7 @@
           "numberFormat": "$#,##0"
         },
         {
+          "id": "cell-19",
           "address": "E11",
           "value": "750",
           "type": "number",
@@ -527,6 +556,7 @@
           "numberFormat": "$#,##0"
         },
         {
+          "id": "cell-20",
           "address": "F11",
           "value": "910",
           "type": "number",
@@ -534,6 +564,7 @@
           "numberFormat": "$#,##0"
         },
         {
+          "id": "cell-21",
           "address": "G11",
           "value": "960",
           "type": "number",
@@ -541,6 +572,7 @@
           "numberFormat": "$#,##0"
         },
         {
+          "id": "cell-22",
           "address": "H11",
           "value": "1010",
           "type": "number",
@@ -548,16 +580,19 @@
           "numberFormat": "$#,##0"
         },
         {
+          "id": "cell-23",
           "address": "I11",
           "formula": "=H11/D11-1",
           "style": "pctDelta"
         },
         {
+          "id": "cell-24",
           "address": "B12",
           "value": "Expenses",
           "style": "deepRow"
         },
         {
+          "id": "cell-25",
           "address": "C12",
           "value": "520",
           "type": "number",
@@ -565,6 +600,7 @@
           "numberFormat": "$#,##0"
         },
         {
+          "id": "cell-26",
           "address": "D12",
           "value": "540",
           "type": "number",
@@ -572,6 +608,7 @@
           "numberFormat": "$#,##0"
         },
         {
+          "id": "cell-27",
           "address": "E12",
           "value": "560",
           "type": "number",
@@ -579,6 +616,7 @@
           "numberFormat": "$#,##0"
         },
         {
+          "id": "cell-28",
           "address": "F12",
           "value": "580",
           "type": "number",
@@ -586,6 +624,7 @@
           "numberFormat": "$#,##0"
         },
         {
+          "id": "cell-29",
           "address": "G12",
           "value": "605",
           "type": "number",
@@ -593,6 +632,7 @@
           "numberFormat": "$#,##0"
         },
         {
+          "id": "cell-30",
           "address": "H12",
           "value": "620",
           "type": "number",
@@ -600,112 +640,133 @@
           "numberFormat": "$#,##0"
         },
         {
+          "id": "cell-31",
           "address": "I12",
           "formula": "=H12/D12-1",
           "style": "negativeDelta"
         },
         {
+          "id": "cell-32",
           "address": "B13",
           "value": "Operating Income",
           "style": "deepRow"
         },
         {
+          "id": "cell-33",
           "address": "C13",
           "formula": "=C11-C12",
           "style": "currency",
           "numberFormat": "$#,##0"
         },
         {
+          "id": "cell-34",
           "address": "D13",
           "formula": "=D11-D12",
           "style": "currency",
           "numberFormat": "$#,##0"
         },
         {
+          "id": "cell-35",
           "address": "E13",
           "formula": "=E11-E12",
           "style": "currency",
           "numberFormat": "$#,##0"
         },
         {
+          "id": "cell-36",
           "address": "F13",
           "formula": "=F11-F12",
           "style": "currency",
           "numberFormat": "$#,##0"
         },
         {
+          "id": "cell-37",
           "address": "G13",
           "formula": "=G11-G12",
           "style": "currency",
           "numberFormat": "$#,##0"
         },
         {
+          "id": "cell-38",
           "address": "H13",
           "formula": "=H11-H12",
           "style": "currency",
           "numberFormat": "$#,##0"
         },
         {
+          "id": "cell-39",
           "address": "I13",
           "formula": "=H13/D13-1",
           "style": "pctDelta"
         },
         {
+          "id": "cell-40",
           "address": "B14",
           "value": "Margin %",
           "style": "lightRow"
         },
         {
+          "id": "cell-41",
           "address": "C14",
           "formula": "=C13/C11",
           "style": "pct"
         },
         {
+          "id": "cell-42",
           "address": "D14",
           "formula": "=D13/D11",
           "style": "pct"
         },
         {
+          "id": "cell-43",
           "address": "E14",
           "formula": "=E13/E11",
           "style": "pct"
         },
         {
+          "id": "cell-44",
           "address": "F14",
           "formula": "=F13/F11",
           "style": "pct"
         },
         {
+          "id": "cell-45",
           "address": "G14",
           "formula": "=G13/G11",
           "style": "pct"
         },
         {
+          "id": "cell-46",
           "address": "H14",
           "formula": "=H13/H11",
           "style": "pct"
         },
         {
+          "id": "cell-47",
           "address": "I14",
           "formula": "=H14-D14",
           "style": "pctDelta"
         },
         {
+          "id": "cell-48",
           "address": "B16",
           "value": "Key observations",
           "style": "sectionHeader"
         },
         {
+          "id": "cell-49",
           "address": "B17",
           "value": "Revenue is tracking ahead of plan across all regions. The $960K Q1 2027 projection reflects the APAC expansion ramp and two new enterprise contracts closing in December.",
           "style": "calloutInfo"
         },
         {
+          "id": "cell-50",
           "address": "B18",
           "value": "Expense growth at 14.8% YoY slightly outpaces the 13% target set in the annual operating plan. The primary driver is cloud infrastructure scaling for the EU data residency launch.",
           "style": "calloutWarn"
         },
         {
+          "id": "cell-51",
           "address": "B20",
           "value": "Model date: {{modelDate}} | \u00a9 Northwind Labs \u2014 Confidential",
           "style": "kpiLabel"
@@ -716,46 +777,54 @@
       }
     },
     {
+      "id": "worksheet-1",
       "name": "P&L Detail",
       "startRow": 2,
       "headerStyle": "colHeader",
       "columns": [
         {
+          "id": "column-8",
           "name": "Line Item",
           "width": 32,
           "type": "string"
         },
         {
+          "id": "column-9",
           "name": "Q1",
           "width": 16,
           "style": "currencyDetail",
           "type": "number"
         },
         {
+          "id": "column-10",
           "name": "Q2",
           "width": 16,
           "style": "currencyDetail",
           "type": "number"
         },
         {
+          "id": "column-11",
           "name": "Q3",
           "width": 16,
           "style": "currencyDetail",
           "type": "number"
         },
         {
+          "id": "column-12",
           "name": "Q4",
           "width": 16,
           "style": "currencyDetail",
           "type": "number"
         },
         {
+          "id": "column-13",
           "name": "Total",
           "width": 18,
           "style": "currencyDetail",
           "type": "number"
         },
         {
+          "id": "column-14",
           "name": "% of Rev",
           "width": 12,
           "type": "number"
@@ -856,240 +925,280 @@
       ],
       "cells": [
         {
+          "id": "cell-52",
           "address": "F3",
           "formula": "=SUM(B3:E3)",
           "style": "subtotal",
           "numberFormat": "$#,##0.00"
         },
         {
+          "id": "cell-53",
           "address": "F4",
           "formula": "=SUM(B4:E4)",
           "style": "subtotal",
           "numberFormat": "$#,##0.00"
         },
         {
+          "id": "cell-54",
           "address": "F5",
           "formula": "=SUM(B5:E5)",
           "style": "subtotal",
           "numberFormat": "$#,##0.00"
         },
         {
+          "id": "cell-55",
           "address": "F6",
           "formula": "=SUM(B6:E6)",
           "style": "subtotal",
           "numberFormat": "$#,##0.00"
         },
         {
+          "id": "cell-56",
           "address": "F7",
           "formula": "=SUM(B7:E7)",
           "style": "subtotal",
           "numberFormat": "$#,##0.00"
         },
         {
+          "id": "cell-57",
           "address": "F8",
           "formula": "=SUM(B8:E8)",
           "style": "subtotal",
           "numberFormat": "$#,##0.00"
         },
         {
+          "id": "cell-58",
           "address": "F9",
           "formula": "=SUM(B9:E9)",
           "style": "subtotal",
           "numberFormat": "$#,##0.00"
         },
         {
+          "id": "cell-59",
           "address": "F10",
           "formula": "=SUM(B10:E10)",
           "style": "subtotal",
           "numberFormat": "$#,##0.00"
         },
         {
+          "id": "cell-60",
           "address": "G3",
           "formula": "=F3/$F$3",
           "style": "pct",
           "numberFormat": "0.0%"
         },
         {
+          "id": "cell-61",
           "address": "G7",
           "formula": "=F7/$F$3",
           "style": "pct",
           "numberFormat": "0.0%"
         },
         {
+          "id": "cell-62",
           "address": "G4",
           "formula": "=F4/$F$3",
           "style": "pct",
           "numberFormat": "0.0%"
         },
         {
+          "id": "cell-63",
           "address": "G5",
           "formula": "=F5/$F$3",
           "style": "pct",
           "numberFormat": "0.0%"
         },
         {
+          "id": "cell-64",
           "address": "G6",
           "formula": "=F6/$F$3",
           "style": "pct",
           "numberFormat": "0.0%"
         },
         {
+          "id": "cell-65",
           "address": "G8",
           "formula": "=F8/$F$7",
           "style": "pct",
           "numberFormat": "0.0%"
         },
         {
+          "id": "cell-66",
           "address": "G9",
           "formula": "=F9/$F$7",
           "style": "pct",
           "numberFormat": "0.0%"
         },
         {
+          "id": "cell-67",
           "address": "G10",
           "formula": "=F10/$F$7",
           "style": "pct",
           "numberFormat": "0.0%"
         },
         {
+          "id": "cell-68",
           "address": "A11",
           "value": "Gross Profit",
           "style": "totalRow",
           "type": "string"
         },
         {
+          "id": "cell-69",
           "address": "F11",
           "formula": "=F3-F7",
           "style": "totalRow",
           "numberFormat": "$#,##0.00"
         },
         {
+          "id": "cell-70",
           "address": "G11",
           "formula": "=F11/$F$3",
           "style": "pct",
           "numberFormat": "0.0%"
         },
         {
+          "id": "cell-71",
           "address": "A12",
           "value": "Operating Expenses",
           "style": "totalRow",
           "type": "string"
         },
         {
+          "id": "cell-72",
           "address": "F12",
           "formula": "=SUM(A12:E12)",
           "style": "totalRow",
           "numberFormat": "$#,##0.00"
         },
         {
+          "id": "cell-73",
           "address": "B13",
           "value": "Sales & Marketing",
           "style": "lightRow",
           "type": "string"
         },
         {
+          "id": "cell-74",
           "address": "C13",
           "value": "180000",
           "type": "number",
           "style": "currencyDetail"
         },
         {
+          "id": "cell-75",
           "address": "D13",
           "value": "195000",
           "type": "number",
           "style": "currencyDetail"
         },
         {
+          "id": "cell-76",
           "address": "E13",
           "value": "210000",
           "type": "number",
           "style": "currencyDetail"
         },
         {
+          "id": "cell-77",
           "address": "F13",
           "value": "230000",
           "type": "number",
           "style": "currencyDetail"
         },
         {
+          "id": "cell-78",
           "address": "B14",
           "value": "R&D",
           "style": "deepRow",
           "type": "string"
         },
         {
+          "id": "cell-79",
           "address": "C14",
           "value": "120000",
           "type": "number",
           "style": "currencyDetail"
         },
         {
+          "id": "cell-80",
           "address": "D14",
           "value": "130000",
           "type": "number",
           "style": "currencyDetail"
         },
         {
+          "id": "cell-81",
           "address": "E14",
           "value": "135000",
           "type": "number",
           "style": "currencyDetail"
         },
         {
+          "id": "cell-82",
           "address": "F14",
           "value": "145000",
           "type": "number",
           "style": "currencyDetail"
         },
         {
+          "id": "cell-83",
           "address": "B15",
           "value": "G&A",
           "style": "lightRow",
           "type": "string"
         },
         {
+          "id": "cell-84",
           "address": "C15",
           "value": "70000",
           "type": "number",
           "style": "currencyDetail"
         },
         {
+          "id": "cell-85",
           "address": "D15",
           "value": "72000",
           "type": "number",
           "style": "currencyDetail"
         },
         {
+          "id": "cell-86",
           "address": "E15",
           "value": "71000",
           "type": "number",
           "style": "currencyDetail"
         },
         {
+          "id": "cell-87",
           "address": "F15",
           "value": "73000",
           "type": "number",
           "style": "currencyDetail"
         },
         {
+          "id": "cell-88",
           "address": "A16",
           "value": "Net Operating Income",
           "style": "totalRow",
           "type": "string"
         },
         {
+          "id": "cell-89",
           "address": "F16",
           "formula": "=F11-(F13+F14+F15)",
           "style": "totalRow",
           "numberFormat": "$#,##0.00"
         },
         {
+          "id": "cell-90",
           "address": "G16",
           "formula": "=F16/$F$3",
           "style": "pct",
           "numberFormat": "0.0%"
         },
         {
+          "id": "cell-91",
           "address": "A18",
           "value": "Note: Q4 2026 figures are estimates pending month-end close. Software license revenue includes $85K recognized from the EU multi-year deal signed in October.",
           "style": "calloutInfo",
@@ -1107,49 +1216,59 @@
       },
       "tables": [
         {
+          "id": "table-0",
           "name": "PnLTable",
           "range": "A2:G10"
         }
       ]
     },
     {
+      "id": "worksheet-2",
       "name": "Headcount",
       "headerStyle": "colHeader",
       "columns": [
         {
+          "id": "column-15",
           "name": "Department",
           "width": 28,
           "type": "string"
         },
         {
+          "id": "column-16",
           "name": "Q1",
           "width": 10,
           "type": "number"
         },
         {
+          "id": "column-17",
           "name": "Q2",
           "width": 10,
           "type": "number"
         },
         {
+          "id": "column-18",
           "name": "Q3",
           "width": 10,
           "type": "number"
         },
         {
+          "id": "column-19",
           "name": "Q4 Plan",
           "width": 12,
           "type": "number"
         },
         {
+          "id": "column-20",
           "name": "Q4 vs Q1",
           "width": 12
         },
         {
+          "id": "column-21",
           "name": "Attrition",
           "width": 12
         },
         {
+          "id": "column-22",
           "name": "Avg Tenure (mo)",
           "width": 16,
           "type": "number"
@@ -1211,42 +1330,49 @@
       ],
       "cells": [
         {
+          "id": "cell-92",
           "address": "F2",
           "formula": "=(E2-B2)/B2",
           "style": "pctDelta",
           "numberFormat": "+0.0%;-0.0%"
         },
         {
+          "id": "cell-93",
           "address": "F3",
           "formula": "=(E3-B3)/B3",
           "style": "pctDelta",
           "numberFormat": "+0.0%;-0.0%"
         },
         {
+          "id": "cell-94",
           "address": "F4",
           "formula": "=(E4-B4)/B4",
           "style": "pctDelta",
           "numberFormat": "+0.0%;-0.0%"
         },
         {
+          "id": "cell-95",
           "address": "F5",
           "formula": "=(E5-B5)/B5",
           "style": "pctDelta",
           "numberFormat": "+0.0%;-0.0%"
         },
         {
+          "id": "cell-96",
           "address": "F6",
           "formula": "=(E6-B6)/B6",
           "style": "pctDelta",
           "numberFormat": "+0.0%;-0.0%"
         },
         {
+          "id": "cell-97",
           "address": "F7",
           "formula": "=(E7-B7)/B7",
           "style": "pctDelta",
           "numberFormat": "+0.0%;-0.0%"
         },
         {
+          "id": "cell-98",
           "address": "G2",
           "value": "0.082",
           "type": "number",
@@ -1254,6 +1380,7 @@
           "numberFormat": "0.0%"
         },
         {
+          "id": "cell-99",
           "address": "G3",
           "value": "0.054",
           "type": "number",
@@ -1261,6 +1388,7 @@
           "numberFormat": "0.0%"
         },
         {
+          "id": "cell-100",
           "address": "G4",
           "value": "0.121",
           "type": "number",
@@ -1268,6 +1396,7 @@
           "numberFormat": "0.0%"
         },
         {
+          "id": "cell-101",
           "address": "G5",
           "value": "0.063",
           "type": "number",
@@ -1275,6 +1404,7 @@
           "numberFormat": "0.0%"
         },
         {
+          "id": "cell-102",
           "address": "G6",
           "value": "0.025",
           "type": "number",
@@ -1282,6 +1412,7 @@
           "numberFormat": "0.0%"
         },
         {
+          "id": "cell-103",
           "address": "G7",
           "value": "0.039",
           "type": "number",
@@ -1289,72 +1420,85 @@
           "numberFormat": "0.0%"
         },
         {
+          "id": "cell-104",
           "address": "H2",
           "value": "28.4",
           "type": "number",
           "numberFormat": "0.0"
         },
         {
+          "id": "cell-105",
           "address": "H3",
           "value": "31.2",
           "type": "number",
           "numberFormat": "0.0"
         },
         {
+          "id": "cell-106",
           "address": "H4",
           "value": "18.7",
           "type": "number",
           "numberFormat": "0.0"
         },
         {
+          "id": "cell-107",
           "address": "H5",
           "value": "22.1",
           "type": "number",
           "numberFormat": "0.0"
         },
         {
+          "id": "cell-108",
           "address": "H6",
           "value": "41.5",
           "type": "number",
           "numberFormat": "0.0"
         },
         {
+          "id": "cell-109",
           "address": "H7",
           "value": "24.8",
           "type": "number",
           "numberFormat": "0.0"
         },
         {
+          "id": "cell-110",
           "address": "A9",
           "value": "Total",
           "style": "totalRow"
         },
         {
+          "id": "cell-111",
           "address": "B9",
           "formula": "=SUM(B2:B7)",
           "style": "totalRow"
         },
         {
+          "id": "cell-112",
           "address": "C9",
           "formula": "=SUM(C2:C7)",
           "style": "totalRow"
         },
         {
+          "id": "cell-113",
           "address": "D9",
           "formula": "=SUM(D2:D7)",
           "style": "totalRow"
         },
         {
+          "id": "cell-114",
           "address": "E9",
           "formula": "=SUM(E2:E7)",
           "style": "totalRow"
         },
         {
+          "id": "cell-115",
           "address": "F9",
           "formula": "=(E9-B9)/B9",
           "style": "kpiLabel"
         },
         {
+          "id": "cell-116",
           "address": "G9",
           "formula": "=SUM((G2*B2)+(G3*B3)+(G4*B4)+(G5*B5)+(G6*B6)+(G7*B7))/B9",
           "style": "negativeDelta",
@@ -1377,59 +1521,70 @@
       "autoFilter": "A1:H7",
       "tables": [
         {
+          "id": "table-1",
           "name": "HeadcountTable",
           "range": "A1:H7"
         }
       ]
     },
     {
+      "id": "worksheet-3",
       "name": "CapEx Plan",
       "headerStyle": "colHeader",
       "columns": [
         {
+          "id": "column-23",
           "name": "Project",
           "width": 34,
           "type": "string"
         },
         {
+          "id": "column-24",
           "name": "Category",
           "width": 18,
           "type": "string"
         },
         {
+          "id": "column-25",
           "name": "Budget",
           "width": 16,
           "style": "currency",
           "type": "number"
         },
         {
+          "id": "column-26",
           "name": "Spent to Date",
           "width": 16,
           "style": "currencyDetail",
           "type": "number"
         },
         {
+          "id": "column-27",
           "name": "Remaining",
           "width": 16,
           "style": "currencyDetail",
           "type": "number"
         },
         {
+          "id": "column-28",
           "name": "% Complete",
           "width": 12,
           "type": "number"
         },
         {
+          "id": "column-29",
           "name": "Target Date",
           "width": 16,
           "type": "date"
         },
         {
+          "id": "column-30",
           "name": "Status",
           "width": 16,
           "type": "string"
         },
         {
+          "id": "column-31",
           "name": "Risk",
           "width": 40,
           "type": "string"
@@ -1492,211 +1647,251 @@
       ],
       "cells": [
         {
+          "id": "cell-117",
           "address": "E2",
           "formula": "=C2-D2",
           "style": "currencyDetail",
           "numberFormat": "$#,##0.00"
         },
         {
+          "id": "cell-118",
           "address": "E3",
           "formula": "=C3-D3",
           "style": "currencyDetail",
           "numberFormat": "$#,##0.00"
         },
         {
+          "id": "cell-119",
           "address": "E4",
           "formula": "=C4-D4",
           "style": "currencyDetail",
           "numberFormat": "$#,##0.00"
         },
         {
+          "id": "cell-120",
           "address": "E5",
           "formula": "=C5-D5",
           "style": "currencyDetail",
           "numberFormat": "$#,##0.00"
         },
         {
+          "id": "cell-121",
           "address": "E6",
           "formula": "=C6-D6",
           "style": "currencyDetail",
           "numberFormat": "$#,##0.00"
         },
         {
+          "id": "cell-122",
           "address": "E7",
           "formula": "=C7-D7",
           "style": "currencyDetail",
           "numberFormat": "$#,##0.00"
         },
         {
+          "id": "cell-123",
           "address": "E8",
           "formula": "=C8-D8",
           "style": "currencyDetail",
           "numberFormat": "$#,##0.00"
         },
         {
+          "id": "cell-124",
           "address": "F2",
           "formula": "=D2/C2",
           "style": "pct",
           "numberFormat": "0%"
         },
         {
+          "id": "cell-125",
           "address": "F3",
           "formula": "=D3/C3",
           "style": "pct",
           "numberFormat": "0%"
         },
         {
+          "id": "cell-126",
           "address": "F4",
           "formula": "=D4/C4",
           "style": "pct",
           "numberFormat": "0%"
         },
         {
+          "id": "cell-127",
           "address": "F5",
           "formula": "=D5/C5",
           "style": "pct",
           "numberFormat": "0%"
         },
         {
+          "id": "cell-128",
           "address": "F6",
           "formula": "=D6/C6",
           "style": "pct",
           "numberFormat": "0%"
         },
         {
+          "id": "cell-129",
           "address": "F7",
           "formula": "=D7/C7",
           "style": "pct",
           "numberFormat": "0%"
         },
         {
+          "id": "cell-130",
           "address": "F8",
           "formula": "=D8/C8",
           "style": "pct",
           "numberFormat": "0%"
         },
         {
+          "id": "cell-131",
           "address": "G2",
           "value": "2026-12-15",
           "type": "date",
           "style": "dateCell"
         },
         {
+          "id": "cell-132",
           "address": "G3",
           "value": "2027-03-01",
           "type": "date",
           "style": "dateCell"
         },
         {
+          "id": "cell-133",
           "address": "G4",
           "value": "2026-11-30",
           "type": "date",
           "style": "dateCell"
         },
         {
+          "id": "cell-134",
           "address": "G5",
           "value": "2026-10-15",
           "type": "date",
           "style": "dateCell"
         },
         {
+          "id": "cell-135",
           "address": "G6",
           "value": "2027-01-31",
           "type": "date",
           "style": "dateCell"
         },
         {
+          "id": "cell-136",
           "address": "G7",
           "value": "2026-09-30",
           "type": "date",
           "style": "dateCell"
         },
         {
+          "id": "cell-137",
           "address": "G8",
           "value": "2026-11-15",
           "type": "date",
           "style": "dateCell"
         },
         {
+          "id": "cell-138",
           "address": "H2",
           "value": "On Track"
         },
         {
+          "id": "cell-139",
           "address": "H3",
           "value": "On Track"
         },
         {
+          "id": "cell-140",
           "address": "H4",
           "value": "On Track"
         },
         {
+          "id": "cell-141",
           "address": "H5",
           "value": "Complete"
         },
         {
+          "id": "cell-142",
           "address": "H6",
           "value": "On Track"
         },
         {
+          "id": "cell-143",
           "address": "H7",
           "value": "Complete"
         },
         {
+          "id": "cell-144",
           "address": "H8",
           "value": "On Track"
         },
         {
+          "id": "cell-145",
           "address": "I2",
           "value": "Lease signed. Power and cooling contracts pending."
         },
         {
+          "id": "cell-146",
           "address": "I3",
           "value": "Site selection in final stage. Vendor RFP in progress."
         },
         {
+          "id": "cell-147",
           "address": "I4",
           "value": "GPU cluster procurement approved. Training pipeline migration behind schedule."
         },
         {
+          "id": "cell-148",
           "address": "I5",
           "value": "Deployed to production. Post-launch tuning window open until Oct 31."
         },
         {
+          "id": "cell-149",
           "address": "I6",
           "value": "Data mapping phase complete. UAT scheduled for November."
         },
         {
+          "id": "cell-150",
           "address": "I7",
           "value": "Audit passed. Report published. Monitoring dashboard live."
         },
         {
+          "id": "cell-151",
           "address": "I8",
           "value": "Component library shipped. Remaining: icon set + accessibility audit."
         },
         {
+          "id": "cell-152",
           "address": "A10",
           "value": "Total",
           "style": "totalRow"
         },
         {
+          "id": "cell-153",
           "address": "C10",
           "formula": "=SUM(C2:C8)",
           "style": "totalRow",
           "numberFormat": "$#,##0"
         },
         {
+          "id": "cell-154",
           "address": "D10",
           "formula": "=SUM(D2:D8)",
           "style": "totalRow",
           "numberFormat": "$#,##0.00"
         },
         {
+          "id": "cell-155",
           "address": "E10",
           "formula": "=C10-D10",
           "style": "totalRow",
           "numberFormat": "$#,##0.00"
         },
         {
+          "id": "cell-156",
           "address": "F10",
           "formula": "=D10/C10",
           "style": "pct",

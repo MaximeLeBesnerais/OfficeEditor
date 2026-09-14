@@ -1,3 +1,4 @@
+using OfficeEditor.Core.Generation;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -205,7 +206,16 @@ public sealed class GenerationDocumentParser
 
             // Pass 2: parse, synthesizing fallbacks only for elements without explicit ids.
             var parsed = ParseDocument(root);
-            return Result(_errors.Count == 0 ? parsed : null);
+            if (_errors.Count > 0) return Result(null);
+            try
+            {
+                return Result(parsed) with { NormalizedJson = GenerationJsonIds.Normalize(json).Json };
+            }
+            catch (JsonException ex)
+            {
+                Error("$", ex.Message);
+                return Result(null);
+            }
         }
     }
 

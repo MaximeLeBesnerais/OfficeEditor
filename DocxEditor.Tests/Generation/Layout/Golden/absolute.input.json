@@ -5,20 +5,22 @@
   },
   "slides": [
     {
+      "id": "slide-0",
       "type": "container",
       "padding": 20,
       "children": [
-        { "type": "rect", "at": { "x": 10, "y": 10 }, "size": { "w": 100, "h": 50 }, "fill": "primary" },
-        { "type": "image", "src": "assets/logo.png", "at": { "x": 200, "y": 100 }, "size": { "w": 300, "aspect": "16:9" } }
+        { "id": "rect-0", "type": "rect", "at": { "x": 10, "y": 10 }, "size": { "w": 100, "h": 50 }, "fill": "primary" },
+        { "id": "image-0", "type": "image", "src": "assets/logo.png", "at": { "x": 200, "y": 100 }, "size": { "w": 300, "aspect": "16:9" } }
       ]
     },
     {
+      "id": "slide-1",
       "type": "container",
       "children": [
-        { "type": "group", "at": { "x": 50, "y": 50 }, "size": { "w": 200, "h": 100 },
+        { "id": "group-0", "type": "group", "at": { "x": 50, "y": 50 }, "size": { "w": 200, "h": 100 },
           "children": [
-            { "type": "rect", "at": { "x": 0, "y": 0 }, "size": { "w": 50, "h": 50 }, "fill": "primary" },
-            { "type": "ellipse", "at": { "x": 100, "y": 25 }, "size": { "w": 80, "h": 50 }, "fill": "primary" }
+            { "id": "rect-1", "type": "rect", "at": { "x": 0, "y": 0 }, "size": { "w": 50, "h": 50 }, "fill": "primary" },
+            { "id": "ellipse-0", "type": "ellipse", "at": { "x": 100, "y": 25 }, "size": { "w": 80, "h": 50 }, "fill": "primary" }
           ]
         }
       ]

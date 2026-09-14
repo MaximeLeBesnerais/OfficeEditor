@@ -75,6 +75,7 @@
   },
   "sections": [
     {
+      "id": "section-0",
       "pageSetup": {
         "size": "letter",
         "orientation": "portrait",
@@ -92,6 +93,7 @@
       },
       "header": [
         {
+          "id": "paragraph-0",
           "type": "paragraph",
           "text": "NORTHWIND / OPERATIONS",
           "token": "smallLabel",
@@ -100,6 +102,7 @@
       ],
       "footer": [
         {
+          "id": "paragraph-1",
           "type": "paragraph",
           "text": "Confidential · Generated from declarative JSON",
           "token": "body",
@@ -108,6 +111,7 @@
       ],
       "blocks": [
         {
+          "id": "heading-0",
           "type": "heading",
           "level": 1,
           "text": "Operations Brief",
@@ -115,6 +119,7 @@
           "alignment": "center"
         },
         {
+          "id": "paragraph-2",
           "type": "paragraph",
           "runs": [
             {
@@ -144,12 +149,14 @@
           }
         },
         {
+          "id": "heading-1",
           "type": "heading",
           "level": 2,
           "text": "Priority actions",
           "token": "sectionHeading"
         },
         {
+          "id": "list-0",
           "type": "list",
           "kind": "ordered",
           "start": 3,
@@ -174,6 +181,7 @@
           ]
         },
         {
+          "id": "table-0",
           "type": "table",
           "alignment": "center",
           "widths": [216, 108, 144],
@@ -216,12 +224,14 @@
           ]
         },
         {
+          "id": "callout-0",
           "type": "callout",
           "tone": "warning",
           "text": "Decision needed: approve the alternate carrier before Friday at 17:00 UTC.",
           "token": "body"
         },
         {
+          "id": "image-0",
           "type": "image",
           "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAGUlEQVR4nGOQ96v8TwlmGDVg1IBRA4aLAQAAOOUQamUc8AAAAABJRU5ErkJggg==",
           "fit": "contain",
@@ -230,15 +240,18 @@
           "height": 36
         },
         {
+          "id": "group-0",
           "type": "group",
           "blocks": [
             {
+              "id": "heading-2",
               "type": "heading",
               "level": 3,
               "text": "Grouped follow-up",
               "token": "sectionHeading"
             },
             {
+              "id": "paragraph-3",
               "type": "paragraph",
               "text": "This heading and paragraph are nested in a flow group and are flattened into the section.",
               "token": "body",
@@ -249,15 +262,18 @@
           ]
         },
         {
+          "id": "pagebreak-0",
           "type": "pageBreak"
         },
         {
+          "id": "heading-3",
           "type": "heading",
           "level": 2,
           "text": "Positioned summary page",
           "token": "sectionHeading"
         },
         {
+          "id": "paragraph-4",
           "type": "paragraph",
           "text": "The floating elements declared for this section are anchored after the flow content.",
           "token": "body"
@@ -265,6 +281,7 @@
       ],
       "positioned": [
         {
+          "id": "rect-0",
           "type": "rect",
           "x": 36,
           "y": 36,
@@ -279,6 +296,7 @@
           "cornerRadius": 4
         },
         {
+          "id": "textbox-0",
           "type": "textBox",
           "x": 270,
           "y": 90,
@@ -314,6 +332,7 @@
           "cornerRadius": 8
         },
         {
+          "id": "line-0",
           "type": "line",
           "x": 0,
           "y": 180,
@@ -330,6 +349,7 @@
           }
         },
         {
+          "id": "callout-1",
           "type": "callout",
           "x": 270,
           "y": 210,
@@ -358,6 +378,7 @@
           "cornerRadius": 6
         },
         {
+          "id": "image-1",
           "type": "image",
           "x": 420,
           "y": 330,
@@ -379,6 +400,7 @@
       ]
     },
     {
+      "id": "section-1",
       "pageSetup": {
         "size": {
           "width": 612,
@@ -400,12 +422,14 @@
       },
       "blocks": [
         {
+          "id": "heading-4",
           "type": "heading",
           "level": 2,
           "text": "Two-column appendix",
           "token": "sectionHeading"
         },
         {
+          "id": "paragraph-5",
           "type": "paragraph",
           "text": "This section demonstrates a custom upright page size, landscape orientation, an incoming section break, and equal-width columns.",
           "token": "body",
@@ -416,6 +440,7 @@
           }
         },
         {
+          "id": "list-1",
           "type": "list",
           "kind": "bullet",
           "items": [

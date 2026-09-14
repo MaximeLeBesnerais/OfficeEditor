@@ -8,18 +8,21 @@
   },
   "slides": [
     {
+      "id": "slide-0",
       "type": "container",
       "fill": "ink",
       "layout": { "mode": "row", "gap": 24, "align": "stretch" },
       "padding": [56, 56, 56, 56],
       "children": [
         {
+          "id": "container-0",
           "type": "container",
           "layout": { "mode": "column", "gap": 16, "justify": "center", "align": "start" },
           "overflow": "clip",
           "size": { "grow": 1 },
           "children": [
             {
+              "id": "text-0",
               "type": "text",
               "text": "OFFICEEDITOR · LIVE DEMO",
               "fontSize": 14,
@@ -28,6 +31,7 @@
               "size": { "h": 20 }
             },
             {
+              "id": "text-1",
               "type": "text",
               "text": "Documents as code",
               "font": "display",
@@ -36,6 +40,7 @@
               "size": { "h": 74 }
             },
             {
+              "id": "text-2",
               "type": "text",
               "text": "Create, edit and render DOCX, PPTX and XLSX from declarative JSON — no Office required.",
               "fontSize": 17,
@@ -43,30 +48,33 @@
               "size": { "h": 48 }
             },
             {
+              "id": "container-1",
               "type": "container",
               "layout": { "mode": "row", "gap": 10, "justify": "start", "align": "center" },
               "size": { "h": 30 },
               "children": [
-                { "type": "badge", "content": { "text": "DOCX" }, "size": { "w": 68, "h": 26 } },
-                { "type": "badge", "content": { "text": "PPTX" }, "size": { "w": 68, "h": 26 } },
-                { "type": "badge", "content": { "text": "XLSX" }, "size": { "w": 68, "h": 26 } }
+                { "id": "badge-0", "type": "badge", "content": { "text": "DOCX" }, "size": { "w": 68, "h": 26 } },
+                { "id": "badge-1", "type": "badge", "content": { "text": "PPTX" }, "size": { "w": 68, "h": 26 } },
+                { "id": "badge-2", "type": "badge", "content": { "text": "XLSX" }, "size": { "w": 68, "h": 26 } }
               ]
             }
           ]
         },
         {
+          "id": "container-2",
           "type": "container",
           "layout": { "mode": "column", "justify": "center", "align": "center" },
           "overflow": "clip",
           "size": { "w": 240 },
           "children": [
             {
+              "id": "container-3",
               "type": "container",
               "layout": { "mode": "row", "gap": 26, "justify": "center", "align": "center" },
               "size": { "w": 220, "h": 220 },
               "children": [
-                { "type": "text", "text": "{", "font": "display", "fontSize": 180, "color": "primary", "textAlign": "center", "size": { "w": 90, "h": 220 } },
-                { "type": "text", "text": "}", "font": "display", "fontSize": 180, "color": "primary", "textAlign": "center", "size": { "w": 90, "h": 220 } }
+                { "id": "text-3", "type": "text", "text": "{", "font": "display", "fontSize": 180, "color": "primary", "textAlign": "center", "size": { "w": 90, "h": 220 } },
+                { "id": "text-4", "type": "text", "text": "}", "font": "display", "fontSize": 180, "color": "primary", "textAlign": "center", "size": { "w": 90, "h": 220 } }
               ]
             }
           ]
@@ -74,6 +82,7 @@
       ]
     },
     {
+      "id": "two_col-0",
       "type": "two_col",
       "content": {
         "title": "What this demo shows",
@@ -100,30 +109,35 @@
       }
     },
     {
+      "id": "slide-1",
       "type": "container",
       "fill": "paper",
       "layout": { "mode": "column", "gap": 18 },
       "padding": [46, 46, 46, 46],
       "children": [
         {
+          "id": "title_block-0",
           "type": "title_block",
           "content": { "kicker": "CAPABILITIES", "title": "Create · Edit · Render" },
           "size": { "h": 86 }
         },
         {
+          "id": "container-4",
           "type": "container",
           "layout": { "mode": "row", "gap": 18, "align": "stretch" },
           "overflow": "clip",
           "size": { "grow": 1 },
           "children": [
             {
+              "id": "container-5",
               "type": "container",
               "layout": { "mode": "column", "gap": 0 },
               "overflow": "clip",
               "size": { "grow": 1 },
               "children": [
-                { "type": "rect", "fill": "accent", "size": { "h": 3 } },
+                { "id": "rect-0", "type": "rect", "fill": "accent", "size": { "h": 3 } },
                 {
+                  "id": "card-0",
                   "type": "card",
                   "content": { "title": "Create", "body": "Decks from declarative JSON. Documents from instruction sets. Fluent C# builders." },
                   "size": { "grow": 1 }
@@ -131,13 +145,15 @@
               ]
             },
             {
+              "id": "container-6",
               "type": "container",
               "layout": { "mode": "column", "gap": 0 },
               "overflow": "clip",
               "size": { "grow": 1 },
               "children": [
-                { "type": "rect", "fill": "accent", "size": { "h": 3 } },
+                { "id": "rect-1", "type": "rect", "fill": "accent", "size": { "h": 3 } },
                 {
+                  "id": "card-1",
                   "type": "card",
                   "content": { "title": "Edit", "body": "Smart text and image replacement. Variables, mail merge, template logic." },
                   "size": { "grow": 1 }
@@ -145,13 +161,15 @@
               ]
             },
             {
+              "id": "container-7",
               "type": "container",
               "layout": { "mode": "column", "gap": 0 },
               "overflow": "clip",
               "size": { "grow": 1 },
               "children": [
-                { "type": "rect", "fill": "accent", "size": { "h": 3 } },
+                { "id": "rect-2", "type": "rect", "fill": "accent", "size": { "h": 3 } },
                 {
+                  "id": "card-2",
                   "type": "card",
                   "content": { "title": "Render", "body": "PPTX → PDF / PNG / SVG through the native OfficeEditor Engine pipeline." },
                   "size": { "grow": 1 }
@@ -163,6 +181,7 @@
       ]
     },
     {
+      "id": "table_slide-0",
       "type": "table_slide",
       "content": {
         "title": "What works where",
@@ -178,55 +197,62 @@
       }
     },
     {
+      "id": "slide-2",
       "type": "container",
       "fill": "paper",
       "layout": { "mode": "column", "gap": 16 },
       "padding": [46, 46, 46, 46],
       "children": [
         {
+          "id": "title_block-1",
           "type": "title_block",
           "content": { "kicker": "BY THE NUMBERS", "title": "One suite, three formats" },
           "size": { "h": 86 }
         },
         {
+          "id": "container-8",
           "type": "container",
           "layout": { "mode": "row", "gap": 18, "align": "stretch" },
           "overflow": "clip",
           "size": { "grow": 1 },
           "children": [
             {
+              "id": "container-9",
               "type": "container",
               "layout": { "mode": "column", "gap": 6, "justify": "center", "align": "center" },
               "overflow": "clip",
               "size": { "grow": 1 },
               "children": [
-                { "type": "text", "text": "3", "font": "display", "fontSize": 64, "color": "primary", "textAlign": "center", "size": { "h": 78 } },
-                { "type": "text", "text": "Office formats", "fontSize": 15, "color": "muted", "textAlign": "center", "size": { "h": 22 } }
+                { "id": "text-5", "type": "text", "text": "3", "font": "display", "fontSize": 64, "color": "primary", "textAlign": "center", "size": { "h": 78 } },
+                { "id": "text-6", "type": "text", "text": "Office formats", "fontSize": 15, "color": "muted", "textAlign": "center", "size": { "h": 22 } }
               ]
             },
             {
+              "id": "container-10",
               "type": "container",
               "layout": { "mode": "column", "gap": 6, "justify": "center", "align": "center" },
               "overflow": "clip",
               "size": { "grow": 1 },
               "children": [
-                { "type": "text", "text": "2", "font": "display", "fontSize": 64, "color": "primary", "textAlign": "center", "size": { "h": 78 } },
-                { "type": "text", "text": "emitters — OOXML + OfficeEditor Engine", "fontSize": 15, "color": "muted", "textAlign": "center", "size": { "h": 22 } }
+                { "id": "text-7", "type": "text", "text": "2", "font": "display", "fontSize": 64, "color": "primary", "textAlign": "center", "size": { "h": 78 } },
+                { "id": "text-8", "type": "text", "text": "emitters — OOXML + OfficeEditor Engine", "fontSize": 15, "color": "muted", "textAlign": "center", "size": { "h": 22 } }
               ]
             },
             {
+              "id": "container-11",
               "type": "container",
               "layout": { "mode": "column", "gap": 6, "justify": "center", "align": "center" },
               "overflow": "clip",
               "size": { "grow": 1 },
               "children": [
-                { "type": "text", "text": "1", "font": "display", "fontSize": 64, "color": "primary", "textAlign": "center", "size": { "h": 78 } },
-                { "type": "text", "text": "shared layout pass", "fontSize": 15, "color": "muted", "textAlign": "center", "size": { "h": 22 } }
+                { "id": "text-9", "type": "text", "text": "1", "font": "display", "fontSize": 64, "color": "primary", "textAlign": "center", "size": { "h": 78 } },
+                { "id": "text-10", "type": "text", "text": "shared layout pass", "fontSize": 15, "color": "muted", "textAlign": "center", "size": { "h": 22 } }
               ]
             }
           ]
         },
         {
+          "id": "text-11",
           "type": "text",
           "text": "This very deck was generated from demo/deck.json and rendered by the OfficeEditor Engine.",
           "fontSize": 13,
@@ -237,12 +263,14 @@
       ]
     },
     {
+      "id": "slide-3",
       "type": "container",
       "fill": "ink",
       "layout": { "mode": "column", "gap": 14, "justify": "center", "align": "center" },
       "padding": [46, 46, 46, 46],
       "children": [
         {
+          "id": "text-12",
           "type": "text",
           "text": "GET STARTED",
           "fontSize": 14,
@@ -252,6 +280,7 @@
           "size": { "h": 20 }
         },
         {
+          "id": "text-13",
           "type": "text",
           "text": "Try it yourself",
           "font": "display",
@@ -261,6 +290,7 @@
           "size": { "h": 60 }
         },
         {
+          "id": "text-14",
           "type": "text",
           "text": "make -f Makefile.demo demo",
           "fontSize": 19,
@@ -269,6 +299,7 @@
           "size": { "h": 28 }
         },
         {
+          "id": "text-15",
           "type": "text",
           "text": "JSON in · PPTX + PDF + PNG out · all under demo/output/",
           "fontSize": 14,

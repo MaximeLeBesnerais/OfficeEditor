@@ -7,6 +7,9 @@ namespace DocxEditor.Core.Generation.Model;
 /// </summary>
 public sealed record Section
 {
+    /// <summary>Editable source identity, unique within its generation document.</summary>
+    public string? Id { get; init; }
+
     /// <summary>
     /// Page size, orientation, margins, columns and the section break applied before this
     /// section. Null = resolved from design tokens (or built-in A4/portrait/1in defaults).

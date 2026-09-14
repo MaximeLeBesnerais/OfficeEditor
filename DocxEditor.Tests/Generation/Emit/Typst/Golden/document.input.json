@@ -6,19 +6,21 @@
   },
   "slides": [
     {
+      "id": "slide-0",
       "type": "container",
       "fill": "primary",
       "children": [
-        { "type": "text", "text": "Slide one", "color": "paper", "fontSize": 30,
+        { "id": "text-0", "type": "text", "text": "Slide one", "color": "paper", "fontSize": 30,
           "anchor": "middle", "textAlign": "center",
           "at": { "x": 0, "y": 250 }, "size": { "w": 960, "h": 40 } }
       ]
     },
     {
+      "id": "slide-1",
       "type": "container",
       "children": [
-        { "type": "rect", "at": { "x": 40, "y": 40 }, "size": { "w": 200, "h": 100 }, "fill": "ink" },
-        { "type": "text", "text": "Slide two", "at": { "x": 40, "y": 160 }, "size": { "w": 200, "h": 30 } }
+        { "id": "rect-0", "type": "rect", "at": { "x": 40, "y": 40 }, "size": { "w": 200, "h": 100 }, "fill": "ink" },
+        { "id": "text-1", "type": "text", "text": "Slide two", "at": { "x": 40, "y": 160 }, "size": { "w": 200, "h": 30 } }
       ]
     }
   ]

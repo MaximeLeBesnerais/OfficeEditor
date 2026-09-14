@@ -5,13 +5,14 @@
   },
   "slides": [
     {
+      "id": "slide-0",
       "type": "container",
       "padding": 40,
       "layout": { "mode": "row", "gap": 20 },
       "children": [
-        { "type": "rect", "size": { "w": 100, "h": 50 }, "fill": "primary" },
-        { "type": "rect", "size": { "grow": 1 }, "fill": "primary" },
-        { "type": "rect", "size": { "grow": 3 }, "fill": "primary" }
+        { "id": "rect-0", "type": "rect", "size": { "w": 100, "h": 50 }, "fill": "primary" },
+        { "id": "rect-1", "type": "rect", "size": { "grow": 1 }, "fill": "primary" },
+        { "id": "rect-2", "type": "rect", "size": { "grow": 3 }, "fill": "primary" }
       ]
     }
   ]

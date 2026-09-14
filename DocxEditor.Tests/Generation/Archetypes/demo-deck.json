@@ -25,6 +25,7 @@
   },
   "slides": [
     {
+      "id": "cover-0",
       "type": "cover",
       "content": {
         "kicker": "NORTHWIND TRADERS",
@@ -33,6 +34,7 @@
       }
     },
     {
+      "id": "kpi_row-0",
       "type": "kpi_row",
       "content": {
         "title": "The quarter at a glance",
@@ -46,6 +48,7 @@
       }
     },
     {
+      "id": "two_col-0",
       "type": "two_col",
       "content": {
         "title": "What moved the quarter",
@@ -73,6 +76,7 @@
       }
     },
     {
+      "id": "table_slide-0",
       "type": "table_slide",
       "content": {
         "title": "Regional performance",
@@ -87,6 +91,7 @@
       }
     },
     {
+      "id": "section-0",
       "type": "section",
       "content": {
         "index": "02",
@@ -96,6 +101,7 @@
       }
     },
     {
+      "id": "cover-1",
       "type": "cover",
       "content": {
         "kicker": "Q3 2026",

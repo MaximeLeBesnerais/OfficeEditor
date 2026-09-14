@@ -16,12 +16,14 @@
   },
   "slides": [
     {
+      "id": "slide-0",
       "type": "container",
       "fill": "ink",
       "layout": { "mode": "column", "gap": 16, "justify": "center", "align": "start" },
       "padding": [56, 64, 56, 64],
       "children": [
         {
+          "id": "text-0",
           "type": "text",
           "text": "NORTHWIND LABS · RENEWABLE FLEET INTELLIGENCE",
           "fontSize": 14,
@@ -30,6 +32,7 @@
           "size": { "h": 20 }
         },
         {
+          "id": "text-1",
           "type": "text",
           "text": "{{DECK_TITLE}}",
           "font": "display",
@@ -37,8 +40,9 @@
           "color": "paper",
           "size": { "h": 148 }
         },
-        { "type": "rect", "fill": "accent", "size": { "w": 84, "h": 4 } },
+        { "id": "rect-0", "type": "rect", "fill": "accent", "size": { "w": 84, "h": 4 } },
         {
+          "id": "text-2",
           "type": "text",
           "text": "Investor briefing · FY2025 results and the road to 3,000 connected sites",
           "fontSize": 17,
@@ -46,100 +50,112 @@
           "size": { "h": 26 }
         },
         {
+          "id": "container-0",
           "type": "container",
           "layout": { "mode": "row", "gap": 10, "justify": "start", "align": "center" },
           "size": { "h": 30 },
           "children": [
-            { "type": "badge", "content": { "text": "WIND" }, "size": { "w": 64, "h": 26 } },
-            { "type": "badge", "content": { "text": "SOLAR" }, "size": { "w": 68, "h": 26 } },
-            { "type": "badge", "content": { "text": "STORAGE" }, "size": { "w": 92, "h": 26 } }
+            { "id": "badge-0", "type": "badge", "content": { "text": "WIND" }, "size": { "w": 64, "h": 26 } },
+            { "id": "badge-1", "type": "badge", "content": { "text": "SOLAR" }, "size": { "w": 68, "h": 26 } },
+            { "id": "badge-2", "type": "badge", "content": { "text": "STORAGE" }, "size": { "w": 92, "h": 26 } }
           ]
         }
       ]
     },
     {
+      "id": "slide-1",
       "type": "container",
       "fill": "paper",
       "layout": { "mode": "column", "gap": 18 },
       "padding": [48, 56, 48, 56],
       "children": [
         {
+          "id": "title_block-0",
           "type": "title_block",
           "content": { "kicker": "AGENDA", "title": "What we will cover" },
           "size": { "h": 86 }
         },
         {
+          "id": "container-1",
           "type": "container",
           "layout": { "mode": "column", "gap": 14, "justify": "center" },
           "size": { "grow": 1 },
           "children": [
             {
+              "id": "container-2",
               "type": "container",
               "layout": { "mode": "row", "gap": 20, "align": "center" },
               "size": { "h": 58 },
               "children": [
-                { "type": "text", "text": "01", "font": "display", "fontSize": 30, "color": "accent", "size": { "w": 52, "h": 40 } },
+                { "id": "text-3", "type": "text", "text": "01", "font": "display", "fontSize": 30, "color": "accent", "size": { "w": 52, "h": 40 } },
                 {
+                  "id": "container-3",
                   "type": "container",
                   "layout": { "mode": "column", "gap": 2, "justify": "center" },
                   "size": { "grow": 1 },
                   "children": [
-                    { "type": "text", "text": "The business", "fontSize": 19, "color": "ink", "bold": true, "size": { "h": 26 } },
-                    { "type": "text", "text": "Who we are, what we operate, and the market we serve", "fontSize": 13, "color": "muted", "size": { "h": 18 } }
+                    { "id": "text-4", "type": "text", "text": "The business", "fontSize": 19, "color": "ink", "bold": true, "size": { "h": 26 } },
+                    { "id": "text-5", "type": "text", "text": "Who we are, what we operate, and the market we serve", "fontSize": 13, "color": "muted", "size": { "h": 18 } }
                   ]
                 }
               ]
             },
-            { "type": "rect", "fill": "mist", "size": { "h": 1 } },
+            { "id": "rect-1", "type": "rect", "fill": "mist", "size": { "h": 1 } },
             {
+              "id": "container-4",
               "type": "container",
               "layout": { "mode": "row", "gap": 20, "align": "center" },
               "size": { "h": 58 },
               "children": [
-                { "type": "text", "text": "02", "font": "display", "fontSize": 30, "color": "accent", "size": { "w": 52, "h": 40 } },
+                { "id": "text-6", "type": "text", "text": "02", "font": "display", "fontSize": 30, "color": "accent", "size": { "w": 52, "h": 40 } },
                 {
+                  "id": "container-5",
                   "type": "container",
                   "layout": { "mode": "column", "gap": 2, "justify": "center" },
                   "size": { "grow": 1 },
                   "children": [
-                    { "type": "text", "text": "The numbers", "fontSize": 19, "color": "ink", "bold": true, "size": { "h": 26 } },
-                    { "type": "text", "text": "FY2025 revenue, growth and unit economics", "fontSize": 13, "color": "muted", "size": { "h": 18 } }
+                    { "id": "text-7", "type": "text", "text": "The numbers", "fontSize": 19, "color": "ink", "bold": true, "size": { "h": 26 } },
+                    { "id": "text-8", "type": "text", "text": "FY2025 revenue, growth and unit economics", "fontSize": 13, "color": "muted", "size": { "h": 18 } }
                   ]
                 }
               ]
             },
-            { "type": "rect", "fill": "mist", "size": { "h": 1 } },
+            { "id": "rect-2", "type": "rect", "fill": "mist", "size": { "h": 1 } },
             {
+              "id": "container-6",
               "type": "container",
               "layout": { "mode": "row", "gap": 20, "align": "center" },
               "size": { "h": 58 },
               "children": [
-                { "type": "text", "text": "03", "font": "display", "fontSize": 30, "color": "accent", "size": { "w": 52, "h": 40 } },
+                { "id": "text-9", "type": "text", "text": "03", "font": "display", "fontSize": 30, "color": "accent", "size": { "w": 52, "h": 40 } },
                 {
+                  "id": "container-7",
                   "type": "container",
                   "layout": { "mode": "column", "gap": 2, "justify": "center" },
                   "size": { "grow": 1 },
                   "children": [
-                    { "type": "text", "text": "The product", "fontSize": 19, "color": "ink", "bold": true, "size": { "h": 26 } },
-                    { "type": "text", "text": "Northwind Pulse — platform tour and roadmap", "fontSize": 13, "color": "muted", "size": { "h": 18 } }
+                    { "id": "text-10", "type": "text", "text": "The product", "fontSize": 19, "color": "ink", "bold": true, "size": { "h": 26 } },
+                    { "id": "text-11", "type": "text", "text": "Northwind Pulse — platform tour and roadmap", "fontSize": 13, "color": "muted", "size": { "h": 18 } }
                   ]
                 }
               ]
             },
-            { "type": "rect", "fill": "mist", "size": { "h": 1 } },
+            { "id": "rect-3", "type": "rect", "fill": "mist", "size": { "h": 1 } },
             {
+              "id": "container-8",
               "type": "container",
               "layout": { "mode": "row", "gap": 20, "align": "center" },
               "size": { "h": 58 },
               "children": [
-                { "type": "text", "text": "04", "font": "display", "fontSize": 30, "color": "accent", "size": { "w": 52, "h": 40 } },
+                { "id": "text-12", "type": "text", "text": "04", "font": "display", "fontSize": 30, "color": "accent", "size": { "w": 52, "h": 40 } },
                 {
+                  "id": "container-9",
                   "type": "container",
                   "layout": { "mode": "column", "gap": 2, "justify": "center" },
                   "size": { "grow": 1 },
                   "children": [
-                    { "type": "text", "text": "Why now", "fontSize": 19, "color": "ink", "bold": true, "size": { "h": 26 } },
-                    { "type": "text", "text": "The outlook for 2026 and how to work with us", "fontSize": 13, "color": "muted", "size": { "h": 18 } }
+                    { "id": "text-13", "type": "text", "text": "Why now", "fontSize": 19, "color": "ink", "bold": true, "size": { "h": 26 } },
+                    { "id": "text-14", "type": "text", "text": "The outlook for 2026 and how to work with us", "fontSize": 13, "color": "muted", "size": { "h": 18 } }
                   ]
                 }
               ]
@@ -149,65 +165,73 @@
       ]
     },
     {
+      "id": "slide-2",
       "type": "container",
       "fill": "paper",
       "layout": { "mode": "column", "gap": 16 },
       "padding": [48, 56, 48, 56],
       "children": [
         {
+          "id": "title_block-1",
           "type": "title_block",
           "content": { "kicker": "THE BUSINESS", "title": "Northwind Labs at a glance" },
           "size": { "h": 86 }
         },
         {
+          "id": "container-10",
           "type": "container",
           "layout": { "mode": "row", "gap": 18, "align": "stretch" },
           "overflow": "clip",
           "size": { "grow": 1 },
           "children": [
             {
+              "id": "container-11",
               "type": "container",
               "layout": { "mode": "column", "gap": 6, "justify": "center", "align": "center" },
               "overflow": "clip",
               "size": { "grow": 1 },
               "children": [
-                { "type": "text", "text": "1,284", "font": "display", "fontSize": 52, "color": "primary", "textAlign": "center", "size": { "h": 64 } },
-                { "type": "text", "text": "turbines & arrays monitored", "fontSize": 14, "color": "muted", "textAlign": "center", "size": { "h": 40 } }
+                { "id": "text-15", "type": "text", "text": "1,284", "font": "display", "fontSize": 52, "color": "primary", "textAlign": "center", "size": { "h": 64 } },
+                { "id": "text-16", "type": "text", "text": "turbines & arrays monitored", "fontSize": 14, "color": "muted", "textAlign": "center", "size": { "h": 40 } }
               ]
             },
             {
+              "id": "container-12",
               "type": "container",
               "layout": { "mode": "column", "gap": 6, "justify": "center", "align": "center" },
               "overflow": "clip",
               "size": { "grow": 1 },
               "children": [
-                { "type": "text", "text": "4.1 GW", "font": "display", "fontSize": 52, "color": "primary", "textAlign": "center", "size": { "h": 64 } },
-                { "type": "text", "text": "capacity under management", "fontSize": 14, "color": "muted", "textAlign": "center", "size": { "h": 40 } }
+                { "id": "text-17", "type": "text", "text": "4.1 GW", "font": "display", "fontSize": 52, "color": "primary", "textAlign": "center", "size": { "h": 64 } },
+                { "id": "text-18", "type": "text", "text": "capacity under management", "fontSize": 14, "color": "muted", "textAlign": "center", "size": { "h": 40 } }
               ]
             },
             {
+              "id": "container-13",
               "type": "container",
               "layout": { "mode": "column", "gap": 6, "justify": "center", "align": "center" },
               "overflow": "clip",
               "size": { "grow": 1 },
               "children": [
-                { "type": "text", "text": "14", "font": "display", "fontSize": 52, "color": "primary", "textAlign": "center", "size": { "h": 64 } },
-                { "type": "text", "text": "markets across EU & North America", "fontSize": 14, "color": "muted", "textAlign": "center", "size": { "h": 40 } }
+                { "id": "text-19", "type": "text", "text": "14", "font": "display", "fontSize": 52, "color": "primary", "textAlign": "center", "size": { "h": 64 } },
+                { "id": "text-20", "type": "text", "text": "markets across EU & North America", "fontSize": 14, "color": "muted", "textAlign": "center", "size": { "h": 40 } }
               ]
             },
             {
+              "id": "container-14",
               "type": "container",
               "layout": { "mode": "column", "gap": 6, "justify": "center", "align": "center" },
               "overflow": "clip",
               "size": { "grow": 1 },
               "children": [
-                { "type": "text", "text": "212", "font": "display", "fontSize": 52, "color": "primary", "textAlign": "center", "size": { "h": 64 } },
-                { "type": "text", "text": "people in Oslo, Berlin & Chicago", "fontSize": 14, "color": "muted", "textAlign": "center", "size": { "h": 40 } }
+                { "id": "text-21", "type": "text", "text": "212", "font": "display", "fontSize": 52, "color": "primary", "textAlign": "center", "size": { "h": 64 } },
+                { "id": "text-22", "type": "text", "text": "people in Oslo, Berlin & Chicago", "fontSize": 14, "color": "muted", "textAlign": "center", "size": { "h": 40 } }
               ]
             }
           ]
         },
         {
+          "id": "text-23",
           "type": "text",
           "text": "Founded 2016 · Independent power producers, utilities and O&M providers run their fleets on Northwind Pulse.",
           "fontSize": 13,
@@ -218,28 +242,33 @@
       ]
     },
     {
+      "id": "slide-3",
       "type": "container",
       "fill": "paper",
       "layout": { "mode": "column", "gap": 16 },
       "padding": [48, 56, 48, 56],
       "children": [
         {
+          "id": "title_block-2",
           "type": "title_block",
           "content": { "kicker": "THE BUSINESS", "title": "What we do" },
           "size": { "h": 86 }
         },
         {
+          "id": "container-15",
           "type": "container",
           "layout": { "mode": "row", "gap": 32, "align": "stretch" },
           "overflow": "clip",
           "size": { "grow": 1 },
           "children": [
             {
+              "id": "container-16",
               "type": "container",
               "layout": { "mode": "column", "justify": "center" },
               "size": { "grow": 1 },
               "children": [
                 {
+                  "id": "bullet_list-0",
                   "type": "bullet_list",
                   "size": { "h": 250 },
                   "content": {
@@ -255,11 +284,13 @@
               ]
             },
             {
+              "id": "container-17",
               "type": "container",
               "layout": { "mode": "column", "justify": "center" },
               "size": { "w": 330 },
               "children": [
                 {
+                  "id": "card-0",
                   "type": "card",
                   "content": {
                     "title": "Why operators switch",
@@ -274,31 +305,36 @@
       ]
     },
     {
+      "id": "slide-4",
       "type": "container",
       "fill": "paper",
       "layout": { "mode": "column", "gap": 16 },
       "padding": [48, 56, 48, 56],
       "children": [
         {
+          "id": "title_block-3",
           "type": "title_block",
           "content": { "kicker": "THE BUSINESS", "title": "A market that keeps compounding" },
           "size": { "h": 86 }
         },
-        { "type": "rect", "fill": "paper", "size": { "grow": 1 } },
+        { "id": "rect-4", "type": "rect", "fill": "paper", "size": { "grow": 1 } },
         {
+          "id": "container-18",
           "type": "container",
           "layout": { "mode": "row", "gap": 18, "align": "stretch" },
           "overflow": "clip",
           "size": { "h": 230 },
           "children": [
             {
+              "id": "container-19",
               "type": "container",
               "layout": { "mode": "column", "gap": 0 },
               "overflow": "clip",
               "size": { "grow": 1 },
               "children": [
-                { "type": "rect", "fill": "accent", "size": { "h": 3 } },
+                { "id": "rect-5", "type": "rect", "fill": "accent", "size": { "h": 3 } },
                 {
+                  "id": "card-1",
                   "type": "card",
                   "content": { "title": "€9.2B by 2028", "body": "Renewable asset-management software spend, growing ~14% per year as fleets age and digitize." },
                   "size": { "grow": 1 }
@@ -306,13 +342,15 @@
               ]
             },
             {
+              "id": "container-20",
               "type": "container",
               "layout": { "mode": "column", "gap": 0 },
               "overflow": "clip",
               "size": { "grow": 1 },
               "children": [
-                { "type": "rect", "fill": "accent", "size": { "h": 3 } },
+                { "id": "rect-6", "type": "rect", "fill": "accent", "size": { "h": 3 } },
                 {
+                  "id": "card-2",
                   "type": "card",
                   "content": { "title": "61% still on legacy", "body": "Most fleets above 50 MW run on fragmented SCADA exports and spreadsheets — our replacement wedge." },
                   "size": { "grow": 1 }
@@ -320,13 +358,15 @@
               ]
             },
             {
+              "id": "container-21",
               "type": "container",
               "layout": { "mode": "column", "gap": 0 },
               "overflow": "clip",
               "size": { "grow": 1 },
               "children": [
-                { "type": "rect", "fill": "accent", "size": { "h": 3 } },
+                { "id": "rect-7", "type": "rect", "fill": "accent", "size": { "h": 3 } },
                 {
+                  "id": "card-3",
                   "type": "card",
                   "content": { "title": "2.4× data growth", "body": "Sensor density per MW has more than doubled since 2021 — operators need tooling built for this volume." },
                   "size": { "grow": 1 }
@@ -335,8 +375,9 @@
             }
           ]
         },
-        { "type": "rect", "fill": "paper", "size": { "grow": 1 } },
+        { "id": "rect-8", "type": "rect", "fill": "paper", "size": { "grow": 1 } },
         {
+          "id": "text-24",
           "type": "text",
           "text": "Sources: company analysis of public tender data and customer interviews, Q1 2026.",
           "fontSize": 12,
@@ -347,28 +388,33 @@
       ]
     },
     {
+      "id": "slide-5",
       "type": "container",
       "fill": "paper",
       "layout": { "mode": "column", "gap": 16 },
       "padding": [48, 56, 48, 56],
       "children": [
         {
+          "id": "title_block-4",
           "type": "title_block",
           "content": { "kicker": "THE BUSINESS", "title": "Who we serve" },
           "size": { "h": 86 }
         },
         {
+          "id": "container-22",
           "type": "container",
           "layout": { "mode": "row", "gap": 32, "align": "stretch" },
           "overflow": "clip",
           "size": { "grow": 1 },
           "children": [
             {
+              "id": "container-23",
               "type": "container",
               "layout": { "mode": "column", "justify": "center" },
               "size": { "w": 330 },
               "children": [
                 {
+                  "id": "card-4",
                   "type": "card",
                   "content": {
                     "title": "Anchor customers",
@@ -379,11 +425,13 @@
               ]
             },
             {
+              "id": "container-24",
               "type": "container",
               "layout": { "mode": "column", "justify": "center" },
               "size": { "grow": 1 },
               "children": [
                 {
+                  "id": "bullet_list-1",
                   "type": "bullet_list",
                   "size": { "h": 250 },
                   "content": {
@@ -403,23 +451,27 @@
       ]
     },
     {
+      "id": "slide-6",
       "type": "container",
       "fill": "paper",
       "layout": { "mode": "column", "gap": 16 },
       "padding": [48, 56, 48, 56],
       "children": [
         {
+          "id": "title_block-5",
           "type": "title_block",
           "content": { "kicker": "THE NUMBERS", "title": "FY2025 scoreboard" },
           "size": { "h": 86 }
         },
         {
+          "id": "container-25",
           "type": "container",
           "layout": { "mode": "row", "gap": 18, "align": "stretch" },
           "overflow": "clip",
           "size": { "grow": 1 },
           "children": [
             {
+              "id": "container-26",
               "type": "container",
               "fill": "mist",
               "layout": { "mode": "column", "gap": 6, "justify": "center", "align": "center" },
@@ -427,11 +479,12 @@
               "overflow": "clip",
               "size": { "grow": 1 },
               "children": [
-                { "type": "text", "text": "€18.4M", "font": "display", "fontSize": 44, "color": "primary", "textAlign": "center", "size": { "h": 56 } },
-                { "type": "text", "text": "ARR, up 42% YoY", "fontSize": 14, "color": "muted", "textAlign": "center", "size": { "h": 20 } }
+                { "id": "text-25", "type": "text", "text": "€18.4M", "font": "display", "fontSize": 44, "color": "primary", "textAlign": "center", "size": { "h": 56 } },
+                { "id": "text-26", "type": "text", "text": "ARR, up 42% YoY", "fontSize": 14, "color": "muted", "textAlign": "center", "size": { "h": 20 } }
               ]
             },
             {
+              "id": "container-27",
               "type": "container",
               "fill": "mist",
               "layout": { "mode": "column", "gap": 6, "justify": "center", "align": "center" },
@@ -439,11 +492,12 @@
               "overflow": "clip",
               "size": { "grow": 1 },
               "children": [
-                { "type": "text", "text": "118%", "font": "display", "fontSize": 44, "color": "primary", "textAlign": "center", "size": { "h": 56 } },
-                { "type": "text", "text": "net revenue retention", "fontSize": 14, "color": "muted", "textAlign": "center", "size": { "h": 20 } }
+                { "id": "text-27", "type": "text", "text": "118%", "font": "display", "fontSize": 44, "color": "primary", "textAlign": "center", "size": { "h": 56 } },
+                { "id": "text-28", "type": "text", "text": "net revenue retention", "fontSize": 14, "color": "muted", "textAlign": "center", "size": { "h": 20 } }
               ]
             },
             {
+              "id": "container-28",
               "type": "container",
               "fill": "mist",
               "layout": { "mode": "column", "gap": 6, "justify": "center", "align": "center" },
@@ -451,11 +505,12 @@
               "overflow": "clip",
               "size": { "grow": 1 },
               "children": [
-                { "type": "text", "text": "71%", "font": "display", "fontSize": 44, "color": "primary", "textAlign": "center", "size": { "h": 56 } },
-                { "type": "text", "text": "gross margin", "fontSize": 14, "color": "muted", "textAlign": "center", "size": { "h": 20 } }
+                { "id": "text-29", "type": "text", "text": "71%", "font": "display", "fontSize": 44, "color": "primary", "textAlign": "center", "size": { "h": 56 } },
+                { "id": "text-30", "type": "text", "text": "gross margin", "fontSize": 14, "color": "muted", "textAlign": "center", "size": { "h": 20 } }
               ]
             },
             {
+              "id": "container-29",
               "type": "container",
               "fill": "mist",
               "layout": { "mode": "column", "gap": 6, "justify": "center", "align": "center" },
@@ -463,13 +518,14 @@
               "overflow": "clip",
               "size": { "grow": 1 },
               "children": [
-                { "type": "text", "text": "87", "font": "display", "fontSize": 44, "color": "primary", "textAlign": "center", "size": { "h": 56 } },
-                { "type": "text", "text": "fleet customers, +19 in FY25", "fontSize": 14, "color": "muted", "textAlign": "center", "size": { "h": 20 } }
+                { "id": "text-31", "type": "text", "text": "87", "font": "display", "fontSize": 44, "color": "primary", "textAlign": "center", "size": { "h": 56 } },
+                { "id": "text-32", "type": "text", "text": "fleet customers, +19 in FY25", "fontSize": 14, "color": "muted", "textAlign": "center", "size": { "h": 20 } }
               ]
             }
           ]
         },
         {
+          "id": "text-33",
           "type": "text",
           "text": "Audited figures, fiscal year ending December 2025.",
           "fontSize": 12,
@@ -480,6 +536,7 @@
       ]
     },
     {
+      "id": "table_slide-0",
       "type": "table_slide",
       "content": {
         "title": "Quarterly revenue by segment (€K)",
@@ -496,28 +553,33 @@
       }
     },
     {
+      "id": "slide-7",
       "type": "container",
       "fill": "paper",
       "layout": { "mode": "column", "gap": 16 },
       "padding": [48, 56, 48, 56],
       "children": [
         {
+          "id": "title_block-6",
           "type": "title_block",
           "content": { "kicker": "THE NUMBERS", "title": "Quality of the growth" },
           "size": { "h": 86 }
         },
         {
+          "id": "container-30",
           "type": "container",
           "layout": { "mode": "row", "gap": 32, "align": "stretch" },
           "overflow": "clip",
           "size": { "grow": 1 },
           "children": [
             {
+              "id": "container-31",
               "type": "container",
               "layout": { "mode": "column", "justify": "center" },
               "size": { "grow": 1 },
               "children": [
                 {
+                  "id": "bullet_list-2",
                   "type": "bullet_list",
                   "size": { "h": 250 },
                   "content": {
@@ -533,11 +595,13 @@
               ]
             },
             {
+              "id": "container-32",
               "type": "container",
               "layout": { "mode": "column", "justify": "center" },
               "size": { "w": 330 },
               "children": [
                 {
+                  "id": "card-5",
                   "type": "card",
                   "content": {
                     "title": "Unit economics",
@@ -552,64 +616,72 @@
       ]
     },
     {
+      "id": "slide-8",
       "type": "container",
       "fill": "paper",
       "layout": { "mode": "column", "gap": 14 },
       "padding": [48, 56, 48, 56],
       "children": [
         {
+          "id": "title_block-7",
           "type": "title_block",
           "content": { "kicker": "THE NUMBERS", "title": "Four years of compounding" },
           "size": { "h": 86 }
         },
         {
+          "id": "container-33",
           "type": "container",
           "layout": { "mode": "row", "gap": 40, "justify": "center", "align": "end" },
           "size": { "grow": 1 },
           "children": [
             {
+              "id": "container-34",
               "type": "container",
               "layout": { "mode": "column", "gap": 6, "justify": "end", "align": "center" },
               "size": { "w": 130 },
               "children": [
-                { "type": "text", "text": "€5.2M", "fontSize": 14, "color": "ink", "bold": true, "textAlign": "center", "size": { "h": 18 } },
-                { "type": "rect", "fill": "primary", "size": { "w": 96, "h": 62 } },
-                { "type": "text", "text": "FY22", "fontSize": 13, "color": "muted", "textAlign": "center", "size": { "h": 18 } }
+                { "id": "text-34", "type": "text", "text": "€5.2M", "fontSize": 14, "color": "ink", "bold": true, "textAlign": "center", "size": { "h": 18 } },
+                { "id": "rect-9", "type": "rect", "fill": "primary", "size": { "w": 96, "h": 62 } },
+                { "id": "text-35", "type": "text", "text": "FY22", "fontSize": 13, "color": "muted", "textAlign": "center", "size": { "h": 18 } }
               ]
             },
             {
+              "id": "container-35",
               "type": "container",
               "layout": { "mode": "column", "gap": 6, "justify": "end", "align": "center" },
               "size": { "w": 130 },
               "children": [
-                { "type": "text", "text": "€8.6M", "fontSize": 14, "color": "ink", "bold": true, "textAlign": "center", "size": { "h": 18 } },
-                { "type": "rect", "fill": "primary", "size": { "w": 96, "h": 102 } },
-                { "type": "text", "text": "FY23", "fontSize": 13, "color": "muted", "textAlign": "center", "size": { "h": 18 } }
+                { "id": "text-36", "type": "text", "text": "€8.6M", "fontSize": 14, "color": "ink", "bold": true, "textAlign": "center", "size": { "h": 18 } },
+                { "id": "rect-10", "type": "rect", "fill": "primary", "size": { "w": 96, "h": 102 } },
+                { "id": "text-37", "type": "text", "text": "FY23", "fontSize": 13, "color": "muted", "textAlign": "center", "size": { "h": 18 } }
               ]
             },
             {
+              "id": "container-36",
               "type": "container",
               "layout": { "mode": "column", "gap": 6, "justify": "end", "align": "center" },
               "size": { "w": 130 },
               "children": [
-                { "type": "text", "text": "€12.9M", "fontSize": 14, "color": "ink", "bold": true, "textAlign": "center", "size": { "h": 18 } },
-                { "type": "rect", "fill": "primary", "size": { "w": 96, "h": 154 } },
-                { "type": "text", "text": "FY24", "fontSize": 13, "color": "muted", "textAlign": "center", "size": { "h": 18 } }
+                { "id": "text-38", "type": "text", "text": "€12.9M", "fontSize": 14, "color": "ink", "bold": true, "textAlign": "center", "size": { "h": 18 } },
+                { "id": "rect-11", "type": "rect", "fill": "primary", "size": { "w": 96, "h": 154 } },
+                { "id": "text-39", "type": "text", "text": "FY24", "fontSize": 13, "color": "muted", "textAlign": "center", "size": { "h": 18 } }
               ]
             },
             {
+              "id": "container-37",
               "type": "container",
               "layout": { "mode": "column", "gap": 6, "justify": "end", "align": "center" },
               "size": { "w": 130 },
               "children": [
-                { "type": "text", "text": "€18.4M", "fontSize": 14, "color": "ink", "bold": true, "textAlign": "center", "size": { "h": 18 } },
-                { "type": "rect", "fill": "accent", "size": { "w": 96, "h": 220 } },
-                { "type": "text", "text": "FY25", "fontSize": 13, "color": "muted", "textAlign": "center", "size": { "h": 18 } }
+                { "id": "text-40", "type": "text", "text": "€18.4M", "fontSize": 14, "color": "ink", "bold": true, "textAlign": "center", "size": { "h": 18 } },
+                { "id": "rect-12", "type": "rect", "fill": "accent", "size": { "w": 96, "h": 220 } },
+                { "id": "text-41", "type": "text", "text": "FY25", "fontSize": 13, "color": "muted", "textAlign": "center", "size": { "h": 18 } }
               ]
             }
           ]
         },
         {
+          "id": "text-42",
           "type": "text",
           "text": "Annual recurring revenue, year-end. FY25 mix: 59% wind · 29% solar · 12% storage.",
           "fontSize": 13,
@@ -620,31 +692,36 @@
       ]
     },
     {
+      "id": "slide-9",
       "type": "container",
       "fill": "paper",
       "layout": { "mode": "column", "gap": 18 },
       "padding": [48, 56, 48, 56],
       "children": [
         {
+          "id": "title_block-8",
           "type": "title_block",
           "content": { "kicker": "THE PRODUCT", "title": "Northwind Pulse — three layers" },
           "size": { "h": 86 }
         },
-        { "type": "rect", "fill": "paper", "size": { "grow": 1 } },
+        { "id": "rect-13", "type": "rect", "fill": "paper", "size": { "grow": 1 } },
         {
+          "id": "container-38",
           "type": "container",
           "layout": { "mode": "row", "gap": 18, "align": "stretch" },
           "overflow": "clip",
           "size": { "h": 230 },
           "children": [
             {
+              "id": "container-39",
               "type": "container",
               "layout": { "mode": "column", "gap": 0 },
               "overflow": "clip",
               "size": { "grow": 1 },
               "children": [
-                { "type": "rect", "fill": "primary", "size": { "h": 3 } },
+                { "id": "rect-14", "type": "rect", "fill": "primary", "size": { "h": 3 } },
                 {
+                  "id": "card-6",
                   "type": "card",
                   "content": { "title": "Pulse Edge", "body": "On-site collectors that normalize SCADA, vibration and met-mast feeds — even over intermittent links." },
                   "size": { "grow": 1 }
@@ -652,13 +729,15 @@
               ]
             },
             {
+              "id": "container-40",
               "type": "container",
               "layout": { "mode": "column", "gap": 0 },
               "overflow": "clip",
               "size": { "grow": 1 },
               "children": [
-                { "type": "rect", "fill": "primary", "size": { "h": 3 } },
+                { "id": "rect-15", "type": "rect", "fill": "primary", "size": { "h": 3 } },
                 {
+                  "id": "card-7",
                   "type": "card",
                   "content": { "title": "Pulse Cloud", "body": "Fleet analytics: anomaly detection, production forecasting and automated availability reporting." },
                   "size": { "grow": 1 }
@@ -666,13 +745,15 @@
               ]
             },
             {
+              "id": "container-41",
               "type": "container",
               "layout": { "mode": "column", "gap": 0 },
               "overflow": "clip",
               "size": { "grow": 1 },
               "children": [
-                { "type": "rect", "fill": "primary", "size": { "h": 3 } },
+                { "id": "rect-16", "type": "rect", "fill": "primary", "size": { "h": 3 } },
                 {
+                  "id": "card-8",
                   "type": "card",
                   "content": { "title": "Pulse API", "body": "Every metric, alert and forecast over a versioned API — feeds trading desks, ERP and BI stacks." },
                   "size": { "grow": 1 }
@@ -681,8 +762,9 @@
             }
           ]
         },
-        { "type": "rect", "fill": "paper", "size": { "grow": 1 } },
+        { "id": "rect-17", "type": "rect", "fill": "paper", "size": { "grow": 1 } },
         {
+          "id": "text-43",
           "type": "text",
           "text": "Deployed at 1,284 sites; median time from contract to live data is 11 days.",
           "fontSize": 13,
@@ -693,17 +775,20 @@
       ]
     },
     {
+      "id": "slide-10",
       "type": "container",
       "fill": "paper",
       "layout": { "mode": "column", "gap": 12 },
       "padding": [48, 56, 48, 56],
       "children": [
         {
+          "id": "title_block-9",
           "type": "title_block",
           "content": { "kicker": "THE PRODUCT", "title": "Inside the operations view" },
           "size": { "h": 86 }
         },
         {
+          "id": "container-42",
           "type": "container",
           "fill": "ink",
           "layout": { "mode": "column", "justify": "center", "align": "center" },
@@ -711,6 +796,7 @@
           "size": { "grow": 1 },
           "children": [
             {
+              "id": "image-0",
               "type": "image",
               "src": "assets/dashboard.png",
               "fit": "contain",
@@ -719,6 +805,7 @@
           ]
         },
         {
+          "id": "text-44",
           "type": "text",
           "text": "Northwind Pulse fleet overview — live generation, alerts and uptime across a 1,284-asset portfolio.",
           "fontSize": 13,
@@ -729,76 +816,84 @@
       ]
     },
     {
+      "id": "slide-11",
       "type": "container",
       "fill": "paper",
       "layout": { "mode": "column", "gap": 16 },
       "padding": [48, 56, 48, 56],
       "children": [
         {
+          "id": "title_block-10",
           "type": "title_block",
           "content": { "kicker": "THE PRODUCT", "title": "Roadmap to 2027" },
           "size": { "h": 86 }
         },
         {
+          "id": "container-43",
           "type": "container",
           "layout": { "mode": "row", "gap": 8, "justify": "center", "align": "center" },
           "overflow": "clip",
           "size": { "grow": 1 },
           "children": [
             {
+              "id": "container-44",
               "type": "container",
               "fill": "mist",
               "layout": { "mode": "column", "gap": 4, "justify": "center" },
               "padding": [12, 14, 12, 14],
               "size": { "w": 182, "h": 150 },
               "children": [
-                { "type": "text", "text": "H2 2026", "fontSize": 12, "color": "accent", "bold": true, "size": { "h": 16 } },
-                { "type": "text", "text": "Storage dispatch", "fontSize": 15, "color": "ink", "bold": true, "size": { "h": 22 } },
-                { "type": "text", "text": "Battery charge/discharge optimization against day-ahead prices.", "fontSize": 12, "color": "muted", "size": { "h": 66 } }
+                { "id": "text-45", "type": "text", "text": "H2 2026", "fontSize": 12, "color": "accent", "bold": true, "size": { "h": 16 } },
+                { "id": "text-46", "type": "text", "text": "Storage dispatch", "fontSize": 15, "color": "ink", "bold": true, "size": { "h": 22 } },
+                { "id": "text-47", "type": "text", "text": "Battery charge/discharge optimization against day-ahead prices.", "fontSize": 12, "color": "muted", "size": { "h": 66 } }
               ]
             },
-            { "type": "text", "text": "→", "fontSize": 22, "color": "accent", "textAlign": "center", "size": { "w": 24, "h": 30 } },
+            { "id": "text-48", "type": "text", "text": "→", "fontSize": 22, "color": "accent", "textAlign": "center", "size": { "w": 24, "h": 30 } },
             {
+              "id": "container-45",
               "type": "container",
               "fill": "mist",
               "layout": { "mode": "column", "gap": 4, "justify": "center" },
               "padding": [12, 14, 12, 14],
               "size": { "w": 182, "h": 150 },
               "children": [
-                { "type": "text", "text": "Q4 2026", "fontSize": 12, "color": "accent", "bold": true, "size": { "h": 16 } },
-                { "type": "text", "text": "Fleet copilot", "fontSize": 15, "color": "ink", "bold": true, "size": { "h": 22 } },
-                { "type": "text", "text": "Natural-language queries over live and historical fleet data.", "fontSize": 12, "color": "muted", "size": { "h": 66 } }
+                { "id": "text-49", "type": "text", "text": "Q4 2026", "fontSize": 12, "color": "accent", "bold": true, "size": { "h": 16 } },
+                { "id": "text-50", "type": "text", "text": "Fleet copilot", "fontSize": 15, "color": "ink", "bold": true, "size": { "h": 22 } },
+                { "id": "text-51", "type": "text", "text": "Natural-language queries over live and historical fleet data.", "fontSize": 12, "color": "muted", "size": { "h": 66 } }
               ]
             },
-            { "type": "text", "text": "→", "fontSize": 22, "color": "accent", "textAlign": "center", "size": { "w": 24, "h": 30 } },
+            { "id": "text-52", "type": "text", "text": "→", "fontSize": 22, "color": "accent", "textAlign": "center", "size": { "w": 24, "h": 30 } },
             {
+              "id": "container-46",
               "type": "container",
               "fill": "mist",
               "layout": { "mode": "column", "gap": 4, "justify": "center" },
               "padding": [12, 14, 12, 14],
               "size": { "w": 182, "h": 150 },
               "children": [
-                { "type": "text", "text": "H1 2027", "fontSize": 12, "color": "accent", "bold": true, "size": { "h": 16 } },
-                { "type": "text", "text": "Grid services", "fontSize": 15, "color": "ink", "bold": true, "size": { "h": 22 } },
-                { "type": "text", "text": "Automated bidding into balancing and capacity markets.", "fontSize": 12, "color": "muted", "size": { "h": 66 } }
+                { "id": "text-53", "type": "text", "text": "H1 2027", "fontSize": 12, "color": "accent", "bold": true, "size": { "h": 16 } },
+                { "id": "text-54", "type": "text", "text": "Grid services", "fontSize": 15, "color": "ink", "bold": true, "size": { "h": 22 } },
+                { "id": "text-55", "type": "text", "text": "Automated bidding into balancing and capacity markets.", "fontSize": 12, "color": "muted", "size": { "h": 66 } }
               ]
             },
-            { "type": "text", "text": "→", "fontSize": 22, "color": "accent", "textAlign": "center", "size": { "w": 24, "h": 30 } },
+            { "id": "text-56", "type": "text", "text": "→", "fontSize": 22, "color": "accent", "textAlign": "center", "size": { "w": 24, "h": 30 } },
             {
+              "id": "container-47",
               "type": "container",
               "fill": "mist",
               "layout": { "mode": "column", "gap": 4, "justify": "center" },
               "padding": [12, 14, 12, 14],
               "size": { "w": 182, "h": 150 },
               "children": [
-                { "type": "text", "text": "H2 2027", "fontSize": 12, "color": "accent", "bold": true, "size": { "h": 16 } },
-                { "type": "text", "text": "3,000 sites", "fontSize": 15, "color": "ink", "bold": true, "size": { "h": 22 } },
-                { "type": "text", "text": "Self-serve onboarding for fleets under 20 MW.", "fontSize": 12, "color": "muted", "size": { "h": 66 } }
+                { "id": "text-57", "type": "text", "text": "H2 2027", "fontSize": 12, "color": "accent", "bold": true, "size": { "h": 16 } },
+                { "id": "text-58", "type": "text", "text": "3,000 sites", "fontSize": 15, "color": "ink", "bold": true, "size": { "h": 22 } },
+                { "id": "text-59", "type": "text", "text": "Self-serve onboarding for fleets under 20 MW.", "fontSize": 12, "color": "muted", "size": { "h": 66 } }
               ]
             }
           ]
         },
         {
+          "id": "text-60",
           "type": "text",
           "text": "Shipped on a 6-week release train; every feature above is already in private preview with anchor customers.",
           "fontSize": 13,
@@ -809,28 +904,33 @@
       ]
     },
     {
+      "id": "slide-12",
       "type": "container",
       "fill": "paper",
       "layout": { "mode": "column", "gap": 16 },
       "padding": [48, 56, 48, 56],
       "children": [
         {
+          "id": "title_block-11",
           "type": "title_block",
           "content": { "kicker": "OUTLOOK", "title": "Why now" },
           "size": { "h": 86 }
         },
         {
+          "id": "container-48",
           "type": "container",
           "layout": { "mode": "row", "gap": 32, "align": "stretch" },
           "overflow": "clip",
           "size": { "grow": 1 },
           "children": [
             {
+              "id": "container-49",
               "type": "container",
               "layout": { "mode": "column", "justify": "center" },
               "size": { "grow": 1 },
               "children": [
                 {
+                  "id": "bullet_list-3",
                   "type": "bullet_list",
                   "size": { "h": 250 },
                   "content": {
@@ -846,11 +946,13 @@
               ]
             },
             {
+              "id": "container-50",
               "type": "container",
               "layout": { "mode": "column", "justify": "center" },
               "size": { "w": 330 },
               "children": [
                 {
+                  "id": "card-9",
                   "type": "card",
                   "content": {
                     "title": "The plan",
@@ -865,12 +967,14 @@
       ]
     },
     {
+      "id": "slide-13",
       "type": "container",
       "fill": "ink",
       "layout": { "mode": "column", "gap": 16, "justify": "center", "align": "center" },
       "padding": [56, 64, 56, 64],
       "children": [
         {
+          "id": "text-61",
           "type": "text",
           "text": "NORTHWIND LABS",
           "fontSize": 14,
@@ -880,6 +984,7 @@
           "size": { "h": 20 }
         },
         {
+          "id": "text-62",
           "type": "text",
           "text": "Let's put your fleet on Pulse",
           "font": "display",
@@ -888,8 +993,9 @@
           "textAlign": "center",
           "size": { "h": 58 }
         },
-        { "type": "rect", "fill": "accent", "size": { "w": 84, "h": 4 } },
+        { "id": "rect-18", "type": "rect", "fill": "accent", "size": { "w": 84, "h": 4 } },
         {
+          "id": "text-63",
           "type": "text",
           "text": "30-minute demo with your own portfolio data — no slides, just the product.",
           "fontSize": 16,
@@ -898,6 +1004,7 @@
           "size": { "h": 24 }
         },
         {
+          "id": "text-64",
           "type": "text",
           "text": "hello@northwindlabs.io · northwindlabs.io · Oslo · Berlin · Chicago",
           "fontSize": 14,

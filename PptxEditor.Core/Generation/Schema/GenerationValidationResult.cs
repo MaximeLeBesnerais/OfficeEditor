@@ -7,6 +7,9 @@ namespace PptxEditor.Core.Generation.Schema;
 /// </summary>
 public sealed record GenerationValidationResult
 {
+    /// <summary>Source JSON with persisted element IDs; available after successful validation.</summary>
+    public string? NormalizedJson { get; init; }
+
     internal GenerationValidationResult(
         Model.GenerationDocument? document,
         IReadOnlyList<GenerationIssue> errors,
