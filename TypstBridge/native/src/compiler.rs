@@ -69,7 +69,8 @@ pub(crate) fn compile_world(
     let compiled = typst::compile::<PagedDocument>(world);
     match compiled.output {
         Ok(document) => {
-            let diagnostics = diagnostics::from_typst_many(world, compiled.warnings);
+            let mut diagnostics = diagnostics::from_typst_many(world, compiled.warnings);
+            diagnostics.extend(missing_glyph_diagnostics(&document));
             match output_format {
                 TypstBridgeOutputFormat::Pdf => {
                     render_pdf_result(world, root_file_name, &document, diagnostics)
@@ -85,6 +86,40 @@ pub(crate) fn compile_world(
             result_with_diagnostics(TypstBridgeStatus::Compile, &message, diagnostics)
         }
     }
+}
+
+// Check the final shaped output: this respects fallback and avoids warning for
+// characters that the selected fallback font successfully renders.
+fn missing_glyph_diagnostics(document: &PagedDocument) -> Vec<crate::abi::TypstBridgeDiagnostic> {
+    fn visit(frame: &typst::layout::Frame, missing: &mut std::collections::BTreeSet<char>) {
+        for (_, item) in frame.items() {
+            match item {
+                typst::layout::FrameItem::Group(group) => visit(&group.frame, missing),
+                typst::layout::FrameItem::Text(text) => {
+                    for glyph in &text.glyphs {
+                        if glyph.id == 0 {
+                            if let Some(cluster) = text.text.get(glyph.range()) {
+                                missing.extend(cluster.chars().filter(|c| !c.is_control() && !c.is_whitespace()));
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    let mut result = Vec::new();
+    for (index, page) in document.pages().iter().enumerate() {
+        let mut missing = std::collections::BTreeSet::new();
+        visit(&page.frame, &mut missing);
+        if !missing.is_empty() {
+            let codes = missing.iter().map(|c| format!("U+{:04X}", *c as u32)).collect::<Vec<_>>().join(", ");
+            let mut warning = diagnostics::error(&format!("Missing glyphs on page {} after font fallback: {}", index + 1, codes));
+            warning.severity = crate::abi::TYPST_BRIDGE_DIAG_WARNING;
+            result.push(warning);
+        }
+    }
+    result
 }
 
 fn render_svg_result(
@@ -418,6 +453,26 @@ mod tests {
             output_format: TypstBridgeOutputFormat::Pdf as u32,
             ppi: 0.0,
             flags: 0,
+        }
+    }
+
+    #[test]
+    fn successful_compile_reports_missing_glyphs_after_fallback() {
+        for (text, expected_missing) in [("Hello expérience", false), ("Hello \u{10ffff}", true)] {
+            let source = CString::new(text).unwrap();
+            let result = compile(&valid_request(&source));
+            unsafe {
+                assert_eq!((*result).status, TypstBridgeStatus::Ok);
+                let diagnostics = if (*result).diagnostics_count == 0 { &[][..] } else {
+                    slice::from_raw_parts((*result).diagnostics, (*result).diagnostics_count)
+                };
+                let found = diagnostics.iter().any(|d| {
+                    let message = str::from_utf8(slice::from_raw_parts(d.message_utf8 as *const u8, d.message_len)).unwrap();
+                    d.severity == crate::abi::TYPST_BRIDGE_DIAG_WARNING && message.contains("U+10FFFF")
+                });
+                assert_eq!(found, expected_missing);
+                free_result(result);
+            }
         }
     }
 

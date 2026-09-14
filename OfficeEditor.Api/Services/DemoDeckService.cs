@@ -106,8 +106,11 @@ public interface IDemoDeckService
     /// <summary>
     /// Reads demo/demo-deck.json from the repository root and normalizes every relative
     /// "src" string property to a repo-root-relative forward-slash path (e.g.
-    /// "demo/assets/dashboard.png"). Callers resolve it against the repository root —
-    /// the Typst preview compile uses the repository root as its project root.
+    /// "demo/assets/dashboard.png"). Relative sources resolve against the template's OWN
+    /// directory (demo/), so the doc-relative "assets/dashboard.png" authored in the JSON
+    /// becomes the repo-root-relative path the repository-root sandbox resolves. Callers
+    /// resolve it against the repository root — the Typst preview compile uses the
+    /// repository root as its project root.
     /// Throws <see cref="FileNotFoundException"/> when the template file is missing.
     /// </summary>
     string GetDeckTemplateJson();
@@ -122,6 +125,13 @@ public interface IDemoDeckService
 public sealed class DemoDeckService : IDemoDeckService
 {
     private const string TemplateRelativePath = "demo/demo-deck.json";
+
+    /// <summary>
+    /// Directory of the demo deck template, relative to the repository root, with a
+    /// trailing slash: relative image "src" values in the template are authored
+    /// doc-relative and are rewritten to repo-root-relative paths under this prefix.
+    /// </summary>
+    private const string TemplateRelativeDirectory = "demo/";
 
     /// <summary>
     /// Upload cap for the demo render: the whole response is a base64 previews payload,
@@ -572,29 +582,33 @@ public sealed class DemoDeckService : IDemoDeckService
             throw new FileNotFoundException($"Demo deck template not found: {fullPath}");
         }
 
-        return RewriteRelativeSrcPaths(File.ReadAllText(fullPath));
+        return RewriteRelativeSrcPaths(File.ReadAllText(fullPath), TemplateRelativeDirectory);
     }
 
     /// <summary>
-    /// Normalizes every "src" string property holding a relative path to a repo-root-relative
-    /// forward-slash path: any leading "./" is stripped and backslashes become forward
-    /// slashes. Absolute paths, data URIs, URLs and non-string values are left untouched.
-    /// The rewrite is pure (no filesystem access). Internal static so it is unit-testable
+    /// Normalizes every "src" string property holding a relative path to a
+    /// repo-root-relative forward-slash path under <paramref name="baseRelativeDirectory"/>
+    /// (the template's own directory, "demo/"): any leading "./" is stripped, backslashes
+    /// become forward slashes, and the base is prepended, so the doc-relative
+    /// "assets/dashboard.png" becomes the repo-root-relative "demo/assets/dashboard.png"
+    /// the repository-root sandbox resolves. A path already under the base is left as-is.
+    /// Absolute paths, data URIs, URLs and non-string values are left untouched. The
+    /// rewrite is pure (no filesystem access). Internal static so it is unit-testable
     /// without a web host.
     /// </summary>
-    internal static string RewriteRelativeSrcPaths(string json)
+    internal static string RewriteRelativeSrcPaths(string json, string baseRelativeDirectory = "demo/")
     {
         ArgumentNullException.ThrowIfNull(json);
 
         var root = JsonNode.Parse(json)
             ?? throw new JsonException("The demo deck template parsed to a null JSON node.");
 
-        RewriteNode(root);
+        RewriteNode(root, baseRelativeDirectory);
 
         return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
     }
 
-    private static void RewriteNode(JsonNode node)
+    private static void RewriteNode(JsonNode node, string baseRelativeDirectory)
     {
         switch (node)
         {
@@ -605,13 +619,15 @@ public sealed class DemoDeckService : IDemoDeckService
                         && string.Equals(property.Key, "src", StringComparison.Ordinal)
                         && value.TryGetValue<string>(out var src)
                         && !string.IsNullOrWhiteSpace(src)
-                        && !Path.IsPathRooted(src))
+                        && !Path.IsPathRooted(src)
+                        && !src.StartsWith("data:", StringComparison.OrdinalIgnoreCase)
+                        && !src.Contains("://", StringComparison.OrdinalIgnoreCase))
                     {
-                        obj[property.Key] = NormalizeRelativePath(src);
+                        obj[property.Key] = NormalizeRelativePath(src, baseRelativeDirectory);
                     }
                     else if (property.Value is JsonNode child)
                     {
-                        RewriteNode(child);
+                        RewriteNode(child, baseRelativeDirectory);
                     }
                 }
                 break;
@@ -620,14 +636,14 @@ public sealed class DemoDeckService : IDemoDeckService
                 {
                     if (item is not null)
                     {
-                        RewriteNode(item);
+                        RewriteNode(item, baseRelativeDirectory);
                     }
                 }
                 break;
         }
     }
 
-    private static string NormalizeRelativePath(string path)
+    private static string NormalizeRelativePath(string path, string baseRelativeDirectory)
     {
         var normalized = path.Replace('\\', '/');
         while (normalized.StartsWith("./", StringComparison.Ordinal))
@@ -635,7 +651,13 @@ public sealed class DemoDeckService : IDemoDeckService
             normalized = normalized[2..];
         }
 
-        return normalized;
+        if (string.IsNullOrEmpty(baseRelativeDirectory)
+            || normalized.StartsWith(baseRelativeDirectory, StringComparison.Ordinal))
+        {
+            return normalized;
+        }
+
+        return baseRelativeDirectory + normalized;
     }
 
     private static string ResolvePath(string relativePath)

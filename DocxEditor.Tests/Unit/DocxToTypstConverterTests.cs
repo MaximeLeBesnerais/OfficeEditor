@@ -168,7 +168,7 @@ public sealed class DocxToTypstConverterTests : IDisposable
 
         string typst = ConvertToTypst(path);
 
-        Assert.Contains("#set page(width: 8.5in, height: 11in, margin: (left: 0.5in, right: 1in, top: 1.5in, bottom: 2in))", typst);
+        Assert.Contains("#set page(width: 8.5in, height: 11in, margin: (left: 0.5in, right: 1in, top: 1.5in, bottom: 2in), foreground: none)", typst);
     }
 
     [Fact]
@@ -694,7 +694,7 @@ public sealed class DocxToTypstConverterTests : IDisposable
 
         string typst = ConvertToTypst(path);
 
-        Assert.Contains("#place(dx: 17.36pt, dy: 143.225pt)[#rect(width: 116.22pt, height: 36.85pt, fill: rgb(\"#4472C4\"), stroke: 1.5pt + rgb(\"#FFFFFF\"), inset: 4pt)[Process text]]", typst);
+        Assert.Contains("#place(dx: 17.36pt, dy: 143.225pt)[#rect(width: 116.22pt, height: 36.85pt, fill: rgb(\"#4472C4\"), stroke: 1.5pt + rgb(\"#FFFFFF\"), inset: (left: 7.2pt, right: 7.2pt, top: 3.6pt, bottom: 3.6pt))[Process text]]", typst);
     }
 
     [Fact]
@@ -1077,7 +1077,7 @@ public sealed class DocxToTypstConverterTests : IDisposable
 
         string typst = ConvertToTypst(path);
 
-        Assert.Contains("header: [#place(top + left, dx: 36pt, dy: 18pt)[#image(\"assets/image-1.png\", width: 1in, height: 0.5in)]]", typst);
+        Assert.Contains("#place(top + left, dx: -36pt, dy: -54pt)[#image(\"assets/image-1.png\", width: 1in, height: 0.5in)]", typst);
     }
 
     [Fact]
@@ -1259,7 +1259,7 @@ public sealed class DocxToTypstConverterTests : IDisposable
 
         string typst = ConvertToTypst(path);
 
-        Assert.Contains("#place(top + left, dx: 36pt, dy: 18pt)[#image(", typst);
+        Assert.Contains("#place(top + left, dx: -36pt, dy: -54pt)[#image(", typst);
 
         int setPageStart = typst.IndexOf("#set page(", StringComparison.Ordinal);
         int nextNewline = typst.IndexOf('\n', setPageStart);
@@ -1268,7 +1268,8 @@ public sealed class DocxToTypstConverterTests : IDisposable
             : typst[setPageStart..];
 
         Assert.Contains("footer: [", setPageLine);
-        Assert.DoesNotContain("#image(", setPageLine);
+        Assert.Contains("foreground: [", setPageLine);
+        Assert.DoesNotContain("#image(", ExtractPageOptionValue(typst, "footer"));
     }
 
     [Fact]
@@ -1539,7 +1540,7 @@ public sealed class DocxToTypstConverterTests : IDisposable
 
         string typst = ConvertToTypst(path);
 
-        Assert.Contains("#place(top + left, dx: 36pt, dy: 18pt)[#line(length: 100%, stroke: 0.75pt + rgb(\"#00257D\"))#image(\"assets/image-1.png\", width: 1in, height: 0.5in)]", typst);
+        Assert.Contains("#place(top + left, dx: -36pt, dy: -54pt)[#line(length: 100%, stroke: 0.75pt + rgb(\"#00257D\"))#image(\"assets/image-1.png\", width: 1in, height: 0.5in)]", typst);
 
         string footerValue = ExtractPageOptionValue(typst, "footer");
         Assert.Contains("NOTE text", footerValue);
@@ -1577,7 +1578,7 @@ public sealed class DocxToTypstConverterTests : IDisposable
 
         string footerValue = ExtractPageOptionValue(typst, "footer");
         Assert.Contains("Footer note", footerValue);
-        Assert.Contains("#place(top + left, dx: 36pt, dy: 18pt)[#image(\"assets/image-1.png\", width: 1in, height: 0.5in)]", footerValue);
+        Assert.Contains("#place(left, dx: 36pt, dy: 18pt)[#image(\"assets/image-1.png\", width: 1in, height: 0.5in)]", footerValue);
         Assert.DoesNotContain("#place(bottom + center", typst);
     }
 
@@ -1607,7 +1608,7 @@ public sealed class DocxToTypstConverterTests : IDisposable
 
         string typst = ConvertToTypst(path);
 
-        Assert.Contains("#place(bottom + center)[#image(\"assets/image-1.png\", width: 1in, height: 0.5in)]", typst);
+        Assert.Contains("#place(top + left, dx: 189.72pt, dy: 733.68pt)[#image(\"assets/image-1.png\", width: 1in, height: 0.5in)]", typst);
         string footerValue = ExtractPageOptionValue(typst, "footer");
         Assert.DoesNotContain("#image(", footerValue);
     }
@@ -1630,7 +1631,7 @@ public sealed class DocxToTypstConverterTests : IDisposable
 
         string typst = ConvertToTypst(path);
 
-        Assert.Contains("#place(top + right)[#image(\"assets/image-1.png\", width: 1in, height: 0.5in)]", typst);
+        Assert.Contains("#place(top + left, dx: 451.44pt, dy: -72pt)[#image(\"assets/image-1.png\", width: 1in, height: 0.5in)]", typst);
     }
 
     [Fact]
@@ -1809,7 +1810,7 @@ public sealed class DocxToTypstConverterTests : IDisposable
     }
 
     [Fact]
-    public void GenerateTypstSource_WithLargeFooterDistance_ReservesFooterSpaceInPageMargin()
+    public void GenerateTypstSource_WithLargeFooterDistance_PreservesExplicitPageMargin()
     {
         string path = CreateDocx("footer-distance.docx", body =>
         {
@@ -1822,7 +1823,7 @@ public sealed class DocxToTypstConverterTests : IDisposable
         string typst = ConvertToTypst(path);
 
         double bottomMarginInches = ExtractBottomMarginInches(typst);
-        Assert.True(bottomMarginInches >= 2.0, $"Expected bottom margin >= 2in to reserve footer space, but got {bottomMarginInches}in.");
+        Assert.Equal(0.5, bottomMarginInches);
     }
 
     private string ConvertToTypst(string path)

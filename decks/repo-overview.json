@@ -279,22 +279,22 @@
           "children": [
             {
               "type": "image",
-              "src": "demo/assets/dashboard.png",
+              "src": "assets/dashboard.png",
               "fit": "contain"
             },
             {
               "type": "image",
-              "src": "demo/assets/dashboard.png",
+              "src": "assets/dashboard.png",
               "fit": "contain"
             },
             {
               "type": "image",
-               "src": "demo/assets/dashboard.png",
+               "src": "assets/dashboard.png",
               "fit": "contain"
             },
             {
               "type": "image",
-               "src": "demo/assets/dashboard.png",
+               "src": "assets/dashboard.png",
               "fit": "contain"
             }
           ]
@@ -482,7 +482,7 @@
               "children": [
                 {
                   "type": "image",
-                  "src": "demo/assets/dashboard.png",
+                  "src": "assets/dashboard.png",
                   "fit": "contain",
                   "size": { "grow": 1 }
                 },
@@ -504,7 +504,7 @@
               "children": [
                 {
                   "type": "image",
-                  "src": "demo/assets/dashboard.png",
+                  "src": "assets/dashboard.png",
                   "fit": "contain",
                   "size": { "grow": 1 }
                 },

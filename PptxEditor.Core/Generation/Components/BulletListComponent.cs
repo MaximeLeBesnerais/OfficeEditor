@@ -16,7 +16,7 @@ public static class BulletListComponent
         new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "title", "items", "markerColor" };
 
     /// <summary>Expands <paramref name="element"/> into its primitive subtree.</summary>
-    public static ContainerElement Expand(ComponentElement element, DesignTokens design, string path)
+    internal static ContainerElement Expand(ComponentElement element, DesignTokens design, string path, ElementIdAllocator allocator)
     {
         ArgumentNullException.ThrowIfNull(element);
         ArgumentNullException.ThrowIfNull(design);
@@ -31,22 +31,25 @@ public static class BulletListComponent
         var children = new List<GenElement>();
         if (title is not null)
         {
-            children.Add(ComponentStyle.Line(title, "display", metrics.BodySizePt + 2, "ink", bold: true));
+            children.Add(ComponentStyle.Line(title, "display", metrics.BodySizePt + 2, "ink", bold: true) with { Id = allocator.ChildId(element.Id, "title") });
         }
-        foreach (var item in items!)
+        for (var i = 0; i < items!.Count; i++)
         {
+            var rowId = allocator.ChildId(element.Id, $"item-{i}");
             children.Add(new ContainerElement
             {
+                Id = rowId,
                 Size = new SizeSpec { Height = ComponentStyle.LineHeight(metrics.BodySizePt) },
                 Layout = new LayoutSpec { Mode = LayoutMode.Row, Gap = 8, Align = AlignItems.Center },
                 Children =
                 [
                     new EllipseElement
                     {
+                        Id = allocator.ChildId(rowId, "marker"),
                         Size = new SizeSpec { Width = 6, Height = 6 },
                         Fill = new SolidFill(markerColor)
                     },
-                    ComponentStyle.Growing(item, "body", metrics.BodySizePt, "ink", anchor: TextAnchor.Middle)
+                    ComponentStyle.Growing(items[i], "body", metrics.BodySizePt, "ink", anchor: TextAnchor.Middle) with { Id = allocator.ChildId(rowId, "text") }
                 ]
             });
         }
@@ -55,6 +58,7 @@ public static class BulletListComponent
 
         return new ContainerElement
         {
+            Id = element.Id,
             Size = element.Size,
             At = element.At,
             Layout = new LayoutSpec { Mode = LayoutMode.Column, Gap = Math.Round(metrics.GutterPt / 2, 3) },

@@ -391,6 +391,56 @@ foreach (var warning in generated.Result.Warnings)
 
 `DocxGenerationResult` exposes the generated `Document` model, emitted file `Outputs` for the path overload, and non-fatal `Warnings`. File and asset I/O errors, invalid templates, and asset-policy failures are exceptions.
 
+## Rendering positioned documents
+
+The DOCX → Typst converter resolves `wp:anchor` separately from local DrawingML
+geometry. Page and margin coordinates share the same placement path for shapes
+and images; nested DrawingML group translations and scales compose from the
+innermost group outwards. Explicit page margins, including zero, remain unchanged
+when empty headers/footers have nonzero distances. DrawingML text boxes preserve
+all four `bodyPr` insets, including zero (omitted values default to 7.2 pt left/right
+and 3.6 pt top/bottom).
+
+Requested fonts remain first in the Typst font list. Common Office sans-serif
+families and Helvetica retain the complete Liberation Sans / Noto Sans / Aptos
+fallback chain. The native bridge deliberately does not discover system fonts:
+pass `--font-path` to `tools/convert-docx`, or `CompileOptions.FontDirectory`, to
+make installed fonts available. CJK rendering needs a font with CJK coverage.
+
+For diagnostics as well as output, use the concrete builder's
+`ExportWithDiagnostics` method:
+
+```csharp
+using DocxEditor.Core.Builders;
+using OfficeEditor.Core.Services;
+
+using var builder = (DocumentBuilder)DocumentBuilder.Open(File.ReadAllBytes("report.docx"));
+var rendered = builder.ExportWithDiagnostics(new CompileOptions
+{
+    Format = OutputFormat.Pdf,
+    FontDirectory = "/path/to/fonts"
+});
+if (!rendered.Success) throw new InvalidOperationException(rendered.ErrorMessage);
+foreach (var warning in rendered.Warnings) Console.Error.WriteLine(warning);
+File.WriteAllBytes("report.pdf", rendered.Pages[0]);
+```
+
+The shared rendering facade and conversion CLI also expose these warnings.
+Unknown font warnings come from Typst; the native bridge additionally checks
+shaped page output for missing glyphs after fallback and reports their Unicode
+code points and page number. The CLI fallback preserves compiler warnings but
+cannot perform that additional glyph check. Rebuild the native bridge when
+working from source to enable the glyph check.
+
+The targeted regression suite is `DocxPositionedRenderingTests`. Set
+`OE_RUN_TYPST_COMPILE_TESTS=1` to exercise actual output and diagnostic propagation.
+Set `OE_DOCX_TEST_FONT_PATH` to a font directory with CJK coverage to verify
+successful CJK rendering; without it, the test verifies missing-glyph reporting.
+
+Remaining converter limits include rotated/reflected DrawingML groups (a warning
+is returned) and approximated character/inside/outside margin anchors. These
+changes do not add text fitting or promise Word-identical flow pagination.
+
 ## Current limitations
 
 - Only vocabulary version `1.0` is accepted.

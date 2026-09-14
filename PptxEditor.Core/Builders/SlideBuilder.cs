@@ -166,6 +166,31 @@ public class SlideBuilder : ISlideBuilder
         return this;
     }
 
+    /// <summary>Adds or replaces the slide's speaker notes (same as <see cref="SetNotes"/>).</summary>
+    public ISlideBuilder AddNotes(string notes) => SetNotes(notes);
+
+    /// <summary>
+    /// Sets the slide's speaker notes, creating or updating its <see cref="NotesSlidePart"/>.
+    /// Blank notes remove an existing notes part (notes are metadata, not a visible shape).
+    /// </summary>
+    public ISlideBuilder SetNotes(string notes)
+    {
+        ArgumentNullException.ThrowIfNull(notes);
+
+        if (string.IsNullOrWhiteSpace(notes))
+        {
+            if (_slidePart.NotesSlidePart is { } existing)
+            {
+                _slidePart.DeletePart(existing);
+            }
+            return this;
+        }
+
+        var notesSlidePart = _slidePart.NotesSlidePart ?? _slidePart.AddNewPart<NotesSlidePart>();
+        notesSlidePart.NotesSlide = NotesSlideWriter.Create(notes);
+        return this;
+    }
+
     private P.Shape CreateTextShape(string name, string text, long x, long y, long cx, long cy)
     {
         return new P.Shape(

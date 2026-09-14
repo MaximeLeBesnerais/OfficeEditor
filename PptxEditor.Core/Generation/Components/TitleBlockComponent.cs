@@ -14,7 +14,7 @@ public static class TitleBlockComponent
         new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "kicker", "title", "subtitle" };
 
     /// <summary>Expands <paramref name="element"/> into its primitive subtree.</summary>
-    public static ContainerElement Expand(ComponentElement element, DesignTokens design, string path)
+    internal static ContainerElement Expand(ComponentElement element, DesignTokens design, string path, ElementIdAllocator allocator)
     {
         ArgumentNullException.ThrowIfNull(element);
         ArgumentNullException.ThrowIfNull(design);
@@ -29,18 +29,19 @@ public static class TitleBlockComponent
         var children = new List<GenElement>();
         if (kicker is not null)
         {
-            children.Add(ComponentStyle.Line(kicker, "body", metrics.BodySizePt - 2, "accent", bold: true));
+            children.Add(ComponentStyle.Line(kicker, "body", metrics.BodySizePt - 2, "accent", bold: true) with { Id = allocator.ChildId(element.Id, "kicker") });
         }
-        children.Add(ComponentStyle.Line(title!, "display", metrics.TitleSizePt, "ink"));
+        children.Add(ComponentStyle.Line(title!, "display", metrics.TitleSizePt, "ink") with { Id = allocator.ChildId(element.Id, "title") });
         if (subtitle is not null)
         {
-            children.Add(ComponentStyle.Line(subtitle, "body", metrics.BodySizePt, "muted"));
+            children.Add(ComponentStyle.Line(subtitle, "body", metrics.BodySizePt, "muted") with { Id = allocator.ChildId(element.Id, "subtitle") });
         }
 
         ComponentStyle.RequireTokens(design, path, "title_block", "ink", kicker is not null ? "accent" : null, subtitle is not null ? "muted" : null);
 
         return new ContainerElement
         {
+            Id = element.Id,
             Size = element.Size,
             At = element.At,
             Layout = new LayoutSpec { Mode = LayoutMode.Column, Gap = 4 },

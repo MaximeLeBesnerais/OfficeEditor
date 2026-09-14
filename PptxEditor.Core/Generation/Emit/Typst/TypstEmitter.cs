@@ -67,6 +67,8 @@ public sealed class TypstEmitter
         {
             sb.AppendLine("#pagebreak()");
         }
+        // Speaker notes (ResolvedSlide.Notes) are metadata, not visual content: they are
+        // deliberately NOT emitted here — only the OOXML emitter writes a NotesSlidePart.
         EmitElement(sb, slide.Root, path + ".root", originX: 0, originY: 0);
     }
 

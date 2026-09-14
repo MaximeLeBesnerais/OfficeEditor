@@ -27,15 +27,39 @@ public static class GenerationSchema
           "required": ["version", "design", "slides"],
           "properties": {
             "version": { "const": "2.0" },
-            "slideSize": { "enum": ["16:9", "4:3"], "default": "16:9" },
+            "slideSize": {
+              "oneOf": [
+                { "enum": ["16:9", "4:3"] },
+                {
+                  "type": "object",
+                  "required": ["width", "height"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "width": { "type": "number", "exclusiveMinimum": 0, "maximum": 4032 },
+                    "height": { "type": "number", "exclusiveMinimum": 0, "maximum": 4032 }
+                  }
+                }
+              ],
+              "default": "16:9"
+            },
             "design": { "$ref": "#/$defs/design" },
             "slides": {
               "type": "array",
               "minItems": 1,
-              "items": { "$ref": "#/$defs/container" }
+              "items": {
+                "oneOf": [
+                  { "$ref": "#/$defs/container" },
+                  { "$ref": "#/$defs/archetypeSlide" }
+                ]
+              }
             }
           },
           "$defs": {
+            "id": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_-]*$",
+              "description": "Stable element identifier; unique per document; preserved through archetype/component expansion."
+            },
             "color": {
               "type": "string",
               "description": "Palette token name (preferred) or #RRGGBB hex literal (accepted, warned: off-token drift)."
@@ -229,6 +253,7 @@ public static class GenerationSchema
               "description": "Layout container; the slide root is a container. Without 'layout' it is a free canvas whose children require 'at' + fixed 'size'.",
               "properties": {
                 "type": { "const": "container" },
+                "id": { "$ref": "#/$defs/id" },
                 "layout": { "$ref": "#/$defs/layout" },
                 "padding": { "$ref": "#/$defs/edgeInsets" },
                 "overflow": { "$ref": "#/$defs/overflow", "default": "error" },
@@ -241,7 +266,11 @@ public static class GenerationSchema
                 "radius": { "$ref": "#/$defs/radius" },
                 "shadow": { "$ref": "#/$defs/shadow" },
                 "size": { "$ref": "#/$defs/size" },
-                "at": { "$ref": "#/$defs/at" }
+                "at": { "$ref": "#/$defs/at" },
+                "notes": {
+                  "type": "string",
+                  "description": "Speaker notes for the slide; not rendered in the preview. Slide-root only: the parser rejects 'notes' on nested containers."
+                }
               }
             },
             "text": {
@@ -255,6 +284,7 @@ public static class GenerationSchema
               "description": "Box + anchor + align + insets; textAlign lives here, never on containers.",
               "properties": {
                 "type": { "const": "text" },
+                "id": { "$ref": "#/$defs/id" },
                 "text": { "type": "string" },
                 "runs": {
                   "type": "array",
@@ -281,6 +311,7 @@ public static class GenerationSchema
               "required": ["type"],
               "properties": {
                 "type": { "const": "rect" },
+                "id": { "$ref": "#/$defs/id" },
                 "fill": { "$ref": "#/$defs/fill" },
                 "stroke": { "$ref": "#/$defs/stroke" },
                 "radius": { "$ref": "#/$defs/radius" },
@@ -295,6 +326,7 @@ public static class GenerationSchema
               "required": ["type"],
               "properties": {
                 "type": { "const": "ellipse" },
+                "id": { "$ref": "#/$defs/id" },
                 "fill": { "$ref": "#/$defs/fill" },
                 "stroke": { "$ref": "#/$defs/stroke" },
                 "shadow": { "$ref": "#/$defs/shadow" },
@@ -309,6 +341,7 @@ public static class GenerationSchema
               "description": "Straight line or connector; straight only in v1.",
               "properties": {
                 "type": { "enum": ["line", "connector"] },
+                "id": { "$ref": "#/$defs/id" },
                 "orientation": { "enum": ["horizontal", "vertical"], "default": "horizontal" },
                 "stroke": { "$ref": "#/$defs/stroke" },
                 "size": { "$ref": "#/$defs/size" },
@@ -321,6 +354,7 @@ public static class GenerationSchema
               "required": ["type", "src"],
               "properties": {
                 "type": { "const": "image" },
+                "id": { "$ref": "#/$defs/id" },
                 "src": { "type": "string", "minLength": 1, "description": "Path, URL or base64 payload; interpreted by emitters." },
                 "fit": { "enum": ["fill", "crop", "contain"], "default": "fill" },
                 "crop": {
@@ -347,6 +381,7 @@ public static class GenerationSchema
               "description": "Layout-less grouping; paint order = document order. Children are placed with 'at'.",
               "properties": {
                 "type": { "const": "group" },
+                "id": { "$ref": "#/$defs/id" },
                 "children": {
                   "type": "array",
                   "items": { "$ref": "#/$defs/element" }
@@ -362,9 +397,25 @@ public static class GenerationSchema
               "description": "Prebuilt component: C# function over primitives, not a second layout system.",
               "properties": {
                 "type": { "enum": ["card", "kpi", "title_block", "bullet_list", "divider", "badge", "image_card", "table_block"] },
+                "id": { "$ref": "#/$defs/id" },
                 "content": { "type": "object", "description": "Component payload; strongly typed by the component layer." },
                 "size": { "$ref": "#/$defs/size" },
                 "at": { "$ref": "#/$defs/at" }
+              }
+            },
+            "archetypeSlide": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["type"],
+              "description": "Archetype slide function (cover | section | kpi_row | two_col | table_slide): a prompt-friendly whole-slide composition; slide-root only, never a child element.",
+              "properties": {
+                "type": { "enum": ["cover", "section", "kpi_row", "two_col", "table_slide"] },
+                "id": { "$ref": "#/$defs/id" },
+                "content": { "type": "object", "description": "Archetype payload; strongly typed by the archetype layer." },
+                "notes": {
+                  "type": "string",
+                  "description": "Speaker notes for the slide; not rendered in the preview."
+                }
               }
             },
             "element": {

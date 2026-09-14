@@ -72,7 +72,7 @@ public sealed class OoxmlEmitterTests : IDisposable
 
     private static LayoutResult LayoutWith(params ResolvedElement[] children) => new()
     {
-        Slides = [new ResolvedSlide { WidthPt = 960, HeightPt = 540, Root = RootWith(children) }],
+        Slides = [new ResolvedSlide { WidthPt = 960, HeightPt = 540, Root = RootWith(children), Elements = [] }],
         Warnings = []
     };
 
@@ -123,7 +123,7 @@ public sealed class OoxmlEmitterTests : IDisposable
     {
         using var document = EmitAndOpen(new LayoutResult
         {
-            Slides = [new ResolvedSlide { WidthPt = 960, HeightPt = 540, Root = RootWith() }],
+            Slides = [new ResolvedSlide { WidthPt = 960, HeightPt = 540, Root = RootWith(), Elements = [] }],
             Warnings = []
         }, out _);
         AssertValidates(document);
@@ -515,7 +515,8 @@ public sealed class OoxmlEmitterTests : IDisposable
                     Fill = new SolidFill("#FFFFFF"),
                     Overflow = OverflowPolicy.Error,
                     Children = [new ResolvedRect { X = 1, Y = 2, Width = 10, Height = 10, Fill = new SolidFill("#0B3D91") }]
-                }
+                },
+                Elements = []
             }],
             Warnings = []
         };
@@ -556,7 +557,8 @@ public sealed class OoxmlEmitterTests : IDisposable
                     },
                     Overflow = OverflowPolicy.Error,
                     Children = []
-                }
+                },
+                Elements = []
             }],
             Warnings = []
         };
@@ -736,14 +738,24 @@ public sealed class OoxmlEmitterTests : IDisposable
     }
 
     [Fact]
-    public void Image_RepoRelativeSource_ResolvesAgainstRepositoryRoot()
+    public void Image_DocumentDirectoryRelativeSource_ResolvesAgainstDocumentDirectory()
     {
-        // demo/assets/dashboard.png ships with the repo (also exercised end-to-end by
-        // the API's DeckGenerationServiceTests) — legitimate repo-root-relative sources
-        // must keep resolving under the new repo-root-first precedence.
-        var layout = LayoutWith(new ResolvedImage { X = 0, Y = 0, Width = 100, Height = 100, Source = "demo/assets/dashboard.png", Fit = ImageFitMode.Fill });
-        using var document = EmitAndOpen(layout, out _);
+        // The old behavior resolved relative sources against the repository root; the new
+        // ratified design resolves them against the JSON document's directory ONLY. Mirror
+        // the ImageResolutionTests style: write the image into a temp dir, pass it as the
+        // emitter's DocumentDirectory, and assert the actual payload is embedded.
+        var imageBytes = PngWithSize(64, 32);
+        WriteImage("dashboard.png", imageBytes);
+        var layout = LayoutWith(new ResolvedImage { X = 0, Y = 0, Width = 100, Height = 100, Source = "dashboard.png", Fit = ImageFitMode.Fill });
+
+        var result = new OoxmlEmitter(new OoxmlEmitOptions { DocumentDirectory = _testDir }).Emit(layout);
+        using var document = PresentationDocument.Open(new MemoryStream(result.Bytes), false);
+
         Assert.Single(FirstShapeTree(document).Elements<P.Picture>());
+        using var imageStream = Assert.Single(document.PresentationPart!.SlideParts.First().ImageParts).GetStream();
+        using var payload = new MemoryStream();
+        imageStream.CopyTo(payload);
+        Assert.Equal(imageBytes, payload.ToArray());
     }
 
     #endregion
@@ -793,6 +805,109 @@ public sealed class OoxmlEmitterTests : IDisposable
         var tree = commonSlideData.ShapeTree!;
         Assert.Equal(3, tree.ChildElements.OfType<P.Shape>().Count()); // text + rect + text (root surface is now p:bg)
         Assert.Contains(tree.Elements<P.Shape>(), s => s.ShapeProperties!.Elements<Drawing.GradientFill>().Any());
+    }
+
+    #endregion
+
+    #region Speaker notes (NotesSlidePart)
+
+    [Fact]
+    public void Notes_EmitWithNotes_CreatesNotesSlidePartWithText()
+    {
+        var layout = new LayoutResult
+        {
+            Slides = [new ResolvedSlide { WidthPt = 960, HeightPt = 540, Root = RootWith(), Elements = [], Notes = "Reveal the Q3 headline first." }],
+            Warnings = []
+        };
+        using var document = EmitAndOpen(layout, out _);
+
+        var notesSlide = document.PresentationPart!.SlideParts.First().NotesSlidePart?.NotesSlide;
+        Assert.NotNull(notesSlide);
+        Assert.Contains("Reveal the Q3 headline first.", notesSlide!.CommonSlideData!.ShapeTree!.InnerText);
+        AssertValidates(document);
+    }
+
+    [Fact]
+    public void Notes_EmitWithMultilineNotes_OneParagraphPerLine()
+    {
+        var layout = new LayoutResult
+        {
+            Slides = [new ResolvedSlide { WidthPt = 960, HeightPt = 540, Root = RootWith(), Elements = [], Notes = "Line one\nLine two" }],
+            Warnings = []
+        };
+        using var document = EmitAndOpen(layout, out _);
+
+        var shapeTree = document.PresentationPart!.SlideParts.First().NotesSlidePart!.NotesSlide!.CommonSlideData!.ShapeTree!;
+        var paragraphs = shapeTree.Elements<P.Shape>().Single().TextBody!.Elements<Drawing.Paragraph>().ToList();
+        Assert.Equal(2, paragraphs.Count);
+        Assert.Equal("Line one", paragraphs[0].InnerText);
+        Assert.Equal("Line two", paragraphs[1].InnerText);
+    }
+
+    [Fact]
+    public void Notes_EmitWithoutNotes_EmitsNoNotesSlidePart()
+    {
+        using var document = EmitAndOpen(LayoutWith(), out _);
+        Assert.Null(document.PresentationPart!.SlideParts.First().NotesSlidePart);
+    }
+
+    [Fact]
+    public void Notes_EmitWhitespaceOnlyNotes_EmitsNoNotesSlidePart()
+    {
+        var layout = new LayoutResult
+        {
+            Slides = [new ResolvedSlide { WidthPt = 960, HeightPt = 540, Root = RootWith(), Elements = [], Notes = "   " }],
+            Warnings = []
+        };
+        using var document = EmitAndOpen(layout, out _);
+        Assert.Null(document.PresentationPart!.SlideParts.First().NotesSlidePart);
+    }
+
+    [Fact]
+    public void Notes_MultipleSlides_OnlyNotedSlideCarriesPart()
+    {
+        var layout = new LayoutResult
+        {
+            Slides =
+            [
+                new ResolvedSlide { WidthPt = 960, HeightPt = 540, Root = RootWith(), Elements = [], Notes = "Only this slide has notes." },
+                new ResolvedSlide { WidthPt = 960, HeightPt = 540, Root = RootWith(), Elements = [] }
+            ],
+            Warnings = []
+        };
+        using var document = EmitAndOpen(layout, out _);
+
+        var slideParts = document.PresentationPart!.SlideParts.ToList();
+        Assert.Equal(2, slideParts.Count);
+        Assert.NotNull(slideParts[0].NotesSlidePart);
+        Assert.Null(slideParts[1].NotesSlidePart);
+    }
+
+    [Fact]
+    public void EndToEnd_GenerationDocumentWithNotes_EmitsNotesSlidePart()
+    {
+        const string json = """
+        {
+          "version": "2.0",
+          "design": { "palette": { "primary": "#0B3D91" } },
+          "slides": [
+            { "type": "container", "children": [], "notes": "Welcome the new team members." },
+            { "type": "container", "children": [] }
+          ]
+        }
+        """;
+
+        var document = new GenerationDocumentParser().Parse(json);
+        var layout = new LayoutResolver().Resolve(document);
+        var result = new OoxmlEmitter().Emit(layout);
+
+        using var package = PresentationDocument.Open(new MemoryStream(result.Bytes), false);
+        AssertValidates(package);
+
+        var slideParts = package.PresentationPart!.SlideParts.ToList();
+        Assert.Equal(2, slideParts.Count);
+        Assert.Contains("Welcome the new team members.", slideParts[0].NotesSlidePart!.NotesSlide!.CommonSlideData!.ShapeTree!.InnerText);
+        Assert.Null(slideParts[1].NotesSlidePart);
     }
 
     #endregion

@@ -15,7 +15,7 @@ public static class KpiComponent
         new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "value", "label", "delta" };
 
     /// <summary>Expands <paramref name="element"/> into its primitive subtree.</summary>
-    public static ContainerElement Expand(ComponentElement element, DesignTokens design, string path)
+    internal static ContainerElement Expand(ComponentElement element, DesignTokens design, string path, ElementIdAllocator allocator)
     {
         ArgumentNullException.ThrowIfNull(element);
         ArgumentNullException.ThrowIfNull(design);
@@ -29,18 +29,19 @@ public static class KpiComponent
         var metrics = design.Metrics;
         var children = new List<GenElement>
         {
-            ComponentStyle.Line(value!, "display", metrics.TitleSizePt, "primary", bold: true, align: TextAlign.Center),
-            ComponentStyle.Line(label!, "body", metrics.BodySizePt, "muted", align: TextAlign.Center)
+            ComponentStyle.Line(value!, "display", metrics.TitleSizePt, "primary", bold: true, align: TextAlign.Center) with { Id = allocator.ChildId(element.Id, "value") },
+            ComponentStyle.Line(label!, "body", metrics.BodySizePt, "muted", align: TextAlign.Center) with { Id = allocator.ChildId(element.Id, "label") }
         };
         if (delta is not null)
         {
-            children.Add(ComponentStyle.Line(delta, "body", metrics.BodySizePt - 2, "accent", align: TextAlign.Center));
+            children.Add(ComponentStyle.Line(delta, "body", metrics.BodySizePt - 2, "accent", align: TextAlign.Center) with { Id = allocator.ChildId(element.Id, "delta") });
         }
 
         ComponentStyle.RequireTokens(design, path, "kpi", "paper", "primary", "muted", delta is not null ? "accent" : null);
 
         return ComponentStyle.ApplySurface(new ContainerElement
         {
+            Id = element.Id,
             Size = element.Size,
             At = element.At,
             Padding = EdgeInsets.All(metrics.GutterPt),

@@ -15,6 +15,13 @@ public abstract record GenElement
 
     /// <summary>Absolute placement in points. Only valid on children of layout-less parents.</summary>
     public PointSpec? At { get; init; }
+
+    /// <summary>
+    /// Stable element identifier; unique per document; preserved through archetype/component
+    /// expansion (expansion derives child ids from it). Metadata only — never rendered.
+    /// Lets Studio address an element across child reordering, undo/redo and AI patch loops.
+    /// </summary>
+    public string? Id { get; init; }
 }
 
 /// <summary>
@@ -47,6 +54,13 @@ public sealed record ContainerElement : GenElement
 
     /// <summary>Drop shadow.</summary>
     public ShadowSpec? Shadow { get; init; }
+
+    /// <summary>
+    /// Speaker notes for the slide; metadata only, never rendered. Valid only on the
+    /// slide root (the parser rejects it on nested containers); the OOXML emitter writes
+    /// it into a NotesSlidePart, the Typst preview deliberately ignores it.
+    /// </summary>
+    public string? Notes { get; init; }
 }
 
 /// <summary>

@@ -21,7 +21,7 @@ public static class DividerComponent
         };
 
     /// <summary>Expands <paramref name="element"/> into its primitive subtree.</summary>
-    public static LineElement Expand(ComponentElement element, DesignTokens design, string path)
+    internal static LineElement Expand(ComponentElement element, DesignTokens design, string path, ElementIdAllocator allocator)
     {
         ArgumentNullException.ThrowIfNull(element);
         ArgumentNullException.ThrowIfNull(design);
@@ -43,6 +43,7 @@ public static class DividerComponent
 
         return new LineElement
         {
+            Id = element.Id,
             Size = size,
             At = element.At,
             Orientation = orientation,

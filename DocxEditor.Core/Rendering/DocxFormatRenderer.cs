@@ -1,6 +1,7 @@
 using System.Text;
 using DocxEditor.Core.Builders;
 using DocxEditor.Core.Generation;
+using DocxEditor.Core.Generation.Assets;
 using DocxEditor.Core.Generation.Schema;
 using OfficeEditor.Core.Rendering;
 using OfficeEditor.Core.Services;
@@ -55,13 +56,25 @@ internal sealed class DocxFormatRenderer : IFormatRenderer
                 return Success(warnings, Encoding.UTF8.GetBytes(builder.ExportToTypst()));
             }
 
-            var options = new CompileOptions { Ppi = request.Ppi > 0 ? request.Ppi : 150f, FontDirectory = request.FontPath };
-            return request.Format switch
+            var format = request.Format switch
             {
-                DocumentOutputFormat.Pdf => Success(warnings, builder.ExportToPdf(options)),
-                DocumentOutputFormat.Png => Success(warnings, builder.ExportToPng(options)),
-                DocumentOutputFormat.Svg => Success(warnings, builder.ExportToSvg(options)),
-                _ => Failure($"Unsupported output format '{request.Format}' for DOCX.")
+                DocumentOutputFormat.Pdf => OutputFormat.Pdf,
+                DocumentOutputFormat.Png => OutputFormat.Png,
+                DocumentOutputFormat.Svg => OutputFormat.Svg,
+                _ => throw new ArgumentException($"Unsupported output format '{request.Format}' for DOCX.")
+            };
+            var result = builder.ExportWithDiagnostics(new CompileOptions
+            {
+                Format = format,
+                Ppi = request.Ppi > 0 ? request.Ppi : 150f,
+                FontDirectory = request.FontPath
+            });
+            return new DocumentRenderResult
+            {
+                Success = result.Success && result.Pages.Length > 0,
+                Pages = result.Pages,
+                ErrorMessage = result.Success && result.Pages.Length == 0 ? "DOCX render produced no output." : result.ErrorMessage,
+                Warnings = warnings.Concat(result.Warnings).ToArray()
             };
         }
         catch (Exception ex)
@@ -80,7 +93,16 @@ internal sealed class DocxFormatRenderer : IFormatRenderer
             return (DocumentBuilder)DocumentBuilder.Open(File.ReadAllBytes(request.SourcePath));
         }
 
-        var generated = new DocxGenerator().GenerateToBytes(File.ReadAllText(request.SourcePath));
+        // Relative image (and template) sources resolve against the JSON document's
+        // directory: thread it as the AllowedRoot so the facade matches the CLI's
+        // behavior instead of silently falling back to the process CWD.
+        var sourceDirectory = Path.GetDirectoryName(Path.GetFullPath(request.SourcePath));
+        var generated = new DocxGenerator().GenerateToBytes(
+            File.ReadAllText(request.SourcePath),
+            new DocxGeneratorOptions
+            {
+                ImageSourceOptions = new ImageSourceOptions { AllowedRoot = sourceDirectory }
+            });
         warnings = generated.Result.Warnings
             .Select(warning => warning.ToString())
             .ToList();

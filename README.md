@@ -9,7 +9,7 @@ A .NET 9 library suite for **creating, editing, generating, and rendering Office
 ## Features
 
 - **Three formats, one model** — Word (DOCX), PowerPoint (PPTX), Excel (XLSX); create from scratch or edit existing files with style preservation
-- **JSON workflows** — PPTX has the full declarative generation vocabulary; **DOCX has declarative JSON generation** (flow + positioned tiers, design themes, semantic report archetypes, see `docs/docx-generation.md`); **XLSX has a rich instruction/generation engine** (typed cells, named styles with fills/borders, layout, tables) wired into `officeeditor generate --output *.xlsx` and renderable to PDF/PNG/SVG through the Typst pipeline (images and row-replication remain)
+- **JSON workflows** — PPTX has the full declarative generation vocabulary (see `docs/pptx-generation.md`); **DOCX has declarative JSON generation** (flow + positioned tiers, design themes, semantic report archetypes, see `docs/docx-generation.md`); **XLSX has a rich instruction/generation engine** (typed cells, named styles with fills/borders, layout, tables) wired into `officeeditor generate --output *.xlsx` and renderable to PDF/PNG/SVG through the Typst pipeline (images and row-replication remain)
 - **Rendering** — native TypstBridge (Typst 0.15.1): PPTX PDF/PNG/SVG, DOCX PDF, and XLSX PDF/PNG/SVG (formulas render cached `<v>` values only, no evaluation); whole-deck timings are exposed by the PPTX surfaces
 - **Fluent C# APIs** — `DocumentBuilder`, `PresentationBuilder`, `WorkbookBuilder` (file, stream, or in-memory `byte[]`)
 - **Instruction sets** — JSON/YAML DOCX operations, JSON PPTX edit operations, and a v1 JSON XLSX builder vocabulary
@@ -60,23 +60,27 @@ dotnet run --project DocxEditor.Cli -- edit document.docx --instructions instruc
 ### C# API — generate a deck from JSON (the flagship path)
 
 ```csharp
-using PptxEditor.Core.Generation.Archetypes;
-using PptxEditor.Core.Generation.Components;
-using PptxEditor.Core.Generation.Emit.Ooxml;
-using PptxEditor.Core.Generation.Layout;
-using PptxEditor.Core.Generation.Schema;
+using PptxEditor.Core.Generation;
 
-var json = await File.ReadAllTextAsync("deck.json");   // "version": "2.0" vocabulary
-var result = new GenerationDocumentParser().Validate(json);   // loud validator
-if (!result.IsValid) { /* field-path errors with suggestions */ }
+var inputPath = Path.GetFullPath("deck.json");
+var json = await File.ReadAllTextAsync(inputPath);  // "version": "2.0" vocabulary
+var result = new PptxGenerator().Generate(json, new PptxGeneratorOptions
+{
+    DocumentDirectory = Path.GetDirectoryName(inputPath),
+    PreviewFormat = "svg"  // optional; omit for PPTX only
+});
+if (!result.Success)
+    throw new InvalidOperationException(string.Join(Environment.NewLine, result.Errors));
 
-var doc        = ArchetypeExpander.Expand(result.Document!);
-var components = ComponentExpander.Expand(doc);
-var layout     = new LayoutResolver().Resolve(components);    // layout once…
-var pptx       = new OoxmlEmitter().Emit(layout);             // …emit OOXML…
-await File.WriteAllBytesAsync("deck.pptx", pptx.Bytes);
-// …and the same layout feeds the Typst emitter for PDF/PNG/SVG previews.
+await File.WriteAllBytesAsync("deck.pptx", result.PptxBytes!);
+// result.Layout: the single measured layout, with stable element IDs and rectangles.
+// result.Previews: per-slide images; PreviewError reports a best-effort preview failure.
+// result.Warnings and PipelineWarnings carry validation and layout/emission diagnostics.
 ```
+
+PPTX generation in the CLI, API, MCP, and JSON renderer shares `PptxGenerator`: validation → archetypes → components → measured layout → OOXML, with optional Typst previews. DOCX and XLSX entry points use their existing `DocxGenerator` and `XlsxGenerator`. The lower-level PPTX parser, layout resolver, and emitters remain available for specialized use.
+
+Relative PPTX images require `DocumentDirectory`; string-only calls without it must use absolute paths or data URIs. Hosts can instead set `AllowedImageRoot` to confine all file images, including absolute paths. The API supplies its repository root as this boundary. `FontDirectory` supplies additional font directories for both text measurement and previews.
 
 ### C# API — builders (all three formats)
 
@@ -197,6 +201,17 @@ cd OfficeEditor && dotnet build        # 0 warnings, 0 errors (enforced)
 4. **Compare** — OfficeEditor Engine vs headless LibreOffice, side-by-side slides and timings (typically >10× faster)
 
 The API and web client are local demos, not production multi-tenant services. They have no complete authentication, quota, sandbox, or tenant-isolation layer. See [SECURITY.md](SECURITY.md).
+
+## Related projects & ecosystem
+
+The OfficeEditor engine (this repo) anchors a small ecosystem of satellite projects and docs:
+
+- **Declarative PPTX generation** — [`docs/pptx-generation.md`](docs/pptx-generation.md): the `version: "2.0"` deck vocabulary (design tokens, containers, primitives, components, archetypes, speaker notes, image sources); canonical schema at `PptxEditor.Core/Generation/Schema/deck.schema.json`
+- **Declarative DOCX generation** — [`docs/docx-generation.md`](docs/docx-generation.md): the `version: "1.0"` document vocabulary
+- **OfficeEditorStudio** — local-first Avalonia 12 desktop studio (out of this repo, `~/Work/OfficeEditorStudio`) that consumes the published `MaximeLB.*` 0.7.1 packages in-proc; the document is the generation JSON, rendered in-app via embedded TypstBridge, AI-agent-native with a vision loop, MCP server mode planned
+- **officeeditor.dev** — Vite 7 + React 19 + Tailwind landing site (out of this repo, `~/Work/officeeditor.dev`) that hosts the JSON schemas so `$id` references resolve, with real OfficeEditor-generated demo renders
+
+See [`docs/ecosystem.md`](docs/ecosystem.md) for the full map.
 
 ## Architecture
 

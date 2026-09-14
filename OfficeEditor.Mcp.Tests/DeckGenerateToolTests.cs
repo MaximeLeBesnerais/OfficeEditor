@@ -1,3 +1,5 @@
+using OfficeEditor.Testing;
+using PptxEditor.Core.Generation;
 using System.Text.Json.Nodes;
 using OfficeEditor.Mcp.JsonRpc;
 using OfficeEditor.Mcp.Tools;
@@ -53,6 +55,30 @@ public sealed class DeckGenerateToolTests
     {
         ["document"] = JsonNode.Parse(document ?? ValidDocument)
     };
+
+    [Fact]
+    public void Generate_ContractDocument_MatchesCoreDeliveryAndDiagnostics()
+    {
+        var expected = new PptxGenerator().Generate(GenerationContract.Json);
+        Assert.True(expected.Success);
+        using var server = TestHost.CreateServer();
+        var actual = TestHost.AssertToolPayload(TestHost.SendToolCall(server, "deck_generate", GenerateArgs(GenerationContract.Json)));
+        var bytes = Convert.FromBase64String((string)actual["pptxBase64"]!);
+        Assert.Equal(GenerationContract.Snapshot(expected.PptxBytes!), GenerationContract.Snapshot(bytes));
+        Assert.Equal(expected.Warnings.Select(w => w.ToString()), actual["warnings"]!.AsArray().Select(w => (string)w!));
+        Assert.Equal(expected.PipelineWarnings, actual["pipelineWarnings"]!.AsArray().Select(w => (string)w!));
+    }
+
+    [Fact]
+    public void Generate_ArchetypeContentError_ReturnsInvalidParams()
+    {
+        using var server = TestHost.CreateServer();
+        var json = GenerationContract.Json.Replace("\"title\": \"Shared generation\"", "\"typo\": \"Shared generation\"");
+        var (code, message) = TestHost.AssertError(TestHost.SendToolCall(server, "deck_generate", GenerateArgs(json)));
+        Assert.Equal(JsonRpcErrorCodes.InvalidParams, code);
+        Assert.Contains("slides[0]", message);
+        Assert.Contains("typo", message);
+    }
 
     [Fact]
     public void ListTools_IncludesDeckGenerate()

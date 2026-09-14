@@ -6,11 +6,7 @@ using DocxEditor.Core.Generation.Design;
 using DocxEditor.Core.Generation.Model;
 using DocxEditor.Core.Generation.Schema;
 using PptxEditor.Core.Builders;
-using PptxEditor.Core.Generation.Archetypes;
-using PptxEditor.Core.Generation.Components;
-using PptxEditor.Core.Generation.Emit.Ooxml;
-using PptxEditor.Core.Generation.Layout;
-using PptxEditor.Core.Generation.Schema;
+using PptxEditor.Core.Generation;
 using XlsxEditor.Core.Builders;
 using XlsxEditor.Core.Instructions;
 using XlsxEditor.Core.Rendering;
@@ -152,8 +148,11 @@ class Program
         AnsiConsole.Status()
             .Start("Generating...", ctx =>
             {
-                var result = new GenerationDocumentParser().Validate(json);
-                if (!result.IsValid)
+                var result = new PptxGenerator().Generate(json, new PptxGeneratorOptions
+                {
+                    DocumentDirectory = Path.GetDirectoryName(Path.GetFullPath(inputPath))
+                });
+                if (!result.Success)
                 {
                     AnsiConsole.MarkupLine("[red]Validation errors:[/]");
                     foreach (var e in result.Errors)
@@ -161,18 +160,14 @@ class Program
                     return;
                 }
 
-                var doc = result.Document!;
-                var archetyped = ArchetypeExpander.Expand(doc);
-                var componentized = ComponentExpander.Expand(archetyped);
-                var layout = new LayoutResolver().Resolve(componentized);
-                var emitResult = new OoxmlEmitter().Emit(layout);
-                File.WriteAllBytes(resolvedOutputPath, emitResult.Bytes);
+                File.WriteAllBytes(resolvedOutputPath, result.PptxBytes!);
+                foreach (var warning in result.Warnings.Select(w => w.ToString()).Concat(result.PipelineWarnings))
+                    AnsiConsole.MarkupLine($"[yellow]Warning: {Markup.Escape(warning)}[/]");
 
-                AnsiConsole.MarkupLine($"[green]{layout.Slides.Count} slides[/]  " +
-                    $"[green]{emitResult.Bytes.Length} bytes[/]  " +
-                    (layout.Warnings.Count + emitResult.Warnings.Count == 0
-                        ? "[green]0 warnings[/]"
-                        : $"[yellow]{layout.Warnings.Count + emitResult.Warnings.Count} warnings[/]"));
+                var warningCount = result.Warnings.Count + result.PipelineWarnings.Count;
+                AnsiConsole.MarkupLine($"[green]{result.SlideCount} slides[/]  " +
+                    $"[green]{result.PptxBytes!.Length} bytes[/]  " +
+                    (warningCount == 0 ? "[green]0 warnings[/]" : $"[yellow]{warningCount} warnings[/]"));
                 generated = true;
             });
 

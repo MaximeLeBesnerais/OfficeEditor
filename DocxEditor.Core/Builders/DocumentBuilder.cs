@@ -587,27 +587,34 @@ public class DocumentBuilder : IDocumentBuilder
     /// </summary>
     private byte[][] RenderToPages(OutputFormat format, CompileOptions? options)
     {
-        using var converter = new DocxToTypstConverter(_document);
-        var typstDocument = converter.Convert();
-        var typstSource = converter.GenerateTypstSource(typstDocument);
-
-        using var compiler = new TypstCompilerService();
-        var compileOptions = new CompileOptions
-        {
-            Format = format,
-            Ppi = options?.Ppi ?? 150,
-            FontDirectory = options?.FontDirectory,
-            WorkingDirectory = typstDocument.TempDirectory
-        };
-
-        var result = compiler.Compile(typstSource, compileOptions);
+        var result = ExportWithDiagnostics((options ?? new CompileOptions()) with { Format = format });
         if (!result.Success || result.Pages.Length == 0)
         {
             throw new InvalidOperationException(
                 $"Typst {format} compilation failed: {result.ErrorMessage ?? "no output produced."}");
         }
-
         return result.Pages;
+    }
+
+    /// <summary>
+    /// Renders through the same path as ExportToPdf/Png/Svg and returns compiler warnings
+    /// (including missing fonts/glyphs) and converter diagnostics alongside the page buffers.
+    /// The caller chooses the output format in <paramref name="options"/>; PDF is the default.
+    /// </summary>
+    public CompileResult ExportWithDiagnostics(CompileOptions? options = null)
+    {
+        using var converter = new DocxToTypstConverter(_document);
+        var typstDocument = converter.Convert();
+        var source = converter.GenerateTypstSource(typstDocument);
+        using var compiler = new TypstCompilerService();
+        var result = compiler.Compile(source, (options ?? new CompileOptions()) with
+        {
+            WorkingDirectory = typstDocument.TempDirectory
+        });
+        return result with
+        {
+            Warnings = typstDocument.Diagnostics.Concat(result.Warnings).Distinct(StringComparer.Ordinal).ToArray()
+        };
     }
 
     private Paragraph CreateParagraph(string text, string? style)
