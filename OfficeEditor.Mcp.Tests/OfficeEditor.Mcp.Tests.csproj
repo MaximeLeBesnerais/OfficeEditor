@@ -22,4 +22,8 @@
     <ProjectReference Include="..\OfficeEditor.Mcp\OfficeEditor.Mcp.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Include="../DocxEditor.Tests/Generation/GenerationContract.cs" Link="GenerationContract.cs" />
+  </ItemGroup>
+
 </Project>

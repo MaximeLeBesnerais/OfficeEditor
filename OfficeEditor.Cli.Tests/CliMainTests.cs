@@ -1,3 +1,5 @@
+using OfficeEditor.Testing;
+using PptxEditor.Core.Generation;
 using System.Reflection;
 using DocumentFormat.OpenXml.Packaging;
 using PptxEditor.Core.Builders;
@@ -14,6 +16,18 @@ public sealed class CliMainTests : IDisposable
     {
         _tempDir = Path.Combine(Path.GetTempPath(), "OfficeEditorCliTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_tempDir);
+    }
+
+    [Fact]
+    public void Generate_ContractDocument_MatchesCoreDelivery()
+    {
+        var expected = new PptxGenerator().Generate(GenerationContract.Json);
+        Assert.True(expected.Success);
+        var source = TempPath("contract.json");
+        var output = TempPath("contract.pptx");
+        File.WriteAllText(source, GenerationContract.Json);
+        Assert.Equal(0, InvokeMain(["generate", source, "--output", output]));
+        Assert.Equal(GenerationContract.Snapshot(expected.PptxBytes!), GenerationContract.Snapshot(File.ReadAllBytes(output)));
     }
 
     [Fact]

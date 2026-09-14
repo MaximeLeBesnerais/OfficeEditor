@@ -58,22 +58,22 @@ dotnet run --project DocxEditor.Cli -- edit document.docx --instructions instruc
 ### C# API —— 从 JSON 生成演示文稿（旗舰路径）
 
 ```csharp
-using PptxEditor.Core.Generation.Archetypes;
-using PptxEditor.Core.Generation.Components;
-using PptxEditor.Core.Generation.Emit.Ooxml;
-using PptxEditor.Core.Generation.Layout;
-using PptxEditor.Core.Generation.Schema;
+using PptxEditor.Core.Generation;
 
-var json = await File.ReadAllTextAsync("deck.json");   // "version": "2.0" vocabulary
-var result = new GenerationDocumentParser().Validate(json);   // loud validator
-if (!result.IsValid) { /* field-path errors with suggestions */ }
+var inputPath = Path.GetFullPath("deck.json");
+var json = await File.ReadAllTextAsync(inputPath);  // "version": "2.0" vocabulary
+var result = new PptxGenerator().Generate(json, new PptxGeneratorOptions
+{
+    DocumentDirectory = Path.GetDirectoryName(inputPath),
+    PreviewFormat = "svg"  // optional; omit for PPTX only
+});
+if (!result.Success)
+    throw new InvalidOperationException(string.Join(Environment.NewLine, result.Errors));
 
-var doc        = ArchetypeExpander.Expand(result.Document!);
-var components = ComponentExpander.Expand(doc);
-var layout     = new LayoutResolver().Resolve(components);    // layout once…
-var pptx       = new OoxmlEmitter().Emit(layout);             // …emit OOXML…
-await File.WriteAllBytesAsync("deck.pptx", pptx.Bytes);
-// …and the same layout feeds the Typst emitter for PDF/PNG/SVG previews.
+await File.WriteAllBytesAsync("deck.pptx", result.PptxBytes!);
+// result.Layout: the single measured layout, with stable element IDs and rectangles.
+// result.Previews: per-slide images; PreviewError reports a best-effort preview failure.
+// result.Warnings and PipelineWarnings carry validation and layout/emission diagnostics.
 ```
 
 ### C# API —— 构建器（三种格式）

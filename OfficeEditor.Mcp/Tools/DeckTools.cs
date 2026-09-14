@@ -1,16 +1,10 @@
-using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
-using OfficeEditor.Core.Services;
 using OfficeEditor.Mcp.JsonRpc;
 using OfficeEditor.Mcp.Sessions;
 using PptxEditor.Core.Builders;
-using PptxEditor.Core.Generation.Components;
-using PptxEditor.Core.Generation.Emit.Ooxml;
-using PptxEditor.Core.Generation.Emit.Typst;
-using PptxEditor.Core.Generation.Layout;
-using PptxEditor.Core.Generation.Schema;
+using PptxEditor.Core.Generation;
 using PptxEditor.Core.Instructions;
 using PptxEditor.Core.Serialization;
 using PptxEditor.Core.Services;
@@ -93,97 +87,42 @@ public sealed class DeckTools
                 $"'ppi' must be between 36 and 600 (got {ppi}).");
         }
 
-        var totalTimer = Stopwatch.StartNew();
-        var generationTimer = Stopwatch.StartNew();
-
-        var validation = new GenerationDocumentParser().Validate(documentJson);
-        if (!validation.IsValid)
+        var result = new PptxGenerator().Generate(documentJson, new PptxGeneratorOptions
         {
-            // P1's actionable errors, verbatim — one per line so an AI caller can fix them all.
+            PreviewFormat = format,
+            Ppi = ppi
+        });
+        if (!result.Success)
+        {
             throw new McpException(JsonRpcErrorCodes.InvalidParams,
-                $"Invalid generation document ({validation.Errors.Count} error(s)):{Environment.NewLine}" +
-                string.Join(Environment.NewLine, validation.Errors.Select(e => e.ToString())));
+                $"Invalid generation document ({result.Errors.Count} error(s)):{Environment.NewLine}" +
+                string.Join(Environment.NewLine, result.Errors.Select(e => e.ToString())));
         }
 
-        LayoutResult layout;
-        try
+        var session = _sessions.Store(result.PptxBytes!, "generated.pptx", result.SlideCount);
+        var previews = new JsonArray(result.Previews.Select(p => (JsonNode)new JsonObject
         {
-            // Fresh stack per call: resolver/measurer/catalog carry per-run state and are
-            // not thread-safe; the system-font scan behind the catalog is process-cached,
-            // so this stays cheap on the warm path.
-            var expanded = ComponentExpander.Expand(validation.Document!);
-            layout = new LayoutResolver(new TextMeasure(new FontMetricsCatalog())).Resolve(expanded);
-        }
-        catch (ComponentException ex)
-        {
-            throw new McpException(JsonRpcErrorCodes.InvalidParams, $"Invalid generation document: {ex.Message}");
-        }
-        catch (LayoutException ex)
-        {
-            throw new McpException(JsonRpcErrorCodes.InvalidParams, $"Invalid generation document: {ex.Message}");
-        }
-
-        var emission = new OoxmlEmitter().Emit(layout);
-        var generationMs = generationTimer.Elapsed.TotalMilliseconds;
-
-        var session = _sessions.Store(emission.Bytes, "generated.pptx", layout.Slides.Count);
-
-        JsonArray previews = [];
-        string? previewError = null;
-        try
-        {
-            var source = new TypstEmitter().Emit(layout);
-            using var compiler = new TypstCompilerService();
-            var result = compiler.Compile(source, new CompileOptions
-            {
-                Format = format == "svg" ? OutputFormat.Svg : OutputFormat.Png,
-                Ppi = ppi
-            });
-            if (!result.Success)
-            {
-                previewError = result.ErrorMessage ?? "Typst preview compilation failed.";
-            }
-            else if (result.Pages.Length != layout.Slides.Count)
-            {
-                previewError = $"Typst preview produced {result.Pages.Length} page(s) for {layout.Slides.Count} slide(s).";
-            }
-            else
-            {
-                var contentType = format == "svg" ? "image/svg+xml" : "image/png";
-                for (var i = 0; i < result.Pages.Length; i++)
-                {
-                    previews.Add(new JsonObject
-                    {
-                        ["slide"] = i + 1,
-                        ["format"] = format,
-                        ["contentType"] = contentType,
-                        ["contentBase64"] = Convert.ToBase64String(result.Pages[i])
-                    });
-                }
-            }
-        }
-        catch (TypstEmitException ex)
-        {
-            previewError = $"Typst emission failed: {ex.Message}";
-        }
-
-        totalTimer.Stop();
+            ["slide"] = p.Slide,
+            ["format"] = p.Format,
+            ["contentType"] = p.ContentType,
+            ["contentBase64"] = Convert.ToBase64String(p.Bytes)
+        }).ToArray());
         var payload = new JsonObject
         {
             ["success"] = true,
-            ["slideCount"] = layout.Slides.Count,
-            ["pptxBase64"] = Convert.ToBase64String(emission.Bytes),
+            ["slideCount"] = result.SlideCount,
+            ["pptxBase64"] = Convert.ToBase64String(result.PptxBytes!),
             ["previewFormat"] = format,
             ["ppi"] = ppi,
             ["previews"] = previews,
-            ["warnings"] = new JsonArray(validation.Warnings.Select(w => (JsonNode)w.ToString()).ToArray()),
-            ["pipelineWarnings"] = new JsonArray(layout.Warnings.Concat(emission.Warnings).Select(w => (JsonNode)w).ToArray()),
-            ["generationMs"] = Math.Round(generationMs, 2),
-            ["totalMs"] = Math.Round(totalTimer.Elapsed.TotalMilliseconds, 2)
+            ["warnings"] = new JsonArray(result.Warnings.Select(w => (JsonNode)w.ToString()).ToArray()),
+            ["pipelineWarnings"] = new JsonArray(result.PipelineWarnings.Select(w => (JsonNode)w).ToArray()),
+            ["generationMs"] = Math.Round(result.GenerationMilliseconds, 2),
+            ["totalMs"] = Math.Round(result.TotalMilliseconds, 2)
         };
-        if (previewError is not null)
+        if (result.PreviewError is not null)
         {
-            payload["previewError"] = previewError;
+            payload["previewError"] = result.PreviewError;
         }
         payload["deckHandle"] = session.Handle.ToString();
         payload["revision"] = session.Revision;

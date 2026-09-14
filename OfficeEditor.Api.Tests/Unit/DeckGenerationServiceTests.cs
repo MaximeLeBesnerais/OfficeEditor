@@ -1,3 +1,5 @@
+using OfficeEditor.Testing;
+using PptxEditor.Core.Generation;
 using System.Text;
 using System.Text.Json;
 using OfficeEditor.Api.Services;
@@ -57,6 +59,18 @@ public sealed class DeckGenerationServiceTests
     public DeckGenerationServiceTests(ITestOutputHelper output)
     {
         _output = output;
+    }
+
+    [Fact]
+    public void Generate_ContractDocument_MatchesCoreDeliveryAndDiagnostics()
+    {
+        var expected = new PptxGenerator().Generate(GenerationContract.Json);
+        var actual = new DeckGenerationService().Generate(GenerationContract.Json, "svg", 150);
+        Assert.True(expected.Success);
+        Assert.True(actual.Success);
+        Assert.Equal(GenerationContract.Snapshot(expected.PptxBytes!), GenerationContract.Snapshot(actual.PptxBytes!));
+        Assert.Equal(expected.Warnings, actual.Warnings);
+        Assert.Equal(expected.PipelineWarnings, actual.PipelineWarnings);
     }
 
     [Fact]
