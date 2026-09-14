@@ -77,6 +77,10 @@ if [[ "${TYPST_FAKE_MODE:-success}" == "noop" ]]; then
   exit 0
 fi
 
+if [[ "${TYPST_FAKE_MODE:-success}" == "warning" ]]; then
+  printf 'warning: unknown font family: example\n' >&2
+fi
+
 output="$3"
 if [[ "$output" == *.pdf ]]; then
   printf '%%PDF-fake' > "$output"
@@ -380,6 +384,14 @@ fi
         Assert.Contains("TypstBridge exited with status 2. compile failed", result);
         Assert.Contains("Error: bad syntax (<source>:4:2)", result);
         Assert.Contains("Warning: ignored (deck.typ:7:9)", result);
+    }
+
+    [UnixFact]
+    public void CompileCli_SuccessWithWarnings_PreservesDiagnostics()
+    {
+        var result = InvokeCompileCliWithFakeTypst(CreateSimpleTypstDocument(), new CompileOptions(), "warning");
+        Assert.True(result.Success);
+        Assert.Contains("warning: unknown font family: example", Assert.Single(result.Warnings));
     }
 
     [UnixFact]

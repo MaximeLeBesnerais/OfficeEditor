@@ -56,13 +56,25 @@ internal sealed class DocxFormatRenderer : IFormatRenderer
                 return Success(warnings, Encoding.UTF8.GetBytes(builder.ExportToTypst()));
             }
 
-            var options = new CompileOptions { Ppi = request.Ppi > 0 ? request.Ppi : 150f, FontDirectory = request.FontPath };
-            return request.Format switch
+            var format = request.Format switch
             {
-                DocumentOutputFormat.Pdf => Success(warnings, builder.ExportToPdf(options)),
-                DocumentOutputFormat.Png => Success(warnings, builder.ExportToPng(options)),
-                DocumentOutputFormat.Svg => Success(warnings, builder.ExportToSvg(options)),
-                _ => Failure($"Unsupported output format '{request.Format}' for DOCX.")
+                DocumentOutputFormat.Pdf => OutputFormat.Pdf,
+                DocumentOutputFormat.Png => OutputFormat.Png,
+                DocumentOutputFormat.Svg => OutputFormat.Svg,
+                _ => throw new ArgumentException($"Unsupported output format '{request.Format}' for DOCX.")
+            };
+            var result = builder.ExportWithDiagnostics(new CompileOptions
+            {
+                Format = format,
+                Ppi = request.Ppi > 0 ? request.Ppi : 150f,
+                FontDirectory = request.FontPath
+            });
+            return new DocumentRenderResult
+            {
+                Success = result.Success && result.Pages.Length > 0,
+                Pages = result.Pages,
+                ErrorMessage = result.Success && result.Pages.Length == 0 ? "DOCX render produced no output." : result.ErrorMessage,
+                Warnings = warnings.Concat(result.Warnings).ToArray()
             };
         }
         catch (Exception ex)

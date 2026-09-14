@@ -102,8 +102,18 @@ public sealed record TypstBorderInfo
     public double SizeEighthPoints { get; init; }
 }
 
+/// <summary>Placement in the current page's text area; a null vertical alignment follows the paragraph.</summary>
+public sealed record TypstDrawingPlacement(double XPt, double YPt, string? VerticalAlignment = "top")
+{
+    public string Alignment => VerticalAlignment is null ? "left" : $"{VerticalAlignment} + left";
+}
+
+/// <summary>Text-body insets in points. Zero is an explicit value, not a missing default.</summary>
+public sealed record TypstTextInsets(double LeftPt, double TopPt, double RightPt, double BottomPt);
+
 public sealed record TypstImageBlock : TypstBlock
 {
+    public TypstDrawingPlacement? Placement { get; init; }
     public string Path { get; init; } = string.Empty;
     public double? WidthInches { get; init; }
     public double? HeightInches { get; init; }
@@ -126,6 +136,8 @@ public enum TypstShapeKind
 
 public sealed record TypstShapeBlock : TypstBlock
 {
+    public TypstDrawingPlacement? Placement { get; init; }
+    public TypstTextInsets? Insets { get; init; }
     public List<TypstParagraphBlock> Paragraphs { get; init; } = [];
     public double? XPt { get; init; }
     public double? YPt { get; init; }

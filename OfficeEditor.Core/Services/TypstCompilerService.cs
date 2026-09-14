@@ -47,6 +47,9 @@ public sealed record CompileResult
     public required byte[][] Pages { get; init; }
     public required bool Success { get; init; }
     public string? ErrorMessage { get; init; }
+
+    /// <summary>Non-fatal compiler diagnostics, including missing fonts and glyphs.</summary>
+    public IReadOnlyList<string> Warnings { get; init; } = [];
 }
 
 public sealed class TypstCompilerService : IDisposable
@@ -178,7 +181,9 @@ public sealed class TypstCompilerService : IDisposable
             return new CompileResult
             {
                 Pages = pages,
-                Success = true
+                Success = true,
+                Warnings = result.Diagnostics.Where(d => d.Severity == TypstDiagnosticSeverity.Warning)
+                    .Select(d => d.Message).Distinct(StringComparer.Ordinal).ToArray()
             };
         }
         catch (Exception ex)
@@ -394,7 +399,8 @@ public sealed class TypstCompilerService : IDisposable
             return new CompileResult
             {
                 Pages = pages.ToArray(),
-                Success = true
+                Success = true,
+                Warnings = string.IsNullOrWhiteSpace(stderr) ? [] : [stderr.Trim()]
             };
         }
         catch (Exception ex)
