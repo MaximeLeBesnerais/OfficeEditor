@@ -7,6 +7,9 @@ namespace DocxEditor.Core.Generation.Model;
 /// </summary>
 public abstract record FlowBlock
 {
+    /// <summary>Editable source identity, unique within its generation document.</summary>
+    public string? Id { get; init; }
+
     /// <summary>Optional style reference (resolved by the emitter).</summary>
     public string? Style { get; init; }
 }

@@ -26,6 +26,9 @@ public sealed record DocxGeneratorOptions
 /// <summary>A generated DOCX byte buffer together with its warnings and resolved model.</summary>
 public sealed record GeneratedDocx
 {
+    /// <summary>Validated JSON with IDs added; null for programmatic model input.</summary>
+    public string? NormalizedJson { get; init; }
+
     /// <summary>The complete DOCX package bytes.</summary>
     public required byte[] Content { get; init; }
 
@@ -106,7 +109,7 @@ public sealed class DocxGenerator
     public GeneratedDocx GenerateToBytes(string json, DocxGeneratorOptions? options = null)
     {
         var validation = ValidateJson(json);
-        return GenerateBytes(validation.Document!, options, validation.Warnings);
+        return GenerateBytes(validation.Document!, options, validation.Warnings) with { NormalizedJson = validation.NormalizedJson };
     }
 
     /// <summary>Validates a parsed model and returns the complete DOCX package in memory.</summary>

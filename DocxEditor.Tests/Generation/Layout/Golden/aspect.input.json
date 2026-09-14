@@ -5,28 +5,31 @@
   },
   "slides": [
     {
+      "id": "slide-0",
       "type": "container",
       "layout": { "mode": "row" },
       "children": [
-        { "type": "rect", "size": { "grow": 1, "aspect": "16:9" }, "fill": "primary" },
-        { "type": "rect", "size": { "h": 100, "aspect": "2:1" }, "fill": "primary" }
+        { "id": "rect-0", "type": "rect", "size": { "grow": 1, "aspect": "16:9" }, "fill": "primary" },
+        { "id": "rect-1", "type": "rect", "size": { "h": 100, "aspect": "2:1" }, "fill": "primary" }
       ]
     },
     {
+      "id": "slide-1",
       "type": "container",
       "layout": { "mode": "column" },
       "children": [
-        { "type": "rect", "size": { "w": 120, "aspect": "4:3" }, "fill": "primary" },
-        { "type": "rect", "size": { "grow": 1, "aspect": "1:1" }, "fill": "primary" }
+        { "id": "rect-2", "type": "rect", "size": { "w": 120, "aspect": "4:3" }, "fill": "primary" },
+        { "id": "rect-3", "type": "rect", "size": { "grow": 1, "aspect": "1:1" }, "fill": "primary" }
       ]
     },
     {
+      "id": "slide-2",
       "type": "container",
       "layout": { "mode": "grid", "cols": 2 },
       "children": [
-        { "type": "rect", "size": { "aspect": "16:9" }, "fill": "primary" },
-        { "type": "rect", "size": { "aspect": "16:9" }, "fill": "primary" },
-        { "type": "rect", "size": { "aspect": "16:9" }, "fill": "primary" }
+        { "id": "rect-4", "type": "rect", "size": { "aspect": "16:9" }, "fill": "primary" },
+        { "id": "rect-5", "type": "rect", "size": { "aspect": "16:9" }, "fill": "primary" },
+        { "id": "rect-6", "type": "rect", "size": { "aspect": "16:9" }, "fill": "primary" }
       ]
     }
   ]

@@ -13,6 +13,9 @@ namespace XlsxEditor.Core.Instructions;
 /// </summary>
 public sealed record XlsxGenerateResult(byte[]? Bytes, XlsxValidationResult Validation)
 {
+    /// <summary>Validated JSON with IDs added; null for programmatic model input.</summary>
+    public string? NormalizedJson { get; init; }
+
     public bool IsValid => Validation.IsValid;
 
     public bool HasErrors => Validation.HasErrors;
@@ -55,7 +58,7 @@ public static class XlsxGenerator
             return new XlsxGenerateResult(null, parsed.Validation);
         }
 
-        return Generate(parsed.InstructionSet!, options);
+        return Generate(parsed.InstructionSet!, options) with { NormalizedJson = parsed.NormalizedJson };
     }
 
     /// <summary>

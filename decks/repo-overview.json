@@ -8,18 +8,21 @@
   },
   "slides": [
     {
+      "id": "slide-0",
       "type": "container",
       "fill": "paper",
       "layout": { "mode": "row", "gap": 24, "align": "stretch" },
       "padding": [56, 56, 56, 56],
       "children": [
         {
+          "id": "container-0",
           "type": "container",
           "layout": { "mode": "column", "gap": 14, "justify": "center", "align": "start" },
           "overflow": "clip",
           "size": { "grow": 1 },
           "children": [
             {
+              "id": "text-0",
               "type": "text",
               "text": ".NET 9 · C# 12 · MIT",
               "fontSize": 14,
@@ -28,6 +31,7 @@
               "size": { "h": 20 }
             },
             {
+              "id": "text-1",
               "type": "text",
               "text": "OfficeEditor",
               "font": "display",
@@ -36,6 +40,7 @@
               "size": { "h": 68 }
             },
             {
+              "id": "text-2",
               "type": "text",
               "text": "Programmatic Office documents — without hand-writing OpenXML.",
               "fontSize": 18,
@@ -43,6 +48,7 @@
               "size": { "h": 28 }
             },
             {
+              "id": "text-3",
               "type": "text",
               "text": "Create, edit and render DOCX/PPTX; build and inspect XLSX via fluent APIs and v1 JSON instructions.",
               "fontSize": 14,
@@ -50,29 +56,33 @@
               "size": { "h": 44 }
             },
             {
+              "id": "container-1",
               "type": "container",
               "layout": { "mode": "row", "gap": 10, "justify": "start", "align": "center" },
               "size": { "h": 30 },
               "children": [
-                { "type": "badge", "content": { "text": "DOCX" }, "size": { "w": 68, "h": 26 } },
-                { "type": "badge", "content": { "text": "PPTX" }, "size": { "w": 68, "h": 26 } },
-                { "type": "badge", "content": { "text": "XLSX" }, "size": { "w": 68, "h": 26 } }
+                { "id": "badge-0", "type": "badge", "content": { "text": "DOCX" }, "size": { "w": 68, "h": 26 } },
+                { "id": "badge-1", "type": "badge", "content": { "text": "PPTX" }, "size": { "w": 68, "h": 26 } },
+                { "id": "badge-2", "type": "badge", "content": { "text": "XLSX" }, "size": { "w": 68, "h": 26 } }
               ]
             }
           ]
         },
         {
+          "id": "container-2",
           "type": "container",
           "layout": { "mode": "column", "justify": "center", "align": "center" },
           "overflow": "clip",
           "size": { "w": 260 },
           "children": [
             {
+              "id": "container-3",
               "type": "container",
               "layout": { "mode": "row", "gap": 30, "justify": "center", "align": "center" },
               "size": { "w": 240, "h": 240 },
               "children": [
                 {
+                  "id": "text-4",
                   "type": "text",
                   "text": "{",
                   "font": "display",
@@ -82,6 +92,7 @@
                   "size": { "w": 100, "h": 240 }
                 },
                 {
+                  "id": "text-5",
                   "type": "text",
                   "text": "}",
                   "font": "display",
@@ -97,6 +108,7 @@
       ]
     },
     {
+      "id": "two_col-0",
       "type": "two_col",
       "content": {
         "title": "The problem",
@@ -123,12 +135,14 @@
       }
     },
     {
+      "id": "slide-1",
       "type": "container",
       "fill": "paper",
       "layout": { "mode": "column", "gap": 16 },
       "padding": [46, 46, 46, 46],
       "children": [
         {
+          "id": "title_block-0",
           "type": "title_block",
           "content": {
             "kicker": "END TO END",
@@ -137,17 +151,20 @@
           "size": { "h": 86 }
         },
         {
+          "id": "container-4",
           "type": "container",
           "layout": { "mode": "row", "gap": 12, "justify": "center", "align": "center" },
           "overflow": "clip",
           "size": { "grow": 1 },
           "children": [
             {
+              "id": "card-0",
               "type": "card",
               "content": { "title": "Inputs", "body": "template.pptx · data.json" },
               "size": { "w": 230, "h": 110 }
             },
             {
+              "id": "text-6",
               "type": "text",
               "text": "→",
               "fontSize": 28,
@@ -156,11 +173,13 @@
               "size": { "w": 28, "h": 36 }
             },
             {
+              "id": "card-1",
               "type": "card",
               "content": { "title": "officeeditor merge", "body": "detect · replace · render" },
               "size": { "w": 230, "h": 110 }
             },
             {
+              "id": "text-7",
               "type": "text",
               "text": "→",
               "fontSize": 28,
@@ -169,6 +188,7 @@
               "size": { "w": 28, "h": 36 }
             },
             {
+              "id": "card-2",
               "type": "card",
               "content": { "title": "Outputs", "body": "report.pptx · report.pdf" },
               "size": { "w": 230, "h": 110 }
@@ -176,6 +196,7 @@
           ]
         },
         {
+          "id": "text-8",
           "type": "text",
           "text": "DOCX/PPTX have edit instructions; XLSX has fluent build/read APIs plus v1 JSON workbook instructions.",
           "fontSize": 13,
@@ -186,30 +207,35 @@
       ]
     },
     {
+      "id": "slide-2",
       "type": "container",
       "fill": "paper",
       "layout": { "mode": "column", "gap": 18 },
       "padding": [46, 46, 46, 46],
       "children": [
         {
+          "id": "title_block-1",
           "type": "title_block",
           "content": { "title": "Core capabilities" },
           "size": { "h": 64 }
         },
         {
+          "id": "container-5",
           "type": "container",
           "layout": { "mode": "row", "gap": 18, "align": "stretch" },
           "overflow": "clip",
           "size": { "grow": 1 },
           "children": [
             {
+              "id": "container-6",
               "type": "container",
               "layout": { "mode": "column", "gap": 0 },
               "overflow": "clip",
               "size": { "grow": 1 },
               "children": [
-                { "type": "rect", "fill": "accent", "size": { "h": 3 } },
+                { "id": "rect-0", "type": "rect", "fill": "accent", "size": { "h": 3 } },
                 {
+                  "id": "card-3",
                   "type": "card",
                   "content": {
                     "title": "Create",
@@ -220,13 +246,15 @@
               ]
             },
             {
+              "id": "container-7",
               "type": "container",
               "layout": { "mode": "column", "gap": 0 },
               "overflow": "clip",
               "size": { "grow": 1 },
               "children": [
-                { "type": "rect", "fill": "accent", "size": { "h": 3 } },
+                { "id": "rect-1", "type": "rect", "fill": "accent", "size": { "h": 3 } },
                 {
+                  "id": "card-4",
                   "type": "card",
                   "content": {
                     "title": "Edit",
@@ -237,13 +265,15 @@
               ]
             },
             {
+              "id": "container-8",
               "type": "container",
               "layout": { "mode": "column", "gap": 0 },
               "overflow": "clip",
               "size": { "grow": 1 },
               "children": [
-                { "type": "rect", "fill": "accent", "size": { "h": 3 } },
+                { "id": "rect-2", "type": "rect", "fill": "accent", "size": { "h": 3 } },
                 {
+                  "id": "card-5",
                   "type": "card",
                   "content": {
                     "title": "Export",
@@ -258,12 +288,14 @@
       ]
     },
     {
+      "id": "slide-3",
       "type": "container",
       "fill": "paper",
       "layout": { "mode": "column", "gap": 12 },
       "padding": [46, 46, 46, 46],
       "children": [
         {
+          "id": "title_block-2",
           "type": "title_block",
           "content": {
             "kicker": "PROOF",
@@ -272,27 +304,32 @@
           "size": { "h": 86 }
         },
         {
+          "id": "container-9",
           "type": "container",
           "layout": { "mode": "grid", "cols": 2, "gap": 14 },
           "overflow": "clip",
           "size": { "grow": 1 },
           "children": [
             {
+              "id": "image-0",
               "type": "image",
               "src": "assets/dashboard.png",
               "fit": "contain"
             },
             {
+              "id": "image-1",
               "type": "image",
               "src": "assets/dashboard.png",
               "fit": "contain"
             },
             {
+              "id": "image-2",
               "type": "image",
                "src": "assets/dashboard.png",
               "fit": "contain"
             },
             {
+              "id": "image-3",
               "type": "image",
                "src": "assets/dashboard.png",
               "fit": "contain"
@@ -300,6 +337,7 @@
           ]
         },
         {
+          "id": "text-9",
           "type": "text",
            "text": "Real PPTX file → Typst pipeline → PNG.",
           "fontSize": 13,
@@ -310,12 +348,14 @@
       ]
     },
     {
+      "id": "slide-4",
       "type": "container",
       "fill": "paper",
       "layout": { "mode": "column", "gap": 12 },
       "padding": [46, 46, 46, 46],
       "children": [
         {
+          "id": "title_block-3",
           "type": "title_block",
           "content": {
             "kicker": "ARCHITECTURE",
@@ -324,12 +364,14 @@
           "size": { "h": 86 }
         },
         {
+          "id": "container-10",
           "type": "container",
           "layout": { "mode": "row", "gap": 8, "justify": "center", "align": "center" },
           "overflow": "clip",
           "size": { "h": 66 },
           "children": [
             {
+              "id": "container-11",
               "type": "container",
               "fill": "paper",
               "stroke": { "color": "muted", "width": 1 },
@@ -337,11 +379,12 @@
               "padding": [6, 8, 6, 8],
               "size": { "w": 170, "h": 64 },
               "children": [
-                { "type": "text", "text": "JSON / YAML", "fontSize": 13, "color": "ink", "textAlign": "center", "anchor": "middle", "size": { "h": 48 } }
+                { "id": "text-10", "type": "text", "text": "JSON / YAML", "fontSize": 13, "color": "ink", "textAlign": "center", "anchor": "middle", "size": { "h": 48 } }
               ]
             },
-            { "type": "text", "text": "→", "fontSize": 20, "color": "accent", "textAlign": "center", "size": { "w": 22, "h": 28 } },
+            { "id": "text-11", "type": "text", "text": "→", "fontSize": 20, "color": "accent", "textAlign": "center", "size": { "w": 22, "h": 28 } },
             {
+              "id": "container-12",
               "type": "container",
               "fill": "paper",
               "stroke": { "color": "muted", "width": 1 },
@@ -349,11 +392,12 @@
               "padding": [6, 8, 6, 8],
               "size": { "w": 170, "h": 64 },
               "children": [
-                { "type": "text", "text": "Parse & validate", "fontSize": 13, "color": "ink", "textAlign": "center", "anchor": "middle", "size": { "h": 48 } }
+                { "id": "text-12", "type": "text", "text": "Parse & validate", "fontSize": 13, "color": "ink", "textAlign": "center", "anchor": "middle", "size": { "h": 48 } }
               ]
             },
-            { "type": "text", "text": "→", "fontSize": 20, "color": "accent", "textAlign": "center", "size": { "w": 22, "h": 28 } },
+            { "id": "text-13", "type": "text", "text": "→", "fontSize": 20, "color": "accent", "textAlign": "center", "size": { "w": 22, "h": 28 } },
             {
+              "id": "container-13",
               "type": "container",
               "fill": "paper",
               "stroke": { "color": "muted", "width": 1 },
@@ -361,11 +405,12 @@
               "padding": [6, 8, 6, 8],
               "size": { "w": 170, "h": 64 },
               "children": [
-                { "type": "text", "text": "Expand: archetypes → components → primitives", "fontSize": 13, "color": "ink", "textAlign": "center", "anchor": "middle", "size": { "h": 48 } }
+                { "id": "text-14", "type": "text", "text": "Expand: archetypes → components → primitives", "fontSize": 13, "color": "ink", "textAlign": "center", "anchor": "middle", "size": { "h": 48 } }
               ]
             },
-            { "type": "text", "text": "→", "fontSize": 20, "color": "accent", "textAlign": "center", "size": { "w": 22, "h": 28 } },
+            { "id": "text-15", "type": "text", "text": "→", "fontSize": 20, "color": "accent", "textAlign": "center", "size": { "w": 22, "h": 28 } },
             {
+              "id": "container-14",
               "type": "container",
               "fill": "paper",
               "stroke": { "color": "muted", "width": 1 },
@@ -373,12 +418,13 @@
               "padding": [6, 8, 6, 8],
               "size": { "w": 170, "h": 64 },
               "children": [
-                { "type": "text", "text": "Resolved layout tree — single C# pass", "fontSize": 13, "color": "ink", "textAlign": "center", "anchor": "middle", "size": { "h": 48 } }
+                { "id": "text-16", "type": "text", "text": "Resolved layout tree — single C# pass", "fontSize": 13, "color": "ink", "textAlign": "center", "anchor": "middle", "size": { "h": 48 } }
               ]
             }
           ]
         },
         {
+          "id": "text-17",
           "type": "text",
           "text": "↓",
           "fontSize": 20,
@@ -387,12 +433,14 @@
           "size": { "h": 26 }
         },
         {
+          "id": "container-15",
           "type": "container",
           "layout": { "mode": "row", "gap": 24, "justify": "center", "align": "center" },
           "overflow": "clip",
           "size": { "h": 64 },
           "children": [
             {
+              "id": "container-16",
               "type": "container",
               "fill": "paper",
               "stroke": { "color": "primary", "width": 1 },
@@ -400,11 +448,12 @@
               "padding": [6, 10, 6, 10],
               "size": { "w": 380, "h": 62 },
               "children": [
-                { "type": "text", "text": "OOXML emitter", "fontSize": 14, "color": "ink", "bold": true, "textAlign": "center", "size": { "h": 18 } },
-                { "type": "text", "text": "native .pptx / .docx / .xlsx", "fontSize": 12, "color": "muted", "textAlign": "center", "size": { "h": 16 } }
+                { "id": "text-18", "type": "text", "text": "OOXML emitter", "fontSize": 14, "color": "ink", "bold": true, "textAlign": "center", "size": { "h": 18 } },
+                { "id": "text-19", "type": "text", "text": "native .pptx / .docx / .xlsx", "fontSize": 12, "color": "muted", "textAlign": "center", "size": { "h": 16 } }
               ]
             },
             {
+              "id": "container-17",
               "type": "container",
               "fill": "paper",
               "stroke": { "color": "primary", "width": 1 },
@@ -412,13 +461,14 @@
               "padding": [6, 10, 6, 10],
               "size": { "w": 380, "h": 62 },
               "children": [
-                { "type": "text", "text": "Typst emitter", "fontSize": 14, "color": "ink", "bold": true, "textAlign": "center", "size": { "h": 18 } },
-                { "type": "text", "text": "PDF · PNG · SVG preview", "fontSize": 12, "color": "muted", "textAlign": "center", "size": { "h": 16 } }
+                { "id": "text-20", "type": "text", "text": "Typst emitter", "fontSize": 14, "color": "ink", "bold": true, "textAlign": "center", "size": { "h": 18 } },
+                { "id": "text-21", "type": "text", "text": "PDF · PNG · SVG preview", "fontSize": 12, "color": "muted", "textAlign": "center", "size": { "h": 16 } }
               ]
             }
           ]
         },
         {
+          "id": "text-22",
           "type": "text",
           "text": "Deterministic preview from the same resolved layout — no second layout engine.",
           "fontSize": 13,
@@ -429,6 +479,7 @@
       ]
     },
     {
+      "id": "table_slide-0",
       "type": "table_slide",
       "content": {
         "title": "What works where",
@@ -447,12 +498,14 @@
       }
     },
     {
+      "id": "slide-5",
       "type": "container",
       "fill": "paper",
       "layout": { "mode": "column", "gap": 14 },
       "padding": [46, 46, 46, 46],
       "children": [
         {
+          "id": "title_block-4",
           "type": "title_block",
           "content": {
             "kicker": "VISUAL FIDELITY",
@@ -460,8 +513,9 @@
           },
           "size": { "h": 86 }
         },
-        { "type": "rect", "fill": "accent", "size": { "w": 72, "h": 3 } },
+        { "id": "rect-3", "type": "rect", "fill": "accent", "size": { "w": 72, "h": 3 } },
         {
+          "id": "text-23",
           "type": "text",
           "text": "Geometry and positioning come from the shared layout pass — residual differences are mostly font metrics and rasterization.",
           "fontSize": 14,
@@ -469,24 +523,28 @@
           "size": { "h": 20 }
         },
         {
+          "id": "container-18",
           "type": "container",
           "layout": { "mode": "row", "gap": 18, "align": "stretch" },
           "overflow": "clip",
           "size": { "grow": 1 },
           "children": [
             {
+              "id": "container-19",
               "type": "container",
               "layout": { "mode": "column", "gap": 8 },
               "overflow": "clip",
               "size": { "grow": 1 },
               "children": [
                 {
+                  "id": "image-4",
                   "type": "image",
                   "src": "assets/dashboard.png",
                   "fit": "contain",
                   "size": { "grow": 1 }
                 },
                 {
+                  "id": "text-24",
                   "type": "text",
                   "text": "PowerPoint render (ground truth)",
                   "fontSize": 13,
@@ -497,18 +555,21 @@
               ]
             },
             {
+              "id": "container-20",
               "type": "container",
               "layout": { "mode": "column", "gap": 8 },
               "overflow": "clip",
               "size": { "grow": 1 },
               "children": [
                 {
+                  "id": "image-5",
                   "type": "image",
                   "src": "assets/dashboard.png",
                   "fit": "contain",
                   "size": { "grow": 1 }
                 },
                 {
+                  "id": "text-25",
                   "type": "text",
                   "text": "OfficeEditor Typst render (spec of record)",
                   "fontSize": 13,
@@ -521,6 +582,7 @@
           ]
         },
         {
+          "id": "text-26",
           "type": "text",
            "text": "RMSE comparison data — regenerate against northwind-demo.",
           "fontSize": 14,
@@ -531,12 +593,14 @@
       ]
     },
     {
+      "id": "slide-6",
       "type": "container",
       "fill": "paper",
       "layout": { "mode": "column", "gap": 18 },
       "padding": [46, 46, 46, 46],
       "children": [
         {
+          "id": "title_block-5",
           "type": "title_block",
           "content": {
             "kicker": "FOR DEVELOPERS",
@@ -545,12 +609,14 @@
           "size": { "h": 86 }
         },
         {
+          "id": "container-21",
           "type": "container",
           "layout": { "mode": "grid", "cols": 2, "gap": 18 },
           "overflow": "clip",
           "size": { "grow": 1 },
           "children": [
             {
+              "id": "card-6",
               "type": "card",
               "content": {
                 "title": "CLI",
@@ -558,6 +624,7 @@
               }
             },
             {
+              "id": "card-7",
               "type": "card",
               "content": {
                 "title": "Fluent C# API",
@@ -565,6 +632,7 @@
               }
             },
             {
+              "id": "card-8",
               "type": "card",
               "content": {
                 "title": "ASP.NET Core + MCP",
@@ -572,6 +640,7 @@
               }
             },
             {
+              "id": "card-9",
               "type": "card",
               "content": {
                 "title": "Web client",
@@ -583,6 +652,7 @@
       ]
     },
     {
+      "id": "two_col-1",
       "type": "two_col",
       "content": {
         "title": "Positioning",
@@ -609,23 +679,27 @@
       }
     },
     {
+      "id": "slide-7",
       "type": "container",
       "fill": "paper",
       "layout": { "mode": "column", "gap": 16 },
       "padding": [46, 46, 46, 46],
       "children": [
         {
+          "id": "title_block-6",
           "type": "title_block",
           "content": { "title": "Status & roadmap" },
           "size": { "h": 64 }
         },
         {
+          "id": "container-22",
           "type": "container",
           "layout": { "mode": "row", "gap": 18, "align": "stretch" },
           "overflow": "clip",
           "size": { "grow": 1 },
           "children": [
             {
+              "id": "bullet_list-0",
               "type": "bullet_list",
               "content": {
                 "title": "Works today",
@@ -639,6 +713,7 @@
               "size": { "grow": 1 }
             },
             {
+              "id": "bullet_list-1",
               "type": "bullet_list",
               "content": {
                 "title": "Next",
@@ -654,24 +729,27 @@
           ]
         },
         {
+          "id": "container-23",
           "type": "container",
           "layout": { "mode": "row", "gap": 12, "justify": "start", "align": "center" },
           "size": { "h": 30 },
           "children": [
-            { "type": "badge", "content": { "text": "v0.7.0" }, "size": { "w": 80, "h": 26 } },
-            { "type": "badge", "content": { "text": "MIT" }, "size": { "w": 60, "h": 26 } },
-             { "type": "badge", "content": { "text": "macOS · Linux" }, "size": { "w": 125, "h": 26 } }
+            { "id": "badge-3", "type": "badge", "content": { "text": "v0.7.0" }, "size": { "w": 80, "h": 26 } },
+            { "id": "badge-4", "type": "badge", "content": { "text": "MIT" }, "size": { "w": 60, "h": 26 } },
+             { "id": "badge-5", "type": "badge", "content": { "text": "macOS · Linux" }, "size": { "w": 125, "h": 26 } }
           ]
         }
       ]
     },
     {
+      "id": "slide-8",
       "type": "container",
       "fill": "paper",
       "layout": { "mode": "column", "gap": 12, "justify": "center", "align": "center" },
       "padding": [46, 46, 46, 46],
       "children": [
         {
+          "id": "text-27",
           "type": "text",
           "text": "OPEN SOURCE · MIT",
           "fontSize": 14,
@@ -681,6 +759,7 @@
           "size": { "h": 20 }
         },
         {
+          "id": "text-28",
           "type": "text",
           "text": "Try it",
           "font": "display",
@@ -690,6 +769,7 @@
           "size": { "h": 56 }
         },
         {
+          "id": "text-29",
           "type": "text",
           "text": "dotnet run --project OfficeEditor.Cli -- create demo.pptx --title \"Hello\"",
           "fontSize": 16,
@@ -698,6 +778,7 @@
           "size": { "h": 24 }
         },
         {
+          "id": "text-30",
           "type": "text",
           "text": "github.com/MaximeLeBesnerais/OfficeEditor",
           "fontSize": 14,
@@ -706,11 +787,13 @@
           "size": { "h": 20 }
         },
         {
+          "id": "container-24",
           "type": "container",
           "layout": { "mode": "row", "gap": 24, "justify": "center", "align": "center" },
           "size": { "w": 140, "h": 92 },
           "children": [
             {
+              "id": "text-31",
               "type": "text",
               "text": "{",
               "font": "display",
@@ -720,6 +803,7 @@
               "size": { "w": 50, "h": 92 }
             },
             {
+              "id": "text-32",
               "type": "text",
               "text": "}",
               "font": "display",

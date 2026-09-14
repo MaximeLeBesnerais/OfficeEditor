@@ -19,6 +19,33 @@ public sealed class CliMainTests : IDisposable
     }
 
     [Fact]
+    public void IdsCommand_NormalizesGenerationOnly_AndIsIdempotent()
+    {
+        var source = TempPath("ids.json");
+        var config = TempPath("settings.json");
+        File.WriteAllText(source, ValidGenerationDocument());
+        File.WriteAllText(config, "{\"theme\":\"dark\"}");
+        Assert.Equal(0, InvokeMain(["ids", _tempDir, "--recursive"]));
+        var normalized = File.ReadAllText(source);
+        Assert.Contains("\"id\"", normalized);
+        Assert.Equal("{\"theme\":\"dark\"}", File.ReadAllText(config));
+        Assert.Equal(0, InvokeMain(["ids", _tempDir, "--recursive"]));
+        Assert.Equal(normalized, File.ReadAllText(source));
+    }
+
+    [Fact]
+    public void Generate_PersistsIdsIntoSource()
+    {
+        var source = TempPath("source.json");
+        File.WriteAllText(source, ValidGenerationDocument());
+        Assert.Equal(0, InvokeMain(["generate", source, "--output", TempPath("source.pptx")]));
+        var normalized = File.ReadAllText(source);
+        Assert.Contains("\"id\"", normalized);
+        Assert.Equal(0, InvokeMain(["generate", source, "--output", TempPath("source.pptx")]));
+        Assert.Equal(normalized, File.ReadAllText(source));
+    }
+
+    [Fact]
     public void Generate_ContractDocument_MatchesCoreDelivery()
     {
         var expected = new PptxGenerator().Generate(GenerationContract.Json);

@@ -5,27 +5,30 @@
   },
   "slides": [
     {
+      "id": "slide-0",
       "type": "container",
       "padding": 50,
       "layout": { "mode": "row" },
       "children": [
-        { "type": "rect", "size": { "grow": 1 }, "fill": "primary" }
+        { "id": "rect-0", "type": "rect", "size": { "grow": 1 }, "fill": "primary" }
       ]
     },
     {
+      "id": "slide-1",
       "type": "container",
       "padding": [20, 40],
       "layout": { "mode": "row" },
       "children": [
-        { "type": "rect", "size": { "grow": 1 }, "fill": "primary" }
+        { "id": "rect-1", "type": "rect", "size": { "grow": 1 }, "fill": "primary" }
       ]
     },
     {
+      "id": "slide-2",
       "type": "container",
       "padding": [10, 20, 30, 40],
       "layout": { "mode": "row" },
       "children": [
-        { "type": "rect", "size": { "grow": 1 }, "fill": "primary" }
+        { "id": "rect-2", "type": "rect", "size": { "grow": 1 }, "fill": "primary" }
       ]
     }
   ]

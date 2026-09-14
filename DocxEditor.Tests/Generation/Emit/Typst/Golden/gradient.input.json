@@ -6,20 +6,21 @@
   },
   "slides": [
     {
+      "id": "slide-0",
       "type": "container",
       "children": [
-        { "type": "rect", "at": { "x": 10, "y": 10 }, "size": { "w": 280, "h": 80 },
+        { "id": "rect-0", "type": "rect", "at": { "x": 10, "y": 10 }, "size": { "w": 280, "h": 80 },
           "fill": { "angle": 0, "stops": [
             { "color": "primary", "offset": 0 },
             { "color": "accent", "offset": 1 }
           ] } },
-        { "type": "rect", "at": { "x": 10, "y": 110 }, "size": { "w": 280, "h": 80 },
+        { "id": "rect-1", "type": "rect", "at": { "x": 10, "y": 110 }, "size": { "w": 280, "h": 80 },
           "fill": { "angle": 45, "stops": [
             { "color": "primary", "offset": 0 },
             { "color": "accent", "offset": 0.5 },
             { "color": "ink", "offset": 1 }
           ] } },
-        { "type": "rect", "at": { "x": 10, "y": 210 }, "size": { "w": 280, "h": 80 },
+        { "id": "rect-2", "type": "rect", "at": { "x": 10, "y": 210 }, "size": { "w": 280, "h": 80 },
           "fill": { "angle": 90, "stops": [
             { "color": "muted", "offset": 0, "alpha": 0.8 },
             { "color": "#123456", "offset": 1 }

@@ -1,3 +1,4 @@
+using OfficeEditor.Core.Generation;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -135,39 +136,39 @@ public sealed class DocxGenerationDocumentParser : IDocxGenerationParser
     private static readonly IReadOnlySet<string> PageProps = Set("size", "orientation", "margins", "defaultFont", "defaultTextColor");
     private static readonly IReadOnlySet<string> LayoutProps = Set("density", "minBodySizePt", "maxTableWidthPt");
     private static readonly IReadOnlySet<string> MarginsProps = Set("top", "right", "bottom", "left");
-    private static readonly IReadOnlySet<string> SectionProps = Set("pageSetup", "header", "footer", "blocks", "positioned");
+    private static readonly IReadOnlySet<string> SectionProps = Set("id", "pageSetup", "header", "footer", "blocks", "positioned");
     private static readonly IReadOnlySet<string> PageSetupProps = Set("size", "orientation", "margins", "columns", "breakType");
     private static readonly IReadOnlySet<string> ColumnsProps = Set("count", "spacing", "separator");
     private static readonly IReadOnlySet<string> PageSizeCustomProps = Set("width", "height");
-    private static readonly IReadOnlySet<string> ParagraphProps = Set("type", "text", "runs", "style", "token", "role", "alignment", "spacing");
-    private static readonly IReadOnlySet<string> HeadingProps = Set("type", "level", "text", "runs", "style", "token", "role", "alignment");
-    private static readonly IReadOnlySet<string> ListProps = Set("type", "kind", "start", "items", "style");
+    private static readonly IReadOnlySet<string> ParagraphProps = Set("id", "type", "text", "runs", "style", "token", "role", "alignment", "spacing");
+    private static readonly IReadOnlySet<string> HeadingProps = Set("id", "type", "level", "text", "runs", "style", "token", "role", "alignment");
+    private static readonly IReadOnlySet<string> ListProps = Set("id", "type", "kind", "start", "items", "style");
     private static readonly IReadOnlySet<string> ListItemProps = Set("text", "runs", "token", "role", "alignment", "spacing");
-    private static readonly IReadOnlySet<string> TableProps = Set("type", "rows", "widths", "style", "alignment");
+    private static readonly IReadOnlySet<string> TableProps = Set("id", "type", "rows", "widths", "style", "alignment");
     private static readonly IReadOnlySet<string> RowProps = Set("header", "cells");
     private static readonly IReadOnlySet<string> CellProps = Set("text", "runs", "token", "role", "alignment", "fill");
-    private static readonly IReadOnlySet<string> FlowImageProps = Set("type", "src", "fit", "crop", "alt", "width", "height", "style");
-    private static readonly IReadOnlySet<string> CalloutProps = Set("type", "tone", "text", "runs", "style", "token", "role");
-    private static readonly IReadOnlySet<string> PageBreakProps = Set("type");
-    private static readonly IReadOnlySet<string> GroupProps = Set("type", "blocks", "style");
-    private static readonly IReadOnlySet<string> CoverProps = Set("type", "eyebrow", "title", "subtitle", "metadata", "kpis", "pageBreak", "style");
-    private static readonly IReadOnlySet<string> KpiRowProps = Set("type", "items", "style");
+    private static readonly IReadOnlySet<string> FlowImageProps = Set("id", "type", "src", "fit", "crop", "alt", "width", "height", "style");
+    private static readonly IReadOnlySet<string> CalloutProps = Set("id", "type", "tone", "text", "runs", "style", "token", "role");
+    private static readonly IReadOnlySet<string> PageBreakProps = Set("id", "type");
+    private static readonly IReadOnlySet<string> GroupProps = Set("id", "type", "blocks", "style");
+    private static readonly IReadOnlySet<string> CoverProps = Set("id", "type", "eyebrow", "title", "subtitle", "metadata", "kpis", "pageBreak", "style");
+    private static readonly IReadOnlySet<string> KpiRowProps = Set("id", "type", "items", "style");
     private static readonly IReadOnlySet<string> KpiItemProps = Set("value", "label", "tone");
-    private static readonly IReadOnlySet<string> SemanticSectionProps = Set("type", "title", "intro", "blocks", "style");
-    private static readonly IReadOnlySet<string> ComparisonTableProps = Set("type", "columns", "rows", "emphasisFirstColumn", "style");
+    private static readonly IReadOnlySet<string> SemanticSectionProps = Set("id", "type", "title", "intro", "blocks", "style");
+    private static readonly IReadOnlySet<string> ComparisonTableProps = Set("id", "type", "columns", "rows", "emphasisFirstColumn", "style");
     private static readonly IReadOnlySet<string> ComparisonTableRowProps = Set("cells");
-    private static readonly IReadOnlySet<string> RoadmapProps = Set("type", "phases", "style");
+    private static readonly IReadOnlySet<string> RoadmapProps = Set("id", "type", "phases", "style");
     private static readonly IReadOnlySet<string> RoadmapPhaseProps = Set("window", "action", "evidence", "tone");
     private static readonly IReadOnlySet<string> RunProps = Set("text", "style", "font", "size", "color", "bold", "italic", "underline", "allCaps");
     private static readonly IReadOnlySet<string> SpacingProps = Set("before", "after", "line");
     private static readonly IReadOnlySet<string> CropProps = Set("left", "top", "right", "bottom");
     private static readonly IReadOnlySet<string> StrokeProps = Set("color", "width");
     private static readonly IReadOnlySet<string> WrapDistancesProps = Set("top", "left", "bottom", "right");
-    private static readonly IReadOnlySet<string> TextBoxProps = Set("type", "x", "y", "width", "height", "rotation", "zOrder", "anchor", "wrap", "wrapDistances", "alt", "text", "runs", "token", "alignment", "spacing", "fill", "stroke", "cornerRadius");
-    private static readonly IReadOnlySet<string> PositionedImageProps = Set("type", "x", "y", "width", "height", "rotation", "zOrder", "anchor", "wrap", "wrapDistances", "alt", "src", "fit", "crop");
-    private static readonly IReadOnlySet<string> RectProps = Set("type", "x", "y", "width", "height", "rotation", "zOrder", "anchor", "wrap", "wrapDistances", "alt", "fill", "stroke", "cornerRadius");
-    private static readonly IReadOnlySet<string> LineProps = Set("type", "x", "y", "width", "height", "rotation", "zOrder", "anchor", "wrap", "wrapDistances", "alt", "orientation", "stroke");
-    private static readonly IReadOnlySet<string> PositionedCalloutProps = Set("type", "x", "y", "width", "height", "rotation", "zOrder", "anchor", "wrap", "wrapDistances", "alt", "tone", "text", "runs", "token", "alignment", "spacing", "fill", "stroke", "cornerRadius");
+    private static readonly IReadOnlySet<string> TextBoxProps = Set("id", "type", "x", "y", "width", "height", "rotation", "zOrder", "anchor", "wrap", "wrapDistances", "alt", "text", "runs", "token", "alignment", "spacing", "fill", "stroke", "cornerRadius");
+    private static readonly IReadOnlySet<string> PositionedImageProps = Set("id", "type", "x", "y", "width", "height", "rotation", "zOrder", "anchor", "wrap", "wrapDistances", "alt", "src", "fit", "crop");
+    private static readonly IReadOnlySet<string> RectProps = Set("id", "type", "x", "y", "width", "height", "rotation", "zOrder", "anchor", "wrap", "wrapDistances", "alt", "fill", "stroke", "cornerRadius");
+    private static readonly IReadOnlySet<string> LineProps = Set("id", "type", "x", "y", "width", "height", "rotation", "zOrder", "anchor", "wrap", "wrapDistances", "alt", "orientation", "stroke");
+    private static readonly IReadOnlySet<string> PositionedCalloutProps = Set("id", "type", "x", "y", "width", "height", "rotation", "zOrder", "anchor", "wrap", "wrapDistances", "alt", "tone", "text", "runs", "token", "alignment", "spacing", "fill", "stroke", "cornerRadius");
 
     /// <summary>
     /// Validates a generation JSON document in a single pass. Never throws for contract
@@ -261,6 +262,7 @@ public sealed class DocxGenerationDocumentParser : IDocxGenerationParser
             JsonDocument document;
             try
             {
+                json = GenerationJsonIds.NormalizeIfRecognized(json);
                 document = JsonDocument.Parse(json);
             }
             catch (JsonException ex)
@@ -285,7 +287,7 @@ public sealed class DocxGenerationDocumentParser : IDocxGenerationParser
                     AddDistinct(_errors, semantic.Errors);
                     AddDistinct(_warnings, semantic.Warnings);
                 }
-                return Result(_errors.Count == 0 ? parsed : null);
+                return Result(_errors.Count == 0 ? parsed : null) with { NormalizedJson = _errors.Count == 0 ? json : null };
             }
         }
 
@@ -625,6 +627,12 @@ public sealed class DocxGenerationDocumentParser : IDocxGenerationParser
 
         private Section? ParseSection(JsonElement el, string path, bool isFirst)
         {
+            var parsed = ParseSectionCore(el, path, isFirst);
+            return parsed is null ? null : parsed with { Id = StringProp(el, "id", path) };
+        }
+
+        private Section? ParseSectionCore(JsonElement el, string path, bool isFirst)
+        {
             if (el.ValueKind != JsonValueKind.Object)
             {
                 Error(path, "each section must be a JSON object ({\"pageSetup\":…,\"blocks\":[…]}).");
@@ -870,6 +878,12 @@ public sealed class DocxGenerationDocumentParser : IDocxGenerationParser
         }
 
         private FlowBlock? ParseFlowBlock(JsonElement el, string path)
+        {
+            var parsed = ParseFlowBlockCore(el, path);
+            return parsed is null ? null : parsed with { Id = StringProp(el, "id", path) };
+        }
+
+        private FlowBlock? ParseFlowBlockCore(JsonElement el, string path)
         {
             if (el.ValueKind != JsonValueKind.Object)
             {
@@ -1693,6 +1707,12 @@ public sealed class DocxGenerationDocumentParser : IDocxGenerationParser
         }
 
         private PositionedElement? ParsePositionedElement(JsonElement el, string path)
+        {
+            var parsed = ParsePositionedElementCore(el, path);
+            return parsed is null ? null : parsed with { Id = StringProp(el, "id", path) };
+        }
+
+        private PositionedElement? ParsePositionedElementCore(JsonElement el, string path)
         {
             if (el.ValueKind != JsonValueKind.Object)
             {

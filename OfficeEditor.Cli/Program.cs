@@ -1,3 +1,4 @@
+using OfficeEditor.Core.Generation;
 using System.Text.Json;
 using DocxEditor.Core.Builders;
 using DocxEditor.Core.Generation;
@@ -40,6 +41,8 @@ class Program
                     return HandleDetect(args) ? 0 : 1;
                 case "merge":
                     return HandleMerge(args) ? 0 : 1;
+                case "ids":
+                    return HandleIds(args) ? 0 : 1;
                 case "generate":
                     return HandleGenerate(args) ? 0 : 1;
                 case "help":
@@ -58,6 +61,35 @@ class Program
             AnsiConsole.MarkupLine($"[red]Error: {Markup.Escape(ex.Message)}[/]");
             return 1;
         }
+    }
+
+    static bool HandleIds(string[] args)
+    {
+        if (args.Length is < 2 or > 3 || (args.Length == 3 && args[2] != "--recursive"))
+            throw new ArgumentException("Usage: officeeditor ids <file.json|directory> [--recursive]");
+        var path = args[1];
+        var files = Directory.Exists(path)
+            ? Directory.EnumerateFiles(path, "*.json", new EnumerationOptions
+            {
+                RecurseSubdirectories = args.Length == 3,
+                AttributesToSkip = FileAttributes.ReparsePoint,
+                IgnoreInaccessible = false
+            }).Where(file => !Path.GetRelativePath(path, file).Split(Path.DirectorySeparatorChar)
+                .Any(part => part is ".git" or "bin" or "obj" or "node_modules"))
+            : new[] { path };
+        // Preflight the entire batch before writing any file.
+        var recognized = new List<string>();
+        foreach (var file in files.Order(StringComparer.Ordinal))
+        {
+            var json = File.ReadAllText(file);
+            if (!GenerationJsonIds.IsGenerationDocument(json)) continue;
+            GenerationJsonIds.Normalize(json);
+            recognized.Add(file);
+        }
+        int added = 0;
+        foreach (var file in recognized) added += GenerationJsonIds.NormalizeFile(file).AddedCount;
+        AnsiConsole.WriteLine($"Normalized {recognized.Count} generation JSON file(s); added {added} IDs.");
+        return true;
     }
 
     static bool HandleGenerate(string[] args)
@@ -132,6 +164,16 @@ class Program
         }
 
         var json = File.ReadAllText(inputPath);
+        if (GenerationJsonIds.IsGenerationDocument(json))
+        {
+            var normalized = GenerationJsonIds.Normalize(json);
+            if (normalized.AddedCount > 0)
+            {
+                GenerationJsonIds.NormalizeFile(inputPath);
+                json = normalized.Json;
+                AnsiConsole.MarkupLine($"[grey]Added {normalized.AddedCount} element IDs to {Markup.Escape(inputPath)}.[/]");
+            }
+        }
 
         if (outputExtension.Equals(".docx", StringComparison.OrdinalIgnoreCase))
             return GenerateDocx(inputPath, resolvedOutputPath, json, theme);
@@ -329,6 +371,7 @@ class Program
         AnsiConsole.WriteLine();
         AnsiConsole.WriteLine("Usage:");
         AnsiConsole.WriteLine("  officeeditor create <output.file> [--type docx|pptx|xlsx] [--text \"content\"] [--title \"title\"] [--sheet \"name\"]");
+        AnsiConsole.WriteLine("  officeeditor ids <file.json|directory> [--recursive]");
         AnsiConsole.WriteLine("  officeeditor generate <input.json> [--output <output.pptx|output.docx|output.xlsx>] [--theme <name>]");
         AnsiConsole.WriteLine("  officeeditor detect <template.file>");
         AnsiConsole.WriteLine("  officeeditor merge <template.file> <data.json> <output.file>");

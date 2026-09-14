@@ -6,12 +6,13 @@
   },
   "slides": [
     {
+      "id": "slide-0",
       "type": "container",
       "children": [
-        { "type": "ellipse", "at": { "x": 10, "y": 10 }, "size": { "w": 120, "h": 80 }, "fill": "primary" },
-        { "type": "ellipse", "at": { "x": 150, "y": 10 }, "size": { "w": 120, "h": 80 },
+        { "id": "ellipse-0", "type": "ellipse", "at": { "x": 10, "y": 10 }, "size": { "w": 120, "h": 80 }, "fill": "primary" },
+        { "id": "ellipse-1", "type": "ellipse", "at": { "x": 150, "y": 10 }, "size": { "w": 120, "h": 80 },
           "stroke": { "color": "accent", "width": 1.5 } },
-        { "type": "ellipse", "at": { "x": 290, "y": 10 }, "size": { "w": 120, "h": 80 },
+        { "id": "ellipse-2", "type": "ellipse", "at": { "x": 290, "y": 10 }, "size": { "w": 120, "h": 80 },
           "fill": "accent", "stroke": { "color": "ink", "width": 1 },
           "shadow": { "color": "ink", "dx": 2, "dy": 3, "blur": 5 } }
       ]

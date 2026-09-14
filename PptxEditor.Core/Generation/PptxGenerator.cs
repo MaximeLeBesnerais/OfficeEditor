@@ -23,6 +23,9 @@ public sealed record PptxGenerationResult
 {
     public required bool Success { get; init; }
 
+    /// <summary>Validated source with IDs added. Persist this to keep generated identities across edits.</summary>
+    public string? NormalizedJson { get; init; }
+
     /// <summary>The generated .pptx package. Null when the document was rejected.</summary>
     public byte[]? PptxBytes { get; init; }
 
@@ -170,6 +173,7 @@ public sealed class PptxGenerator
             Warnings = validation.Warnings,
             PipelineWarnings = [.. layout.Warnings, .. emission.Warnings],
             PreviewError = previewError,
+            NormalizedJson = validation.NormalizedJson,
             GenerationMilliseconds = generationMs,
             TotalMilliseconds = totalTimer.Elapsed.TotalMilliseconds
         };
