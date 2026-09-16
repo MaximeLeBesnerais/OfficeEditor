@@ -105,6 +105,7 @@ public sealed class DeckGenerateToolTests
 
         var payload = TestHost.AssertToolPayload(response);
         Assert.True((bool)payload["success"]!);
+        Assert.Contains("\"id\"", (string)payload["normalizedJson"]!);
         Assert.Equal(2, (int)payload["slideCount"]!);
         Assert.True(Guid.TryParse((string?)payload["deckHandle"], out _));
         Assert.Equal(0, (int)payload["revision"]!);

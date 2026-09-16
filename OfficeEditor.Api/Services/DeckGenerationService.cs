@@ -14,6 +14,8 @@ public sealed record GeneratedSlidePreview(int Slide, string Format, string Cont
 /// </summary>
 public sealed record DeckGenerationResult
 {
+    public string? NormalizedJson { get; init; }
+
     public required bool Success { get; init; }
 
     /// <summary>The generated .pptx package. Null when the document was rejected.</summary>
@@ -88,6 +90,7 @@ public sealed class DeckGenerationService : IDeckGenerationService
         return new DeckGenerationResult
         {
             Success = result.Success,
+            NormalizedJson = result.NormalizedJson,
             PptxBytes = result.PptxBytes,
             SlideCount = result.SlideCount,
             Previews = result.Previews.Select(p => new GeneratedSlidePreview(p.Slide, p.Format, p.ContentType, p.Bytes)).ToArray(),

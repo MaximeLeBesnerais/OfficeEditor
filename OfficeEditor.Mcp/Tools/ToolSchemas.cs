@@ -11,6 +11,7 @@ public static class ToolSchemas
     public const string AnatomizeName = "deck_anatomize";
     public const string ReplaceElementName = "deck_replace_element";
     public const string RenderSlideName = "deck_render_slide";
+    public const string SourceEditName = "document_edit_source";
     public const string GenerateName = "deck_generate";
 
     private const string DeckSourceProperties = """
@@ -111,12 +112,38 @@ public static class ToolSchemas
         """)
     };
 
+    private static readonly JsonObject SourceEdit = new()
+    {
+        ["name"] = SourceEditName,
+        ["description"] = "Edit DOCX/PPTX/XLSX generation source by stable string IDs. Returns updated source and element inventory; save it and pass it to the format generator for vocabulary validation and rendering. An empty batch normalizes and inspects. No Office binary or session is modified.",
+        ["inputSchema"] = JsonNode.Parse("""
+        {
+          "type": "object",
+          "properties": {
+            "document": {"type": "object"},
+            "operations": {"type": "array", "items": {
+              "type": "object",
+              "properties": {
+                "type": {"type": "string", "enum": ["set", "rename"]},
+                "id": {"type": "string"},
+                "properties": {"type": "object"},
+                "newId": {"type": "string"}
+              },
+              "required": ["type", "id"]
+            }}
+          },
+          "required": ["document", "operations"]
+        }
+        """)
+    };
+
     public static JsonArray ListAll()
     {
         return new JsonArray(
             Anatomize.DeepClone(),
             ReplaceElement.DeepClone(),
             RenderSlide.DeepClone(),
-            Generate.DeepClone());
+            Generate.DeepClone(),
+            SourceEdit.DeepClone());
     }
 }

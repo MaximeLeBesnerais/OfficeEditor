@@ -23,4 +23,5 @@ public record GenerateDeckResponse(
     string? PreviewError = null,
     string? ErrorMessage = null,
     double GenerationMilliseconds = 0,
-    double TotalMilliseconds = 0);
+    double TotalMilliseconds = 0,
+    string? NormalizedJson = null);

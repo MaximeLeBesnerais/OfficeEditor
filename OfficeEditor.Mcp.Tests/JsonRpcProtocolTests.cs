@@ -85,17 +85,17 @@ public sealed class JsonRpcProtocolTests
     }
 
     [Fact]
-    public void ToolsList_ReturnsFourToolsWithSchemas()
+    public void ToolsList_ReturnsFiveToolsWithSchemas()
     {
         using var server = TestHost.CreateServer();
 
         var response = TestHost.Send(server, "tools/list");
 
         var tools = response["result"]!["tools"]!.AsArray();
-        Assert.Equal(4, tools.Count);
+        Assert.Equal(5, tools.Count);
         var names = tools.Select(t => (string)t!["name"]!).ToList();
         Assert.Equal(
-            new[] { "deck_anatomize", "deck_replace_element", "deck_render_slide", "deck_generate" },
+            new[] { "deck_anatomize", "deck_replace_element", "deck_render_slide", "deck_generate", "document_edit_source" },
             names);
         foreach (var tool in tools)
         {

@@ -11,6 +11,20 @@ namespace OfficeEditor.Mcp.Tests;
 public sealed class DeckToolsTests
 {
     [Fact]
+    public void EditSource_ReturnsEditedDocumentAndInventory_RejectsMissingIds()
+    {
+        using var server = TestHost.CreateServer();
+        var args = JsonNode.Parse("""{"document":{"version":"1.0","worksheets":[{"name":"Data","cells":[{"address":"A1","value":"Before"}]}]},"operations":[{"type":"set","id":"cell-0","properties":{"value":"After"}}]}""")!.AsObject();
+        var payload = TestHost.AssertToolPayload(TestHost.SendToolCall(server, "document_edit_source", (JsonObject)args.DeepClone()));
+        Assert.Equal("After", (string?)payload["document"]!["worksheets"]![0]!["cells"]![0]!["value"]);
+        Assert.Equal(2, payload["elements"]!.AsArray().Count);
+        args["operations"]![0]!["id"] = "absent";
+        var (code, message) = TestHost.AssertError(TestHost.SendToolCall(server, "document_edit_source", (JsonObject)args.DeepClone()));
+        Assert.Equal(JsonRpcErrorCodes.InvalidParams, code);
+        Assert.Contains("operations[0]", message);
+    }
+
+    [Fact]
     public void Anatomize_Upload_ReturnsSlidesElementsAndCreatesSession()
     {
         using var server = TestHost.CreateServer();

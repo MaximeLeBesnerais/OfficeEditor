@@ -1,3 +1,4 @@
+using OfficeEditor.Core.Generation;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
@@ -50,10 +51,30 @@ public sealed class DeckTools
             ToolSchemas.ReplaceElementName => ReplaceElement(args),
             ToolSchemas.RenderSlideName => RenderSlide(args),
             ToolSchemas.GenerateName => Generate(args),
+            ToolSchemas.SourceEditName => EditSource(args),
             _ => throw new McpException(JsonRpcErrorCodes.InvalidParams,
                 $"Unknown tool '{name}'. Available tools: {ToolSchemas.AnatomizeName}, " +
-                $"{ToolSchemas.ReplaceElementName}, {ToolSchemas.RenderSlideName}, {ToolSchemas.GenerateName}.")
+                $"{ToolSchemas.ReplaceElementName}, {ToolSchemas.RenderSlideName}, {ToolSchemas.GenerateName}, {ToolSchemas.SourceEditName}.")
         };
+    }
+
+    private static JsonObject EditSource(JsonElement args)
+    {
+        try
+        {
+            var source = GetRequired(args, "document");
+            var operations = GetRequired(args, "operations");
+            var json = GenerationJsonEditor.Apply(source.GetRawText(), operations.GetRawText());
+            return new JsonObject
+            {
+                ["document"] = JsonNode.Parse(json),
+                ["elements"] = JsonSerializer.SerializeToNode(GenerationJsonIds.Inspect(json), PayloadJson)
+            };
+        }
+        catch (JsonException ex)
+        {
+            throw new McpException(JsonRpcErrorCodes.InvalidParams, ex.Message);
+        }
     }
 
     /// <summary>
@@ -112,6 +133,7 @@ public sealed class DeckTools
             ["success"] = true,
             ["slideCount"] = result.SlideCount,
             ["pptxBase64"] = Convert.ToBase64String(result.PptxBytes!),
+            ["normalizedJson"] = result.NormalizedJson,
             ["previewFormat"] = format,
             ["ppi"] = ppi,
             ["previews"] = previews,
