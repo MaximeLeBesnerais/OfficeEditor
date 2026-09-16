@@ -79,6 +79,7 @@ public sealed class DeckGenerationServiceTests
         var result = new DeckGenerationService().Generate(ValidDocument, "svg", 150);
 
         Assert.True(result.Success);
+        Assert.NotNull(result.NormalizedJson);
         Assert.Equal(2, result.SlideCount);
         Assert.Empty(result.Errors);
         Assert.NotNull(result.PptxBytes);

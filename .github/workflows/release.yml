@@ -135,6 +135,19 @@ jobs:
             unzip -l "$pkg"
           done
 
+      - name: Smoke-test packaged CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet tool install MaximeLB.OfficeEditor.Cli --version "$VERSION" --tool-path "$RUNNER_TEMP/oe-cli" --add-source "$PWD/nupkgs"
+          printf '%s' '{"version":"1.0","worksheets":[{"name":"Data","cells":[{"address":"A1","value":"Before"}]}]}' > "$RUNNER_TEMP/oe-source.json"
+          printf '%s' '[{"type":"set","id":"cell-0","properties":{"value":"After"}}]' > "$RUNNER_TEMP/oe-edits.json"
+          "$RUNNER_TEMP/oe-cli/officeeditor" ids "$RUNNER_TEMP/oe-source.json" --backup
+          "$RUNNER_TEMP/oe-cli/officeeditor" inspect "$RUNNER_TEMP/oe-source.json"
+          "$RUNNER_TEMP/oe-cli/officeeditor" edit "$RUNNER_TEMP/oe-source.json" --instructions "$RUNNER_TEMP/oe-edits.json" --output "$RUNNER_TEMP/oe-edited.json"
+          "$RUNNER_TEMP/oe-cli/officeeditor" generate "$RUNNER_TEMP/oe-edited.json" --output "$RUNNER_TEMP/oe-edited.xlsx"
+          test -s "$RUNNER_TEMP/oe-edited.xlsx"
+
       # Exchange the GitHub OIDC token for a short-lived (1h) NuGet API key,
       # matched against the Trusted Publishing policy configured on nuget.org.
       - name: NuGet login (OIDC → temp API key)

@@ -41,6 +41,10 @@ class Program
                     return HandleDetect(args) ? 0 : 1;
                 case "merge":
                     return HandleMerge(args) ? 0 : 1;
+                case "inspect":
+                    if (args.Length != 2) throw new ArgumentException("Usage: officeeditor inspect <source.json>");
+                    Console.WriteLine(JsonSerializer.Serialize(GenerationJsonIds.Inspect(File.ReadAllText(args[1])), new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+                    return 0;
                 case "ids":
                     return HandleIds(args) ? 0 : 1;
                 case "generate":
@@ -65,13 +69,16 @@ class Program
 
     static bool HandleIds(string[] args)
     {
-        if (args.Length is < 2 or > 3 || (args.Length == 3 && args[2] != "--recursive"))
-            throw new ArgumentException("Usage: officeeditor ids <file.json|directory> [--recursive]");
+        var flags = args.Skip(2).ToArray();
+        if (args.Length < 2 || flags.Distinct().Count() != flags.Length ||
+            flags.Any(flag => flag is not ("--recursive" or "--dry-run" or "--backup")))
+            throw new ArgumentException("Usage: officeeditor ids <file.json|directory> [--recursive] [--dry-run] [--backup]");
+        bool dryRun = flags.Contains("--dry-run"), backup = flags.Contains("--backup");
         var path = args[1];
         var files = Directory.Exists(path)
             ? Directory.EnumerateFiles(path, "*.json", new EnumerationOptions
             {
-                RecurseSubdirectories = args.Length == 3,
+                RecurseSubdirectories = flags.Contains("--recursive"),
                 AttributesToSkip = FileAttributes.ReparsePoint,
                 IgnoreInaccessible = false
             }).Where(file => !Path.GetRelativePath(path, file).Split(Path.DirectorySeparatorChar)
@@ -83,12 +90,21 @@ class Program
         {
             var json = File.ReadAllText(file);
             if (!GenerationJsonIds.IsGenerationDocument(json)) continue;
-            GenerationJsonIds.Normalize(json);
+            var result = GenerationJsonIds.Normalize(json);
+            if (result.AddedCount == 0) continue;
+            if (backup && !dryRun && File.Exists(file + ".bak"))
+                throw new IOException($"Backup already exists: {file}.bak");
             recognized.Add(file);
         }
         int added = 0;
-        foreach (var file in recognized) added += GenerationJsonIds.NormalizeFile(file).AddedCount;
-        AnsiConsole.WriteLine($"Normalized {recognized.Count} generation JSON file(s); added {added} IDs.");
+        foreach (var file in recognized)
+        {
+            if (backup && !dryRun) File.Copy(file, file + ".bak");
+            added += dryRun ? GenerationJsonIds.Normalize(File.ReadAllText(file)).AddedCount
+                : GenerationJsonIds.NormalizeFile(file).AddedCount;
+            AnsiConsole.WriteLine(file);
+        }
+        AnsiConsole.WriteLine($"{(dryRun ? "Would normalize" : "Normalized")} {recognized.Count} generation JSON file(s); added {added} IDs.");
         return true;
     }
 
@@ -371,7 +387,9 @@ class Program
         AnsiConsole.WriteLine();
         AnsiConsole.WriteLine("Usage:");
         AnsiConsole.WriteLine("  officeeditor create <output.file> [--type docx|pptx|xlsx] [--text \"content\"] [--title \"title\"] [--sheet \"name\"]");
-        AnsiConsole.WriteLine("  officeeditor ids <file.json|directory> [--recursive]");
+        AnsiConsole.WriteLine("  officeeditor inspect <source.json>");
+        AnsiConsole.WriteLine("  officeeditor edit <source.json> --instructions <operations.json> --output <edited.json>");
+        AnsiConsole.WriteLine("  officeeditor ids <file.json|directory> [--recursive] [--dry-run] [--backup]");
         AnsiConsole.WriteLine("  officeeditor generate <input.json> [--output <output.pptx|output.docx|output.xlsx>] [--theme <name>]");
         AnsiConsole.WriteLine("  officeeditor detect <template.file>");
         AnsiConsole.WriteLine("  officeeditor merge <template.file> <data.json> <output.file>");
@@ -454,30 +472,16 @@ class Program
 
     static bool HandleEdit(string[] args)
     {
-        if (args.Length < 4)
-        {
-            AnsiConsole.MarkupLine("[red]Input file and instructions file are required.[/]");
-            return false;
-        }
-
-        var inputPath = args[1];
-        var instructionsPath = GetArgumentValue(args, "--instructions");
-        var format = DetectFormat(inputPath);
-
-        if (string.IsNullOrEmpty(instructionsPath))
-        {
-            AnsiConsole.MarkupLine("[red]--instructions parameter is required.[/]");
-            return false;
-        }
-
-        AnsiConsole.Status()
-            .Start("Editing document...", ctx =>
-            {
-                // For V1, edit is format-specific
-                // Full implementation would parse and execute instructions
-                AnsiConsole.MarkupLine($"[yellow]Edit not yet implemented for {format}[/]");
-            });
-        return false;
+        if (args.Length != 6 || args[2] != "--instructions" || args[4] != "--output")
+            throw new ArgumentException("Usage: officeeditor edit <source.json> --instructions <operations.json> --output <edited.json>");
+        if (Path.GetFullPath(args[1]) == Path.GetFullPath(args[5]))
+            throw new ArgumentException("Use a separate output file to preserve the original source.");
+        var edited = GenerationJsonEditor.Apply(File.ReadAllText(args[1]), File.ReadAllText(args[3]));
+        // CreateNew prevents accidentally replacing an existing source or output.
+        using var output = new FileStream(args[5], FileMode.CreateNew, FileAccess.Write);
+        using var writer = new StreamWriter(output);
+        writer.Write(edited);
+        return true;
     }
 
     static bool HandleDetect(string[] args)

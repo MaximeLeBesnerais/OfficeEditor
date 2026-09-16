@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.10.0](https://github.com/MaximeLeBesnerais/OfficeEditor/compare/v0.9.0...v0.10.0) — 2026-09-16
+
+### Added
+
+- Shared sequential `GenerationJsonEditor.Apply` batches for stable-ID property edits and renames across DOCX, PPTX and XLSX generation sources. Failed batches return no partial result.
+- CLI `inspect` and source JSON `edit` commands; edit output must be a new file.
+- Stateless `POST /api/documents/edit-source` endpoint and `document_edit_source` MCP tool, returning edited source and an element inventory.
+- `ids --dry-run` and `ids --backup`, changed-file reporting and existing-backup protection.
+- Source editing, generation round-trip, transport and migration regression tests.
+
+### Changed
+
+- PPTX generation API/MCP responses include `normalizedJson` so callers can persist stable identities.
+- Release workflow smoke-tests the packaged CLI before publishing.
+
+### Compatibility
+
+- Source editors validate operation syntax and IDs; format generators validate vocabulary and rendering.
+- Source IDs do not become OOXML IDs. Existing numeric `deck_replace_element` behavior is unchanged.
+- ID coverage is unchanged; see [source editing](docs/source-editing.md) for coverage and copy/move semantics.
+- All six NuGet packages share version 0.10.0.
+
+### Validation
+
+- 3,368 local tests passed, including opt-in Typst compilation.
+- All seven reference-document PDF conversions passed.
+- Installed 0.10.0 CLI package passed migration, inspect, edit and XLSX generation smoke checks.
+
 ## [0.9.0](https://github.com/MaximeLeBesnerais/OfficeEditor/compare/v0.8.0...v0.9.0) — 2026-09-15
 
 ### Added

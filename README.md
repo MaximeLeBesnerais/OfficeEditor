@@ -316,3 +316,8 @@ See `AGENTS.md` for engineering conventions and the release process.
 ## Author
 
 **Maxime Le Besnerais**
+
+### Edit generation source by ID
+
+OfficeEditor 0.10 supports batch source edits through the CLI, HTTP API and MCP.
+See [source editing](docs/source-editing.md) for inspect, set, rename, dry-run and backup examples.

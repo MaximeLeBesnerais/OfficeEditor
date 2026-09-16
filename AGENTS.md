@@ -61,7 +61,7 @@ git status                # expect clean or only intended changes
 
 | Component | Run it |
 |---|---|
-| Unified CLI (create/detect/merge/generate; `edit` is still a stub) | `dotnet run --project OfficeEditor.Cli -- <command>` |
+| Unified CLI (create/detect/merge/generate; inspect/edit generation JSON) | `dotnet run --project OfficeEditor.Cli -- <command>` |
 | DOCX-only CLI | `dotnet run --project DocxEditor.Cli -- <command>` |
 | API (deck sessions, previews, generate, demo endpoints) | `dotnet run --project OfficeEditor.Api --urls http://localhost:5001` |
 | Web client (demo app) | `cd OfficeEditor.Web.Client && npm run dev` → http://localhost:5173 (`/demo` = the app) |

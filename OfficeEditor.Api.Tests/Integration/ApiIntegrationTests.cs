@@ -17,6 +17,23 @@ public sealed class ApiIntegrationTests : IClassFixture<WebApplicationFactory<Pr
     }
 
     [Fact]
+    public async Task EditSource_ReturnsEditedDocumentAndInventory_RejectsMissingIds()
+    {
+        const string source = """{"version":"1.0","sections":[{"blocks":[{"type":"paragraph","text":"Before"}]}]}""";
+        var request = new { document = JsonDocument.Parse(source).RootElement,
+            operations = new[] { new { type = "set", id = "paragraph-0", properties = new { text = "After" } } } };
+        var response = await _client.PostAsJsonAsync("/api/documents/edit-source", request);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var result = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal("After", result.RootElement.GetProperty("document").GetProperty("sections")[0].GetProperty("blocks")[0].GetProperty("text").GetString());
+        Assert.Equal(2, result.RootElement.GetProperty("elements").GetArrayLength());
+        var invalid = await _client.PostAsJsonAsync("/api/documents/edit-source", new {
+            document = request.document, operations = new[] { new { type = "rename", id = "absent", newId = "heading" } } });
+        Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
+        Assert.Contains("operations[0]", await invalid.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
     public async Task Health_ReturnsOk()
     {
         var response = await _client.GetAsync("/api/health");

@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
+using OfficeEditor.Core.Generation;
 using Microsoft.AspNetCore.Http.Features;
 using OfficeEditor.Api.Components;
 using OfficeEditor.Api.Models;
@@ -74,6 +76,22 @@ app.Use(async (context, next) =>
 });
 
 app.UseCors(ReactCorsPolicy);
+
+app.MapPost("/api/documents/edit-source", (JsonElement request) =>
+{
+    try
+    {
+        if (request.ValueKind != JsonValueKind.Object || !request.TryGetProperty("document", out var source)
+            || !request.TryGetProperty("operations", out var operations))
+            return Results.BadRequest(new { error = "document and operations are required." });
+        var json = GenerationJsonEditor.Apply(source.GetRawText(), operations.GetRawText());
+        return Results.Ok(new { document = JsonNode.Parse(json), elements = GenerationJsonIds.Inspect(json) });
+    }
+    catch (JsonException ex)
+    {
+        return Results.BadRequest(new { error = ex.Message });
+    }
+});
 
 app.MapGet("/api/health", () => Results.Json(new { status = "ok" }));
 
@@ -399,6 +417,7 @@ app.MapPost("/api/decks/generate", async (
     return Results.Ok(new GenerateDeckResponse(
         Success: true,
         DeckId: deckId,
+        NormalizedJson: generation.NormalizedJson,
         SlideCount: generation.SlideCount,
         DownloadUrl: downloadUrl,
         Previews: generation.Previews

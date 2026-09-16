@@ -27,6 +27,56 @@ public sealed class GenerationJsonIdsTests
           "tables":[{"name":"DataTable","range":"A1:A2"}]}]}
         """;
 
+    [Theory]
+    [InlineData(Deck, "text-1", "text", "Updated")]
+    [InlineData(Document, "paragraph-1", "text", "Updated")]
+    [InlineData(Workbook, "cell-1", "value", "Updated")]
+    public void Batch_RenamesThenEdits_AndRegenerates(string source, string id, string property, string value)
+    {
+        var operations = new JsonArray(
+            new JsonObject { ["type"] = "rename", ["id"] = id, ["newId"] = "selected" },
+            new JsonObject { ["type"] = "set", ["id"] = "selected", ["properties"] = new JsonObject { [property] = value } });
+        var result = GenerationJsonEditor.Apply(source, operations.ToJsonString());
+        Assert.Equal(value, GenerationJsonIds.GetElement(result, "selected").Properties[property]!.GetValue<string>());
+        Assert.Equal(0, GenerationJsonIds.Normalize(result).AddedCount);
+        Assert.Equal(result, GenerationJsonEditor.Apply(result, "[]"));
+        Assert.Throws<KeyNotFoundException>(() => GenerationJsonIds.GetElement(result, id));
+        if (source == Deck) Assert.True(new PptxGenerator().Generate(result).Success);
+        else if (source == Document) Assert.NotEmpty(new DocxGenerator().GenerateToBytes(result).Content);
+        else Assert.True(XlsxGenerator.Generate(result).IsValid);
+    }
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("[null]")]
+    [InlineData("[{\"type\":\"delete\",\"id\":\"text-1\"}]")]
+    [InlineData("[{\"type\":\"set\",\"id\":\"missing\",\"properties\":{}}]")]
+    [InlineData("[{\"type\":\"set\",\"id\":\"text-1\",\"properties\":null}]")]
+    [InlineData("[{\"type\":\"rename\",\"id\":\"text-1\",\"newId\":\"text-0\"}]")]
+    [InlineData("[{\"type\":\"rename\",\"id\":\"text-1\",\"newId\":\"new\",\"typo\":true}]")]
+    [InlineData("[{\"type\":\"set\",\"id\":\"text-1\",\"properties\":{\"text\":\"a\",\"TEXT\":\"b\"}}]")]
+    public void Batch_RejectsInvalidOperations(string operations)
+    {
+        Assert.Throws<JsonException>(() => GenerationJsonEditor.Apply(Deck, operations));
+    }
+
+    [Fact]
+    public void Batch_RejectsAmbiguousSourceProperties()
+    {
+        Assert.Throws<JsonException>(() => GenerationJsonEditor.Apply(
+            """{"version":"1.0","sections":[{"id":"one","ID":"two"}]}""", "[]"));
+    }
+
+    [Fact]
+    public void Batch_LaterFailureDoesNotMutateSource()
+    {
+        var source = GenerationJsonIds.Normalize(Deck).Json;
+        var error = Assert.Throws<JsonException>(() => GenerationJsonEditor.Apply(source,
+            """[{"type":"rename","id":"text-1","newId":"heading"},{"type":"set","id":"text-1","properties":{"text":"changed"}}]"""));
+        Assert.Contains("operations[1]", error.Message);
+        Assert.Equal("First", GenerationJsonIds.GetElement(source, "text-1").Properties["text"]!.GetValue<string>());
+    }
+
     [Fact]
     public void Defaults_ReserveAuthoredIdsBeforeAllocating_AndMatchPptxParser()
     {

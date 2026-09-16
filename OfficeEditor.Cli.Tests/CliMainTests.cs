@@ -19,6 +19,46 @@ public sealed class CliMainTests : IDisposable
     }
 
     [Fact]
+    public void Ids_DryRunAndBackup_PreserveOriginalAndRejectExistingBackup()
+    {
+        var source = TempPath("source.json");
+        var original = ValidGenerationDocument();
+        File.WriteAllText(source, original);
+        Assert.Equal(0, InvokeMain(["ids", source, "--dry-run", "--backup"]));
+        Assert.Equal(original, File.ReadAllText(source));
+        Assert.False(File.Exists(source + ".bak"));
+        Assert.Equal(0, InvokeMain(["ids", source, "--backup"]));
+        Assert.Equal(original, File.ReadAllText(source + ".bak"));
+        Assert.Contains("\"id\"", File.ReadAllText(source));
+        File.WriteAllText(source, original);
+        Assert.Equal(1, InvokeMain(["ids", source, "--backup"]));
+        Assert.Equal(original, File.ReadAllText(source));
+    }
+
+    [Fact]
+    public void EditSource_GeneratesEditedDeck_AndNeverOverwritesExistingOutput()
+    {
+        var source = TempPath("source.json");
+        var operations = TempPath("operations.json");
+        var output = TempPath("edited.json");
+        var original = ValidGenerationDocument();
+        File.WriteAllText(source, original);
+        File.WriteAllText(operations, """[{"type":"rename","id":"slide-0","newId":"cover"}]""");
+        Assert.Equal(0, InvokeMain(["edit", source, "--instructions", operations, "--output", output]));
+        Assert.Equal(original, File.ReadAllText(source));
+        Assert.Contains("cover", File.ReadAllText(output));
+        Assert.Equal(0, InvokeMain(["inspect", output]));
+        Assert.Equal(0, InvokeMain(["generate", output, "--output", TempPath("edited.pptx")]));
+        var saved = File.ReadAllText(output);
+        Assert.Equal(1, InvokeMain(["edit", source, "--instructions", operations, "--output", output]));
+        Assert.Equal(saved, File.ReadAllText(output));
+        File.WriteAllText(operations, """[{"type":"rename","id":"absent","newId":"cover"}]""");
+        var failed = TempPath("failed.json");
+        Assert.Equal(1, InvokeMain(["edit", source, "--instructions", operations, "--output", failed]));
+        Assert.False(File.Exists(failed));
+    }
+
+    [Fact]
     public void IdsCommand_NormalizesGenerationOnly_AndIsIdempotent()
     {
         var source = TempPath("ids.json");

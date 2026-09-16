@@ -92,3 +92,7 @@ Office file reopened without its source. Native-file identity recovery and GUI
 integration are separate concerns.
 
 Implementation outline: [stable-element-identity.md](plans/stable-element-identity.md).
+
+## Source editing
+
+Version 0.10 adds CLI, HTTP and MCP batch editing. See [source editing](source-editing.md) for operations and migration dry-run/backup options.
