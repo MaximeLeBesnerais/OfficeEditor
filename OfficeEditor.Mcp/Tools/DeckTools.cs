@@ -13,11 +13,12 @@ using PptxEditor.Core.Services;
 namespace OfficeEditor.Mcp.Tools;
 
 /// <summary>
-/// The three deck tools: thin wrappers over the stabilized Core services
-/// (PptxAnatomizer via IPresentationBuilder.Analyze, PptxInstructionEngine,
-/// PresentationBuilder.ExportThumbnail). All argument validation happens here and
-/// raises <see cref="McpException"/> with client-safe messages; the host maps them
-/// onto JSON-RPC error objects.
+/// The deck tools and generation-source editor: thin wrappers over the stabilized
+/// Core services (PptxAnatomizer via IPresentationBuilder.Analyze,
+/// PptxInstructionEngine, PresentationBuilder.ExportThumbnail, and
+/// GenerationJsonEditor/GenerationJsonIds). All argument validation happens here
+/// and raises <see cref="McpException"/> with client-safe messages; the host maps
+/// them onto JSON-RPC error objects.
 /// </summary>
 public sealed class DeckTools
 {

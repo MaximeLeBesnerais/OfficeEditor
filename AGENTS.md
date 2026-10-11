@@ -61,7 +61,7 @@ git status                # expect clean or only intended changes
 
 | Component | Run it |
 |---|---|
-| Unified CLI (create/detect/merge/generate; inspect/edit generation JSON) | `dotnet run --project OfficeEditor.Cli -- <command>` |
+| Unified CLI (create/detect/merge/generate; inspect/edit/ids generation JSON) | `dotnet run --project OfficeEditor.Cli -- <command>` |
 | DOCX-only CLI | `dotnet run --project DocxEditor.Cli -- <command>` |
 | API (deck sessions, previews, generate, demo endpoints) | `dotnet run --project OfficeEditor.Api --urls http://localhost:5001` |
 | Web client (demo app) | `cd OfficeEditor.Web.Client && npm run dev` → http://localhost:5173 (`/demo` = the app) |
@@ -91,10 +91,10 @@ DocxEditor/                         # repo folder (historical name)
 │   └── Generation/                 #   Model, Schema, Layout, Emit/Ooxml, Emit/Typst, Components, Archetypes, Fixtures, Design
 ├── XlsxEditor.Core/                # XLSX: Builders/read API, Variables, JSON Instructions
 ├── OfficeEditor.Core/              # Shared services (TypstCompilerService, Variables, Exceptions)
-├── OfficeEditor.Cli/               # Multi-format CLI (create, edit, detect, merge, generate)
+├── OfficeEditor.Cli/               # Multi-format CLI (create, edit, detect, merge, generate; source inspect/edit/ids)
 ├── OfficeEditor.Api/               # ASP.NET Core API: deck sessions, slide previews/thumbnails, instruction/anatomy endpoints
 ├── OfficeEditor.Api.Tests/         # xUnit tests for the API
-├── OfficeEditor.Mcp/               # MCP stdio host (JSON-RPC): deck_anatomize, deck_replace_element, deck_render_slide, deck_generate
+├── OfficeEditor.Mcp/               # MCP stdio host (JSON-RPC): deck_anatomize, deck_replace_element, deck_render_slide, deck_generate, document_edit_source
 ├── OfficeEditor.Mcp.Tests/         # xUnit tests for the MCP host
 ├── OfficeEditor.Web.Client/        # Vite + Tailwind web frontend
 ├── TypstBridge/                    # Native + managed wrapper around Typst (primary backend)

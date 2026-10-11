@@ -636,7 +636,7 @@
               "type": "card",
               "content": {
                 "title": "ASP.NET Core + MCP",
-                "body": "deck_generate · deck_render_slide · deck_anatomize"
+                "body": "deck_generate · document_edit_source · deck_render_slide"
               }
             },
             {
@@ -704,10 +704,10 @@
               "content": {
                 "title": "Works today",
                 "items": [
-                   "v0.7.0 — developed & tested on macOS",
+                   "v0.10.0 — source editing across CLI, API and MCP",
                   "Create, edit, merge across 3 formats",
                   "PPTX → PDF / PNG / SVG via TypstBridge",
-                  "3,200+ test cases, 83% coverage gate"
+                  "3,368 tests, 83% coverage gate"
                 ]
               },
               "size": { "grow": 1 }
@@ -718,7 +718,7 @@
               "content": {
                 "title": "Next",
                 "items": [
-                  "v0.8 package and schema polish",
+                  "Native-file identity recovery & GUI integration",
                    "Windows verification (pure managed code)",
                   "Richer chart & SmartArt rendering",
                   "Stable v1 generation schema"
@@ -734,7 +734,7 @@
           "layout": { "mode": "row", "gap": 12, "justify": "start", "align": "center" },
           "size": { "h": 30 },
           "children": [
-            { "id": "badge-3", "type": "badge", "content": { "text": "v0.7.0" }, "size": { "w": 80, "h": 26 } },
+            { "id": "badge-3", "type": "badge", "content": { "text": "v0.10.0" }, "size": { "w": 80, "h": 26 } },
             { "id": "badge-4", "type": "badge", "content": { "text": "MIT" }, "size": { "w": 60, "h": 26 } },
              { "id": "badge-5", "type": "badge", "content": { "text": "macOS · Linux" }, "size": { "w": 125, "h": 26 } }
           ]

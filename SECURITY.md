@@ -2,12 +2,12 @@
 
 ## Supported versions
 
-OfficeEditor is pre-1.0. Security fixes are applied to the latest code on `main` and, when appropriate, released in the next NuGet version. The latest listed NuGet release is `0.7.1`; older snapshots and unlisted builds are not supported.
+OfficeEditor is pre-1.0. Security fixes are applied to the latest code on `main` and, when appropriate, released in the next NuGet version. The latest listed NuGet release is `0.10.0`; older snapshots and unlisted builds are not supported.
 
 | Version | Supported |
 |---|---|
 | Latest `main` | Yes |
-| `0.7.x` NuGet packages | Yes |
+| `0.10.x` NuGet packages | Yes |
 | Older or private builds | No |
 
 ## Reporting a vulnerability

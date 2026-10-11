@@ -2,7 +2,7 @@
 
 一套 .NET 9 库套件，用于**创建、编辑、生成和渲染 Office 文档** —— DOCX、PPTX、XLSX —— 无需 Office 或 LibreOffice。它提供流畅的 C# 构建器、JSON/YAML 指令集，以及一套经严格校验的声明式 JSON 词汇表，用于生成完整的 PPTX 演示文稿。渲染基于 **TypstBridge**，一个围绕 Typst 的原生 Rust 桥接：PPTX → PDF/PNG/SVG、DOCX → PDF、XLSX → PDF/PNG/SVG。
 
-> **现已公开** —— OfficeEditor 0.7.1 以 MIT 许可证开源。
+> **当前版本：0.10.0** —— 以 MIT 许可证开源。
 
 ## 功能特性
 
@@ -11,9 +11,10 @@
 - **渲染** —— 原生 TypstBridge（Typst 0.15.1）：PPTX PDF/PNG/SVG、DOCX PDF、XLSX PDF/PNG/SVG（公式仅渲染缓存的 `<v>` 值，不进行求值）；PPTX 相关接口会输出整份演示文稿的渲染计时
 - **流畅的 C# API** —— `DocumentBuilder`、`PresentationBuilder`、`WorkbookBuilder`（支持文件、流或内存中的 `byte[]`）
 - **指令集** —— JSON/YAML DOCX 操作、JSON PPTX 编辑操作，以及 v1 JSON XLSX 构建器词汇表
+- **稳定的源编辑** —— DOCX/PPTX/XLSX 生成 JSON 中的每个可编辑元素都带有唯一字符串 `id`；`officeeditor ids` 可规范化现有源文件，CLI 的 `inspect`/`edit`、`POST /api/documents/edit-source` 以及 MCP 的 `document_edit_source` 工具可在生成前原子化地批量执行 set/rename 操作（参见 [`docs/source-editing.md`](docs/source-editing.md)）
 - **变量与邮件合并** —— 三种格式均支持 `{{variable}}` 检测与替换，另有 DOCX 批量合并
 - **Markdown → DOCX** —— 通过 Markdig 进行富样式转换（1–6 级标题、嵌套强调、经 `http`/`https`/`mailto` 安全协议白名单并带内部锚点回退的真实超链接、图片、脚注、表格、任务列表、emoji、YAML front matter、自定义样式映射）
-- **使用入口** —— 统一 CLI、ASP.NET Core API、MCP stdio 主机（4 个 `deck_*` 工具）以及 Web 演示应用
+- **使用入口** —— 统一 CLI、ASP.NET Core API、MCP stdio 主机（4 个 `deck_*` 工具 + `document_edit_source`）以及 Web 演示应用
 - **品牌档案** —— 从现有演示文稿中提取主题颜色/字体，形成可复用的令牌集
 
 ## 快速开始
@@ -41,6 +42,14 @@ officeeditor generate workbook.json --output workbook.xlsx
 # Render an XLSX JSON instruction set to PDF (single file) or PNG (a directory of page-NNN.png pages)
 officeeditor generate workbook.json --output workbook.pdf
 officeeditor generate workbook.json --output workbook.png
+
+# 为缺少 ID 的生成源补齐 ID，并查看元素清单
+officeeditor ids demo/demo-deck.json --backup
+officeeditor inspect demo/demo-deck.json
+
+# 按稳定 ID 批量 set/rename，然后从编辑后的副本生成
+officeeditor edit demo/demo-deck.json --instructions edits.json --output edited.json
+officeeditor generate edited.json --output edited.pptx
 
 # Detect variables in templates
 officeeditor detect template.docx
@@ -72,9 +81,16 @@ if (!result.Success)
 
 await File.WriteAllBytesAsync("deck.pptx", result.PptxBytes!);
 // result.Layout: the single measured layout, with stable element IDs and rectangles.
+// result.NormalizedJson：保存该值即可在源文件中保留自动分配的稳定 ID。
 // result.Previews: per-slide images; PreviewError reports a best-effort preview failure.
 // result.Warnings and PipelineWarnings carry validation and layout/emission diagnostics.
 ```
+
+源编辑的操作语法、dry-run/backup 行为与身份覆盖范围参见[源编辑文档](docs/source-editing.md)。
+
+CLI、API、MCP 与 JSON 渲染器中的 PPTX 生成共享 `PptxGenerator`：校验 → 原型 → 组件 → 测量布局 → OOXML，并可选择输出 Typst 预览。DOCX 与 XLSX 入口使用现有的 `DocxGenerator` 与 `XlsxGenerator`。底层的 PPTX 解析器、布局解析器与生成器（emitters）仍可供专门场景使用。
+
+相对路径的 PPTX 图片需要传入 `DocumentDirectory`；仅使用字符串且未提供该参数的调用必须使用绝对路径或 data URI。宿主也可以设置 `AllowedImageRoot` 来限制所有文件图片（包括绝对路径）。API 以其仓库根目录作为该边界。`FontDirectory` 可为文本测量与预览提供额外的字体目录。
 
 ### C# API —— 构建器（三种格式）
 
@@ -137,13 +153,13 @@ builder.MergeVariables(new Dictionary<string, string>
 
 ## 安装
 
-NuGet 包当前版本为 **0.7.1**：
+NuGet 包当前版本为 **0.10.0**：
 
 ```bash
-dotnet add package MaximeLB.PptxEditor.Core --version 0.7.1   # PPTX
-dotnet add package MaximeLB.DocxEditor.Core --version 0.7.1   # DOCX
-dotnet add package MaximeLB.XlsxEditor.Core --version 0.7.1   # XLSX
-dotnet tool install -g MaximeLB.OfficeEditor.Cli --version 0.7.1   # `officeeditor` command
+dotnet add package MaximeLB.PptxEditor.Core --version 0.10.0   # PPTX
+dotnet add package MaximeLB.DocxEditor.Core --version 0.10.0   # DOCX
+dotnet add package MaximeLB.XlsxEditor.Core --version 0.10.0   # XLSX
+dotnet tool install -g MaximeLB.OfficeEditor.Cli --version 0.10.0   # `officeeditor` command
 ```
 
 | 包 | 内容 |
@@ -196,6 +212,17 @@ cd OfficeEditor && dotnet build        # 0 warnings, 0 errors (enforced)
 
 API 与 Web 客户端是本地演示应用，并非生产级多租户服务。它们没有完整的身份验证、配额、沙箱或租户隔离层。参见 [SECURITY.md](SECURITY.md)。
 
+## 相关项目与生态
+
+OfficeEditor 引擎（本仓库）连接着一个由卫星项目和文档组成的小型生态：
+
+- **声明式 PPTX 生成** —— [`docs/pptx-generation.md`](docs/pptx-generation.md)：`version: "2.0"` 演示文稿词汇表（设计令牌、容器、原语、组件、原型、演讲者备注、图片来源）；规范 schema 位于 `PptxEditor.Core/Generation/Schema/deck.schema.json`
+- **声明式 DOCX 生成** —— [`docs/docx-generation.md`](docs/docx-generation.md)：`version: "1.0"` 文档词汇表
+- **OfficeEditorStudio** —— 本地优先的 Avalonia 12 桌面工作台（本仓库之外，`~/Work/OfficeEditorStudio`），以进程内方式消费已发布的 `MaximeLB.*` 0.7.1 包（工作室按自己的节奏跟进引擎版本）；文档即生成 JSON，通过内嵌 TypstBridge 在应用内渲染，面向 AI 智能体并提供视觉反馈闭环，MCP 服务器模式已在规划中
+- **officeeditor.dev** —— Vite 7 + React 19 + Tailwind 落地页（本仓库之外，`~/Work/officeeditor.dev`），托管 JSON schema 以解析 `$id` 引用，并展示 OfficeEditor 生成的真实演示渲染
+
+完整地图参见 [`docs/ecosystem.md`](docs/ecosystem.md)。
+
 ## 架构
 
 ```
@@ -208,7 +235,7 @@ DocxEditor/                          # repo folder (historical name; product is 
 ├── OfficeEditor.Core/               # Shared: TypstCompilerService, Variables, Exceptions
 ├── OfficeEditor.Cli/                # Unified multi-format CLI
 ├── OfficeEditor.Api/                # ASP.NET Core: deck sessions, previews, generation, demo/compare
-├── OfficeEditor.Mcp/                # MCP stdio host: deck_anatomize, deck_replace_element, …
+├── OfficeEditor.Mcp/                # MCP stdio host: 4 deck_* tools + document_edit_source
 ├── OfficeEditor.Web.Client/         # React/Vite/Tailwind demo app (/demo)
 ├── TypstBridge/                     # Rust native bridge + managed wrapper (Typst 0.15.1)
 ├── examples/                        # Sample programs + REF corpus
@@ -225,14 +252,14 @@ DocxEditor/                          # repo folder (historical name; product is 
 
 ## API 与 MCP 接口
 
-**API**（`OfficeEditor.Api`）：演示文稿上传/会话、逐页预览（`png|svg`，带 ETag 缓存）、演示文稿解剖（anatomy）、编辑指令、带计时的 JSON 生成（`generationMilliseconds`、`totalMilliseconds`）、演示端点（计时 REF 渲染、上传渲染、OfficeEditor 与 LibreOffice 对比），以及用于一次性转换的 `/api/convert` —— 通过声明式生成器将 JSON → DOCX/XLSX（空 JSON 生成空白文档）、Markdown → DOCX、DOCX → PDF、PPTX → PDF/PNG/SVG、XLSX → PDF/PNG/SVG（PNG/SVG 仅返回第一页）。
+**API**（`OfficeEditor.Api`）：演示文稿上传/会话、逐页预览（`png|svg`，带 ETag 缓存）、演示文稿解剖（anatomy）、编辑指令、带计时和稳定 ID 规范化 JSON（`generationMilliseconds`、`totalMilliseconds`、`normalizedJson`）的 JSON 生成、演示端点（计时 REF 渲染、上传渲染、OfficeEditor 与 LibreOffice 对比）、用于 DOCX/PPTX/XLSX 生成源编辑的无状态 `POST /api/documents/edit-source`，以及用于一次性转换的 `/api/convert` —— 通过声明式生成器将 JSON → DOCX/XLSX（空 JSON 生成空白文档）、Markdown → DOCX、DOCX → PDF、PPTX → PDF/PNG/SVG、XLSX → PDF/PNG/SVG（PNG/SVG 仅返回第一页）。
 
-**MCP**（`OfficeEditor.Mcp`，stdio JSON-RPC）：`deck_anatomize`、`deck_replace_element`、`deck_render_slide`、`deck_generate`。
+**MCP**（`OfficeEditor.Mcp`，stdio JSON-RPC）：`deck_anatomize`、`deck_replace_element`、`deck_render_slide`、`deck_generate`、`document_edit_source`。
 
 ## 测试
 
 ```bash
-dotnet test                 # full suite: 2,300+ cases across 5 test projects
+dotnet test                 # full suite: 3,368 cases across 6 test projects
 ```
 
 - xUnit；生成管线采用逐原语一致性测试夹具，并以 RMSE 阈值校验
@@ -262,7 +289,7 @@ PPTX 渲染管线（PptxEditor → Typst → PNG/PDF）与无头 LibreOffice 对
 
 ## 状态与限制
 
-**版本：** 0.7.1（pre-1.0）。公共 API 可能变动；在 v1.0 之前，TypstBridge ABI 有意保持流动（fluid）。
+**版本：** 0.10.0（pre-1.0）。公共 API 可能变动；在 v1.0 之前，TypstBridge ABI 有意保持流动（fluid）。
 
 **平台：** 纯托管 .NET 9 + 按 RID 分发的原生 TypstBridge（osx-arm64、linux-x64、win-x64 在 CI 中构建）。
 - **macOS (arm64)** —— 开发平台；所有功能均在此验证
@@ -274,7 +301,7 @@ PPTX 渲染管线（PptxEditor → Typst → PNG/PDF）与无头 LibreOffice 对
 - 簇状条形图/柱形图可渲染；其他图表类型可能回退为占位符。SmartArt 由预渲染的绘图形状渲染，存在已文档化的主题色限制。动画不在静态预览模型范围内
 - 字体保真度因平台而异；安装 Microsoft Office 字体（Aptos、Calibri）可提高准确度，但无法保证与 PowerPoint 完全一致（字体度量、断行、布局引擎均不相同）
 
-**NuGet：** 包当前版本为 0.7.1。
+**NuGet：** 全部六个包当前版本为 0.10.0。
 
 ## 安全
 

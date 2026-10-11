@@ -8,6 +8,8 @@ OfficeEditor is the engine. Around it sit two satellite projects, both out of th
 |---|---|
 | [Declarative PPTX generation](pptx-generation.md) | The `version: "2.0"` deck vocabulary — design tokens, container tree, primitives, components, archetypes, speaker notes, image sources. |
 | [Declarative DOCX generation](docx-generation.md) | The `version: "1.0"` document vocabulary — flow + positioned tiers, themes, semantic report archetypes. |
+| [Element IDs](element-ids.md) | Stable, editable string `id`s on DOCX/PPTX/XLSX generation elements — naming, lookup, migration and coverage. |
+| [Source editing](source-editing.md) | Atomic CLI/HTTP/MCP `set`/`rename` batches over generation source, including dry-run and backup migration. |
 
 The canonical deck schema lives at [`PptxEditor.Core/Generation/Schema/deck.schema.json`](../PptxEditor.Core/Generation/Schema/deck.schema.json) and is published as `https://officeeditor.dev/schemas/deck-2.0.json` so `$id` references resolve (see officeeditor.dev below).
 
@@ -20,11 +22,11 @@ A local-first, self-sufficient **desktop document studio** for decks (PPTX) and 
 Key facts:
 
 - **Stack:** Avalonia 12.1.1 (MVVM via CommunityToolkit.Mvvm), Skia-rendered canvas, `net10.0`. Cross-platform Win/macOS/Linux, no webview shell.
-- **Engine consumption:** in-proc via the published NuGet packages only — `MaximeLB.PptxEditor.Core`, `MaximeLB.DocxEditor.Core`, `MaximeLB.OfficeEditor.Core`, `MaximeLB.TypstBridge.Managed`, all `0.7.1`. **No project/repo references**; the studio is a consumer of the published product. XLSX packages are deliberately excluded (no sheets in the product).
+- **Engine consumption:** in-proc via the published NuGet packages only — `MaximeLB.PptxEditor.Core`, `MaximeLB.DocxEditor.Core`, `MaximeLB.OfficeEditor.Core`, `MaximeLB.TypstBridge.Managed`, currently `0.7.1` — the studio tracks engine releases on its own cadence. **No project/repo references**; the studio is a consumer of the published product. XLSX packages are deliberately excluded (no sheets in the product).
 - **Document format:** the generation JSON — `.deck.json` (PPTX vocabulary v2.0) and `.doc.json` (DOCX vocabulary v1.0). Every UI action is a validated patch to it; undo/redo is patch history; save is the JSON file itself (versionable, diffable).
 - **Rendering:** fully in-app via embedded TypstBridge — SVG (interactive preview, warm whole-deck ≈ 2–4 ms/slide), PNG on demand, PDF export. No Office, no LibreOffice, no browser, no cloud dependency.
 - **AI-native (BYOK):** OpenAI-compatible chat completions (OpenAI / OpenRouter / Ollama / LM Studio). The model emits schema-conforming JSON patches; validation errors (field path + suggestion) are fed back verbatim for self-correction — validation-as-feedback is treated as an AI feature. A **vision loop** renders the current slide/page PNG (8–48 ms), attaches it to the model turn, and lets the model critique its own layout — only offered for vision-capable models (flagged from the cached models.dev catalog).
-- **Planned MCP server mode:** expose the open document to external agents with the same tool family as this repo's MCP host (`deck_anatomize` / `deck_replace_element` / `deck_render_slide` / `deck_generate`) pointed at the live session — human and agent share one document, one model, one validation path.
+- **Planned MCP server mode:** expose the open document to external agents with the same tool family as this repo's MCP host (`deck_anatomize` / `deck_replace_element` / `deck_render_slide` / `deck_generate` / `document_edit_source`) pointed at the live session — human and agent share one document, one model, one validation path.
 
 ### SPEC.md summary
 
@@ -52,6 +54,6 @@ The landing site for the `officeeditor.dev` domain.
 
 ## Related projects
 
-- This repo (the engine): README, [Declarative PPTX generation](pptx-generation.md), [Declarative DOCX generation](docx-generation.md).
-- `OfficeEditorStudio` — desktop studio consuming the `MaximeLB.*` 0.7.1 packages (see above).
+- This repo (the engine): README, [Declarative PPTX generation](pptx-generation.md), [Declarative DOCX generation](docx-generation.md), [Element IDs](element-ids.md), [Source editing](source-editing.md).
+- `OfficeEditorStudio` — desktop studio consuming the `MaximeLB.*` packages, currently `0.7.1` (see above).
 - `officeeditor.dev` — landing site + schema hosting (see above).

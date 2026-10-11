@@ -4,7 +4,7 @@
 
 A .NET 9 library suite for **creating, editing, generating, and rendering Office documents** — DOCX, PPTX, XLSX — without requiring Office or LibreOffice. It provides fluent C# builders, JSON/YAML instruction sets, and a loudly validated declarative JSON vocabulary for complete PPTX decks. Rendering uses **TypstBridge**, a native Rust bridge around Typst: PPTX → PDF/PNG/SVG, DOCX → PDF, and XLSX → PDF/PNG/SVG.
 
-> **Now public** — OfficeEditor 0.7.1 is open source under the MIT license.
+> **Current release: 0.10.0** — open source under the MIT license.
 
 ## Features
 
@@ -13,9 +13,10 @@ A .NET 9 library suite for **creating, editing, generating, and rendering Office
 - **Rendering** — native TypstBridge (Typst 0.15.1): PPTX PDF/PNG/SVG, DOCX PDF, and XLSX PDF/PNG/SVG (formulas render cached `<v>` values only, no evaluation); whole-deck timings are exposed by the PPTX surfaces
 - **Fluent C# APIs** — `DocumentBuilder`, `PresentationBuilder`, `WorkbookBuilder` (file, stream, or in-memory `byte[]`)
 - **Instruction sets** — JSON/YAML DOCX operations, JSON PPTX edit operations, and a v1 JSON XLSX builder vocabulary
+- **Stable source editing** — authored DOCX/PPTX/XLSX generation elements carry unique string IDs; `officeeditor ids` normalizes existing sources, while CLI `inspect`/`edit`, `POST /api/documents/edit-source`, and the `document_edit_source` MCP tool apply atomic set/rename batches before generation (see [`docs/source-editing.md`](docs/source-editing.md))
 - **Variables & mail merge** — `{{variable}}` detection and replacement across all three formats, plus DOCX batch merge
 - **Markdown → DOCX** — rich styled conversion via Markdig (headings 1–6, nested emphasis, real hyperlinks through a safe `http`/`https`/`mailto` scheme allowlist with internal-anchor fallback, images, footnotes, tables, task lists, emoji, YAML front matter, custom style maps)
-- **Surfaces** — unified CLI, ASP.NET Core API, MCP stdio host (4 `deck_*` tools), and a web demo app
+- **Surfaces** — unified CLI, ASP.NET Core API, MCP stdio host (4 `deck_*` tools plus `document_edit_source`), and a web demo app
 - **Brand profiles** — extract theme colors/fonts from existing decks into reusable token sets
 
 ## Quick Start
@@ -44,6 +45,14 @@ officeeditor generate workbook.json --output workbook.xlsx
 officeeditor generate workbook.json --output workbook.pdf
 officeeditor generate workbook.json --output workbook.png
 
+# Normalize missing element IDs and inspect a generation source
+officeeditor ids demo/demo-deck.json --backup
+officeeditor inspect demo/demo-deck.json
+
+# Apply batch set/rename operations by stable ID, then generate the edited copy
+officeeditor edit demo/demo-deck.json --instructions edits.json --output edited.json
+officeeditor generate edited.json --output edited.pptx
+
 # Detect variables in templates
 officeeditor detect template.docx
 
@@ -56,6 +65,8 @@ dotnet run --project DocxEditor.Cli -- markdown guide.md guide.docx --template b
 # DOCX-only instruction editing is available through the source CLI
 dotnet run --project DocxEditor.Cli -- edit document.docx --instructions instructions.json
 ```
+
+See [source editing](docs/source-editing.md) for operation syntax, dry-run/backup behavior, and identity coverage.
 
 ### C# API — generate a deck from JSON (the flagship path)
 
@@ -74,6 +85,7 @@ if (!result.Success)
 
 await File.WriteAllBytesAsync("deck.pptx", result.PptxBytes!);
 // result.Layout: the single measured layout, with stable element IDs and rectangles.
+// result.NormalizedJson: persist this to keep automatically assigned stable IDs in the source.
 // result.Previews: per-slide images; PreviewError reports a best-effort preview failure.
 // result.Warnings and PipelineWarnings carry validation and layout/emission diagnostics.
 ```
@@ -143,13 +155,13 @@ builder.MergeVariables(new Dictionary<string, string>
 
 ## Installation
 
-NuGet packages are listed at **0.7.1**:
+NuGet packages are listed at **0.10.0**:
 
 ```bash
-dotnet add package MaximeLB.PptxEditor.Core --version 0.7.1   # PPTX
-dotnet add package MaximeLB.DocxEditor.Core --version 0.7.1   # DOCX
-dotnet add package MaximeLB.XlsxEditor.Core --version 0.7.1   # XLSX
-dotnet tool install -g MaximeLB.OfficeEditor.Cli --version 0.7.1   # `officeeditor` command
+dotnet add package MaximeLB.PptxEditor.Core --version 0.10.0   # PPTX
+dotnet add package MaximeLB.DocxEditor.Core --version 0.10.0   # DOCX
+dotnet add package MaximeLB.XlsxEditor.Core --version 0.10.0   # XLSX
+dotnet tool install -g MaximeLB.OfficeEditor.Cli --version 0.10.0   # `officeeditor` command
 ```
 
 | Package | Contents |
@@ -208,7 +220,7 @@ The OfficeEditor engine (this repo) anchors a small ecosystem of satellite proje
 
 - **Declarative PPTX generation** — [`docs/pptx-generation.md`](docs/pptx-generation.md): the `version: "2.0"` deck vocabulary (design tokens, containers, primitives, components, archetypes, speaker notes, image sources); canonical schema at `PptxEditor.Core/Generation/Schema/deck.schema.json`
 - **Declarative DOCX generation** — [`docs/docx-generation.md`](docs/docx-generation.md): the `version: "1.0"` document vocabulary
-- **OfficeEditorStudio** — local-first Avalonia 12 desktop studio (out of this repo, `~/Work/OfficeEditorStudio`) that consumes the published `MaximeLB.*` 0.7.1 packages in-proc; the document is the generation JSON, rendered in-app via embedded TypstBridge, AI-agent-native with a vision loop, MCP server mode planned
+- **OfficeEditorStudio** — local-first Avalonia 12 desktop studio (out of this repo, `~/Work/OfficeEditorStudio`) that currently consumes the published `MaximeLB.*` 0.7.1 packages in-proc (the studio tracks engine releases on its own cadence); the document is the generation JSON, rendered in-app via embedded TypstBridge, AI-agent-native with a vision loop, MCP server mode planned
 - **officeeditor.dev** — Vite 7 + React 19 + Tailwind landing site (out of this repo, `~/Work/officeeditor.dev`) that hosts the JSON schemas so `$id` references resolve, with real OfficeEditor-generated demo renders
 
 See [`docs/ecosystem.md`](docs/ecosystem.md) for the full map.
@@ -225,7 +237,7 @@ DocxEditor/                          # repo folder (historical name; product is 
 ├── OfficeEditor.Core/               # Shared: TypstCompilerService, Variables, Exceptions
 ├── OfficeEditor.Cli/                # Unified multi-format CLI
 ├── OfficeEditor.Api/                # ASP.NET Core: deck sessions, previews, generation, demo/compare
-├── OfficeEditor.Mcp/                # MCP stdio host: deck_anatomize, deck_replace_element, …
+├── OfficeEditor.Mcp/                # MCP stdio host: 4 deck_* tools + document_edit_source
 ├── OfficeEditor.Web.Client/         # React/Vite/Tailwind demo app (/demo)
 ├── TypstBridge/                     # Rust native bridge + managed wrapper (Typst 0.15.1)
 ├── examples/                        # Sample programs + REF corpus
@@ -242,14 +254,14 @@ Key design decisions:
 
 ## API & MCP surfaces
 
-**API** (`OfficeEditor.Api`): deck upload/sessions, per-slide previews (`png|svg`, ETag-cached), deck anatomy, edit instructions, JSON generation with timings (`generationMilliseconds`, `totalMilliseconds`), demo endpoints (timed REF renders, upload render, OfficeEditor-vs-LibreOffice compare), and `/api/convert` for one-off conversions — JSON → DOCX/XLSX through the declarative generators (empty JSON makes a blank document), Markdown → DOCX, DOCX → PDF, PPTX → PDF/PNG/SVG, and XLSX → PDF/PNG/SVG (PNG/SVG return the first page).
+**API** (`OfficeEditor.Api`): deck upload/sessions, per-slide previews (`png|svg`, ETag-cached), deck anatomy, edit instructions, JSON generation with timings (`generationMilliseconds`, `totalMilliseconds`, `normalizedJson` for stable IDs), demo endpoints (timed REF renders, upload render, OfficeEditor-vs-LibreOffice compare), a stateless `POST /api/documents/edit-source` for DOCX/PPTX/XLSX generation-source edits, and `/api/convert` for one-off conversions — JSON → DOCX/XLSX through the declarative generators (empty JSON makes a blank document), Markdown → DOCX, DOCX → PDF, PPTX → PDF/PNG/SVG, and XLSX → PDF/PNG/SVG (PNG/SVG return the first page).
 
-**MCP** (`OfficeEditor.Mcp`, stdio JSON-RPC): `deck_anatomize`, `deck_replace_element`, `deck_render_slide`, `deck_generate`.
+**MCP** (`OfficeEditor.Mcp`, stdio JSON-RPC): `deck_anatomize`, `deck_replace_element`, `deck_render_slide`, `deck_generate`, `document_edit_source`.
 
 ## Testing
 
 ```bash
-dotnet test                 # full suite: 2,300+ cases across 5 test projects
+dotnet test                 # full suite: 3,368 cases across 6 test projects
 ```
 
 - xUnit; per-primitive parity fixtures with RMSE thresholds for the generation pipeline
@@ -279,7 +291,7 @@ Reproduce: `dotnet run --project tools/pptx-benchmark` (methodology in `tools/pp
 
 ## Status & limitations
 
-**Version:** 0.7.1 (pre-1.0). Public API may change; the TypstBridge ABI is intentionally fluid until v1.0.
+**Version:** 0.10.0 (pre-1.0). Public API may change; the TypstBridge ABI is intentionally fluid until v1.0.
 
 **Platforms:** pure managed .NET 9 + per-RID native TypstBridge (osx-arm64, linux-x64, win-x64 built in CI).
 - **macOS (arm64)** — development platform; everything verified here
@@ -291,7 +303,7 @@ Reproduce: `dotnet run --project tools/pptx-benchmark` (methodology in `tools/pp
 - Clustered bar/column charts render; other chart families can fall back to placeholders. SmartArt renders from pre-rendered drawing shapes with documented theme-color limits. Animations are outside the static preview model.
 - Font fidelity varies by platform; installing Microsoft Office fonts (Aptos, Calibri) improves accuracy, but exact PowerPoint parity is not guaranteed (font metrics, line breaking, layout engines differ)
 
-**NuGet:** packages are listed at 0.7.1.
+**NuGet:** all six packages are listed at 0.10.0.
 
 ## Security
 
@@ -316,8 +328,3 @@ See `AGENTS.md` for engineering conventions and the release process.
 ## Author
 
 **Maxime Le Besnerais**
-
-### Edit generation source by ID
-
-OfficeEditor 0.10 supports batch source edits through the CLI, HTTP API and MCP.
-See [source editing](docs/source-editing.md) for inspect, set, rename, dry-run and backup examples.

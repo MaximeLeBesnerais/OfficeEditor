@@ -1,8 +1,8 @@
 # OfficeEditor.Mcp
 
 A thin [Model Context Protocol](https://modelcontextprotocol.io) (MCP) stdio host that
-exposes the OfficeEditor PPTX pipeline to MCP clients (Claude Desktop, IDEs, agents)
-as four tools:
+exposes the OfficeEditor generation engine to MCP clients (Claude Desktop, IDEs, agents)
+as five tools:
 
 | Tool | Purpose | Backed by |
 |---|---|---|
@@ -10,6 +10,7 @@ as four tools:
 | `deck_replace_element` | Batch edit ops: `replaceText`, `replaceImage`, `replaceTable`, `moveSlide`, `duplicateSlide`, `deleteSlide` | `PptxInstructionEngine` (validate-then-execute) |
 | `deck_render_slide` | Render one slide (1-based) to PNG/SVG bytes | `PresentationBuilder.ExportThumbnail` |
 | `deck_generate` | Generate a PPTX deck from a generation document (deck.schema.json v2.0; layout resolved server-side). Returns `pptxBase64` plus per-slide SVG/PNG previews (best-effort: `previewError` is set when no Typst backend is available). Creates a deck session whose `deckHandle` works with every other `deck_*` tool | Generation pipeline (`PptxEditor.Core/Generation`: validate → expand → layout → OOXML; previews via the Typst emitter) |
+| `document_edit_source` | Edit DOCX/PPTX/XLSX generation source by stable string IDs. Returns the edited `document` plus an `elements` inventory; stateless, doesn't touch an Office binary or deck session. An empty operation batch normalizes missing IDs | `GenerationJsonEditor` / `GenerationJsonIds` (`OfficeEditor.Core`) |
 
 **Zero third-party dependencies.** The JSON-RPC 2.0 / MCP protocol layer is
 hand-rolled over `System.Text.Json` (in-box); the only references are
@@ -125,10 +126,40 @@ continue from via the returned `deckHandle`).
   Typst emitter (best-effort: `previewError` is set when no Typst backend is
   available).
 - `ppi` — 36–600, default 150.
-- Response payload: `{ "pptxBase64": "…", "previews": [{ "slide": 1,
-  "format": "svg", "contentBase64": "…", "previewError": null }],
-  "deckHandle": "…", "revision": 0 }`. The returned deck handle works with
-  every other `deck_*` tool.
+- Response payload: `{ "pptxBase64": "…", "normalizedJson": { … },
+  "previews": [{ "slide": 1, "format": "svg", "contentBase64": "…",
+  "previewError": null }], "deckHandle": "…", "revision": 0 }`. Persist
+  `normalizedJson` to keep auto-assigned stable source IDs. The returned deck handle
+  works with every other `deck_*` tool.
+
+### `document_edit_source`
+
+```json
+{
+  "document": {
+    "version": "1.0",
+    "sections": [
+      { "blocks": [ { "type": "paragraph", "id": "intro", "text": "Before" } ] }
+    ]
+  },
+  "operations": [
+    { "type": "set", "id": "intro", "properties": { "text": "After" } }
+  ]
+}
+```
+
+- `document` — **required object**, a DOCX/PPTX/XLSX generation document.
+- `operations` — **required array**, evaluated in order. Supported types are
+  `set` (`id` + `properties`) and `rename` (`id` + `newId`). An empty array
+  normalizes missing IDs.
+- Response payload: `{ "document": { … }, "elements": [ { "id": "intro",
+  "kind": "paragraph", "path": "$.sections[0].blocks[0]", "parentId": null,
+  "properties": { … } } ] }`. Invalid operation syntax or IDs is an MCP
+  `-32602` InvalidParams error.
+- The tool is stateless: it does not require or create a deck session, and it
+  never modifies an Office binary. Pass the returned `document` on to the format
+  generator after editing — for PPTX, `deck_generate` validates the vocabulary
+  and emits the deck.
 
 All tool results use the MCP envelope: `content: [{type: "text", text: <json>}]` plus
 the same payload under `structuredContent`.
