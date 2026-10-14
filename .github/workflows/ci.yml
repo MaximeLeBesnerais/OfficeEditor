@@ -28,36 +28,74 @@ jobs:
 
       - name: Detect dotnet-relevant changes
         id: filter
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_SHA: ${{ github.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
         run: |
-          set -e
+          set -euo pipefail
+          out="${GITHUB_OUTPUT:-/dev/null}"
+          emit() {
+            echo "dotnet=$1" >> "$out"
+            echo "  -> dotnet=$1"
+          }
+
+          # FAIL CLOSED. build-test may only be skipped when this script has
+          # *positively* proved a docs-only diff. Any unexpected non-zero exit
+          # (git failure, malformed event payload, ...) reports dotnet=true and
+          # leaves the step red, so the downstream jobs always run.
+          trap 'status=$?; if [ "$status" -ne 0 ]; then echo "::error::change detection failed (exit $status); forcing dotnet=true"; emit true; fi' EXIT
+
+          # Expected, non-error fallbacks: force the build and report success.
+          force() {
+            echo "$1"
+            emit true
+            exit 0
+          }
+
+          is_dotnet_relevant() {
+            grep -qE '\.cs$|\.csproj$|\.sln$|\.props$|\.targets$|^TypstBridge/|^scripts/check-coverage\.py$|^\.github/workflows/ci\.yml$' <<< "$1"
+          }
+
           files=""
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "Manual dispatch: forcing dotnet=true"
-          elif [ "${{ github.event_name }}" = "pull_request" ]; then
-            files="$(git diff --name-only origin/${{ github.base_ref }}...${{ github.sha }})"
-          else
-            before="${{ github.event.before }}"
-            if [ "$before" = "0000000000000000000000000000000000000000" ]; then
-              echo "First push (all-zeros before): forcing dotnet=true"
-            elif ! git cat-file -e "$before" 2>/dev/null; then
-              echo "before SHA $before not present in checkout (force-push/rewritten history): forcing dotnet=true"
-            else
-              files="$(git diff --name-only "$before" "${{ github.sha }}")"
-            fi
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            force "Manual dispatch: forcing dotnet=true"
           fi
+
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            [ -n "$BASE_REF" ] || { echo "base_ref is empty on a pull_request event" >&2; exit 1; }
+            files="$(git diff --name-only "origin/$BASE_REF...$HEAD_SHA")"
+          elif [ -n "$BEFORE_SHA" ] && [ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ]; then
+            [ -n "$HEAD_SHA" ] || { echo "sha is empty on a push event" >&2; exit 1; }
+            git cat-file -e "$BEFORE_SHA" 2>/dev/null \
+              || force "before SHA $BEFORE_SHA not present in checkout (force-push/rewritten history): forcing dotnet=true"
+            files="$(git diff --name-only "$BEFORE_SHA" "$HEAD_SHA")"
+          else
+            force "No usable before SHA (first push or unknown event): forcing dotnet=true"
+          fi
+
           echo "Changed files:"
           echo "$files"
-          if [ -z "$files" ] || echo "$files" | grep -qE '\.cs$|\.csproj$|\.sln$|\.props$|\.targets$|^TypstBridge/|^scripts/check-coverage\.py$|^\.github/workflows/ci\.yml$'; then
-            echo "dotnet=true" >> "$GITHUB_OUTPUT"
+          if [ -z "$files" ]; then
+            force "Empty diff: forcing dotnet=true"
+          elif is_dotnet_relevant "$files"; then
+            echo "C#-affecting change detected: dotnet=true"
+            emit true
           else
-            echo "dotnet=false" >> "$GITHUB_OUTPUT"
+            echo "Docs-only change: dotnet=false (build-test may be skipped)"
+            emit false
           fi
 
   build-test:
     needs: changes
-    # When skipped (docs-only change), GitHub treats the skipped job as
-    # SUCCESS for required status checks — docs-only PRs stay mergeable.
-    if: needs.changes.outputs.dotnet == 'true'
+    # FAIL CLOSED. Skip only when the changes job succeeded AND positively
+    # reported a docs-only diff. If change detection failed, was cancelled, or
+    # never wrote the output, build-test still runs and produces a real result —
+    # GitHub counts a *skipped* required check as success, so skipping on an
+    # unknown diff would let an unverified PR merge.
+    # A genuinely docs-only diff still skips this job (mergeable, as before).
+    if: ${{ always() && !(needs.changes.result == 'success' && needs.changes.outputs.dotnet == 'false') }}
     runs-on: ubuntu-latest
     env:
       # Keep roughly 3 percentage points of headroom for coverage/build-noise fluctuation.
@@ -81,6 +119,44 @@ jobs:
 
       - name: Coverage gate
         run: python3 scripts/check-coverage.py --threshold ${{ env.COVERAGE_THRESHOLD }}
+
+      # --- Typst render path -------------------------------------------------
+      # Every Typst-dependent test early-returns unless OE_RUN_TYPST_COMPILE_TESTS=1,
+      # so without these steps the render path — the product's core claim — is never
+      # exercised in CI. Runs the three projects that contain the env-gated suites on
+      # the binaries already built above (no rebuild, no coverage re-collection).
+      - name: Install typst CLI (safety-net backend)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          url="https://github.com/typst/typst/releases/download/v0.15.1/typst-x86_64-unknown-linux-musl.tar.xz"
+          curl -fsSL "$url" -o /tmp/typst.tar.xz
+          tar -xJf /tmp/typst.tar.xz -C /tmp
+          sudo install -m 0755 /tmp/typst-x86_64-unknown-linux-musl/typst /usr/local/bin/typst
+          typst --version
+
+      - name: Typst render-path tests
+        env:
+          OE_RUN_TYPST_COMPILE_TESTS: "1"
+        run: |
+          dotnet test --no-build -c Release DocxEditor.Tests/DocxEditor.Tests.csproj
+          dotnet test --no-build -c Release OfficeEditor.Api.Tests/OfficeEditor.Api.Tests.csproj
+          dotnet test --no-build -c Release OfficeEditor.Mcp.Tests/OfficeEditor.Mcp.Tests.csproj
+
+      # --- Locale leg --------------------------------------------------------
+      # Culture-dependent diagnostics/formatting are invisible on an en-US-only
+      # runner; run the suite under fr_FR so they cannot regress silently.
+      - name: Install French locale
+        run: |
+          sudo locale-gen fr_FR.UTF-8
+          locale -a | grep -i '^fr_FR'
+
+      - name: Locale tests (fr_FR.UTF-8)
+        env:
+          LANG: fr_FR.UTF-8
+          LC_ALL: fr_FR.UTF-8
+          DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: "0"
+        run: dotnet test --no-build -c Release DocxEditor.Tests/DocxEditor.Tests.csproj
 
       - name: Upload coverage
         if: always()

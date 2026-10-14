@@ -13,4 +13,16 @@
     <ProjectReference Include="..\XlsxEditor.Core\XlsxEditor.Core.csproj" />
   </ItemGroup>
 
+  <!--
+    The SDK's default **/*.cs glob excludes only THIS project's obj/bin, so a
+    nested sample directory that still holds build output (for example a
+    leftover examples/<sample>/obj whose sources were removed) gets compiled as
+    if it were source and fails with duplicate assembly attributes. Exclude
+    nested build output explicitly so the examples runner is robust to that.
+  -->
+  <ItemGroup>
+    <Compile Remove="**/obj/**" />
+    <Compile Remove="**/bin/**" />
+  </ItemGroup>
+
 </Project>
