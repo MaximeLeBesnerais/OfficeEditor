@@ -7,13 +7,135 @@ name: release
 #   Workflow File:    release.yml        (file name only, no path)
 #   Environment:      (leave empty — this workflow uses no environment)
 # Also add the NUGET_USER Actions secret: your nuget.org *profile name* (not email).
+#
+# Release policy (AGENTS.md): a `v*` tag is only created from a tested `main`
+# commit. This workflow now enforces that instead of trusting it:
+#   1. tag format       — `v<major>.<minor>.<patch>` only, checked before any build
+#   2. ancestry         — the tagged commit must be reachable from `main`
+#   3. docs agreement   — the tagged tree's README.md and CHANGELOG.md must name
+#                         the tag version (the 0.10.0 tag shipped a README that
+#                         still advertised 0.7.1)
+#   4. tests            — the full suite must pass before anything is packed
+# A manual `workflow_dispatch` run executes the same gates, the native matrix,
+# the tests, the pack and the CLI smoke test, but skips only the NuGet
+# login/push (dry run). The native matrix is NOT skipped on a dry run: the
+# TypstBridge package needs the per-RID native libraries, and without them the
+# pack falls back to building the native crate, which needs a Rust toolchain the
+# pack runner does not have.
 
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Validate and pack, but do not push to NuGet"
+        type: boolean
+        default: true
+
+env:
+  # "true" for manual runs and for push events (a push always publishes).
+  DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
 
 jobs:
+  # Cheap gates first: a bad tag must not start the native build matrix.
+  release-gates:
+    runs-on: ubuntu-latest
+    steps:
+      # fetch-depth: 0 — the ancestry gate needs `main`'s history, and no ref is
+      # guaranteed to be in a shallow clone.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Validate tag format
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME:?GITHUB_REF_NAME is not set}"
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::tag '$TAG' is not of the form v<major>.<minor>.<patch> (e.g. v0.10.0)."
+            exit 1
+          fi
+          echo "VERSION=${TAG#v}" >> "${GITHUB_ENV:-/dev/null}"
+          echo "tag '$TAG' is a well-formed release tag."
+
+      - name: Gate — tagged commit is on main
+        run: |
+          set -euo pipefail
+          SHA="${GITHUB_SHA:?GITHUB_SHA is not set}"
+          # Explicitly refresh the remote branch: on a tag push only the tag is
+          # fetched, so `origin/main` may not exist yet.
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$SHA" origin/main; then
+            echo "::error::$GITHUB_REF_NAME points at $SHA, which is not an ancestor of main."
+            echo "Release policy: merge the tested commit into main first, then tag that commit."
+            echo "main is currently at: $(git rev-parse origin/main)"
+            exit 1
+          fi
+          echo "$GITHUB_REF_NAME ($SHA) is reachable from main ($(git rev-parse origin/main))."
+
+      - name: Gate — tagged tree documents this version
+        run: |
+          set -euo pipefail
+          python3 - "${VERSION:?VERSION is not set}" <<'PY'
+          import pathlib
+          import sys
+
+          version = sys.argv[1]
+          failures = []
+
+          # Declarations the README must carry for a release: the banner and the
+          # installation snippets consumers copy. Mentioning the version anywhere
+          # is deliberately not enough — 0.10.0 shipped a README that still told
+          # consumers to install 0.7.1.
+          readme = pathlib.Path("README.md").read_text(encoding="utf-8")
+          required = [
+              f"Current release: {version}",
+              f"NuGet packages are listed at **{version}**",
+              f"MaximeLB.OfficeEditor.Cli --version {version}",
+          ]
+          for marker in required:
+              if marker not in readme:
+                  failures.append(f"README.md is missing {marker!r}")
+
+          # A release without a changelog section is unreviewable.
+          changelog = pathlib.Path("CHANGELOG.md").read_text(encoding="utf-8")
+          if f"## [{version}]" not in changelog:
+              failures.append(f"CHANGELOG.md has no '## [{version}]' section")
+
+          # The native crate reports its own version (typst_bridge_version());
+          # Cargo.toml is not derived from MSBuild, so it is gated here too.
+          # Read only the [package] section — every dependency pin below it has
+          # its own `version = "..."` line.
+          cargo = pathlib.Path("TypstBridge/native/Cargo.toml").read_text(encoding="utf-8").splitlines()
+          in_package = False
+          crate_version = None
+          for line in cargo:
+              stripped = line.strip()
+              if stripped.startswith("["):
+                  if in_package:
+                      break
+                  in_package = stripped == "[package]"
+              elif in_package and stripped.startswith("version"):
+                  crate_version = stripped.split("=", 1)[1].strip().strip('"')
+                  break
+          if crate_version != version:
+              failures.append(
+                  f'TypstBridge/native/Cargo.toml [package] version is {crate_version!r}, expected {version!r}'
+              )
+
+          for failure in failures:
+              print(f"::error::tag v{version}: {failure}")
+          if failures:
+              sys.exit(1)
+          print(f"README.md, CHANGELOG.md and Cargo.toml all name {version}.")
+          PY
+
   native:
+    needs: release-gates
+    # Runs for tags AND for dry runs: TypstBridge.Managed packs the per-RID native
+    # libraries produced here, and the pack runner has no Rust toolchain to build
+    # them as a fallback.
     strategy:
       fail-fast: false
       matrix:
@@ -73,7 +195,14 @@ jobs:
           path: TypstBridge/runtimes/${{ matrix.rid }}/native/
 
   pack-push:
-    needs: native
+    needs: [release-gates, native]
+    # Only the gates must have passed for this job to start; the native artifacts
+    # are then checked explicitly ("Place native artifacts into runtimes/" fails
+    # when a library is missing). That is deliberately fail-closed: if the native
+    # matrix failed or was skipped, this job still runs and reports the missing
+    # artifacts instead of being skipped — a skipped job would read as success and
+    # could look like a release that published nothing.
+    if: always() && needs.release-gates.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: read   # required for actions/checkout (job-level permissions zero everything else)
@@ -85,6 +214,9 @@ jobs:
         with:
           dotnet-version: "9.0.x"
 
+      # Always placed, dry run included: TypstBridge.Managed packs these as
+      # runtimes/<rid>/native/*, and without them the pack tries to build the
+      # native crate (no Rust on this runner).
       - name: Download native artifacts
         uses: actions/download-artifact@v8
         with:
@@ -113,6 +245,11 @@ jobs:
       - name: Restore
         run: dotnet restore
 
+      # Test gate: a tag must not be able to publish untested code. The Typst
+      # compile/parity suites are opt-in (see AGENTS.md) and stay off here.
+      - name: Test
+        run: dotnet test -c Release --no-restore
+
       - name: Pack
         run: |
           set -euo pipefail
@@ -135,26 +272,66 @@ jobs:
             unzip -l "$pkg"
           done
 
+      # Symbols are pushed alongside the packages; fail early and loudly if the
+      # SDK did not emit them (IncludeSymbols/SymbolPackageFormat live in
+      # Directory.Build.props).
+      - name: Verify symbol packages
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          packages=(nupkgs/*.nupkg)
+          symbols=(nupkgs/*.snupkg)
+          echo "packages: ${#packages[@]}  symbol packages: ${#symbols[@]}"
+          if (( ${#symbols[@]} != ${#packages[@]} )); then
+            echo "::error::expected one .snupkg per .nupkg (${#packages[@]} vs ${#symbols[@]})."
+            exit 1
+          fi
+
       - name: Smoke-test packaged CLI
         shell: bash
         run: |
           set -euo pipefail
           dotnet tool install MaximeLB.OfficeEditor.Cli --version "$VERSION" --tool-path "$RUNNER_TEMP/oe-cli" --add-source "$PWD/nupkgs"
+          CLI="$RUNNER_TEMP/oe-cli/officeeditor"
+
+          # --- XLSX: ids / inspect / edit / generate round trip -----------------
           printf '%s' '{"version":"1.0","worksheets":[{"name":"Data","cells":[{"address":"A1","value":"Before"}]}]}' > "$RUNNER_TEMP/oe-source.json"
           printf '%s' '[{"type":"set","id":"cell-0","properties":{"value":"After"}}]' > "$RUNNER_TEMP/oe-edits.json"
-          "$RUNNER_TEMP/oe-cli/officeeditor" ids "$RUNNER_TEMP/oe-source.json" --backup
-          "$RUNNER_TEMP/oe-cli/officeeditor" inspect "$RUNNER_TEMP/oe-source.json"
-          "$RUNNER_TEMP/oe-cli/officeeditor" edit "$RUNNER_TEMP/oe-source.json" --instructions "$RUNNER_TEMP/oe-edits.json" --output "$RUNNER_TEMP/oe-edited.json"
-          "$RUNNER_TEMP/oe-cli/officeeditor" generate "$RUNNER_TEMP/oe-edited.json" --output "$RUNNER_TEMP/oe-edited.xlsx"
+          "$CLI" ids "$RUNNER_TEMP/oe-source.json" --backup
+          "$CLI" inspect "$RUNNER_TEMP/oe-source.json"
+          "$CLI" edit "$RUNNER_TEMP/oe-source.json" --instructions "$RUNNER_TEMP/oe-edits.json" --output "$RUNNER_TEMP/oe-edited.json"
+          "$CLI" generate "$RUNNER_TEMP/oe-edited.json" --output "$RUNNER_TEMP/oe-edited.xlsx"
           test -s "$RUNNER_TEMP/oe-edited.xlsx"
+
+          # --- PPTX: declarative generation (vocabulary 2.0, topic 1) ----------
+          # A layout container needs children with a resolved main-axis size, so
+          # the text primitive grows to fill the slide.
+          printf '%s' '{"version":"2.0","design":{"palette":{"paper":"#FFFFFF","ink":"#1F2937","accent":"#2563EB"}},"slides":[{"type":"container","layout":{"mode":"column","gap":18},"fill":"paper","padding":36,"children":[{"type":"text","text":"Release smoke test","fontSize":30,"color":"ink","size":{"grow":1}}]}]}' > "$RUNNER_TEMP/oe-deck.json"
+          "$CLI" generate "$RUNNER_TEMP/oe-deck.json" --output "$RUNNER_TEMP/oe-deck.pptx"
+          test -s "$RUNNER_TEMP/oe-deck.pptx"
+
+          # --- DOCX: declarative generation (vocabulary 1.0, topic 1) ----------
+          printf '%s' '{"version":"1.0","sections":[{"blocks":[{"type":"paragraph","text":"Release smoke test."}]}]}' > "$RUNNER_TEMP/oe-doc.json"
+          "$CLI" generate "$RUNNER_TEMP/oe-doc.json" --output "$RUNNER_TEMP/oe-doc.docx"
+          test -s "$RUNNER_TEMP/oe-doc.docx"
+
+          ls -la "$RUNNER_TEMP"/oe-edited.xlsx "$RUNNER_TEMP"/oe-deck.pptx "$RUNNER_TEMP"/oe-doc.docx
 
       # Exchange the GitHub OIDC token for a short-lived (1h) NuGet API key,
       # matched against the Trusted Publishing policy configured on nuget.org.
       - name: NuGet login (OIDC → temp API key)
         id: login
+        if: env.DRY_RUN != 'true'
         uses: NuGet/login@v1
         with:
           user: ${{ secrets.NUGET_USER }}
 
       - name: Push to NuGet
-        run: dotnet nuget push "nupkgs/*.nupkg" --source https://api.nuget.org/v3/index.json --api-key ${{ steps.login.outputs.NUGET_API_KEY }} --skip-duplicate
+        if: env.DRY_RUN != 'true'
+        run: |
+          set -euo pipefail
+          dotnet nuget push "nupkgs/*.nupkg" "nupkgs/*.snupkg" --source https://api.nuget.org/v3/index.json --api-key ${{ steps.login.outputs.NUGET_API_KEY }} --skip-duplicate
+
+      - name: Dry run (nothing published)
+        if: env.DRY_RUN == 'true'
+        run: echo 'Dry run OK - gates, tests, pack and the CLI smoke test passed; nothing was pushed to NuGet.'
