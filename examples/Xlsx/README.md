@@ -310,7 +310,7 @@ Validation is loud: unknown keys, invalid sheet names, out-of-bounds addresses (
 
 ### CLI
 
-The wired command is the unified `generate` surface (extension-selected, like DOCX/PPTX):
+The wired commands are the unified `generate` and `create --instructions` surfaces (extension-selected, like DOCX/PPTX):
 
 ```bash
 officeeditor generate examples/Xlsx/instructions/rich-report.json --output rich-report.xlsx
@@ -323,7 +323,14 @@ officeeditor generate examples/Xlsx/instructions/rich-report.json --output rich-
 officeeditor generate examples/Xlsx/instructions/rich-report.json --output rich-report.png   # directory of page-NNN.png
 ```
 
-`officeeditor create <out.xlsx> --instructions <file.json>` is still **not implemented** — `create` currently makes a blank sheet, and XLSX `edit` is unimplemented (the unified `edit` command is a stub). Drive the vocabulary through `XlsxGenerator` / `XlsxInstructionExecutor` from the library when you need it from code.
+`officeeditor create <out.xlsx> --instructions <file.json>` generates the workbook from an instruction set through the same validated pipeline `generate` uses; the instruction file is never rewritten. The unified `edit` command is wired too: it applies an ordered batch of `set`/`rename` operations to any DOCX/PPTX/XLSX generation source by stable ID, then writes a new file —
+
+```bash
+officeeditor edit examples/Xlsx/instructions/rich-report.json --instructions edits.json --output edited.json
+officeeditor generate edited.json --output rich-report.xlsx
+```
+
+See [source editing](../../docs/source-editing.md) for operation syntax and identity coverage. Drive the vocabulary through `XlsxGenerator` / `XlsxInstructionExecutor` from the library when you need it from code.
 
 ### Explicit limitations
 
@@ -331,7 +338,7 @@ officeeditor generate examples/Xlsx/instructions/rich-report.json --output rich-
 - **Row replication** — there is no `repeat`/`foreach` loop; the hardest remaining generation item.
 - **Number formats** — applied via named styles or per-cell `numberFormat`; there is no separate `numFmt` table authoring.
 - **Charts, defined names, data validation, panes beyond freeze** — out of the v1 vocabulary.
-- **`create --instructions` / `edit`** — not wired; use `officeeditor generate <input.json> --output <out.xlsx>` or the library.
+- **Editing existing `.xlsx` binaries by ID** — `officeeditor edit` works on generation JSON sources; stable IDs are a source concept and are not reconstructed from an arbitrary workbook. Edit the JSON, then `generate` the workbook (or use `XlsxGenerator` / `GenerationJsonEditor` from code).
 - **Rendering evaluates no formulas** — the renderer (see [Rendering & Conversion](#7-rendering--conversion-xlsx--pdfpngsvg) below) draws the workbook's cached `<v>` values only. OfficeEditor-written formula cells carry no cached value (the workbook sets `fullCalcOnLoad`), so they render as empty cells until the file is opened in Excel/LibreOffice; third-party workbooks that save cached results (Excel/LibreOffice do) render those.
 
 ---

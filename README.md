@@ -32,6 +32,9 @@ officeeditor create output.docx --text "Hello World"
 officeeditor create output.pptx --title "My Presentation"
 officeeditor create output.xlsx --sheet "Sales"
 
+# Create from a JSON generation source (same pipeline as generate, source untouched)
+officeeditor create output.xlsx --instructions workbook.json
+
 # Generate a full deck from a JSON vocabulary
 officeeditor generate demo/demo-deck.json --output deck.pptx
 
@@ -180,6 +183,8 @@ git clone https://github.com/MaximeLeBesnerais/OfficeEditor.git
 cd OfficeEditor && dotnet build        # 0 warnings, 0 errors (enforced)
 ```
 
+**Build prerequisite — Rust (`cargo`).** `TypstBridge.Managed` builds its native Typst bridge (Rust, `TypstBridge/native/`) as part of the build whenever the host-RID asset is missing from `TypstBridge/runtimes/<rid>/native/` — and `TypstBridge/runtimes/` is gitignored, so a fresh clone needs a Rust toolchain for its first `dotnet build`. Without it the build stops in `TypstBridge/packaging/build-native.sh` with `cargo was not found. Install Rust from https://rustup.rs/ and retry.` Install via [rustup](https://rustup.rs/) (`cargo --version` to check); later builds reuse the cached host-RID library and do not invoke Rust.
+
 ## Repository map — where things live
 
 | What | Where |
@@ -197,15 +202,15 @@ cd OfficeEditor && dotnet build        # 0 warnings, 0 errors (enforced)
 |---|---|
 | Unified CLI | `dotnet run --project OfficeEditor.Cli -- <command>` |
 | API | `dotnet run --project OfficeEditor.Api --urls http://localhost:5001` |
-| Web demo | `make dev` → http://localhost:5173/ (`/demo` = the app) |
+| Web demo | `make dev` → API http://localhost:5001 + app http://localhost:5173/ (`/demo` = the app) |
 | MCP host (JSON-RPC stdio) | `dotnet run --project OfficeEditor.Mcp` |
 | Examples | `dotnet run --project examples` |
-| Convert / diff / bench tools | `dotnet run --project tools/convert-pptx -- <in> <out> [--format pdf\|png\|svg\|typ]` · `dotnet run --project tools/convert-docx -- <in> <out> [--format pdf\|png\|svg\|typ]` · `dotnet run --project tools/convert-xlsx -- <in> <out> [--format pdf\|png\|svg\|typ\|json]` · `dotnet run --project tools/visual-diff -- --suite pptx\|gen\|xlsx` · `dotnet run --project tools/pptx-benchmark` |
+| Convert / diff / bench tools | `dotnet run --project tools/convert-pptx -- <in> <out> [--format pdf\|png\|svg\|typ]` · `dotnet run --project tools/convert-docx -- <in> <out> [--format pdf\|png\|svg\|typ]` · `dotnet run --project tools/convert-xlsx -- <in> <out> [--format pdf\|png\|svg\|typ\|json]` · `dotnet run --project tools/visual-diff -- --suite docx\|pptx\|xlsx\|gen` (the DOCX suite needs generated references under `examples/output/ref/docx/`) · `dotnet run --project tools/pptx-benchmark` |
 | CLI demo | `make -f Makefile.demo demo` (preflight → convert REF deck → generate deck, prints timings, opens PDFs) |
 
 ### The demo
 
-`make dev`, open http://localhost:5173/ — four tabs, all timings server-measured:
+`make dev` starts both surfaces under one `concurrently` process — the API on http://localhost:5001 and the Vite client on http://localhost:5173. Open http://localhost:5173/ — four tabs, all timings server-measured:
 
 1. **Render** — pick a whitelisted REF deck → timed PNG/SVG gallery (the current benchmark is about 329 ms / 20.6 ms per slide for the 16-slide sales deck on Apple Silicon)
 2. **Generate** — edit the demo deck's title live + swap theme presets → PPTX + previews + **downloadable .pptx**
@@ -261,14 +266,14 @@ Key design decisions:
 ## Testing
 
 ```bash
-dotnet test                 # full suite: 3,368 cases across 6 test projects
+dotnet test                 # full suite: 3,397 cases across 6 test projects
 ```
 
 - xUnit; per-primitive parity fixtures with RMSE thresholds for the generation pipeline
 - Coverage: merged-union line coverage across all test projects (`scripts/check-coverage.py`); CI gate floor **83%** — source of truth is `COVERAGE_THRESHOLD` in `.github/workflows/ci.yml`
 - Typst-dependent tests are env-gated: `OE_RUN_TYPST_COMPILE_TESTS=1 dotnet test`
-- CI: `build-test` on PRs and `main` pushes — Release build (warnings = errors) + full suite + coverage gate (83% floor); runs only when C#-relevant paths change
-- Visual regression: PPTX and generation suites are runnable today. The DOCX suite is wired but still needs generated reference outputs under `examples/output/ref/docx/`.
+- CI: `build-test` on PRs and `main` pushes — Release build (warnings = errors) + full suite + coverage gate (83% floor), then the env-gated Typst render-path tests (`OE_RUN_TYPST_COMPILE_TESTS=1`) and a `fr_FR.UTF-8` locale leg; change detection is fail-closed, so the job is skipped only after the diff is positively proven docs-only
+- Visual regression: the `pptx`, `xlsx` and `gen` suites run today (`--generate` builds missing generated PDFs for `pptx`/`xlsx`); the DOCX suite is wired but still needs generated reference outputs under `examples/output/ref/docx/`.
 
 ## Performance
 
@@ -300,7 +305,7 @@ Reproduce: `dotnet run --project tools/pptx-benchmark` (methodology in `tools/pp
 
 **Rendering (PPTX → Typst → PDF/PNG/SVG):**
 - Text, images, shapes, and tables render with good fidelity
-- Clustered bar/column charts render; other chart families can fall back to placeholders. SmartArt renders from pre-rendered drawing shapes with documented theme-color limits. Animations are outside the static preview model.
+- Clustered, stacked and percent-stacked bar/column charts plus pie and doughnut charts render; line charts fall back to placeholders. SmartArt renders from pre-rendered drawing shapes with documented theme-color limits. Animations are outside the static preview model.
 - Font fidelity varies by platform; installing Microsoft Office fonts (Aptos, Calibri) improves accuracy, but exact PowerPoint parity is not guaranteed (font metrics, line breaking, layout engines differ)
 
 **NuGet:** all six packages are listed at 0.10.0.
@@ -319,9 +324,9 @@ This product bundles third-party components under their own licenses; see [THIRD
 
 The repo uses a protected `main` / working `dev` branch model:
 
-1. Branch from `dev`; CI runs on your PR (build + full tests + coverage gate; C#-path-gated)
+1. Branch from `dev`; CI runs on your PR (build + full tests + coverage gate, Typst render-path tests, `fr_FR.UTF-8` locale leg; docs-only diffs are detected fail-closed)
 2. PRs into `main` must come from `dev` (`guard-main` enforces it)
-3. Release policy: create `v*` tags from tested `main` commits → native matrix → NuGet trusted publishing
+3. Releases: tag a tested `main` commit as `v<major>.<minor>.<patch>`; `release.yml` gates on tag format, `main` ancestry, and README/CHANGELOG/Cargo.toml naming the tag version before the native matrix, pack and NuGet trusted publishing run
 
 See `AGENTS.md` for engineering conventions and the release process.
 

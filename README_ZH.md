@@ -30,6 +30,9 @@ officeeditor create output.docx --text "Hello World"
 officeeditor create output.pptx --title "My Presentation"
 officeeditor create output.xlsx --sheet "Sales"
 
+# Create from a JSON generation source (same pipeline as generate, source untouched)
+officeeditor create output.xlsx --instructions workbook.json
+
 # Generate a full deck from a JSON vocabulary
 officeeditor generate demo/demo-deck.json --output deck.pptx
 
@@ -178,6 +181,8 @@ git clone https://github.com/MaximeLeBesnerais/OfficeEditor.git
 cd OfficeEditor && dotnet build        # 0 warnings, 0 errors (enforced)
 ```
 
+**构建前置条件 —— Rust（`cargo`）。** 当 `TypstBridge/runtimes/<rid>/native/` 中缺少宿主 RID 的原生库时，`TypstBridge.Managed` 会在构建过程中编译原生 Typst 桥（Rust，`TypstBridge/native/`）；而 `TypstBridge/runtimes/` 已被 gitignore，因此全新克隆的第一次 `dotnet build` 需要 Rust 工具链。缺少时会由 `TypstBridge/packaging/build-native.sh` 直接失败并提示 `cargo was not found. Install Rust from https://rustup.rs/ and retry.`。请通过 [rustup](https://rustup.rs/) 安装（用 `cargo --version` 检查）；之后的构建会复用缓存的宿主 RID 库，不再调用 Rust。
+
 ## 仓库结构 —— 各部分所在位置
 
 | 内容 | 位置 |
@@ -195,15 +200,15 @@ cd OfficeEditor && dotnet build        # 0 warnings, 0 errors (enforced)
 |---|---|
 | 统一 CLI | `dotnet run --project OfficeEditor.Cli -- <command>` |
 | API | `dotnet run --project OfficeEditor.Api --urls http://localhost:5001` |
-| Web 演示 | `make dev` → http://localhost:5173/（`/demo` 即应用本身） |
+| Web 演示 | `make dev` → API http://localhost:5001 + 应用 http://localhost:5173/（`/demo` 即应用本身） |
 | MCP 主机（JSON-RPC stdio） | `dotnet run --project OfficeEditor.Mcp` |
 | 示例程序 | `dotnet run --project examples` |
-| 转换 / 对比 / 基准测试工具 | `dotnet run --project tools/convert-pptx -- <in> <out> [--format pdf\|png\|svg\|typ]` · `dotnet run --project tools/convert-docx -- <in> <out> [--format pdf\|png\|svg\|typ]` · `dotnet run --project tools/convert-xlsx -- <in> <out> [--format pdf\|png\|svg\|typ\|json]` · `dotnet run --project tools/visual-diff -- --suite pptx\|gen\|xlsx` · `dotnet run --project tools/pptx-benchmark` |
+| 转换 / 对比 / 基准测试工具 | `dotnet run --project tools/convert-pptx -- <in> <out> [--format pdf\|png\|svg\|typ]` · `dotnet run --project tools/convert-docx -- <in> <out> [--format pdf\|png\|svg\|typ]` · `dotnet run --project tools/convert-xlsx -- <in> <out> [--format pdf\|png\|svg\|typ\|json]` · `dotnet run --project tools/visual-diff -- --suite docx\|pptx\|xlsx\|gen`（DOCX 套件需要先在 `examples/output/ref/docx/` 下生成参考文件） · `dotnet run --project tools/pptx-benchmark` |
 | CLI 演示 | `make -f Makefile.demo demo`（预检 → 转换 REF 演示文稿 → 生成演示文稿，打印计时并打开 PDF） |
 
 ### 演示
 
-`make dev`，打开 http://localhost:5173/ —— 四个标签页，所有计时均由服务端测量：
+`make dev` 在同一个 `concurrently` 进程中同时启动两个界面 —— API 位于 http://localhost:5001，Vite 客户端位于 http://localhost:5173。打开 http://localhost:5173/ —— 四个标签页，所有计时均由服务端测量：
 
 1. **渲染** —— 从白名单中选择 REF 演示文稿 → 计时 PNG/SVG 图库（当前基准：16 页销售演示文稿在 Apple Silicon 上约 329 ms 总体 / 每页 20.6 ms）
 2. **生成** —— 实时编辑演示文稿标题 + 切换主题预设 → PPTX + 预览 + **可下载的 .pptx**
@@ -259,14 +264,14 @@ DocxEditor/                          # repo folder (historical name; product is 
 ## 测试
 
 ```bash
-dotnet test                 # full suite: 3,368 cases across 6 test projects
+dotnet test                 # full suite: 3,397 cases across 6 test projects
 ```
 
 - xUnit；生成管线采用逐原语一致性测试夹具，并以 RMSE 阈值校验
 - 覆盖率：跨所有测试项目的合并并集行覆盖率（`scripts/check-coverage.py`）；CI 门槛下限 **83%** —— 权威来源是 `.github/workflows/ci.yml` 中的 `COVERAGE_THRESHOLD`
 - 依赖 Typst 的测试通过环境变量开关：`OE_RUN_TYPST_COMPILE_TESTS=1 dotnet test`
-- CI：在 PR 与 `main` 推送上运行 `build-test` —— Release 构建（警告视为错误）+ 完整测试套件 + 覆盖率门槛（83% 下限）；仅在 C# 相关路径变更时运行
-- 视觉回归：PPTX 与生成测试套件目前已可运行。DOCX 套件已接入，但仍需在 `examples/output/ref/docx/` 下生成参考输出
+- CI：在 PR 与 `main` 推送上运行 `build-test` —— Release 构建（警告视为错误）+ 完整测试套件 + 覆盖率门槛（83% 下限），随后是环境变量开关的 Typst 渲染路径测试（`OE_RUN_TYPST_COMPILE_TESTS=1`）与 `fr_FR.UTF-8` 区域设置测试；变更检测采用 fail-closed，只有被确证为纯文档改动时才会跳过该作业
+- 视觉回归：`pptx`、`xlsx` 与 `gen` 套件目前已可运行（`--generate` 会为 `pptx`/`xlsx` 构建缺失的生成 PDF）；DOCX 套件已接入，但仍需在 `examples/output/ref/docx/` 下生成参考输出
 
 ## 性能
 
@@ -298,7 +303,7 @@ PPTX 渲染管线（PptxEditor → Typst → PNG/PDF）与无头 LibreOffice 对
 
 **渲染（PPTX → Typst → PDF/PNG/SVG）：**
 - 文本、图片、形状与表格的渲染保真度良好
-- 簇状条形图/柱形图可渲染；其他图表类型可能回退为占位符。SmartArt 由预渲染的绘图形状渲染，存在已文档化的主题色限制。动画不在静态预览模型范围内
+- 簇状、堆叠与百分比堆叠条形图/柱形图，以及饼图与圆环图均可渲染；折线图会回退为占位符。SmartArt 由预渲染的绘图形状渲染，存在已文档化的主题色限制。动画不在静态预览模型范围内
 - 字体保真度因平台而异；安装 Microsoft Office 字体（Aptos、Calibri）可提高准确度，但无法保证与 PowerPoint 完全一致（字体度量、断行、布局引擎均不相同）
 
 **NuGet：** 全部六个包当前版本为 0.10.0。
@@ -317,9 +322,9 @@ MIT — Copyright 2026 Maxime Le Besnerais
 
 本仓库采用受保护的 `main` / 工作分支 `dev` 的分支模型：
 
-1. 从 `dev` 创建分支；CI 会在你的 PR 上运行（构建 + 完整测试 + 覆盖率门槛；仅在 C# 相关路径变更时触发）
+1. 从 `dev` 创建分支；CI 会在你的 PR 上运行（构建 + 完整测试 + 覆盖率门槛、Typst 渲染路径测试、`fr_FR.UTF-8` 区域设置测试；纯文档改动采用 fail-closed 判定）
 2. 进入 `main` 的 PR 必须来自 `dev`（由 `guard-main` 强制执行）
-3. 发布策略：从经过测试的 `main` 提交创建 `v*` 标签 → 原生构建矩阵 → NuGet 受信发布
+3. 发布：为经过测试的 `main` 提交打上 `v<major>.<minor>.<patch>` 标签；`release.yml` 会先校验标签格式、`main` 祖先关系，以及 README/CHANGELOG/Cargo.toml 是否都标明了该标签版本，然后才运行原生构建矩阵、打包与 NuGet 受信发布
 
 工程规范与发布流程参见 `AGENTS.md`。
 

@@ -12,6 +12,7 @@ officeeditor ids ./documents --recursive --backup
 officeeditor inspect document.json
 officeeditor edit document.json --instructions edits.json --output edited.json
 officeeditor generate edited.json --output edited.docx
+officeeditor generate edited.json --output edited.docx --no-write-ids
 ```
 
 `inspect` prints an array with each element's ID, kind, JSON path, parent ID and
@@ -25,6 +26,12 @@ refuses an existing backup. The batch checks IDs and backup conflicts before
 writing; filesystem errors during writing can still leave some files updated.
 Completed files are left untouched. Directory scans exclude build folders and
 symlinks, as described in [element IDs](element-ids.md).
+
+`generate` keeps the 0.10 behaviour of writing missing IDs back to its input
+before generating. `--no-write-ids` leaves the input byte-identical and
+generates from the normalized document held in memory. `--backup` copies the
+pre-normalization bytes to `<file>.bak` first and refuses an existing backup;
+it cannot be combined with `--no-write-ids`, since nothing would be rewritten.
 
 ## Edit operations
 

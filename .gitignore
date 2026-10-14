@@ -33,3 +33,7 @@ examples/output/
 
 
 local-ref/
+
+# Python bytecode (scripts/*.py)
+__pycache__/
+*.pyc

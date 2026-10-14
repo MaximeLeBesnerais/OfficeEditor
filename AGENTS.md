@@ -12,8 +12,11 @@ Run before any work:
 
 ```bash
 dotnet --version          # expect 9.0.x or newer (projects target net9.0; 10.x SDK works)
+cargo --version           # any Rust toolchain; needed only when the host-RID native cache is cold
 git status                # expect clean or only intended changes
 ```
+
+`cargo` is required because `TypstBridge.Managed` builds its native bridge from Rust (`TypstBridge/native/`) during the build whenever the host RID's library is missing from `TypstBridge/runtimes/<rid>/native/` — and `TypstBridge/runtimes/` is gitignored, so a fresh clone always misses it. `TypstBridge/packaging/build-native.sh` hard-fails with `cargo was not found. Install Rust from https://rustup.rs/ and retry.`; install via [rustup](https://rustup.rs/). Once the host RID library is cached, later builds skip Rust.
 
 ## Technology Stack
 
@@ -52,9 +55,10 @@ git status                # expect clean or only intended changes
 ## Workflow (branches, CI, release)
 
 - **Branches:** `dev` is the default/working branch; `main` is protected. PRs into `main` must come from `dev` (enforced by `guard-main.yml`); both branches require the `build-test` check; owner may self-merge/bypass (warnings expected on direct pushes).
-- **CI (`ci.yml`):** runs on PRs and pushes to `main` only — pushes to `dev` trigger nothing. `build-test` = Release build + full suite + coverage gate (merged-union counting via `scripts/check-coverage.py`; the threshold is defined as `COVERAGE_THRESHOLD` in `.github/workflows/ci.yml` — that file is the source of truth, do not hardcode it here) and runs only when the diff touches C#-relevant paths (`.cs/.csproj/.sln/.props/.targets`, `TypstBridge/**`, the gate script, `ci.yml` itself); docs-only changes skip it (a skipped check counts as success).
+- **CI (`ci.yml`):** runs on pull requests (any target), pushes to `main`, and manual dispatch — pushes to `dev`/feature branches trigger nothing. A `changes` job classifies the diff **fail-closed**: `build-test` is skipped only after the diff is positively proven docs-only, and any detection failure (git error, missing before-SHA, malformed payload) forces it to run. `build-test` = Release build + full suite + coverage gate (merged-union counting via `scripts/check-coverage.py`; the threshold is defined as `COVERAGE_THRESHOLD` in `.github/workflows/ci.yml` — that file is the source of truth, do not hardcode it here), then the env-gated Typst render-path tests (`OE_RUN_TYPST_COMPILE_TESTS=1` on DocxEditor.Tests, OfficeEditor.Api.Tests and OfficeEditor.Mcp.Tests, with the typst CLI installed best-effort) and a locale leg that re-runs DocxEditor.Tests under `fr_FR.UTF-8`.
 - **Warnings are errors** (`TreatWarningsAsErrors` in `Directory.Build.props`) — the build must stay at 0/0.
-- **Release (`release.yml`):** policy requires creating `v*` tags from tested `main` commits; the workflow currently triggers on any `v*` tag and does not itself verify ancestry. It builds the native TypstBridge matrix (osx-arm64, linux-x64, win-x64), packs six packages, and publishes via NuGet trusted publishing.
+- **Versions:** `Directory.Build.props` holds the single `<Version>` (0.10.0) for every project; projects must not declare their own. The release workflow stamps the tag version over it with `dotnet pack /p:Version=…`. `TypstBridge/native/Cargo.toml` keeps an independent crate version that must be synced by hand.
+- **Release (`release.yml`):** a `v*` tag runs `release-gates` before anything is built: tag format (`v<major>.<minor>.<patch>`), ancestry (the tagged commit must be reachable from `main`), and docs agreement (README.md must carry `Current release: <version>`, `NuGet packages are listed at **<version>**` and `MaximeLB.OfficeEditor.Cli --version <version>`; CHANGELOG.md needs a `## [<version>]` section; `TypstBridge/native/Cargo.toml` `[package] version` must match). Then it builds the native TypstBridge matrix (osx-arm64, linux-x64, win-x64), runs the full suite, packs the six published packages with the tag version, requires one `.snupkg` per `.nupkg`, smoke-tests the packaged CLI, and pushes both via NuGet trusted publishing. `workflow_dispatch` runs the same gates as a dry run.
 - Typst-dependent tests are env-gated: `OE_RUN_TYPST_COMPILE_TESTS=1 dotnet test …`. Brand-profile snapshots regenerate with `OE_UPDATE_SNAPSHOTS=1`.
 
 ## Entry Points
@@ -65,19 +69,19 @@ git status                # expect clean or only intended changes
 | DOCX-only CLI | `dotnet run --project DocxEditor.Cli -- <command>` |
 | API (deck sessions, previews, generate, demo endpoints) | `dotnet run --project OfficeEditor.Api --urls http://localhost:5001` |
 | Web client (demo app) | `cd OfficeEditor.Web.Client && npm run dev` → http://localhost:5173 (`/demo` = the app) |
-| API + web together | `make dev` (root Makefile) |
+| API + web together | `make dev` (root Makefile) — API http://localhost:5001 + Vite client http://localhost:5173 (`/demo` = the app), both under one `concurrently` process |
 | MCP stdio host (JSON-RPC) | `dotnet run --project OfficeEditor.Mcp` |
 | Example programs (all formats) | `dotnet run --project examples` |
 | Convert tools | `dotnet run --project tools/convert-pptx -- <in.pptx> <out> [--format pdf\|png\|svg\|typ]` · `dotnet run --project tools/convert-docx -- <in.docx> <out> [--format pdf\|png\|svg\|typ]` · `dotnet run --project tools/convert-xlsx -- <in.xlsx\|in.json> <out> [--format pdf\|png\|svg\|typ\|json]` |
 | Deck fidelity measurement | `python3 scripts/rmse.py <deck.pptx> [--format md\|json] [--no-render] [--force]` — renders ours, reuses/builds refs, per-slide RMSE % with mean/median/p85/p90/<10%/<15%/worst-5 |
-| Visual regression | `dotnet run --project tools/visual-diff -- --suite pptx\|gen`; DOCX is wired but awaits generated reference outputs |
+| Visual regression | `dotnet run --project tools/visual-diff -- --suite docx\|pptx\|xlsx\|gen`; the DOCX suite is wired but needs generated references under `examples/output/ref/docx/` before it can run |
 | Benchmark (vs LibreOffice) | `dotnet run --project tools/pptx-benchmark` |
 
 ## Demo
 
 Two demo paths, both fully local:
 
-- **Web demo** — `make dev`, open http://localhost:5173/. Four tabs: *Render* (whitelisted REF decks → timed PNG/SVG gallery), *Generate* (edit `demo/demo-deck.json` title + theme presets → PPTX + previews + download), *Any render* (upload any .pptx), *Compare* (OfficeEditor Engine vs headless LibreOffice, side-by-side timings). All timings are server-measured.
+- **Web demo** — `make dev`, then open http://localhost:5173/ (the Makefile starts the API on http://localhost:5001 and the Vite client on http://localhost:5173 together). Four tabs: *Render* (whitelisted REF decks → timed PNG/SVG gallery), *Generate* (edit `demo/demo-deck.json` title + theme presets → PPTX + previews + download), *Any render* (upload any .pptx), *Compare* (OfficeEditor Engine vs headless LibreOffice, side-by-side timings). All timings are server-measured.
 - **CLI demo** — `make -f Makefile.demo demo` at repo root: preflight checks + Release build, renders `examples/REF/PPTX/sales_acceleration_deck.pptx` to PNGs+PDF, generates `demo/deck.json` → PPTX → render, prints per-slide timings, opens the PDFs. Output under `demo/output/` (gitignored); `make -f Makefile.demo clean` wipes it.
 
 ## Project Structure
@@ -86,18 +90,21 @@ Two demo paths, both fully local:
 DocxEditor/                         # repo folder (historical name)
 ├── DocxEditor.Core/                # DOCX: Models, Instructions, Builders, DocumentEngine
 ├── DocxEditor.Cli/                 # DOCX CLI
+├── DocxEditor.Cli.Tests/           # xUnit tests for the DOCX CLI
 ├── DocxEditor.Tests/               # xUnit tests (unit + integration)
 ├── PptxEditor.Core/                # PPTX: Builders, Converters, Models, Services, Variables
 │   └── Generation/                 #   Model, Schema, Layout, Emit/Ooxml, Emit/Typst, Components, Archetypes, Fixtures, Design
 ├── XlsxEditor.Core/                # XLSX: Builders/read API, Variables, JSON Instructions
 ├── OfficeEditor.Core/              # Shared services (TypstCompilerService, Variables, Exceptions)
 ├── OfficeEditor.Cli/               # Multi-format CLI (create, edit, detect, merge, generate; source inspect/edit/ids)
+├── OfficeEditor.Cli.Tests/         # xUnit tests for the unified CLI
 ├── OfficeEditor.Api/               # ASP.NET Core API: deck sessions, slide previews/thumbnails, instruction/anatomy endpoints
 ├── OfficeEditor.Api.Tests/         # xUnit tests for the API
 ├── OfficeEditor.Mcp/               # MCP stdio host (JSON-RPC): deck_anatomize, deck_replace_element, deck_render_slide, deck_generate, document_edit_source
 ├── OfficeEditor.Mcp.Tests/         # xUnit tests for the MCP host
 ├── OfficeEditor.Web.Client/        # Vite + Tailwind web frontend
 ├── TypstBridge/                    # Native + managed wrapper around Typst (primary backend)
+│   └── tests/TypstBridge.Managed.Tests/  # xUnit tests for the managed bridge
 ├── examples/                       # Sample programs + REF/ for visual regression
 ├── demo/                           # Demo decks (demo-deck.json, themes.json) + CLI demo output/
 ├── decks/                          # Authored generation decks (repo-overview.json)
