@@ -1,8 +1,10 @@
 using OfficeEditor.Testing;
 using PptxEditor.Core.Generation;
 using System.Reflection;
+using System.Text;
 using DocumentFormat.OpenXml.Packaging;
 using PptxEditor.Core.Builders;
+using Spectre.Console;
 using XlsxEditor.Core.Builders;
 using Xunit;
 
@@ -10,6 +12,13 @@ namespace OfficeEditor.Cli.Tests;
 
 public sealed class CliMainTests : IDisposable
 {
+    /// <summary>
+    /// PDF/PNG/SVG output compiles through the repository's Typst pipeline, so those tests are
+    /// opt-in with the same env var the rest of the suite uses (CI does not always have the
+    /// native bridge). Dispatch/validation behaviour is covered by ungated tests below.
+    /// </summary>
+    private const string EnableRenderEnvVar = "OE_RUN_TYPST_COMPILE_TESTS";
+
     private readonly string _tempDir;
 
     public CliMainTests()
@@ -424,7 +433,7 @@ public sealed class CliMainTests : IDisposable
     {
         var jsonPath = TempPath("deck.json");
         File.WriteAllText(jsonPath, ValidGenerationDocument());
-        var outputPath = TempPath("out.pdf");
+        var outputPath = TempPath("out.txt");
 
         var code = InvokeMain(["generate", jsonPath, "--output", outputPath]);
 
@@ -477,6 +486,383 @@ public sealed class CliMainTests : IDisposable
         Assert.Equal(1, code);
     }
 
+    // ─── Render output (.pdf/.png/.svg) dispatches by the source JSON's vocabulary ───
+
+    [Fact]
+    public void Generate_PptxJsonToPdf_RendersTheDeck()
+    {
+        if (!RenderTestsEnabled()) return;
+        var jsonPath = TempPath("deck.json");
+        File.WriteAllText(jsonPath, ValidGenerationDocument());
+        var outputPath = TempPath("deck.pdf");
+
+        Assert.Equal(0, InvokeMain(["generate", jsonPath, "--output", outputPath]));
+
+        Assert.True(File.Exists(outputPath));
+        Assert.Equal("%PDF", Magic(outputPath, 4));
+    }
+
+    [Fact]
+    public void Generate_PptxJsonToPng_WritesOneImagePerSlide()
+    {
+        if (!RenderTestsEnabled()) return;
+        var jsonPath = TempPath("deck.json");
+        File.WriteAllText(jsonPath, ValidGenerationDocument());
+        var outputDirectory = TempPath("deck.png");
+
+        Assert.Equal(0, InvokeMain(["generate", jsonPath, "--output", outputDirectory]));
+
+        Assert.True(Directory.Exists(outputDirectory));
+        var page = Path.Combine(outputDirectory, "page-001.png");
+        Assert.True(File.Exists(page));
+        Assert.Equal(new byte[] { 0x89, 0x50, 0x4E, 0x47 }, File.ReadAllBytes(page)[..4]);
+    }
+
+    [Fact]
+    public void Generate_PptxJsonToSvg_WritesOneImagePerSlide()
+    {
+        if (!RenderTestsEnabled()) return;
+        var jsonPath = TempPath("deck.json");
+        File.WriteAllText(jsonPath, ValidGenerationDocument());
+        var outputDirectory = TempPath("deck.svg");
+
+        Assert.Equal(0, InvokeMain(["generate", jsonPath, "--output", outputDirectory]));
+
+        var page = Path.Combine(outputDirectory, "page-001.svg");
+        Assert.True(File.Exists(page));
+        Assert.Contains("<svg", File.ReadAllText(page));
+    }
+
+    [Fact]
+    public void Generate_DocxJsonToPdf_RendersTheReport()
+    {
+        if (!RenderTestsEnabled()) return;
+        var jsonPath = TempPath("report.json");
+        File.WriteAllText(jsonPath, ValidDocxGenerationDocument());
+        var outputPath = TempPath("report.pdf");
+
+        Assert.Equal(0, InvokeMain(["generate", jsonPath, "--output", outputPath]));
+
+        Assert.True(File.Exists(outputPath));
+        Assert.Equal("%PDF", Magic(outputPath, 4));
+    }
+
+    [Fact]
+    public void Generate_XlsxJsonToPdf_RendersTheWorkbook()
+    {
+        if (!RenderTestsEnabled()) return;
+        var jsonPath = TempPath("workbook.json");
+        File.WriteAllText(jsonPath, ValidXlsxInstructionSet());
+        var outputPath = TempPath("workbook.pdf");
+
+        Assert.Equal(0, InvokeMain(["generate", jsonPath, "--output", outputPath]));
+
+        Assert.True(File.Exists(outputPath));
+        Assert.Equal("%PDF", Magic(outputPath, 4));
+    }
+
+    [Fact]
+    public void Generate_XlsxJsonToPng_WritesOneImagePerPage()
+    {
+        if (!RenderTestsEnabled()) return;
+        var jsonPath = TempPath("workbook.json");
+        File.WriteAllText(jsonPath, ValidXlsxInstructionSet());
+        var outputDirectory = TempPath("workbook.png");
+
+        Assert.Equal(0, InvokeMain(["generate", jsonPath, "--output", outputDirectory]));
+
+        Assert.True(File.Exists(Path.Combine(outputDirectory, "page-001.png")));
+    }
+
+    [Fact]
+    public void Generate_DocxJsonToPng_WritesOneImagePerPage()
+    {
+        if (!RenderTestsEnabled()) return;
+        var jsonPath = TempPath("report.json");
+        File.WriteAllText(jsonPath, ValidDocxGenerationDocument());
+        var outputDirectory = TempPath("report.png");
+
+        Assert.Equal(0, InvokeMain(["generate", jsonPath, "--output", outputDirectory]));
+
+        Assert.True(File.Exists(Path.Combine(outputDirectory, "page-001.png")));
+    }
+
+    [Fact]
+    public void Generate_InvalidPptxJsonToPdf_ReportsPptxVocabulary_NotXlsx()
+    {
+        var jsonPath = TempPath("bad-deck.json");
+        File.WriteAllText(jsonPath, """
+        {
+          "version": "2.0",
+          "slides": [ { "type": "cover", "content": { "title": 42 } } ]
+        }
+        """);
+        var outputPath = TempPath("bad.pdf");
+
+        var (code, output) = InvokeMainCapturingOutput(["generate", jsonPath, "--output", outputPath]);
+
+        Assert.Equal(1, code);
+        Assert.False(File.Exists(outputPath));
+        Assert.Contains("invalid PPTX generation JSON", output);
+        Assert.Contains("--output <path.pptx>", output);
+        Assert.DoesNotContain("XLSX", output);
+    }
+
+    [Fact]
+    public void Generate_InvalidDocxJsonToPdf_ReportsDocxVocabulary()
+    {
+        var jsonPath = TempPath("bad-report.json");
+        File.WriteAllText(jsonPath, """{ "version": "1.0", "sections": [] }""");
+        var outputPath = TempPath("bad.pdf");
+
+        var (code, output) = InvokeMainCapturingOutput(["generate", jsonPath, "--output", outputPath]);
+
+        Assert.Equal(1, code);
+        Assert.False(File.Exists(outputPath));
+        Assert.Contains("invalid DOCX generation JSON", output);
+        Assert.Contains("at least one section is required", output);
+        Assert.DoesNotContain("XLSX", output);
+    }
+
+    [Fact]
+    public void Generate_NonGenerationJsonToPdf_NamesTheSupportedVocabularies()
+    {
+        var jsonPath = TempPath("settings.json");
+        File.WriteAllText(jsonPath, """{ "theme": "dark" }""");
+        var outputPath = TempPath("settings.pdf");
+
+        var (code, output) = InvokeMainCapturingOutput(["generate", jsonPath, "--output", outputPath]);
+
+        Assert.Equal(1, code);
+        Assert.False(File.Exists(outputPath));
+        Assert.Contains("unrecognized generation JSON", output);
+        Assert.Contains("PPTX", output);
+        Assert.Contains("DOCX", output);
+        Assert.Contains("XLSX", output);
+    }
+
+    [Fact]
+    public void Generate_SvgOutputIsAccepted()
+    {
+        if (!RenderTestsEnabled()) return;
+        var jsonPath = TempPath("workbook.json");
+        File.WriteAllText(jsonPath, ValidXlsxInstructionSet());
+        var outputDirectory = TempPath("workbook.svg");
+
+        Assert.Equal(0, InvokeMain(["generate", jsonPath, "--output", outputDirectory]));
+
+        Assert.False(File.Exists(outputDirectory));
+        Assert.True(File.Exists(Path.Combine(outputDirectory, "page-001.svg")));
+    }
+
+    // ─── Help/usage text matches the parser ───
+
+    [Fact]
+    public void Help_DocumentsRenderFormatsAndGenerationFlags()
+    {
+        var (code, output) = InvokeMainCapturingOutput(["help"]);
+
+        Assert.Equal(0, code);
+        Assert.Contains("--instructions", output);
+        Assert.Contains("--no-write-ids", output);
+        Assert.Contains("--backup", output);
+        Assert.Contains(".pdf", output);
+        Assert.Contains(".png", output);
+        Assert.Contains(".svg", output);
+        Assert.Contains("page-001.png", output);
+    }
+
+    [Fact]
+    public void Generate_OutputFlagWithoutValue_ReportsTheMissingValue()
+    {
+        var jsonPath = TempPath("deck.json");
+        File.WriteAllText(jsonPath, ValidGenerationDocument());
+
+        var (code, output) = InvokeMainCapturingOutput(["generate", jsonPath, "--output"]);
+
+        Assert.Equal(1, code);
+        Assert.Contains("--output requires a value", output);
+        Assert.DoesNotContain("ending in .pptx, .docx, or .xlsx", output);
+    }
+
+    // ─── create --instructions generates real content per output format ───
+
+    [Fact]
+    public void Create_XlsxFromInstructions_ContainsTheInstructedCell()
+    {
+        var instructions = TempPath("workbook.json");
+        File.WriteAllText(instructions, """
+        {
+          "version": "1.0",
+          "worksheets": [
+            { "name": "Data", "headers": ["Region"], "rows": [["Northwind"]] }
+          ]
+        }
+        """);
+        var outputPath = TempPath("created.xlsx");
+
+        Assert.Equal(0, InvokeMain(["create", outputPath, "--instructions", instructions]));
+
+        Assert.True(File.Exists(outputPath));
+        using var reader = WorkbookBuilder.Open(outputPath);
+        var sheet = reader.GetWorksheet("Data");
+        Assert.Equal("Region", sheet.GetCellValue("A1"));
+        Assert.Equal("Northwind", sheet.GetCellValue("A2"));
+    }
+
+    [Fact]
+    public void Create_DocxFromInstructions_ContainsTheInstructedText()
+    {
+        var instructions = TempPath("report.json");
+        File.WriteAllText(instructions, ValidDocxGenerationDocument("Instructed DOCX paragraph"));
+        var outputPath = TempPath("created.docx");
+
+        Assert.Equal(0, InvokeMain(["create", outputPath, "--instructions", instructions]));
+
+        Assert.True(File.Exists(outputPath));
+        using var document = WordprocessingDocument.Open(outputPath, false);
+        Assert.Contains("Instructed DOCX paragraph", document.MainDocumentPart!.Document!.InnerText);
+    }
+
+    [Fact]
+    public void Create_PptxFromInstructions_MatchesCoreDelivery_AndNeverRewritesTheSource()
+    {
+        var instructions = TempPath("contract.json");
+        var original = GenerationContract.Json;
+        File.WriteAllText(instructions, original);
+        var outputPath = TempPath("created.pptx");
+
+        Assert.Equal(0, InvokeMain(["create", outputPath, "--instructions", instructions]));
+
+        var expected = new PptxGenerator().Generate(original);
+        Assert.True(expected.Success);
+        Assert.Equal(
+            GenerationContract.Snapshot(expected.PptxBytes!),
+            GenerationContract.Snapshot(File.ReadAllBytes(outputPath)));
+        Assert.Equal(original, File.ReadAllText(instructions));
+        Assert.False(File.Exists(instructions + ".bak"));
+    }
+
+    [Fact]
+    public void Create_WithoutInstructions_StillWritesBlankDocuments()
+    {
+        var xlsxPath = TempPath("blank.xlsx");
+        Assert.Equal(0, InvokeMain(["create", xlsxPath, "--sheet", "Data"]));
+        using (var reader = WorkbookBuilder.Open(xlsxPath))
+        {
+            Assert.Null(reader.GetWorksheet("Data").GetCellValue("A1"));
+        }
+
+        var pptxPath = TempPath("blank.pptx");
+        Assert.Equal(0, InvokeMain(["create", pptxPath, "--title", "Blank title"]));
+        using (var builder = PresentationBuilder.Open(pptxPath))
+        {
+            Assert.Equal(1, builder.SlideCount);
+        }
+
+        var docxPath = TempPath("blank.docx");
+        Assert.Equal(0, InvokeMain(["create", docxPath, "--text", "Hello World"]));
+        using (var document = WordprocessingDocument.Open(docxPath, false))
+        {
+            Assert.Contains("Hello World", document.MainDocumentPart!.Document!.InnerText);
+        }
+    }
+
+    [Fact]
+    public void Create_WithInstructionsForAnotherVocabulary_FailsWithoutWritingABlankDocument()
+    {
+        var instructions = TempPath("deck.json");
+        File.WriteAllText(instructions, ValidGenerationDocument());
+        var outputPath = TempPath("mismatch.xlsx");
+
+        Assert.Equal(1, InvokeMain(["create", outputPath, "--instructions", instructions]));
+
+        Assert.False(File.Exists(outputPath));
+    }
+
+    [Fact]
+    public void Create_WithMissingInstructionsFile_FailsWithoutWriting()
+    {
+        var outputPath = TempPath("missing.docx");
+
+        Assert.Equal(1, InvokeMain(["create", outputPath, "--instructions", TempPath("nope.json")]));
+
+        Assert.False(File.Exists(outputPath));
+    }
+
+    [Fact]
+    public void Create_WithInstructionsFlagButNoValue_FailsWithoutWriting()
+    {
+        var outputPath = TempPath("novalue.docx");
+
+        Assert.Equal(1, InvokeMain(["create", outputPath, "--instructions"]));
+
+        Assert.False(File.Exists(outputPath));
+    }
+
+    // ─── generate --no-write-ids / --backup ───
+
+    [Fact]
+    public void Generate_NoWriteIds_LeavesTheInputByteIdentical()
+    {
+        var source = TempPath("source.json");
+        var original = ValidGenerationDocument();
+        File.WriteAllText(source, original);
+        var outputPath = TempPath("source.pptx");
+
+        Assert.Equal(0, InvokeMain(["generate", source, "--output", outputPath, "--no-write-ids"]));
+
+        Assert.Equal(original, File.ReadAllText(source));
+        Assert.DoesNotContain("\"id\"", File.ReadAllText(source));
+        Assert.True(File.Exists(outputPath));
+    }
+
+    [Fact]
+    public void Generate_Backup_CopiesTheSourceBeforeTheIdWriteBack()
+    {
+        var source = TempPath("source.json");
+        var original = ValidGenerationDocument();
+        File.WriteAllText(source, original);
+
+        Assert.Equal(0, InvokeMain(["generate", source, "--output", TempPath("source.pptx"), "--backup"]));
+
+        Assert.Equal(original, File.ReadAllText(source + ".bak"));
+        Assert.Contains("\"id\"", File.ReadAllText(source));
+    }
+
+    [Fact]
+    public void Generate_BackupWithExistingBackup_FailsAndPreservesTheSource()
+    {
+        var source = TempPath("source.json");
+        var original = ValidGenerationDocument();
+        File.WriteAllText(source, original);
+        File.WriteAllText(source + ".bak", "existing backup");
+        var outputPath = TempPath("source.pptx");
+
+        Assert.Equal(1, InvokeMain(["generate", source, "--output", outputPath, "--backup"]));
+
+        Assert.Equal(original, File.ReadAllText(source));
+        Assert.Equal("existing backup", File.ReadAllText(source + ".bak"));
+        Assert.False(File.Exists(outputPath));
+    }
+
+    [Fact]
+    public void Generate_BackupWithNoWriteIds_Fails()
+    {
+        var source = TempPath("source.json");
+        File.WriteAllText(source, ValidGenerationDocument());
+
+        Assert.Equal(1, InvokeMain(["generate", source, "--output", TempPath("source.pptx"), "--backup", "--no-write-ids"]));
+
+        Assert.False(File.Exists(source + ".bak"));
+    }
+
+    private static bool RenderTestsEnabled()
+        => Environment.GetEnvironmentVariable(EnableRenderEnvVar) == "1";
+
+    private static string Magic(string path, int length)
+        => Encoding.ASCII.GetString(File.ReadAllBytes(path), 0, length);
+
     private static int InvokeMain(string[] args)
     {
         var cliAssembly = AppDomain.CurrentDomain.GetAssemblies()
@@ -497,6 +883,52 @@ public sealed class CliMainTests : IDisposable
         var result = method.Invoke(null, [args]);
         return (int)(result ?? throw new InvalidOperationException("Main signature changed; update InvokeMain"));
     }
+
+    /// <summary>
+    /// Runs the CLI against a plain, non-ANSI console so tests can assert on user-facing
+    /// messages. The console is process-wide, so it is restored immediately afterwards.
+    /// </summary>
+    private static (int Code, string Output) InvokeMainCapturingOutput(string[] args)
+    {
+        var writer = new StringWriter();
+        var previous = AnsiConsole.Console;
+        AnsiConsole.Console = AnsiConsole.Create(new AnsiConsoleSettings
+        {
+            Ansi = AnsiSupport.No,
+            ColorSystem = ColorSystemSupport.NoColors,
+            Interactive = InteractionSupport.No,
+            Out = new AnsiConsoleOutput(writer)
+        });
+
+        try
+        {
+            return (InvokeMain(args), writer.ToString());
+        }
+        finally
+        {
+            AnsiConsole.Console = previous;
+        }
+    }
+
+    private static string ValidDocxGenerationDocument(string text = "Hello DOCX")
+        => $$"""
+        {
+          "version": "1.0",
+          "sections": [
+            { "blocks": [ { "type": "paragraph", "text": "{{text}}" } ] }
+          ]
+        }
+        """;
+
+    private static string ValidXlsxInstructionSet()
+        => """
+        {
+          "version": "1.0",
+          "worksheets": [
+            { "name": "Sheet1", "headers": ["A", "B"], "rows": [["1", "2"]] }
+          ]
+        }
+        """;
 
     private string TempPath(string fileName)
         => Path.Combine(_tempDir, fileName);
