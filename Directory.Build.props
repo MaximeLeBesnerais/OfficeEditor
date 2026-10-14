@@ -1,6 +1,69 @@
 <Project>
+  <!--
+    Central build + packaging settings for every project in the tree.
+
+    Versioning: the single source of truth is the <Version> below. Individual
+    projects must NOT declare their own <Version>. The release workflow stamps
+    the tag version over it with `dotnet pack /p:Version="$VERSION"`, so a tag
+    (not an edit here) is what produces a release; this value is what a plain
+    `dotnet build` / `dotnet pack` reports locally.
+
+    `TypstBridge/native/Cargo.toml` carries a second, independent copy of the
+    crate version (it is a Rust crate, not MSBuild), which surfaces to users via
+    the compiled bridge's typst_bridge_version(). Keep it in sync by hand.
+  -->
   <PropertyGroup>
     <BuildInParallel>false</BuildInParallel>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <Version>0.10.0</Version>
   </PropertyGroup>
+
+  <!--
+    Shared packing metadata. These apply to every project, including the ones
+    that are not shipped (tests pin <IsPackable>false</IsPackable>, so NuGet
+    ignores them entirely; the packable-but-unpublished tools just inherit the
+    same nuspec metadata). Only per-package values (<PackageId> and
+    <Description>) live in the projects themselves.
+
+    Note: SourceLink (Microsoft.SourceLink.GitHub) is deliberately NOT
+    referenced — this repo restores from a constrained cache. Without it,
+    assemblies are still debuggable from the .snupkg but PDBs carry local build
+    paths instead of repository URLs. Adding the SourceLink package is the
+    documented follow-up (it also unlocks SourceLink-only checks).
+
+    Note: ContinuousIntegrationBuild is intentionally NOT enabled here — it
+    rewrites PDB paths to be deterministic for CI and would change local
+    debugging. Enable it per CI job (`dotnet pack ... /p:ContinuousIntegrationBuild=true`)
+    if reproducible/embedded-source builds become a requirement.
+  -->
+  <PropertyGroup>
+    <Authors>MaximeLB</Authors>
+    <RepositoryUrl>https://github.com/MaximeLeBesnerais/OfficeEditor</RepositoryUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageTags>docx;pptx;xlsx;office;openxml;ooxml;typst;documents;dotnet</PackageTags>
+
+    <!-- README.md is packed next to the assemblies and rendered on nuget.org. -->
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+
+    <!-- Symbol packages: .nupkg ships alongside a .snupkg (release.yml pushes both). -->
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+  </PropertyGroup>
+
+  <!--
+    The same README.md always describes the newest packages, so all seven
+    packages embed the repository README. This is one shared item so a package
+    cannot silently drift onto a stale copy (the 0.10.0 tag shipped a README
+    that still advertised 0.7.1). release.yml gates on the tagged tree's README
+    naming the tag version.
+  -->
+  <ItemGroup Condition="Exists('$(MSBuildThisFileDirectory)README.md')">
+    <None Include="$(MSBuildThisFileDirectory)README.md" Link="README.md" Pack="true" PackagePath="README.md" />
+  </ItemGroup>
+
+  <!-- MIT requires the notices to travel with binary distributions. -->
+  <ItemGroup Condition="Exists('$(MSBuildThisFileDirectory)THIRD-PARTY-NOTICES.md')">
+    <None Include="$(MSBuildThisFileDirectory)THIRD-PARTY-NOTICES.md" Link="THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="THIRD-PARTY-NOTICES.md" />
+  </ItemGroup>
 </Project>
