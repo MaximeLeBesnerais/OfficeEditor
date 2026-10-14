@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using OfficeEditor.Mcp.Sessions;
@@ -24,7 +25,29 @@ public sealed class McpServer : IDisposable
 {
     public const string ProtocolVersion = "2024-11-05";
     public const string ServerName = "officeeditor-mcp";
-    public const string ServerVersion = "0.7.0";
+
+    /// <summary>
+    /// Version reported in the <c>initialize</c> result and the startup log, read from the
+    /// assembly so it cannot drift from the shipped package version. The informational
+    /// version is preferred (with the SDK's <c>+&lt;sha&gt;</c> source-revision suffix
+    /// stripped); the assembly version is the fallback.
+    /// </summary>
+    public static readonly string ServerVersion = ResolveServerVersion();
+
+    private static string ResolveServerVersion()
+    {
+        var assembly = typeof(McpServer).Assembly;
+        var informational = assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+        if (!string.IsNullOrWhiteSpace(informational))
+        {
+            var version = informational.Trim();
+            var revisionSeparator = version.IndexOf('+');
+            return revisionSeparator >= 0 ? version[..revisionSeparator] : version;
+        }
+
+        return assembly.GetName().Version?.ToString() ?? "0.0.0";
+    }
 
     private readonly DeckSessionStore _sessions;
     private readonly DeckTools _tools;
