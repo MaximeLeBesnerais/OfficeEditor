@@ -2,7 +2,7 @@
 
 一套 .NET 9 库套件，用于**创建、编辑、生成和渲染 Office 文档** —— DOCX、PPTX、XLSX —— 无需 Office 或 LibreOffice。它提供流畅的 C# 构建器、JSON/YAML 指令集，以及一套经严格校验的声明式 JSON 词汇表，用于生成完整的 PPTX 演示文稿。渲染基于 **TypstBridge**，一个围绕 Typst 的原生 Rust 桥接：PPTX → PDF/PNG/SVG、DOCX → PDF、XLSX → PDF/PNG/SVG。
 
-> **当前版本：0.10.0** —— 以 MIT 许可证开源。
+> **当前版本：0.10.1** —— 以 MIT 许可证开源。
 
 ## 功能特性
 
@@ -156,13 +156,13 @@ builder.MergeVariables(new Dictionary<string, string>
 
 ## 安装
 
-NuGet 包当前版本为 **0.10.0**：
+NuGet 包当前版本为 **0.10.1**：
 
 ```bash
-dotnet add package MaximeLB.PptxEditor.Core --version 0.10.0   # PPTX
-dotnet add package MaximeLB.DocxEditor.Core --version 0.10.0   # DOCX
-dotnet add package MaximeLB.XlsxEditor.Core --version 0.10.0   # XLSX
-dotnet tool install -g MaximeLB.OfficeEditor.Cli --version 0.10.0   # `officeeditor` command
+dotnet add package MaximeLB.PptxEditor.Core --version 0.10.1   # PPTX
+dotnet add package MaximeLB.DocxEditor.Core --version 0.10.1   # DOCX
+dotnet add package MaximeLB.XlsxEditor.Core --version 0.10.1   # XLSX
+dotnet tool install -g MaximeLB.OfficeEditor.Cli --version 0.10.1   # `officeeditor` command
 ```
 
 | 包 | 内容 |
@@ -294,7 +294,7 @@ PPTX 渲染管线（PptxEditor → Typst → PNG/PDF）与无头 LibreOffice 对
 
 ## 状态与限制
 
-**版本：** 0.10.0（pre-1.0）。公共 API 可能变动；在 v1.0 之前，TypstBridge ABI 有意保持流动（fluid）。
+**版本：** 0.10.1（pre-1.0）。公共 API 可能变动；在 v1.0 之前，TypstBridge ABI 有意保持流动（fluid）。
 
 **平台：** 纯托管 .NET 9 + 按 RID 分发的原生 TypstBridge（osx-arm64、linux-x64、win-x64 在 CI 中构建）。
 - **macOS (arm64)** —— 开发平台；所有功能均在此验证
@@ -306,7 +306,7 @@ PPTX 渲染管线（PptxEditor → Typst → PNG/PDF）与无头 LibreOffice 对
 - 簇状、堆叠与百分比堆叠条形图/柱形图，以及饼图与圆环图均可渲染；折线图会回退为占位符。SmartArt 由预渲染的绘图形状渲染，存在已文档化的主题色限制。动画不在静态预览模型范围内
 - 字体保真度因平台而异；安装 Microsoft Office 字体（Aptos、Calibri）可提高准确度，但无法保证与 PowerPoint 完全一致（字体度量、断行、布局引擎均不相同）
 
-**NuGet：** 全部六个包当前版本为 0.10.0。
+**NuGet：** 全部六个包当前版本为 0.10.1。
 
 ## 安全
 

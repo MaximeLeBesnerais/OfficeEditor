@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.10.1](https://github.com/MaximeLeBesnerais/OfficeEditor/compare/v0.10.0...v0.10.1) — unreleased
+## [0.10.1](https://github.com/MaximeLeBesnerais/OfficeEditor/compare/v0.10.0...v0.10.1) — 2026-10-14
 
 **Not released.** This section describes the `dev` branch after v0.10.0; nothing here is tagged or published. To cut it, merge the tested commit into `main`, bump the README release/NuGet markers and `TypstBridge/native/Cargo.toml` to 0.10.1, then tag `v0.10.1` — `release.yml` now refuses to publish a tag whose tree does not document that version (the v0.10.0 tag shipped a README that still told consumers to install 0.7.1).
 
@@ -16,7 +16,7 @@
 ### Changed
 
 - `make dev` now starts the API (http://localhost:5001) and the Vite web client (http://localhost:5173) together through the client's `dev:all` script; `make api` and `make web` remain single-surface targets.
-- `Directory.Build.props` is the single source of `<Version>` (0.10.0) for every project; projects no longer declare their own, and the release workflow stamps the tag version over it at pack time.
+- `Directory.Build.props` is the single source of `<Version>` (0.10.1) for every project; projects no longer declare their own, and the release workflow stamps the tag version over it at pack time.
 - The MCP `initialize` result and startup log report the assembly version instead of a hardcoded literal, so the server cannot drift from the package again.
 - Diagnostics that quote numbers render culture-invariantly — layout overflow/shrink warnings, image DPI and text-fit warnings, positioned-element geometry errors, XLSX range/width/height errors, parity threshold errors, and the LibreOffice timeout message — so a non-en-US locale no longer changes their text. Regression tests pin the behaviour with a deliberately non-English culture instead of relying on the runner's locale.
 
