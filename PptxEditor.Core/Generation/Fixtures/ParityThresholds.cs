@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 
 namespace PptxEditor.Core.Generation.Fixtures;
@@ -61,7 +62,7 @@ public static class ParityThresholds
             if (value is <= 0 or > 1)
             {
                 throw new InvalidOperationException(
-                    $"'{path}' threshold for '{name}' is {value}; normalized RMSE thresholds must be in (0, 1].");
+                    $"'{path}' threshold for '{name}' is {value.ToString(CultureInfo.InvariantCulture)}; normalized RMSE thresholds must be in (0, 1].");
             }
             thresholds[name] = value;
         }

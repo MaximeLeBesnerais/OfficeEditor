@@ -1,3 +1,4 @@
+using System.Globalization;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using W = DocumentFormat.OpenXml.Wordprocessing;
@@ -264,7 +265,8 @@ public sealed class PositionedElementEmitter
             PositionSpec position = element.Position;
             if (position.WidthPt is not { } widthOrNull || widthOrNull <= 0)
             {
-                throw new PositionedElementEmitException($"A positioned line requires a positive 'width' (its length); got {position.WidthPt}.");
+                throw new PositionedElementEmitException(
+                    $"A positioned line requires a positive 'width' (its length); got {FormatPt(position.WidthPt)}.");
             }
 
             double lengthPt = widthOrNull;
@@ -578,12 +580,14 @@ public sealed class PositionedElementEmitter
         {
             if (position.WidthPt is not { } widthOrNull || widthOrNull <= 0)
             {
-                throw new PositionedElementEmitException($"A positioned {elementType} requires a positive 'width'; got {position.WidthPt}.");
+                throw new PositionedElementEmitException(
+                    $"A positioned {elementType} requires a positive 'width'; got {FormatPt(position.WidthPt)}.");
             }
 
             if (position.HeightPt is not { } heightOrNull || heightOrNull <= 0)
             {
-                throw new PositionedElementEmitException($"A positioned {elementType} requires a positive 'height'; got {position.HeightPt}.");
+                throw new PositionedElementEmitException(
+                    $"A positioned {elementType} requires a positive 'height'; got {FormatPt(position.HeightPt)}.");
             }
         }
 
@@ -604,6 +608,14 @@ public sealed class PositionedElementEmitter
 
         private static long PtToEmu(double points) =>
             (long)Math.Round(points * EmuPerPoint, MidpointRounding.AwayFromZero);
+
+        /// <summary>
+        /// Renders a nullable point size for a diagnostic. Invariant on purpose: these
+        /// messages quote geometry, and their separators must not follow the ambient
+        /// locale (a French machine would otherwise report "0,5" instead of "0.5").
+        /// </summary>
+        private static string FormatPt(double? points) =>
+            points?.ToString(CultureInfo.InvariantCulture) ?? "null";
     }
 
     /// <summary>Tone-driven default fill/stroke for callouts (hex, resolved).</summary>

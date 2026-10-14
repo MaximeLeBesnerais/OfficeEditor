@@ -1,3 +1,4 @@
+using System.Globalization;
 using XlsxEditor.Core.Builders;
 using XlsxEditor.Core.Exceptions;
 using XlsxEditor.Core.Styles;
@@ -155,7 +156,7 @@ public static class XlsxValidationEngine
         if (font?.Size is { } size && (!double.IsFinite(size) || size <= 0 || size > 409))
         {
             Error(diagnostics, XlsxDiagnosticCode.CellStyleUnknown, $"{path}.size",
-                $"Font size {size} is outside Excel's supported range (greater than 0, up to 409 points).");
+                $"Font size {size.ToString(CultureInfo.InvariantCulture)} is outside Excel's supported range (greater than 0, up to 409 points).");
         }
 
         if (font?.Color is not null && !ExcelColor.IsValid(font.Color))
@@ -386,7 +387,7 @@ public static class XlsxValidationEngine
         {
             Error(diagnostics, XlsxDiagnosticCode.SheetStartRowOutOfBounds, $"worksheets[{sheetIndex}].startRow",
                 $"Worksheet '{ws.Name}' has 'startRow' {startRow}, which is outside Excel's valid " +
-                $"row range 1-{XlsxRangeUtilities.MaxRows:N0}.");
+                $"row range 1-{XlsxRangeUtilities.MaxRows.ToString("N0", CultureInfo.InvariantCulture)}.");
         }
     }
 
@@ -487,13 +488,13 @@ public static class XlsxValidationEngine
                 {
                     Error(diagnostics, XlsxDiagnosticCode.ColumnWidthInvalid, $"{path}.width",
                         $"Column width for column {i + 1} of sheet '{ws.Name}' must be greater than zero " +
-                        $"(Excel column-width units). Got {width}.");
+                        $"(Excel column-width units). Got {width.ToString(CultureInfo.InvariantCulture)}.");
                 }
                 else if (width > 255)
                 {
                     Error(diagnostics, XlsxDiagnosticCode.ColumnWidthInvalid, $"{path}.width",
                         $"Column width for column {i + 1} of sheet '{ws.Name}' must not exceed 255 " +
-                        "(Excel's maximum column width). Got {width}.");
+                        "(Excel's maximum column width). Got {width.ToString(CultureInfo.InvariantCulture)}.");
                 }
             }
 
@@ -537,8 +538,8 @@ public static class XlsxValidationEngine
             if (rowIndex > XlsxRangeUtilities.MaxRows)
             {
                 Error(diagnostics, XlsxDiagnosticCode.SheetStartRowOutOfBounds, path,
-                    $"Row {i + 1} of worksheet '{ws.Name}' would land at row {rowIndex:N0}, beyond Excel's " +
-                    $"maximum row {XlsxRangeUtilities.MaxRows:N0}.");
+                    $"Row {i + 1} of worksheet '{ws.Name}' would land at row {rowIndex.ToString("N0", CultureInfo.InvariantCulture)}, beyond Excel's " +
+                    $"maximum row {XlsxRangeUtilities.MaxRows.ToString("N0", CultureInfo.InvariantCulture)}.");
             }
 
             // A row wider than Excel's sheet is rejected here (semantic validation) so the
@@ -592,7 +593,7 @@ public static class XlsxValidationEngine
                 {
                     Error(diagnostics, XlsxDiagnosticCode.RowHeightRowOutOfBounds, $"{path}.row",
                         $"Row height for row {rowValue} of sheet '{ws.Name}' is outside Excel's valid row " +
-                        $"range 1-{XlsxRangeUtilities.MaxRows:N0}.");
+                        $"range 1-{XlsxRangeUtilities.MaxRows.ToString("N0", CultureInfo.InvariantCulture)}.");
                 }
 
                 if (!seenRows.Add(rowValue.Value))
@@ -615,13 +616,13 @@ public static class XlsxValidationEngine
                 {
                     Error(diagnostics, XlsxDiagnosticCode.RowHeightInvalid, $"{path}.height",
                         $"Row height for row {rowDisplay} of sheet '{ws.Name}' must be greater than zero (points). " +
-                        $"Got {height}.");
+                        $"Got {height.ToString(CultureInfo.InvariantCulture)}.");
                 }
                 else if (height > 409.5)
                 {
                     Error(diagnostics, XlsxDiagnosticCode.RowHeightInvalid, $"{path}.height",
                         $"Row height for row {rowDisplay} of sheet '{ws.Name}' must not exceed 409.5 points " +
-                        "(Excel's maximum row height). Got {height}.");
+                        "(Excel's maximum row height). Got {height.ToString(CultureInfo.InvariantCulture)}.");
                 }
             }
         }
@@ -841,7 +842,7 @@ public static class XlsxValidationEngine
         {
             Error(diagnostics, XlsxDiagnosticCode.FreezePanesOutOfBounds, $"{path}.row",
                 $"Worksheet '{ws.Name}' freeze 'row' {row} is outside Excel's valid row range " +
-                $"1-{XlsxRangeUtilities.MaxRows:N0}.");
+                $"1-{XlsxRangeUtilities.MaxRows.ToString("N0", CultureInfo.InvariantCulture)}.");
         }
 
         if (column < 1 || column > XlsxRangeUtilities.MaxColumns)

@@ -785,7 +785,7 @@ public class WorksheetBuilder : IWorksheetBuilder
         if (frozenRows > MaxRowNumber - 1 || frozenColumns > MaxColumnNumber - 1)
         {
             throw new XlsxException(
-                $"Freeze pane dimensions are out of range: at most {MaxRowNumber - 1:N0} " +
+                $"Freeze pane dimensions are out of range: at most {(MaxRowNumber - 1).ToString("N0", CultureInfo.InvariantCulture)} " +
                 $"rows and {MaxColumnNumber - 1} columns can be frozen. Got rows={frozenRows}, " +
                 $"columns={frozenColumns}.");
         }
@@ -1320,8 +1320,8 @@ public class WorksheetBuilder : IWorksheetBuilder
         if (rowIndex > MaxRowNumber)
         {
             throw new XlsxException(
-                $"Row index must be between 1 and {MaxRowNumber:N0}; Excel rows are 1-based. " +
-                $"Got {rowIndex:N0}.");
+                $"Row index must be between 1 and {MaxRowNumber.ToString("N0", CultureInfo.InvariantCulture)}; Excel rows are 1-based. " +
+                $"Got {rowIndex.ToString("N0", CultureInfo.InvariantCulture)}.");
         }
     }
 
@@ -1393,7 +1393,7 @@ public class WorksheetBuilder : IWorksheetBuilder
         {
             throw new XlsxException(
                 $"Cell reference '{cellReference}' uses row '{rowText}', which is outside " +
-                $"Excel's valid row range 1-{MaxRowNumber:N0}.");
+                $"Excel's valid row range 1-{MaxRowNumber.ToString("N0", CultureInfo.InvariantCulture)}.");
         }
 
         return normalized;
@@ -1656,14 +1656,14 @@ public class WorksheetBuilder : IWorksheetBuilder
         {
             throw new XlsxException(
                 $"Column width for '{column}' must be greater than zero " +
-                $"(Excel column-width units). Got {width}.");
+                $"(Excel column-width units). Got {width.ToString(CultureInfo.InvariantCulture)}.");
         }
 
         if (width > MaxColumnWidth)
         {
             throw new XlsxException(
-                $"Column width for '{column}' must not exceed {MaxColumnWidth} " +
-                $"(Excel's maximum column width). Got {width}.");
+                $"Column width for '{column}' must not exceed {MaxColumnWidth.ToString(CultureInfo.InvariantCulture)} " +
+                $"(Excel's maximum column width). Got {width.ToString(CultureInfo.InvariantCulture)}.");
         }
     }
 
@@ -1680,14 +1680,14 @@ public class WorksheetBuilder : IWorksheetBuilder
         {
             throw new XlsxException(
                 $"Row height for row {rowIndex} must be greater than zero (points). " +
-                $"Got {height}.");
+                $"Got {height.ToString(CultureInfo.InvariantCulture)}.");
         }
 
         if (height > MaxRowHeight)
         {
             throw new XlsxException(
-                $"Row height for row {rowIndex} must not exceed {MaxRowHeight} points " +
-                $"(Excel's maximum row height). Got {height}.");
+                $"Row height for row {rowIndex} must not exceed {MaxRowHeight.ToString(CultureInfo.InvariantCulture)} points " +
+                $"(Excel's maximum row height). Got {height.ToString(CultureInfo.InvariantCulture)}.");
         }
     }
 

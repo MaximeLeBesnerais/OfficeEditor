@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -284,7 +285,7 @@ public sealed class ImageAssetLoader
             {
                 warnings.Add(new ImageAssetWarning(
                     ImageAssetWarningCode.AspectDpiInconsistent,
-                    $"X/Y DPI differ significantly ({horizontalDpi:0.##}/{verticalDpi:0.##}); natural size is computed per-axis."));
+                    $"X/Y DPI differ significantly ({horizontalDpi.ToString("0.##", CultureInfo.InvariantCulture)}/{verticalDpi.ToString("0.##", CultureInfo.InvariantCulture)}); natural size is computed per-axis."));
             }
             var widthPt = metadata.Width / horizontalDpi * pointsPerInch;
             var heightPt = metadata.Height / verticalDpi * pointsPerInch;
@@ -302,7 +303,7 @@ public sealed class ImageAssetLoader
         {
             warnings.Add(new ImageAssetWarning(
                 ImageAssetWarningCode.IntrinsicDpiUnavailable,
-                $"{metadata.MediaType} carries no intrinsic DPI; natural size assumes {defaultDpi:0} DPI."));
+                $"{metadata.MediaType} carries no intrinsic DPI; natural size assumes {defaultDpi.ToString("0", CultureInfo.InvariantCulture)} DPI."));
         }
         var naturalWidthPt = metadata.Width / dpi * pointsPerInch;
         var naturalHeightPt = metadata.Height / dpi * pointsPerInch;
@@ -314,7 +315,7 @@ public sealed class ImageAssetLoader
 
         warnings.Add(new ImageAssetWarning(
             ImageAssetWarningCode.IntrinsicDpiUnavailable,
-            $"{metadata.MediaType} intrinsic DPI does not produce finite dimensions; natural size assumes {defaultDpi:0} DPI."));
+            $"{metadata.MediaType} intrinsic DPI does not produce finite dimensions; natural size assumes {defaultDpi.ToString("0", CultureInfo.InvariantCulture)} DPI."));
         return (
             metadata.Width / defaultDpi * pointsPerInch,
             metadata.Height / defaultDpi * pointsPerInch);

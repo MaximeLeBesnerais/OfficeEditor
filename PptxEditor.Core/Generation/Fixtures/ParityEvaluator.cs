@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace PptxEditor.Core.Generation.Fixtures;
 
 /// <summary>One page of one compared fixture render.</summary>
@@ -30,7 +32,7 @@ public static class ParityEvaluator
             if (threshold is <= 0 or > 1)
             {
                 throw new ArgumentException(
-                    $"Threshold for '{name}' is {threshold}; normalized RMSE thresholds must be in (0, 1].",
+                    $"Threshold for '{name}' is {threshold.ToString(CultureInfo.InvariantCulture)}; normalized RMSE thresholds must be in (0, 1].",
                     nameof(thresholds));
             }
         }
@@ -78,5 +80,6 @@ public static class ParityEvaluator
         return failures;
     }
 
-    private static string Pct(double normalized) => $"{normalized * 100:0.##}%";
+    private static string Pct(double normalized) =>
+        (normalized * 100).ToString("0.##", CultureInfo.InvariantCulture) + "%";
 }

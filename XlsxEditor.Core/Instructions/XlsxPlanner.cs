@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using XlsxEditor.Core.Builders;
 
@@ -376,7 +377,7 @@ public static class XlsxPlanner
                     XlsxDiagnosticCode.VariableExpansionTooLarge,
                     XlsxDiagnosticSeverity.Error,
                     $"variables.{owner}",
-                    $"Variable '{owner}' expands beyond {_maxLength:N0} characters; expansion " +
+                    $"Variable '{owner}' expands beyond {_maxLength.ToString("N0", CultureInfo.InvariantCulture)} characters; expansion " +
                     "is aborted instead of materializing the full value."));
             }
 
@@ -788,7 +789,7 @@ public static class XlsxPlanner
             XlsxDiagnosticCode.VariableExpansionTooLarge,
             XlsxDiagnosticSeverity.Error,
             path,
-            $"Resolved value in {context} expands beyond {maxLength:N0} characters; expansion " +
+            $"Resolved value in {context} expands beyond {maxLength.ToString("N0", CultureInfo.InvariantCulture)} characters; expansion " +
             "is aborted instead of materializing the full value."));
         return false;
     }
@@ -802,7 +803,7 @@ public static class XlsxPlanner
                 XlsxDiagnosticSeverity.Error,
                 cell.Source,
                 $"Formula in cell '{cell.Reference}' of sheet '{sheetName}' is {formula.Length} characters, " +
-                $"exceeding Excel's {XlsxRangeUtilities.MaxFormulaLength:N0}-character formula limit."));
+                $"exceeding Excel's {XlsxRangeUtilities.MaxFormulaLength.ToString("N0", CultureInfo.InvariantCulture)}-character formula limit."));
         }
         else if (cell.Value is { Length: > XlsxRangeUtilities.MaxCellTextLength } value)
         {
@@ -811,7 +812,7 @@ public static class XlsxPlanner
                 XlsxDiagnosticSeverity.Error,
                 cell.Source,
                 $"Cell '{cell.Reference}' of sheet '{sheetName}' contains {value.Length} characters, " +
-                $"exceeding Excel's {XlsxRangeUtilities.MaxCellTextLength:N0}-character cell text limit."));
+                $"exceeding Excel's {XlsxRangeUtilities.MaxCellTextLength.ToString("N0", CultureInfo.InvariantCulture)}-character cell text limit."));
         }
     }
 

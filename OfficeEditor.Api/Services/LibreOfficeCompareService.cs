@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 
 namespace OfficeEditor.Api.Services;
 
@@ -284,7 +285,7 @@ public sealed class LibreOfficeCompareService : ILibreOfficeCompareService
         {
             try { process.Kill(entireProcessTree: true); } catch { /* best effort */ }
             throw new TimeoutException(
-                $"soffice conversion timed out after {ConversionTimeout.TotalMinutes:F0} minutes for {Path.GetFileName(deckPath)}.");
+                $"soffice conversion timed out after {ConversionTimeout.TotalMinutes.ToString("F0", CultureInfo.InvariantCulture)} minutes for {Path.GetFileName(deckPath)}.");
         }
         timer.Stop();
 

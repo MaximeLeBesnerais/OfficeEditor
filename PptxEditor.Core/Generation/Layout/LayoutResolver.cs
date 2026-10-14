@@ -1,3 +1,4 @@
+using System.Globalization;
 using PptxEditor.Core.Generation.Model;
 
 namespace PptxEditor.Core.Generation.Layout;
@@ -188,9 +189,9 @@ public sealed class LayoutResolver
         if ((overX > Eps || overY > Eps) && overflow == OverflowPolicy.Error)
         {
             throw new LayoutException(path,
-                $"element at ({at.X}, {at.Y}) sized {Round(w)}×{Round(h)} pt overflows its layout-less parent " +
-                $"(content box {Round(content.W)}×{Round(content.H)} pt) by {Round(Math.Max(overX, 0))} pt horizontally and " +
-                $"{Round(Math.Max(overY, 0))} pt vertically; set \"overflow\": \"clip\" on the parent to allow it.");
+                $"element at ({at.X.ToString(CultureInfo.InvariantCulture)}, {at.Y.ToString(CultureInfo.InvariantCulture)}) sized {RoundText(w)}×{RoundText(h)} pt overflows its layout-less parent " +
+                $"(content box {RoundText(content.W)}×{RoundText(content.H)} pt) by {RoundText(Math.Max(overX, 0))} pt horizontally and " +
+                $"{RoundText(Math.Max(overY, 0))} pt vertically; set \"overflow\": \"clip\" on the parent to allow it.");
         }
         return ResolveElement(child, rect, path);
     }
@@ -350,8 +351,8 @@ public sealed class LayoutResolver
             if (cross > contentCross + Eps && container.Overflow == OverflowPolicy.Error)
             {
                 throw new LayoutException(childPath,
-                    $"child cross-axis size {Round(cross)} pt overflows the container's content cross axis " +
-                    $"({Round(contentCross)} pt); set \"overflow\": \"clip\" on the container to allow it.");
+                    $"child cross-axis size {RoundText(cross)} pt overflows the container's content cross axis " +
+                    $"({RoundText(contentCross)} pt); set \"overflow\": \"clip\" on the container to allow it.");
             }
 
             var align = size?.AlignSelf ?? layout.Align;
@@ -395,8 +396,8 @@ public sealed class LayoutResolver
             if (container.Overflow == OverflowPolicy.Error)
             {
                 throw new LayoutException(path,
-                    $"grid columns do not fit: {cols} columns plus {Round(colGap)} pt gaps exceed the content width " +
-                    $"({Round(content.W)} pt).");
+                    $"grid columns do not fit: {cols} columns plus {RoundText(colGap)} pt gaps exceed the content width " +
+                    $"({RoundText(content.W)} pt).");
             }
             cellW = 0;
         }
@@ -495,7 +496,7 @@ public sealed class LayoutResolver
             if (w > cellW + Eps && container.Overflow == OverflowPolicy.Error)
             {
                 throw new LayoutException(childPath,
-                    $"child width {Round(w)} pt overflows its grid cell ({Round(cellW)} pt); " +
+                    $"child width {RoundText(w)} pt overflows its grid cell ({RoundText(cellW)} pt); " +
                     "set \"overflow\": \"clip\" on the container to allow it.");
             }
 
@@ -571,7 +572,7 @@ public sealed class LayoutResolver
                 if (fit < 1 - Eps)
                 {
                     _warnings.Add(
-                        $"{path}: text does not fit its box ({Round(rect.W)}×{Round(rect.H)} pt) and its overflow policy is \"clip\"; content is clipped at the box edge.");
+                        $"{path}: text does not fit its box ({RoundText(rect.W)}×{RoundText(rect.H)} pt) and its overflow policy is \"clip\"; content is clipped at the box edge.");
                 }
             }
             else
@@ -580,12 +581,12 @@ public sealed class LayoutResolver
                 if (scale < 1 - Eps && text.Overflow == OverflowPolicy.Error)
                 {
                     throw new LayoutException(path,
-                        $"text does not fit its box ({Round(rect.W)}×{Round(rect.H)} pt) and its overflow policy is \"error\".");
+                        $"text does not fit its box ({RoundText(rect.W)}×{RoundText(rect.H)} pt) and its overflow policy is \"error\".");
                 }
                 if (scale < MinFontScale - Eps && text.Overflow == OverflowPolicy.Shrink)
                 {
                     _warnings.Add(
-                        $"{path}: text shrunk to fontScale {Round(scale)} below MinScale {MinFontScale}; content may still overflow.");
+                        $"{path}: text shrunk to fontScale {RoundText(scale)} below MinScale {MinFontScale.ToString(CultureInfo.InvariantCulture)}; content may still overflow.");
                 }
             }
         }
@@ -608,7 +609,7 @@ public sealed class LayoutResolver
         if (container.Overflow == OverflowPolicy.Error)
         {
             throw new LayoutException(path,
-                $"children overflow the container by {Round(overflowBy)} pt on the layout axis " +
+                $"children overflow the container by {RoundText(overflowBy)} pt on the layout axis " +
                 "(overflow \"error\" is the default for layout containers; " +
                 "reduce sizes/gaps or set \"overflow\": \"clip\").");
         }
@@ -738,6 +739,12 @@ public sealed class LayoutResolver
     }
 
     private static double Round(double value) => Math.Round(value, Precision);
+
+    /// <summary>
+    /// Rounds like <see cref="Round"/> and renders the result culture-invariantly: diagnostics
+    /// quote point sizes, so their separators must not follow the ambient locale.
+    /// </summary>
+    private static string RoundText(double value) => Round(value).ToString(CultureInfo.InvariantCulture);
 
     private readonly record struct Rect(double X, double Y, double W, double H)
     {

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
@@ -154,7 +155,7 @@ public sealed class TextFitService
 
         if (baseline.Width > boxContentW + 0.5)
         {
-            warnings.Add($"Content width {baseline.Width:F1}pt exceeds the box content width {boxContentW:F1}pt; PowerPoint will overflow horizontally (unbreakable word or insets too large).");
+            warnings.Add($"Content width {baseline.Width.ToString("F1", CultureInfo.InvariantCulture)}pt exceeds the box content width {boxContentW.ToString("F1", CultureInfo.InvariantCulture)}pt; PowerPoint will overflow horizontally (unbreakable word or insets too large).");
         }
 
         double? appliedScale = null;
@@ -231,7 +232,7 @@ public sealed class TextFitService
                 return (Math.Round(s, 2), maxReduction > 0 ? maxReduction : null, false);
         }
 
-        warnings.Add($"Auto-shrink reached the minimum scale ({minScale:P0}) without fitting; text still overflows.");
+        warnings.Add($"Auto-shrink reached the minimum scale ({minScale.ToString("P0", CultureInfo.InvariantCulture)}) without fitting; text still overflows.");
         return (minScale, maxReduction > 0 ? maxReduction : null, true);
     }
 
