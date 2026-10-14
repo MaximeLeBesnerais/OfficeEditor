@@ -1,5 +1,6 @@
 # OfficeEditor development commands
-# Run `make dev` to start the API and React client side by side.
+# Run `make dev` to start the API (http://localhost:5001) and the React client
+# (http://localhost:5173) side by side, through the web client's `dev:all` script.
 
 API_DIR      := OfficeEditor.Api
 WEB_DIR      := OfficeEditor.Web.Client
@@ -9,9 +10,10 @@ DOTNET_ROLL  := DOTNET_ROLL_FORWARD=Major
 
 .PHONY: dev api web build test clean install help
 
-## Run the API with Blazor Server demo (single process, no Node needed)
+## Run the API (http://localhost:5001) and the React client (http://localhost:5173) together
+## `dev:all` runs both under `concurrently` and keeps the API on DOTNET_ROLL_FORWARD=Major.
 dev:
-	cd $(API_DIR) && $(DOTNET_ROLL) DOTNET_ENVIRONMENT=Development dotnet run --no-launch-profile --urls "$(API_URL)"
+	cd $(WEB_DIR) && npm run dev:all
 
 ## Run only the ASP.NET Core API
 api:
@@ -43,7 +45,7 @@ clean:
 ## Show available commands
 help:
 	@echo "Available commands:"
-	@echo "  make dev     - Start API + React client side by side"
+	@echo "  make dev     - Start API (:5001) + React client (:5173) side by side"
 	@echo "  make api     - Start only the API"
 	@echo "  make web     - Start only the React client"
 	@echo "  make build   - Build .NET solution + React client"
